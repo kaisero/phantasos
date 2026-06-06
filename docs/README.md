@@ -19,5 +19,9 @@ Plan: [`../MIGRATION_PLAN.md`](../MIGRATION_PLAN.md).
 ## Quickstart
 ```
 make build && make test
-./oag-examples/run.sh oag-examples/validate_live.py   # needs ../.env
+./examples/run.sh examples/validate_live.py   # needs ../.env
 ```
+
+> Note: phase docs 4–9 were written before cutover and reference the pre-cutover
+> directory names (`oag-sdk/`, `oag-overlay/`, `oag-examples/`). Post-cutover these are
+> `prisma-browser-sdk/`, `overlay/`, and `examples/` respectively.

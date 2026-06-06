@@ -1,159 +1,126 @@
 #!/usr/bin/env python3
-"""
-Sweep every GET endpoint against a LIVE tenant to surface spec drift.
+"""Sweep every GET endpoint of the OAG SDK against a LIVE tenant (read-only).
 
-Strategy:
-  1. Call all no-parameter GET endpoints (lists + policy reads); cache results.
-  2. Derive resource ids (and an application type) from those results.
-  3. Call the parameterized GET endpoints (`{id}`, `{type}`) with derived values.
-  4. Aggregate every enum value the live API returned that the spec omits
-     (collected by the LenientStrEnum registry), plus any deserialization errors.
+Discovers GET operations by introspecting each generated method's `_serialize`
+(method='GET'), resolves {id}/{type} params from list responses, calls them, and
+accumulates enum values the live API returns but the spec omits (via the
+LenientStrEnum registry). Writes findings/enum_gaps.{json,md}.
 
-Read-only — issues only GETs. Writes findings to ./findings/enum_gaps.{json,md}.
-
-Run with:  ./examples/run.sh examples/sweep_get_endpoints.py
+    ./examples/run.sh examples/sweep_get_endpoints.py
 """
 from __future__ import annotations
 
-import importlib
 import inspect
 import json
-import pkgutil
-import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-import sys
-sys.path.insert(0, str(ROOT / "prisma-browser-sdk"))
+from _common import ROOT, get_client
+
+from prisma_browser.extras.facade import _RESOURCES  # resource attr -> Api class
+import prisma_browser._lenient as lenient
+from prisma_browser.extras import ApiException
+
+_SKIP_PARAMS = {"_request_timeout", "_request_auth", "_content_type", "_headers", "self"}
 
 
-def load_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            __import__("os").environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+def is_get(api, method_name: str) -> bool:
+    ser = getattr(api, f"_{method_name}_serialize", None)
+    if ser is None:
+        return False
+    try:
+        src = inspect.getsource(ser)
+    except OSError:
+        return False
+    return "method='GET'" in src or 'method="GET"' in src
 
 
-def discover_get_endpoints() -> list[tuple[str, object, tuple[str, ...]]]:
-    import prisma_browser_sdk.api as api
-    out = []
-    for mod in pkgutil.walk_packages(api.__path__, "prisma_browser_sdk.api."):
-        if mod.ispkg:
-            continue
-        m = importlib.import_module(mod.name)
-        if not hasattr(m, "sync_detailed") or not hasattr(m, "_get_kwargs"):
-            continue
-        if '"method": "get"' not in inspect.getsource(m._get_kwargs):
-            continue
-        sig = inspect.signature(m.sync_detailed)
-        required = tuple(
-            p for p, par in sig.parameters.items()
-            if p != "client" and par.default is inspect._empty and par.kind != par.VAR_KEYWORD
-        )
-        out.append((mod.name.replace("prisma_browser_sdk.api.", ""), m, required))
-    return sorted(out, key=lambda r: r[0])
+def required_params(api, method_name: str) -> list[str]:
+    sig = inspect.signature(getattr(api, method_name))
+    return [
+        p for p, par in sig.parameters.items()
+        if p not in _SKIP_PARAMS and par.default is inspect._empty
+        and par.kind not in (par.VAR_KEYWORD, par.VAR_POSITIONAL)
+    ]
 
 
-def first_item(parsed):
-    data = getattr(parsed, "data", None)
-    if isinstance(data, list) and data:
-        return data[0]
-    return None
-
-
-def first_id(parsed):
-    item = first_item(parsed)
-    if item is None:
+def first_id(page):
+    items = getattr(page, "data", None) or []
+    if not items:
         return None
-    for attr in ("id", "device_group_id"):
-        v = getattr(item, attr, None)
-        if v:
-            return v
-    return None
+    it = items[0]
+    inner = getattr(it, "actual_instance", it)  # unwrap oneOf
+    return getattr(inner, "id", None) or getattr(inner, "device_group_id", None)
 
 
-def policy_ids(parsed):
-    """(rule_id, section_id) from a policy GET response.
-
-    The policy response exposes `.data: list[RuleSummary | Section]`; pick the
-    first id of each kind (distinguished by class name).
-    """
-    rule_id = section_id = None
-    for item in getattr(parsed, "data", None) or []:
-        iid = getattr(item, "id", None)
-        if type(item).__name__ == "Section":
-            section_id = section_id or iid
-        else:  # RuleSummary
-            rule_id = rule_id or iid
-    return rule_id, section_id
-
-
-def call(module, client, **kwargs):
-    """Call an endpoint; return (status, count, warn_count, error)."""
-    with warnings.catch_warnings(record=True) as wlist:
-        warnings.simplefilter("always")
-        try:
-            resp = module.sync_detailed(client=client, **kwargs)
-        except Exception as exc:  # deserialization crash etc. — itself a finding
-            return (None, None, len(wlist), f"{type(exc).__name__}: {exc}")
-    status = int(resp.status_code)
-    parsed = resp.parsed
-    count = len(getattr(parsed, "data", []) or []) if parsed is not None else None
-    return (status, count, len(wlist), None)
+def policy_rule_section_ids(page):
+    rule = section = None
+    for it in getattr(page, "data", None) or []:
+        inner = getattr(it, "actual_instance", it)
+        iid = getattr(inner, "id", None)
+        if type(inner).__name__ == "Section":
+            section = section or iid
+        else:
+            rule = rule or iid
+    return rule, section
 
 
 def main() -> int:
-    load_dotenv(ROOT / ".env")
-    import prisma_browser_sdk._lenient as lenient
-    from prisma_browser_sdk.extras import client_from_env
-
-    try:
-        client = client_from_env()
-    except RuntimeError as exc:
-        print(f"✗ {exc}")
-        return 2
-
+    client = get_client()
     lenient.UNKNOWN_ENUM_VALUES.clear()
-    endpoints = discover_get_endpoints()
-    no_param = [(n, m) for n, m, req in endpoints if not req]
-    param = [(n, m, req) for n, m, req in endpoints if req]
 
+    # discover GET ops per resource
+    get_ops = []  # (resource_name, api, method_name, required)
+    for rname in _RESOURCES:
+        api = getattr(client, rname)
+        for mname in dir(api):
+            if mname.startswith("_") or mname.endswith(("_with_http_info", "_without_preload_content")):
+                continue
+            if not callable(getattr(api, mname)) or not is_get(api, mname):
+                continue
+            get_ops.append((rname, api, mname, required_params(api, mname)))
+
+    no_param = [(r, a, m) for r, a, m, req in get_ops if not req]
+    param = [(r, a, m, req) for r, a, m, req in get_ops if req]
     cache = {}
-    results = []  # (name, status, count, warns, error)
+    results = []
 
-    print(f"== Phase 1: {len(no_param)} no-parameter GET endpoints ==")
-    for name, m in no_param:
-        status, count, warns, err = call(m, client)
-        cache[name] = None
-        if err is None and status == 200:
-            cache[name] = m.sync_detailed(client=client).parsed
-        results.append((name, status, count, warns, err))
-        print(f"  {name:52s} {status if status else 'ERR':>4}  items={count}  warns={warns}"
-              + (f"  {err}" if err else ""))
+    print(f"== Phase 1: {len(no_param)} no-parameter GETs ==")
+    for rname, api, mname in sorted(no_param):
+        key = f"{rname}.{mname}"
+        try:
+            page = getattr(api, mname)()
+            cache[key] = page
+            n = len(getattr(page, "data", []) or [])
+            results.append((key, "200", n, None))
+            print(f"  {key:48s} 200  items={n}")
+        except ApiException as e:
+            results.append((key, str(e.status), None, None))
+            print(f"  {key:48s} {e.status}")
+        except Exception as e:  # noqa: BLE001  (deserialization failures are findings)
+            results.append((key, "ERR", None, f"{type(e).__name__}: {e}"))
+            print(f"  {key:48s} ERR  {type(e).__name__}: {str(e)[:80]}")
 
-    # --- derive parameters from phase-1 data -------------------------------
-    apps = getattr(cache.get("applications.list_applications"), "data", None) or []
-    app = apps[0] if apps else None
-    app_type = getattr(app, "type_", None) or getattr(app, "type", None)
-    sec = policy_ids(cache.get("security_policy.get_security_policy"))
-    si = policy_ids(cache.get("sign_in_policy.get_sign_in_policy"))
-    ad = policy_ids(cache.get("access_and_data_policy.get_access_and_data_policy"))
-    cu = policy_ids(cache.get("customization_policy.get_customization_policy"))
-
-    PARAMS = {
-        "users.get_user_by_id": {"id": first_id(cache.get("users.list_users"))},
-        "devices.get_device_by_id": {"id": first_id(cache.get("devices.list_devices"))},
-        "user_groups.get_user_group_by_id": {"id": first_id(cache.get("user_groups.list_user_groups"))},
-        "application_groups.get_application_group_by_id": {"id": first_id(cache.get("application_groups.list_application_groups"))},
-        "device_groups.get_device_group_by_id": {"device_group_id": first_id(cache.get("device_groups.list_device_groups"))},
+    # resolve params
+    def page(res, meth):
+        return cache.get(f"{res}.{meth}")
+    apps = getattr(page("applications", "list_applications"), "data", None) or []
+    app = getattr(apps[0], "actual_instance", apps[0]) if apps else None  # unwrap oneOf
+    app_type = getattr(app, "type", None)
+    sec = policy_rule_section_ids(page("security_policy", "get_security_policy"))
+    si = policy_rule_section_ids(page("sign_in_policy", "get_sign_in_policy"))
+    ad = policy_rule_section_ids(page("access_and_data_policy", "get_access_and_data_policy"))
+    cu = policy_rule_section_ids(page("customization_policy", "get_customization_policy"))
+    RESOLVE = {
+        "users.get_user_by_id": {"id": first_id(page("users", "list_users"))},
+        "devices.get_device_by_id": {"id": first_id(page("devices", "list_devices"))},
+        "user_groups.get_user_group_by_id": {"id": first_id(page("user_groups", "list_user_groups"))},
+        "application_groups.get_application_group_by_id": {"id": first_id(page("application_groups", "list_application_groups"))},
+        "device_groups.get_device_group_by_id": {"device_group_id": first_id(page("device_groups", "list_device_groups"))},
         "applications.get_application_by_id": {"id": getattr(app, "id", None)},
-        "applications.list_applications_by_type": {"type_": app_type},
-        "applications.get_application_by_type_and_id": {"type_": app_type, "id": getattr(app, "id", None)},
-        "plugins.get_application_plugin": {"id": first_id(cache.get("plugins.list_application_plugins"))},
-        "user_requests.get_user_request_by_id": {"id": first_id(cache.get("user_requests.list_user_requests"))},
+        "applications.list_applications_by_type": {"type": app_type},
+        "applications.get_application_by_type_and_id": {"type": app_type, "id": getattr(app, "id", None)},
+        "plugins.get_application_plugin": {"id": first_id(page("plugins", "list_application_plugins"))},
+        "user_requests.get_user_request_by_id": {"id": first_id(page("user_requests", "list_user_requests"))},
         "security_policy.get_security_rule_by_id": {"id": sec[0]},
         "security_policy.get_security_section_by_id": {"id": sec[1]},
         "sign_in_policy.get_sign_in_rule_by_id": {"id": si[0]},
@@ -164,70 +131,54 @@ def main() -> int:
         "customization_policy.get_customization_section_by_id": {"id": cu[1]},
     }
 
-    print(f"\n== Phase 2: {len(param)} parameterized GET endpoints ==")
-    for name, m, req in param:
-        kwargs = PARAMS.get(name)
+    print(f"\n== Phase 2: {len(param)} parameterized GETs ==")
+    for rname, api, mname, req in sorted(param):
+        key = f"{rname}.{mname}"
+        kwargs = RESOLVE.get(key)
         if kwargs is None or any(v in (None, "") for v in kwargs.values()):
-            results.append((name, "SKIP", None, 0, f"no source value for {req}"))
-            print(f"  {name:52s} SKIP  (no source for {req})")
+            results.append((key, "SKIP", None, f"no source for {req}"))
+            print(f"  {key:48s} SKIP ({req})")
             continue
-        status, count, warns, err = call(m, client, **kwargs)
-        results.append((name, status, count, warns, err))
-        print(f"  {name:52s} {status if status else 'ERR':>4}  warns={warns}"
-              + (f"  {err}" if err else ""))
-
-    # --- report (accumulate across runs/tenants; never lose prior gaps) ----
-    findings_dir = ROOT / "findings"
-    findings_dir.mkdir(exist_ok=True)
-    gaps_file = findings_dir / "enum_gaps.json"
-
-    merged: dict[str, set] = {}
-    if gaps_file.exists():  # fold in previously-recorded gaps (e.g. other tenants)
         try:
-            for k, v in json.loads(gaps_file.read_text()).items():
-                merged[k] = set(v)
+            getattr(api, mname)(**kwargs)
+            results.append((key, "200", None, None))
+            print(f"  {key:48s} 200")
+        except ApiException as e:
+            results.append((key, str(e.status), None, None))
+            print(f"  {key:48s} {e.status}")
+        except Exception as e:  # noqa: BLE001
+            results.append((key, "ERR", None, f"{type(e).__name__}: {e}"))
+            print(f"  {key:48s} ERR  {type(e).__name__}: {str(e)[:80]}")
+
+    # findings (accumulate across runs/tenants)
+    findings = ROOT / "findings"
+    findings.mkdir(exist_ok=True)
+    gaps_file = findings / "enum_gaps.json"
+    merged = {}
+    if gaps_file.exists():
+        try:
+            merged = {k: set(v) for k, v in json.loads(gaps_file.read_text()).items()}
         except (ValueError, TypeError):
             pass
-    this_run = {k: set(v) for k, v in lenient.UNKNOWN_ENUM_VALUES.items()}
-    for k, v in this_run.items():
+    for k, v in lenient.UNKNOWN_ENUM_VALUES.items():
         merged.setdefault(k, set()).update(v)
-
     gaps = {k: sorted(v) for k, v in sorted(merged.items())}
-    gaps_file.write_text(json.dumps(gaps, indent=2) + "\n", encoding="utf-8")
+    gaps_file.write_text(json.dumps(gaps, indent=2) + "\n")
+    md = ["# Enum gaps — values returned by the live API but missing from the spec", "",
+          "_Accumulated across sweep runs/tenants._", ""]
+    md += ["| Enum | Undeclared value(s) |", "|------|---------------------|"]
+    md += [f"| `{k}` | {', '.join('`'+x+'`' for x in v)} |" for k, v in gaps.items()]
+    (findings / "enum_gaps.md").write_text("\n".join(md) + "\n")
 
-    lines = [
-        "# Enum gaps — values returned by the live API but missing from the OpenAPI spec",
-        "",
-        "_Accumulated across sweep runs (and tenants). Each row is a real value the API",
-        "returned that the spec's enum does not declare._",
-        "",
-    ]
-    if gaps:
-        lines += ["| Enum | Undeclared value(s) returned by the API |", "|------|------------------------------------------|"]
-        for enum, vals in gaps.items():
-            lines.append(f"| `{enum}` | {', '.join(f'`{v}`' for v in vals)} |")
-    else:
-        lines.append("_No undeclared enum values observed in this sweep._")
-    lines.append("")
-    (findings_dir / "enum_gaps.md").write_text("\n".join(lines), encoding="utf-8")
-
-    ok = sum(1 for _, s, *_ in results if s == 200)
-    errs = [r for r in results if r[4] and r[1] != "SKIP"]
-    skipped = [r for r in results if r[1] == "SKIP"]
+    ok = sum(1 for _, s, *_ in results if s == "200")
+    errs = [r for r in results if r[1] == "ERR"]
     print("\n== Summary ==")
-    print(f"  endpoints: {len(results)}  |  200 OK: {ok}  |  errors: {len(errs)}  |  skipped: {len(skipped)}")
-    run_total = sum(len(v) for v in this_run.values())
-    print(f"  enum gaps: this run {run_total} value(s); accumulated "
-          f"{sum(len(v) for v in gaps.values())} across {len(gaps)} enum(s)")
-    for enum, vals in gaps.items():
-        new = sorted(this_run.get(enum, set()))
-        marker = "  (new this run: " + ", ".join(new) + ")" if new else ""
-        print(f"    - {enum}: {', '.join(vals)}{marker}")
-    if errs:
-        print("  deserialization/other errors:")
-        for name, *_ , err in errs:
-            print(f"    - {name}: {err}")
-    print(f"\n  findings -> {findings_dir.relative_to(ROOT)}/enum_gaps.{{json,md}}")
+    print(f"  endpoints {len(results)} | 200 {ok} | errors {len(errs)} | "
+          f"skipped {sum(1 for r in results if r[1]=='SKIP')}")
+    print(f"  enum gaps (this run): {dict((k, sorted(v)) for k, v in lenient.UNKNOWN_ENUM_VALUES.items())}")
+    for key, _s, _n, err in errs:
+        print(f"  ERROR {key}: {err}")
+    client.close()
     return 0
 
 

@@ -17,7 +17,7 @@ JAR_URL     := https://repo1.maven.org/maven2/org/openapitools/openapi-generator
 
 SPEC_SRC := prismaBrowserAPIspecWithSecurityPolicy.yaml
 SPEC_PP  := prismaBrowserAPIspec.preprocessed.yaml
-OUT      := oag-sdk
+OUT      := prisma-browser-sdk
 PKG      := prisma_browser
 PYV      := 3.12
 
@@ -64,7 +64,7 @@ patch: ## Apply idempotent post-generation fixups (codegen-bug patches)
 
 overlay: ## Copy the hand-written overlay into the generated package (extras/)
 	rm -rf $(OUT)/$(PKG)/extras
-	cp -r oag-overlay $(OUT)/$(PKG)/extras
+	cp -r overlay $(OUT)/$(PKG)/extras
 	find $(OUT)/$(PKG)/extras -name __pycache__ -type d -prune -exec rm -rf {} +
 
 smoke ops: ## Compile + import every module and report operation count (expect 95)

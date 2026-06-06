@@ -1,4 +1,9 @@
-# Phase 10 — Docs & cutover  ✅ (sign-off pending)
+# Phase 10 — Docs & cutover  ✅ DONE
+
+> **Cutover executed.** The prototype (openapi-python-client) was removed and the OAG SDK
+> promoted to canonical names: `oag-sdk/`→`prisma-browser-sdk/`, `oag-overlay/`→`overlay/`,
+> `oag-examples/`→`examples/`. CI added (`make build && make test`). `make build`/`make test`
+> verified green on the new paths.
 
 ## Parity sign-off — prototype (openapi-python-client) → OAG SDK
 
@@ -35,7 +40,7 @@
 ```
 make build     # preprocess -> generate -> patch -> overlay -> smoke
 make test      # offline pytest
-./oag-examples/run.sh oag-examples/validate_live.py   # live (needs .env)
+./examples/run.sh examples/validate_live.py   # live (needs .env)
 ```
 ```python
 from prisma_browser.extras import Client
@@ -44,14 +49,12 @@ with Client.from_env() as client:
         ...
 ```
 
-## Cutover checklist (requires sign-off — NOT yet done)
-The branch currently carries **both** SDKs side by side. To cut over:
-1. Remove prototype artifacts: `prisma-browser-sdk/`, `overlay/`, `apply_overlay.py`,
-   `opc-config.yaml`, `examples/`, `build.sh`, `tools_smoke.py`'s opc references.
-2. Rename `oag-sdk/` → canonical project dir; `oag-examples/` → `examples/`.
-3. Decide whether to commit generated `oag-sdk/` or gitignore it (build reproduces it).
-4. Add CI: `make build && make test`.
-5. Merge `migrate/openapi-generator-python` → main / make default.
-
-**Decision required:** proceed with cutover (destructive to the prototype) or keep both
-during a soak period.
+## Cutover checklist — DONE
+1. ✅ Removed prototype artifacts (old `prisma-browser-sdk/` package, `overlay/`,
+   `apply_overlay.py`, `opc-config.yaml`, `examples/`, `build.sh`).
+2. ✅ Promoted `oag-sdk/`→`prisma-browser-sdk/`, `oag-overlay/`→`overlay/`,
+   `oag-examples/`→`examples/`.
+3. ✅ Generated SDK kept committed (consumers can use it without building; `make build`
+   reproduces it deterministically).
+4. ✅ CI added (`.github/workflows/ci.yml`: `make build && make test`).
+5. ☐ Merge `migrate/openapi-generator-python` → main / make default (your call — left to you).

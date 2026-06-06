@@ -1,178 +1,136 @@
-"""Prisma SASE OAuth2 authentication for the SDK.
+"""Prisma SASE OAuth2 authentication for the OpenAPI-Generator SDK.
 
-The generated client only accepts a pre-acquired bearer token. Prisma SASE uses
-the OAuth2 *client-credentials* grant:
+The generated `Configuration` reads `access_token` per request when applying the
+Bearer auth. We subclass it so `access_token` is a *property* backed by a token
+manager that performs the client-credentials grant and auto-refreshes ~15-min tokens.
 
     POST https://auth.apps.paloaltonetworks.com/oauth2/access_token
         Authorization: Basic base64(CLIENT_ID:CLIENT_SECRET)
         grant_type=client_credentials & scope=tsg_id:<TSG_ID>
-    -> { "access_token": "...", "token_type": "Bearer", "expires_in": 899 }
 
-Tokens live ~15 minutes. ``PrismaSaseAuth`` is an ``httpx.Auth`` flow that fetches
-a token on first use, caches it until shortly before expiry, and refreshes it
-(also retrying once on a 401). It works for both sync and async clients.
-
-Hand-maintained — copied into ``prisma_browser_sdk/extras/`` by ``apply_overlay.py``.
+Hand-maintained — copied into `prisma_browser/extras/` by the build (`make overlay`).
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import os
+import threading
 import time
-from typing import Any, Iterator
 
-import httpx
+import urllib3
 
-from ..client import Client
-from .errors import ApiException
-from .transport import RetryTransport
+from ..api_client import ApiClient
+from ..configuration import Configuration
 
 __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_TOKEN_URL",
-    "PrismaSaseAuth",
-    "client_from_credentials",
-    "client_from_env",
+    "TokenManager",
+    "PrismaSaseConfiguration",
+    "api_client_from_credentials",
+    "api_client_from_env",
 ]
 
-# The API base URL per the OpenAPI `servers` block and the official pan.dev docs.
-# Note the `api.` subdomain — `https://sase.paloaltonetworks.com` is the console, not the API.
 DEFAULT_BASE_URL = "https://api.sase.paloaltonetworks.com"
 DEFAULT_TOKEN_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
-
-# Refresh this many seconds before the server-reported expiry to avoid edge races.
 _EXPIRY_SKEW = 60.0
+_RETRY_STATUSES = (429, 500, 502, 503, 504)
 
 
-class PrismaSaseAuth(httpx.Auth):
-    """httpx auth flow implementing the Prisma SASE client-credentials grant."""
+class TokenManager:
+    """Fetches and caches a client-credentials access token, refreshing on expiry."""
 
-    requires_response_body = True  # so we can read the token response inside the flow
-
-    def __init__(
-        self,
-        client_id: str,
-        client_secret: str,
-        scope: str,
-        *,
-        token_url: str = DEFAULT_TOKEN_URL,
-    ) -> None:
+    def __init__(self, client_id, client_secret, scope, *, token_url=DEFAULT_TOKEN_URL, http=None):
         self._client_id = client_id
         self._client_secret = client_secret
         self._scope = scope
         self._token_url = token_url
-        self._token: str | None = None
-        self._expires_at: float = 0.0
+        self._http = http or urllib3.PoolManager()
+        self._token = None
+        self._expires_at = 0.0
+        self._lock = threading.Lock()
 
-    def _token_request(self) -> httpx.Request:
-        credential = base64.b64encode(
-            f"{self._client_id}:{self._client_secret}".encode()
-        ).decode()
-        return httpx.Request(
+    def token(self) -> str:
+        with self._lock:
+            if self._token is None or time.time() >= self._expires_at:
+                self._fetch()
+            return self._token
+
+    def _fetch(self) -> None:
+        cred = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode()).decode()
+        resp = self._http.request(
             "POST",
             self._token_url,
-            data={"grant_type": "client_credentials", "scope": self._scope},
-            headers={
-                "Authorization": f"Basic {credential}",
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
+            headers={"Authorization": f"Basic {cred}", "Accept": "application/json"},
+            fields={"grant_type": "client_credentials", "scope": self._scope},
+            encode_multipart=False,  # -> application/x-www-form-urlencoded
         )
-
-    def _store_token(self, response: httpx.Response) -> None:
-        if response.status_code != 200:
-            raise ApiException(
-                response.status_code,
-                f"token request to {self._token_url} failed: {response.text[:300]}",
-                response=None,
+        if resp.status != 200:
+            raise RuntimeError(
+                f"token request to {self._token_url} failed: {resp.status} {resp.data[:300]!r}"
             )
-        payload = response.json()
+        payload = json.loads(resp.data)
         self._token = payload["access_token"]
         self._expires_at = time.time() + float(payload.get("expires_in", 900)) - _EXPIRY_SKEW
 
-    def _is_expired(self) -> bool:
-        return self._token is None or time.time() >= self._expires_at
 
-    def auth_flow(self, request: httpx.Request) -> Iterator[httpx.Request]:
-        if self._is_expired():
-            token_response = yield self._token_request()
-            self._store_token(token_response)
+class PrismaSaseConfiguration(Configuration):
+    """Configuration whose `access_token` is supplied (and refreshed) by a TokenManager."""
 
-        request.headers["Authorization"] = f"Bearer {self._token}"
-        response = yield request
+    def __init__(self, *, token_manager: TokenManager, host: str = DEFAULT_BASE_URL, **kwargs):
+        self._token_manager = token_manager
+        super().__init__(host=host, **kwargs)  # base sets self.access_token=None -> setter no-op
 
-        if response.status_code == 401:
-            # Token may have been revoked/rotated early — refresh once and retry.
-            token_response = yield self._token_request()
-            self._store_token(token_response)
-            request.headers["Authorization"] = f"Bearer {self._token}"
-            yield request
+    @property
+    def access_token(self):
+        return self._token_manager.token()
+
+    @access_token.setter
+    def access_token(self, value):
+        # Managed by the token manager; ignore the base class's __init__ assignment.
+        pass
 
 
-def client_from_credentials(
+def _retry(retries: int) -> urllib3.Retry:
+    return urllib3.Retry(
+        total=retries,
+        status_forcelist=list(_RETRY_STATUSES),
+        backoff_factor=0.5,
+        respect_retry_after_header=True,
+        allowed_methods=None,  # retry all methods (idempotent reads dominate here)
+        raise_on_status=False,
+    )
+
+
+def api_client_from_credentials(
     *,
     client_id: str,
     client_secret: str,
     scope: str,
-    base_url: str = DEFAULT_BASE_URL,
+    host: str = DEFAULT_BASE_URL,
     token_url: str = DEFAULT_TOKEN_URL,
-    timeout: float = 30.0,
     retries: int = 3,
-    verify_ssl: bool = True,
-    **kwargs: Any,
-) -> Client:
-    """Build a ``Client`` that authenticates via OAuth2 client-credentials.
-
-    ``scope`` must be the fully-formed OAuth scope, e.g. ``"tsg_id:1234567890"``.
-    The token is fetched lazily and auto-refreshed.
-    """
+) -> ApiClient:
+    """Build an authenticated `ApiClient` (retries + auto-refreshing bearer token)."""
     if not scope:
         raise ValueError("scope is required, e.g. 'tsg_id:1234567890'")
-
-    auth = PrismaSaseAuth(client_id, client_secret, scope, token_url=token_url)
-    httpx_args: dict[str, Any] = dict(kwargs.pop("httpx_args", {}))
-    httpx_args.setdefault("auth", auth)
-    httpx_args.setdefault("transport", RetryTransport(retries=retries, verify=verify_ssl))
-
-    return Client(
-        base_url=base_url,
-        timeout=httpx.Timeout(timeout),
-        verify_ssl=verify_ssl,
-        httpx_args=httpx_args,
-        **kwargs,
-    )
+    tm = TokenManager(client_id, client_secret, scope, token_url=token_url)
+    cfg = PrismaSaseConfiguration(token_manager=tm, host=host)
+    cfg.retries = _retry(retries)
+    return ApiClient(cfg)
 
 
-def client_from_env(**overrides: Any) -> Client:
-    """Build an authenticated ``Client`` from environment variables.
-
-    Reads ``CLIENT_ID``, ``CLIENT_SECRET``, and ``SCOPE`` (the fully-formed OAuth
-    scope, e.g. ``tsg_id:1234567890``); base URL may be overridden via
-    ``PRISMA_SASE_BASE_URL``. Any of these may also be passed as keyword overrides,
-    which take precedence over the environment.
-    """
+def api_client_from_env(**overrides) -> ApiClient:
+    """Build an authenticated `ApiClient` from CLIENT_ID / CLIENT_SECRET / SCOPE env vars."""
     client_id = overrides.pop("client_id", None) or os.environ.get("CLIENT_ID")
     client_secret = overrides.pop("client_secret", None) or os.environ.get("CLIENT_SECRET")
     scope = overrides.pop("scope", None) or os.environ.get("SCOPE")
-    base_url = (
-        overrides.pop("base_url", None)
-        or os.environ.get("PRISMA_SASE_BASE_URL")
-        or DEFAULT_BASE_URL
-    )
-
-    missing = [
-        name
-        for name, value in (("CLIENT_ID", client_id), ("CLIENT_SECRET", client_secret), ("SCOPE", scope))
-        if not value
-    ]
+    host = overrides.pop("host", None) or os.environ.get("PRISMA_SASE_BASE_URL") or DEFAULT_BASE_URL
+    missing = [n for n, v in (("CLIENT_ID", client_id), ("CLIENT_SECRET", client_secret), ("SCOPE", scope)) if not v]
     if missing:
         raise RuntimeError(f"missing required auth environment variables: {', '.join(missing)}")
-
-    return client_from_credentials(
-        client_id=client_id,
-        client_secret=client_secret,
-        scope=scope,
-        base_url=base_url,
-        **overrides,
+    return api_client_from_credentials(
+        client_id=client_id, client_secret=client_secret, scope=scope, host=host, **overrides
     )

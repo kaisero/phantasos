@@ -1,3 +1,0 @@
-project_name_override: prisma-browser-sdk
-package_name_override: prisma_browser_sdk
-use_path_prefixes_for_title_model_names: false

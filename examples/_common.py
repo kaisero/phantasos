@@ -1,4 +1,4 @@
-"""Shared helpers for the example scripts."""
+"""Shared helpers for the OAG-SDK example scripts."""
 from __future__ import annotations
 
 import os
@@ -20,8 +20,8 @@ def load_dotenv(path: Path = ROOT / ".env") -> None:
 
 
 def get_client():
-    """Load ./.env and build an authenticated client (raises if creds missing)."""
+    """Load ./.env and build a facade Client (OAuth2 from CLIENT_ID/SECRET/SCOPE)."""
     load_dotenv()
-    from prisma_browser_sdk.extras import client_from_env
+    from prisma_browser.extras import Client
 
-    return client_from_env()
+    return Client.from_env()

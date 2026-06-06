@@ -4,5 +4,5 @@ import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "oag-sdk"))
+sys.path.insert(0, str(ROOT / "prisma-browser-sdk"))
 warnings.simplefilter("ignore")  # lenient-enum warnings are expected in tests
