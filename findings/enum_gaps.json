@@ -1,4 +1,7 @@
 {
+  "AuthenticationFactorPinCodeControlMethod": [
+    "passkey"
+  ],
   "CustomApplicationType": [
     "catalog"
   ],

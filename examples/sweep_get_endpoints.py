@@ -76,11 +76,19 @@ def first_id(parsed):
 
 
 def policy_ids(parsed):
-    """(rule_id, section_id) from a policy GET response."""
-    def fid(seq):
-        seq = seq or []
-        return getattr(seq[0], "id", None) if seq else None
-    return fid(getattr(parsed, "rules", None)), fid(getattr(parsed, "sections", None))
+    """(rule_id, section_id) from a policy GET response.
+
+    The policy response exposes `.data: list[RuleSummary | Section]`; pick the
+    first id of each kind (distinguished by class name).
+    """
+    rule_id = section_id = None
+    for item in getattr(parsed, "data", None) or []:
+        iid = getattr(item, "id", None)
+        if type(item).__name__ == "Section":
+            section_id = section_id or iid
+        else:  # RuleSummary
+            rule_id = rule_id or iid
+    return rule_id, section_id
 
 
 def call(module, client, **kwargs):
@@ -168,13 +176,32 @@ def main() -> int:
         print(f"  {name:52s} {status if status else 'ERR':>4}  warns={warns}"
               + (f"  {err}" if err else ""))
 
-    # --- report ------------------------------------------------------------
-    gaps = {k: sorted(v) for k, v in sorted(lenient.UNKNOWN_ENUM_VALUES.items())}
+    # --- report (accumulate across runs/tenants; never lose prior gaps) ----
     findings_dir = ROOT / "findings"
     findings_dir.mkdir(exist_ok=True)
-    (findings_dir / "enum_gaps.json").write_text(json.dumps(gaps, indent=2) + "\n", encoding="utf-8")
+    gaps_file = findings_dir / "enum_gaps.json"
 
-    lines = ["# Enum gaps — values returned by the live API but missing from the OpenAPI spec", ""]
+    merged: dict[str, set] = {}
+    if gaps_file.exists():  # fold in previously-recorded gaps (e.g. other tenants)
+        try:
+            for k, v in json.loads(gaps_file.read_text()).items():
+                merged[k] = set(v)
+        except (ValueError, TypeError):
+            pass
+    this_run = {k: set(v) for k, v in lenient.UNKNOWN_ENUM_VALUES.items()}
+    for k, v in this_run.items():
+        merged.setdefault(k, set()).update(v)
+
+    gaps = {k: sorted(v) for k, v in sorted(merged.items())}
+    gaps_file.write_text(json.dumps(gaps, indent=2) + "\n", encoding="utf-8")
+
+    lines = [
+        "# Enum gaps — values returned by the live API but missing from the OpenAPI spec",
+        "",
+        "_Accumulated across sweep runs (and tenants). Each row is a real value the API",
+        "returned that the spec's enum does not declare._",
+        "",
+    ]
     if gaps:
         lines += ["| Enum | Undeclared value(s) returned by the API |", "|------|------------------------------------------|"]
         for enum, vals in gaps.items():
@@ -189,9 +216,13 @@ def main() -> int:
     skipped = [r for r in results if r[1] == "SKIP"]
     print("\n== Summary ==")
     print(f"  endpoints: {len(results)}  |  200 OK: {ok}  |  errors: {len(errs)}  |  skipped: {len(skipped)}")
-    print(f"  enum gaps: {sum(len(v) for v in gaps.values())} value(s) across {len(gaps)} enum(s)")
+    run_total = sum(len(v) for v in this_run.values())
+    print(f"  enum gaps: this run {run_total} value(s); accumulated "
+          f"{sum(len(v) for v in gaps.values())} across {len(gaps)} enum(s)")
     for enum, vals in gaps.items():
-        print(f"    - {enum}: {', '.join(vals)}")
+        new = sorted(this_run.get(enum, set()))
+        marker = "  (new this run: " + ", ".join(new) + ")" if new else ""
+        print(f"    - {enum}: {', '.join(vals)}{marker}")
     if errs:
         print("  deserialization/other errors:")
         for name, *_ , err in errs:
