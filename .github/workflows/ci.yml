@@ -21,4 +21,4 @@ jobs:
       - name: Framework engine tests
         run: python -m pytest tests/ -q
       - name: Smoke-build the example spec
-        run: sdkgen build specs/prisma-browser/sdk.py
+        run: sdkgen build transformations/prisma-browser.py

@@ -1,18 +1,17 @@
 """Prisma Browser SDK — spec config for sdkgen.
 
-Build with:  sdkgen build specs/prisma-browser/sdk.py
+Build with:  sdkgen build transformations/prisma-browser.py
 """
 from pathlib import Path
 
 from sdkgen import CursorPagination, Facade, NestedError, OAuthClientCredentials, SdkConfig
 
-_HERE = Path(__file__).resolve().parent
-_REPO_ROOT = _HERE.parents[1]
+_REPO_ROOT = Path(__file__).resolve().parent.parent   # transformations/ -> repo root
 # Generated SDK is written to a sibling dir of the generator repo, never inside it.
 _OUTPUT_DIR = _REPO_ROOT.parent / "prisma-browser-sdk"
 
 CONFIG = SdkConfig(
-    spec=str(_HERE / "prisma-browser.yaml"),
+    spec=str(_REPO_ROOT / "specs" / "prisma-browser.yml"),
     package="prisma_browser",
     base_url="https://api.sase.paloaltonetworks.com",
     project_dir=str(_OUTPUT_DIR),

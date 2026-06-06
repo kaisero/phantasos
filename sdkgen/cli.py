@@ -1,4 +1,4 @@
-"""`sdkgen build [config]` — load a spec's sdk.py and build its SDK."""
+"""`sdkgen build <config>` — load a spec's config module and build its SDK."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def _load_spec_module(config_path: Path):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="sdkgen")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    b = sub.add_parser("build", help="build an SDK from a spec's sdk.py")
-    b.add_argument("config", nargs="?", default="sdk.py", help="path to sdk.py (default: ./sdk.py)")
+    b = sub.add_parser("build", help="build an SDK from a spec's config module")
+    b.add_argument("config", help="path to the spec config module, e.g. transformations/<product>.py")
     args = parser.parse_args(argv)
 
     if args.cmd == "build":

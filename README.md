@@ -4,13 +4,16 @@ Generate native, self-contained Python SDKs from OpenAPI specs. `sdkgen` wraps
 [OpenAPI Generator](https://openapi-generator.tech/) (`python`/Pydantic v2) and adds
 generic spec preprocessing, codegen-bug patches, and **vendored, templated components**
 (auth, pagination, errors, a resource facade) selected per spec. Each spec is described
-by a small Python config (`sdk.py`); the generated SDK is written to its own directory
-and depends only on `httpx`/`urllib3`/`pydantic`.
+by a small Python config module under `transformations/`; the generated SDK is written to
+its own directory and depends only on `httpx`/`urllib3`/`pydantic`.
+
+A product has two files: its OpenAPI source at `specs/<product>.yml` and its sdkgen config
+(`CONFIG` + optional `preprocess`/`patch` hooks) at `transformations/<product>.py`.
 
 ## Quickstart
 ```bash
 pip install -e ".[generated]"          # framework + deps the generated SDK imports
-sdkgen build specs/prisma-browser/sdk.py
+sdkgen build transformations/prisma-browser.py
 ```
 Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to
 `~/.cache/sdkgen` (override with `SDKGEN_CACHE`).
@@ -20,12 +23,12 @@ The build runs: **preprocess** (generic transforms + the spec's `preprocess` hoo
 first-match) → **vendor** (render selected component templates into `<package>/extras/`,
 write `_about.py` provenance) → **smoke** (import every module + count operations).
 
-## Describing a spec (`sdk.py`)
+## Describing a spec (`transformations/<product>.py`)
 ```python
 from sdkgen import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
 
 CONFIG = SdkConfig(
-    spec="./spec.yaml", package="my_sdk", base_url="https://api.example.com",
+    spec="../specs/my-product.yml", package="my_sdk", base_url="https://api.example.com",
     project_dir="../my-sdk",                       # generated SDK lands here
     auth=OAuthClientCredentials(token_url="https://auth.example.com/oauth2/token"),
     pagination=CursorPagination(), errors=NestedError(), facade=Facade(),
@@ -42,8 +45,8 @@ Full guide + component param reference: [`docs/AUTHORING_A_SPEC.md`](docs/AUTHOR
 |------|------|
 | `sdkgen/` | the framework package (`config`, `preprocess`, `generate`, `patches`, `render`, `smoke`, `cli`) |
 | `sdkgen/components/*.jinja` | vendored component templates (auth / pagination / errors / facade) |
-| `specs/prisma-browser/sdk.py` | example spec config (Prisma Browser); builds to a **sibling** `../prisma-browser-sdk/` |
-| `specs/prisma-browser/prisma-browser.yaml` | the example spec's OpenAPI source |
+| `specs/<product>.yml` | a product's OpenAPI source (e.g. `prisma-browser.yml`, `adem.yml`) |
+| `transformations/<product>.py` | a product's sdkgen config; e.g. `prisma-browser.py` builds to the **sibling** `../prisma-browser-sdk/` |
 | `tests/` | framework engine tests (`test_framework.py`) |
 | `docs/` | architecture, re-arch plan, authoring guide, and the prototype migration history |
 | `pyproject.toml` | packaging (`console_scripts: sdkgen = sdkgen.cli:main`) |

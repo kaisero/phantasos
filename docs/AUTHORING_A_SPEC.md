@@ -1,27 +1,36 @@
-# Authoring a spec (`sdk.py`)
+# Authoring a spec (`transformations/<product>.py`)
 
 `sdkgen` builds a vendored, self-contained Python SDK for an OpenAPI spec from a small
-Python config module. You write one `sdk.py`; `sdkgen build ./sdk.py` does the rest.
+Python config module. Each product has two files:
+
+- `specs/<product>.yml` — the OpenAPI source document
+- `transformations/<product>.py` — its sdkgen config (`CONFIG` + optional hooks)
+
+You write the config module; `sdkgen build transformations/<product>.py` does the rest.
 
 ## Quickstart
 ```bash
-pip install -e ".[generated]"      # the framework (+ deps the generated SDK imports)
-sdkgen build ./sdk.py              # preprocess -> generate -> patch -> vendor -> smoke
+pip install -e ".[generated]"                 # the framework (+ deps the generated SDK imports)
+sdkgen build transformations/<product>.py     # preprocess -> generate -> patch -> vendor -> smoke
 ```
 Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to `~/.cache/sdkgen`
 (override with `SDKGEN_CACHE`).
 
-## The `sdk.py` module
+## The config module
 Define a module-level `CONFIG` and, optionally, `preprocess(spec)` / `patch(pkg_dir)` hooks.
+Resolve paths relative to the module so the build works from any working directory:
 
 ```python
+from pathlib import Path
 from sdkgen import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent   # transformations/ -> repo root
+
 CONFIG = SdkConfig(
-    spec="./spec.yaml",                 # path or URL to the OpenAPI document
+    spec=str(_REPO_ROOT / "specs" / "my-product.yml"),  # the OpenAPI document
     package="my_sdk",                   # python package name
     base_url="https://api.example.com", # default API host
-    project_dir=".",                    # where the SDK project is written
+    project_dir=str(_REPO_ROOT.parent / "my-sdk"),      # sibling dir; SDK is written here
     auth=OAuthClientCredentials(token_url="https://auth.example.com/oauth2/token"),
     pagination=CursorPagination(),
     errors=NestedError(),
@@ -41,7 +50,7 @@ def patch(pkg_dir):                     # optional: extra codegen fixups on the 
 Set a component to `None` to skip vendoring it (e.g. `auth=None`). `facade` defaults on.
 
 ## Build pipeline
-`load sdk.py` → fetch/pin jar → **preprocess** (generic transforms + your `preprocess`) →
+`load the config module` → fetch/pin jar → **preprocess** (generic transforms + your `preprocess`) →
 **generate** (OpenAPI Generator) → **patch** (generic patches + your `patch`) →
 **vendor** (render selected component templates → `<package>/extras/`, write `_about.py`
 provenance) → **smoke** (import every module + count operations).
@@ -89,7 +98,7 @@ Resources are discovered from the generated `api/` package (alphabetical) — no
 ## Custom components
 A component is `{param dataclass, Jinja template, interface}`. To add one, write a dataclass
 with a `template` field pointing at your `.jinja`, implement the relevant `extras/` contract,
-and reference your class from `sdk.py` (it's just Python — import it).
+and reference your class from your config module (it's just Python — import it).
 
 ## Provenance
 Every build writes `<package>/_about.py` with `SPEC_VERSION`, `SDKGEN_VERSION`, and
