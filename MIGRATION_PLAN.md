@@ -73,6 +73,10 @@ prisma_browser/
 
 ---
 
+## Status: all phases complete (Phase 10 cutover pending sign-off)
+Per-phase outcomes are documented in [`docs/`](docs/README.md). Phases 1–9 ✅;
+Phase 10 = parity sign-off done, the destructive cutover step awaits approval.
+
 ## 4. Phased execution (each phase is independently verifiable)
 
 ### Phase 0 — Branch & hygiene  ✅ (this commit)
