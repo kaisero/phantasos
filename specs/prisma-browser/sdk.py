@@ -6,13 +6,16 @@ from pathlib import Path
 
 from sdkgen import CursorPagination, Facade, NestedError, OAuthClientCredentials, SdkConfig
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_HERE = Path(__file__).resolve().parent
+_REPO_ROOT = _HERE.parents[1]
+# Generated SDK is written to a sibling dir of the generator repo, never inside it.
+_OUTPUT_DIR = _REPO_ROOT.parent / "prisma-browser-sdk"
 
 CONFIG = SdkConfig(
-    spec=str(_REPO_ROOT / "prismaBrowserAPIspecWithSecurityPolicy.yaml"),
+    spec=str(_HERE / "prisma-browser.yaml"),
     package="prisma_browser",
     base_url="https://api.sase.paloaltonetworks.com",
-    project_dir=".",
+    project_dir=str(_OUTPUT_DIR),
     auth=OAuthClientCredentials(
         token_url="https://auth.apps.paloaltonetworks.com/oauth2/access_token",
         scope_env="SCOPE",

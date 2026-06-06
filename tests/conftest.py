@@ -1,14 +1,9 @@
-"""Pytest config: put a generated SDK on sys.path.
+"""Pytest config for the sdkgen framework engine tests.
 
-Targets prisma-browser-sdk/ by default; override with SDK_UNDER_TEST=<project_dir>
-to run the same suite against a freshly sdkgen-built SDK (parity testing).
+Ensures the `sdkgen` package (at the repo root) is importable regardless of how
+pytest is invoked. SDK-specific tests live with the generated SDK, not here.
 """
-import os
 import sys
-import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-SDK = os.environ.get("SDK_UNDER_TEST", str(ROOT / "prisma-browser-sdk"))
-sys.path.insert(0, SDK)
-warnings.simplefilter("ignore")  # lenient-enum warnings are expected in tests
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

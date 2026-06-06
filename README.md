@@ -1,40 +1,61 @@
-# Prisma Browser Python SDK
+# sdkgen
 
-A native, resource-oriented Python SDK for the Prisma Browser Management API,
-generated from the OpenAPI spec (OpenAPI Generator, `python`/Pydantic v2) plus a
-hand-written overlay (auth, retries, pagination, errors, resource facade).
+Generate native, self-contained Python SDKs from OpenAPI specs. `sdkgen` wraps
+[OpenAPI Generator](https://openapi-generator.tech/) (`python`/Pydantic v2) and adds
+generic spec preprocessing, codegen-bug patches, and **vendored, templated components**
+(auth, pagination, errors, a resource facade) selected per spec. Each spec is described
+by a small Python config (`sdk.py`); the generated SDK is written to its own directory
+and depends only on `httpx`/`urllib3`/`pydantic`.
 
 ## Quickstart
 ```bash
-make build          # generate the SDK (needs JRE 11+ and uv; no Docker)
-make test           # offline test suite
+pip install -e ".[generated]"          # framework + deps the generated SDK imports
+sdkgen build specs/prisma-browser/sdk.py
 ```
+Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to
+`~/.cache/sdkgen` (override with `SDKGEN_CACHE`).
+
+The build runs: **preprocess** (generic transforms + the spec's `preprocess` hook) →
+**generate** (OpenAPI Generator) → **patch** (apostrophe enums / lenient enums / oneOf
+first-match) → **vendor** (render selected component templates into `<package>/extras/`,
+write `_about.py` provenance) → **smoke** (import every module + count operations).
+
+## Describing a spec (`sdk.py`)
 ```python
-from prisma_browser.extras import Client      # prisma-browser-sdk/ on sys.path
-with Client.from_env() as client:             # CLIENT_ID / CLIENT_SECRET / SCOPE
-    for user in client.paginate(client.users.list_users, limit=100):
-        print(user.name, user.email)
-    rule = client.security_policy.get_security_rule_by_id(rule_id)
+from sdkgen import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
+
+CONFIG = SdkConfig(
+    spec="./spec.yaml", package="my_sdk", base_url="https://api.example.com",
+    project_dir="../my-sdk",                       # generated SDK lands here
+    auth=OAuthClientCredentials(token_url="https://auth.example.com/oauth2/token"),
+    pagination=CursorPagination(), errors=NestedError(), facade=Facade(),
+)
+
+def preprocess(spec):                              # optional spec-specific quirks
+    from sdkgen.preprocess import hoist_items, tag_operations
+    ...
 ```
+Full guide + component param reference: [`docs/AUTHORING_A_SPEC.md`](docs/AUTHORING_A_SPEC.md).
 
 ## Layout
 | Path | What |
 |------|------|
-| `prisma-browser-sdk/prisma_browser/` | generated SDK (13 resource API classes + Pydantic models) + `extras/` overlay |
-| `overlay/` | hand-written overlay source (copied into `extras/` by the build) |
-| `examples/` | runnable read-only examples (`./examples/run.sh`) |
-| `tests/` | offline pytest suite (`make test`) |
-| `preprocess_spec.py`, `apply_patches.py`, `Makefile` | the build pipeline |
-| `findings/` | spec-vs-reality findings (enum gaps, etc.) |
-| `docs/` | migration phase docs |
+| `sdkgen/` | the framework package (`config`, `preprocess`, `generate`, `patches`, `render`, `smoke`, `cli`) |
+| `sdkgen/components/*.jinja` | vendored component templates (auth / pagination / errors / facade) |
+| `specs/prisma-browser/sdk.py` | example spec config (Prisma Browser); builds to a **sibling** `../prisma-browser-sdk/` |
+| `specs/prisma-browser/prisma-browser.yaml` | the example spec's OpenAPI source |
+| `tests/` | framework engine tests (`test_framework.py`) |
+| `docs/` | architecture, re-arch plan, authoring guide, and the prototype migration history |
+| `pyproject.toml` | packaging (`console_scripts: sdkgen = sdkgen.cli:main`) |
 
-## Build pipeline (`make build`)
-`preprocess` (clean spec) → `generate` (OpenAPI Generator) → `patch` (codegen fixups +
-lenient enums + oneOf) → `overlay` (copy `overlay/` → `extras/`) → `smoke` (import check).
-Idempotent and deterministic. The generator jar is pinned and fetched to `.tools/`.
+Generated SDKs are **not** kept in this repo — each builds into its own directory
+(e.g. the Prisma Browser SDK builds to the sibling `../prisma-browser-sdk/`, which owns
+its own tests, examples, and `.env.example`).
 
-## Auth
-OAuth2 client-credentials via `CLIENT_ID`, `CLIENT_SECRET`, `SCOPE` (`tsg_id:<id>`); see
-`.env.example`. Tokens auto-refresh.
+## Tests
+```bash
+python -m pytest tests/ -q                # framework engine tests
+```
 
-See `docs/` for the full design history and known limitations.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+[`docs/REARCH_PLAN.md`](docs/REARCH_PLAN.md) for the design and the parity sign-off.
