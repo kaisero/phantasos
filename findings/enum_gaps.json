@@ -2,6 +2,9 @@
   "AuthenticationFactorPinCodeControlMethod": [
     "passkey"
   ],
+  "CustomApplicationAllOfType": [
+    "catalog"
+  ],
   "CustomApplicationType": [
     "catalog"
   ],

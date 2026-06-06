@@ -1,11 +1,11 @@
-# Enum gaps — values returned by the live API but missing from the OpenAPI spec
+# Enum gaps — values returned by the live API but missing from the spec
 
-_Accumulated across sweep runs (and tenants). Each row is a real value the API
-returned that the spec's enum does not declare._
+_Accumulated across sweep runs/tenants._
 
-| Enum | Undeclared value(s) returned by the API |
-|------|------------------------------------------|
+| Enum | Undeclared value(s) |
+|------|---------------------|
 | `AuthenticationFactorPinCodeControlMethod` | `passkey` |
+| `CustomApplicationAllOfType` | `catalog` |
 | `CustomApplicationType` | `catalog` |
 | `FirewallVendorName` | `OpenBSD` |
 | `UserProvider` | `cie`, `scm` |
