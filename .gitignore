@@ -11,3 +11,6 @@ __pycache__/
 
 # Claude-authored reports (kept on disk, not part of the SDK)
 GENERATION_NOTES.md
+
+# macOS
+.DS_Store
