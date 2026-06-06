@@ -77,3 +77,33 @@ def test_render_auth_template_inlines_params():
     assert "class ExampleConfiguration(Configuration):" in out
     assert 'os.environ.get("CID")' in out
     assert "{{" not in out  # no unrendered jinja
+
+
+def _render_facade(*, has_auth, has_pagination):
+    env = render._env()
+    return env.get_template("facade/client.py.jinja").render(
+        resources=[{"module": "things_api", "cls": "ThingsApi", "attr": "things"}],
+        has_auth=has_auth, has_pagination=has_pagination)
+
+
+def test_render_facade_full_components():
+    out = _render_facade(has_auth=True, has_pagination=True)
+    assert "from .auth import api_client_from_credentials, api_client_from_env" in out
+    assert "from .pagination import paginate" in out
+    assert "def from_env(" in out and "def paginate(" in out
+    assert "{%" not in out and "{{" not in out
+
+
+def test_render_facade_omits_absent_components():
+    # A spec like ADEM: auth but no pagination/errors.
+    out = _render_facade(has_auth=True, has_pagination=False)
+    assert "from .auth import" in out and "def from_env(" in out
+    assert "from .pagination" not in out      # no dangling import
+    assert "def paginate(" not in out         # no method referencing missing module
+    assert "things: ThingsApi" in out         # resources still bound
+    assert "{%" not in out and "{{" not in out
+
+    # And the fully-bare case: facade only.
+    bare = _render_facade(has_auth=False, has_pagination=False)
+    assert "from .auth" not in bare and "from .pagination" not in bare
+    assert "def from_env(" not in bare and "def paginate(" not in bare

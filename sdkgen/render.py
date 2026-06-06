@@ -52,7 +52,8 @@ def vendor(pkg_dir: Path, config) -> list[str]:
     if config.errors:
         write("errors.py", config.errors)
     if config.facade:
-        write("facade.py", config.facade, resources=_discover_resources(pkg_dir))
+        write("facade.py", config.facade, resources=_discover_resources(pkg_dir),
+              has_auth=flags["has_auth"], has_pagination=flags["has_pagination"])
     (extras / "__init__.py").write_text(
         env.get_template("extras_init.py.jinja").render(**flags), encoding="utf-8")
     written.append("__init__.py")

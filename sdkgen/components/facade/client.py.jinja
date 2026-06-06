@@ -1,17 +1,17 @@
 """Resource-oriented facade (vendored by sdkgen).
 
-`client.<resource>` is the corresponding generated `*Api` instance; `client.paginate`
-follows cursors. Resources are discovered from the generated `api/` package at build time.
+`client.<resource>` is the corresponding generated `*Api` instance. Resources are
+discovered from the generated `api/` package at build time.
 """
 
 from __future__ import annotations
-
+{% if has_pagination %}
 from typing import Any, Callable, Iterator
-
+{% endif %}
 {% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
-{% endfor %}from .auth import api_client_from_credentials, api_client_from_env
-from .pagination import paginate
-
+{% endfor %}{% if has_auth %}from .auth import api_client_from_credentials, api_client_from_env
+{% endif %}{% if has_pagination %}from .pagination import paginate
+{% endif %}
 __all__ = ["Client"]
 
 _RESOURCES = {
@@ -28,7 +28,7 @@ class Client:
             setattr(self, name, api_cls(api_client))
 
 {% for r in resources %}    {{ r.attr }}: {{ r.cls }}
-{% endfor %}
+{% endfor %}{% if has_auth %}
     @classmethod
     def from_env(cls, **kwargs) -> "Client":
         return cls(api_client_from_env(**kwargs))
@@ -36,10 +36,10 @@ class Client:
     @classmethod
     def from_credentials(cls, **kwargs) -> "Client":
         return cls(api_client_from_credentials(**kwargs))
-
+{% endif %}{% if has_pagination %}
     def paginate(self, list_method: Callable[..., Any], **filters: Any) -> Iterator[Any]:
         return paginate(list_method, **filters)
-
+{% endif %}
     @property
     def api_client(self):
         return self._api_client

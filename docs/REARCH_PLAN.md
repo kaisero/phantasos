@@ -84,10 +84,42 @@ output and the legacy pipeline.
   modules, 0 failures, 95 ops), nothing leaks into the framework repo; framework tests 7 passed;
   sibling SDK tests 16 passed.
 
-## Phase G — Second-spec validation (deferred until a 2nd spec exists)
+## Phase G — Second-spec validation
 - Onboard a genuinely different OpenAPI spec; add component types as its auth/pagination/error
   shapes demand. This is the real test of the pluggable contracts; expect interface revisions.
-- **Acceptance:** a non-SASE SDK builds + smokes without modifying spec #1.
+- **Acceptance:** a second SDK builds + smokes without modifying spec #1.
+
+### Phase G sign-off (PASSED) — ADEM data API
+Second spec: **ADEM** (Autonomous Digital Experience Management, a timeseries data API on
+Strata Cloud Manager). `specs/adem.yml` (OpenAPI 3.0.0, 13 ops, 8 controllers) +
+`transformations/adem.py`. Builds to the sibling `../adem-sdk/`.
+
+How it differs from prisma-browser, and what the framework did:
+- **auth — reused unchanged.** HTTP bearer JWT obtained via the same SASE
+  client-credentials flow → `OAuthClientCredentials` (new `config_class_name="AdemConfiguration"`,
+  `base_url_env="ADEM_BASE_URL"`). No template change.
+- **pagination — omitted.** ADEM paginates via request-side `page`/`limit`/`sortBy` params and
+  returns aggregates with no uniform items array; a cursor-follower doesn't fit, so
+  `pagination=None`. The generated methods already accept the page/limit params.
+- **errors — omitted.** Error responses are bare status codes (no `{error:{message}}` body), so
+  `errors=None`.
+- **generic transforms/patches — reused.** 11 `oneOf` (oneOf first-match patch), 18 inline enums
+  (lenient-enum rebase); 0 `allOf`. No prisma-style hoists/op-tagging needed.
+
+Interface revisions required (exactly the churn the plan anticipated):
+1. **Facade template made component-aware.** It previously hard-coded `from .auth import …` and
+   `from .pagination import paginate` + a `paginate` method. Now gated on `has_auth` /
+   `has_pagination` (passed from `render.vendor`), so a spec without pagination/errors produces a
+   valid facade. Covered by new tests `test_render_facade_full_components` /
+   `test_render_facade_omits_absent_components`.
+
+Spec-specific quirk (handled in `transformations/adem.py` `preprocess`):
+- Dropped a stray invalid top-level `ExternalTags: {}` key that failed OAG spec validation.
+
+- **Acceptance:** `sdkgen build transformations/adem.py` → 110 modules imported, 0 failures,
+  13 operations; facade has `from_env` (auth) and **no** `paginate`/pagination import; extras
+  contain only `auth.py` + `facade.py` + `__init__.py`. Spec #1 unaffected: prisma-browser still
+  builds 427/0/95 and its 16 SDK tests pass; framework tests 9 passed.
 
 ## Parity & rollback
 - The committed prisma-browser SDK on `migrate/openapi-generator-python` is the **oracle** and
