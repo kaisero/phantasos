@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DevicePlatform(str, Enum):
+class DevicePlatform(LenientStrEnum):
     BROWSER_EXTENSION = "Browser Extension"
     DESKTOP_BROWSER = "Desktop Browser"
     MOBILE_BROWSER = "Mobile Browser"

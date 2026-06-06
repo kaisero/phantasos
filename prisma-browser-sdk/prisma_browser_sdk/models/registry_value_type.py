@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RegistryValueType(str, Enum):
+class RegistryValueType(LenientStrEnum):
     BINARY = "Binary"
     DWORD = "DWORD"
     EXPANDABLESTRING = "ExpandableString"

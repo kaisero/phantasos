@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class SessionRefreshControlType0Action(str, Enum):
+class SessionRefreshControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

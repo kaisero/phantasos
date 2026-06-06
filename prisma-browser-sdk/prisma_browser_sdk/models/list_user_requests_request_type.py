@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListUserRequestsRequestType(str, Enum):
+class ListUserRequestsRequestType(LenientStrEnum):
     APPLOGIN = "AppLogin"
     WEBACCESS = "WebAccess"
 

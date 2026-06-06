@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class JavaScriptV8JitAndWebAssemblyControlType0Action(str, Enum):
+class JavaScriptV8JitAndWebAssemblyControlType0Action(LenientStrEnum):
     DISABLEADVANCEDOPTIMIZATIONS = "disableAdvancedOptimizations"
     DISABLEJITANDWEBASSEMBLY = "disableJitAndWebAssembly"
     ENABLE = "enable"

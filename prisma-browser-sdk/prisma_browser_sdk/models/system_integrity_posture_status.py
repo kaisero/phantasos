@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class SystemIntegrityPostureStatus(str, Enum):
+class SystemIntegrityPostureStatus(LenientStrEnum):
     FAIL = "fail"
     PASS = "pass"
     UNKNOWN = "unknown"

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class SessionRefreshControlType0MaxSessionDuration(str, Enum):
+class SessionRefreshControlType0MaxSessionDuration(LenientStrEnum):
     VALUE_0 = "1hour"
     VALUE_1 = "4hours"
     VALUE_2 = "9hours"

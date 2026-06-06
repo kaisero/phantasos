@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class KerberosDelegationAllowlistControlType0Action(str, Enum):
+class KerberosDelegationAllowlistControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

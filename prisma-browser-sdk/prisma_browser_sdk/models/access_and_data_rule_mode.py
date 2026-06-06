@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AccessAndDataRuleMode(str, Enum):
+class AccessAndDataRuleMode(LenientStrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"
     MONITOR = "monitor"

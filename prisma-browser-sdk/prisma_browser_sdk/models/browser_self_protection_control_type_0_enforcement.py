@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BrowserSelfProtectionControlType0Enforcement(str, Enum):
+class BrowserSelfProtectionControlType0Enforcement(LenientStrEnum):
     BLOCK = "block"
     NONE = "none"
     PROMPT = "prompt"

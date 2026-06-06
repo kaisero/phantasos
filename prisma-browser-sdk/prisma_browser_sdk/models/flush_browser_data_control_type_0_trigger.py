@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class FlushBrowserDataControlType0Trigger(str, Enum):
+class FlushBrowserDataControlType0Trigger(LenientStrEnum):
     BROWSERCLOSE = "browserClose"
     TIMEPERIOD = "timePeriod"
 

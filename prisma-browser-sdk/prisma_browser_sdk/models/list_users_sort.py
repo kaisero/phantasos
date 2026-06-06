@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListUsersSort(str, Enum):
+class ListUsersSort(LenientStrEnum):
     USER_EMAIL = "user.email"
     USER_FIRST_SEEN = "user.first_seen"
     USER_LAST_SEEN = "user.last_seen"

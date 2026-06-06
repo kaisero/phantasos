@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DnsOverHttpsControlType0FailureMode(str, Enum):
+class DnsOverHttpsControlType0FailureMode(LenientStrEnum):
     BLOCKONFAILURE = "blockOnFailure"
     FALLBACKTOPLAINDNS = "fallbackToPlainDns"
 

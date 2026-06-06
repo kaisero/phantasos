@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PluginEventMethod(str, Enum):
+class PluginEventMethod(LenientStrEnum):
     DELETE = "DELETE"
     GET = "GET"
     PATCH = "PATCH"

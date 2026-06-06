@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.list_application_plugins_response_200 import ListApplicationPluginsResponse200
 from ...models.list_application_plugins_response_400 import ListApplicationPluginsResponse400
 from ...types import Response
@@ -23,7 +22,7 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
+) -> Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
     if response.status_code == 200:
         response_200 = ListApplicationPluginsResponse200.from_dict(response.json())
 
@@ -35,13 +34,11 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -52,7 +49,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
+) -> Response[Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -64,7 +61,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
+) -> Response[Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
     """Returns a list of application plugins
 
     Raises:
@@ -72,7 +69,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]
+        Response[Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]
     """
 
     kwargs = _get_kwargs()
@@ -87,7 +84,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
+) -> Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
     """Returns a list of application plugins
 
     Raises:
@@ -95,7 +92,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400
+        Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400
     """
 
     return sync_detailed(
@@ -106,7 +103,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
+) -> Response[Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]:
     """Returns a list of application plugins
 
     Raises:
@@ -114,7 +111,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]
+        Response[Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400]
     """
 
     kwargs = _get_kwargs()
@@ -127,7 +124,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
+) -> Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400 | None:
     """Returns a list of application plugins
 
     Raises:
@@ -135,7 +132,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400
+        Any | ListApplicationPluginsResponse200 | ListApplicationPluginsResponse400
     """
 
     return (

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceStatus(str, Enum):
+class DeviceStatus(LenientStrEnum):
     ACTIVE = "active"
     ARCHIVED = "archived"
     SUSPENDED = "suspended"

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DefinitionUpdateTimeframe(str, Enum):
+class DefinitionUpdateTimeframe(LenientStrEnum):
     VALUE_0 = "1 week"
     VALUE_1 = "2 weeks"
     VALUE_2 = "3 weeks"

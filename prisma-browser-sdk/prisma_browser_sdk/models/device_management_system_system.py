@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceManagementSystemSystem(str, Enum):
+class DeviceManagementSystemSystem(LenientStrEnum):
     AD = "ad"
     AZUREAD = "azureAd"
     INTUNE = "intune"

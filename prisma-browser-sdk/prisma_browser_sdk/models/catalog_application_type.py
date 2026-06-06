@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class CatalogApplicationType(str, Enum):
+class CatalogApplicationType(LenientStrEnum):
     CATALOG = "catalog"
 
     def __str__(self) -> str:

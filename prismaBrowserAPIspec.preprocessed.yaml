@@ -106,16 +106,8 @@ paths:
                       $ref: '#/components/schemas/User'
         '400':
           description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/users/{id}:
     get:
       operationId: GetUserByID
@@ -138,10 +130,6 @@ paths:
                 $ref: '#/components/schemas/User'
         '404':
           description: User not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/users/suspend:
     post:
       operationId: SuspendUsers
@@ -173,10 +161,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more users not found
           content:
@@ -188,10 +172,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/users/resume:
     post:
       operationId: ResumeUsers
@@ -223,10 +203,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more users not found
           content:
@@ -238,10 +214,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/users/force-reauth:
     post:
       operationId: ForceReauthUsers
@@ -273,10 +245,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more users not found
           content:
@@ -288,10 +256,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices:
     get:
       operationId: ListDevices
@@ -410,16 +374,8 @@ paths:
                       $ref: '#/components/schemas/Device'
         '400':
           description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/{id}:
     get:
       operationId: GetDeviceByID
@@ -442,10 +398,6 @@ paths:
                 $ref: '#/components/schemas/Device'
         '404':
           description: Device not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/archive:
     post:
       operationId: ArchiveDevices
@@ -477,10 +429,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -492,10 +440,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/restore:
     post:
       operationId: RestoreDevices
@@ -527,10 +471,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -542,10 +482,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/suspend:
     post:
       operationId: SuspendDevices
@@ -577,10 +513,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -592,10 +524,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/resume:
     post:
       operationId: ResumeDevices
@@ -627,10 +555,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -642,10 +566,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/delete:
     post:
       operationId: DeleteDevices
@@ -677,10 +597,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -692,10 +608,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/devices/force-reauth:
     post:
       operationId: ForceReauthDevices
@@ -727,10 +639,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: One or more devices not found
           content:
@@ -742,10 +650,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/user-groups:
     get:
       operationId: ListUserGroups
@@ -791,16 +695,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     post:
       operationId: CreateUserGroup
       tags:
@@ -846,16 +742,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/user-groups/{id}:
     get:
       operationId: GetUserGroupByID
@@ -887,22 +775,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: User group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     put:
       operationId: UpdateUserGroup
       tags:
@@ -964,22 +840,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: User group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteUserGroup
       tags:
@@ -1014,22 +878,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: User group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications:
     get:
       operationId: ListApplications
@@ -1073,28 +925,12 @@ paths:
                     $ref: '#/components/schemas/PageInfo'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/type/{type}:
     get:
       operationId: ListApplicationsByType
@@ -1163,16 +999,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     post:
       operationId: CreateApplication
       tags:
@@ -1197,28 +1025,12 @@ paths:
           $ref: '#/components/responses/Created'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           $ref: '#/components/responses/Conflict'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/{id}:
     get:
       operationId: GetApplicationByID
@@ -1238,28 +1050,12 @@ paths:
                 $ref: '#/components/schemas/ApplicationItem'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteApplicationByID
       tags:
@@ -1273,28 +1069,12 @@ paths:
           $ref: '#/components/responses/Deleted'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/bulk-delete:
     post:
       operationId: BulkDeleteApplications
@@ -1324,28 +1104,12 @@ paths:
           $ref: '#/components/responses/Deleted'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/bulk-create/{type}:
     post:
       operationId: BulkCreateApplications
@@ -1375,28 +1139,12 @@ paths:
           $ref: '#/components/responses/BulkCreated'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           $ref: '#/components/responses/Conflict'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/type/{type}/{id}:
     get:
       operationId: GetApplicationByTypeAndID
@@ -1417,28 +1165,12 @@ paths:
                 $ref: '#/components/schemas/ApplicationItem'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteApplicationByTypeAndID
       tags:
@@ -1453,28 +1185,12 @@ paths:
           $ref: '#/components/responses/Deleted'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     patch:
       operationId: PatchApplicationByTypeAndID
       tags:
@@ -1500,34 +1216,14 @@ paths:
           $ref: '#/components/responses/Updated'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           $ref: '#/components/responses/Conflict'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/application-groups:
     get:
       operationId: ListApplicationGroups
@@ -1589,16 +1285,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     post:
       operationId: CreateApplicationGroup
       tags:
@@ -1616,28 +1304,12 @@ paths:
           $ref: '#/components/responses/Created'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           $ref: '#/components/responses/Conflict'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/application-groups/{id}:
     get:
       operationId: GetApplicationGroupByID
@@ -1666,22 +1338,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Application Group Not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteApplicationGroupByID
       tags:
@@ -1695,28 +1355,12 @@ paths:
           $ref: '#/components/responses/Deleted'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     patch:
       operationId: PatchApplicationGroupByID
       tags:
@@ -1736,34 +1380,14 @@ paths:
           $ref: '#/components/responses/Updated'
         '400':
           $ref: '#/components/responses/BadRequest'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           $ref: '#/components/responses/NotFound'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           $ref: '#/components/responses/Conflict'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/categories:
     get:
       operationId: ListApplicationCategories
@@ -1783,16 +1407,8 @@ paths:
                       type: string
         '403':
           $ref: '#/components/responses/Forbidden'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           $ref: '#/components/responses/InternalServerError'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/plugins:
     get:
       operationId: ListApplicationPlugins
@@ -1822,16 +1438,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/applications/{id}/plugins:
     get:
       operationId: GetApplicationPlugin
@@ -1863,22 +1471,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Plugin not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     post:
       operationId: CreateApplicationPlugin
       tags:
@@ -1924,22 +1520,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     put:
       operationId: UpdateApplicationPlugin
       tags:
@@ -1985,22 +1569,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Plugin not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteApplicationPlugin
       tags:
@@ -2035,22 +1607,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: User group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/device-groups:
     get:
       operationId: ListDeviceGroups
@@ -2154,16 +1714,8 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     post:
       operationId: CreateDeviceGroup
       tags:
@@ -2197,10 +1749,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           description: Conflict - device group already exists
           content:
@@ -2212,10 +1760,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/device-groups/{device-group-id}:
     get:
       operationId: GetDeviceGroupByID
@@ -2248,22 +1792,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Device group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     put:
       operationId: UpdateDeviceGroup
       tags:
@@ -2305,22 +1837,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Device group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     patch:
       operationId: PatchDeviceGroup
       tags:
@@ -2362,22 +1882,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Device group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
     delete:
       operationId: DeleteDeviceGroup
       tags:
@@ -2404,22 +1912,10 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '404':
           description: Device group not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
   /seb-api/v1/configuration-management/draft/publish:
     post:
       operationId: PublishDraftConfiguration
@@ -2451,10 +1947,6 @@ paths:
                     $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '409':
           description: Draft contains no changes, No Active version was created
           content:
@@ -2468,10 +1960,6 @@ paths:
                     example: No pending changes found in the current draft
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '501':
           description: Draft Mode is not supported
           content:
@@ -5195,16 +4683,8 @@ paths:
                       $ref: '#/components/schemas/UserRequest'
         '400':
           description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
       operationId: ListUserRequests
       tags:
       - User Requests
@@ -5227,10 +4707,6 @@ paths:
                 $ref: '#/components/schemas/UserRequest'
         '404':
           description: Request not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
       operationId: GetUserRequestByID
       tags:
       - User Requests
@@ -5259,10 +4735,6 @@ paths:
                 $ref: '#/components/schemas/UserRequest'
         '404':
           description: Request not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '400':
           description: Bad request
           content:
@@ -5271,16 +4743,8 @@ paths:
                 $ref: '#/components/schemas/RequestError'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
       operationId: ActionUserRequest
       tags:
       - User Requests
@@ -5309,10 +4773,6 @@ paths:
                 $ref: '#/components/schemas/UserRequest'
         '404':
           description: Request not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '400':
           description: Bad request
           content:
@@ -5321,16 +4781,8 @@ paths:
                 $ref: '#/components/schemas/RequestError'
         '403':
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
       operationId: RevokeUserRequest
       tags:
       - User Requests

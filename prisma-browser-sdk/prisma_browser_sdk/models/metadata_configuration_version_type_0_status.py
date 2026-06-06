@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class MetadataConfigurationVersionType0Status(str, Enum):
+class MetadataConfigurationVersionType0Status(LenientStrEnum):
     ACTIVE = "active"
     DRAFT = "draft"
     INACTIVE = "inactive"

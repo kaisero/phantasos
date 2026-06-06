@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class EnhancedTrackingProtectionControlType0Action(str, Enum):
+class EnhancedTrackingProtectionControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class UserGroupProvider(str, Enum):
+class UserGroupProvider(LenientStrEnum):
     LOCAL = "local"
     SSO = "sso"
 

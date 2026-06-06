@@ -9,6 +9,7 @@ Hand-maintained — lives in ``overlay/`` and is copied into
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..types import Response
@@ -104,12 +105,30 @@ def _exception_for_status(status_code: int) -> type[ApiException]:
     return ServerError
 
 
-def _extract_message(parsed: Any, response: Response[Any]) -> str:
-    """Pull a human-readable message out of an ApiError-shaped body.
+def _message_from_mapping(body: Any) -> str | None:
+    """Extract a message from a decoded JSON error body (dict)."""
+    if not isinstance(body, dict):
+        return None
+    nested = body.get("error")
+    if isinstance(nested, dict) and isinstance(nested.get("message"), str):
+        code = nested.get("code")
+        return f"{code}: {nested['message']}" if code else nested["message"]
+    for key in ("message", "detail", "title", "description"):
+        if isinstance(body.get(key), str) and body[key]:
+            return body[key]
+    if isinstance(nested, str) and nested:
+        return nested
+    return None
 
-    The spec's ApiError nests the message under ``error`` (``{error: {code,
-    message, ...}}``); we also handle flatter shapes and a plain-string ``error``.
+
+def _extract_message(parsed: Any, response: Response[Any]) -> str:
+    """Pull a human-readable message out of an error response.
+
+    Works whether the generated parser produced a typed object (``parsed``) or
+    ``None`` (the common case — most error bodies aren't typed). The spec's
+    ApiError nests the message under ``error`` (``{error: {code, message, ...}}``).
     """
+    # 1. Typed object from the generated parser.
     nested = getattr(parsed, "error", None)
     if nested is not None and not isinstance(nested, str):
         message = getattr(nested, "message", None)
@@ -121,8 +140,23 @@ def _extract_message(parsed: Any, response: Response[Any]) -> str:
         value = getattr(parsed, attr, None)
         if isinstance(value, str) and value:
             return value
-    body = (response.content or b"").decode("utf-8", "replace").strip()
-    return body[:500] or "request failed"
+
+    # 2. Tolerantly parse the raw body ourselves (parsed is usually None).
+    raw = response.content or b""
+    if raw:
+        try:
+            from_json = _message_from_mapping(json.loads(raw))
+            if from_json:
+                return from_json
+        except (ValueError, TypeError):
+            pass
+        text = raw.decode("utf-8", "replace").strip()
+        if text:
+            return text[:500]
+
+    # 3. Empty body — fall back to the HTTP status phrase.
+    phrase = getattr(response.status_code, "phrase", None)
+    return phrase or "request failed"
 
 
 def unwrap(response: Response[Any]) -> Any:

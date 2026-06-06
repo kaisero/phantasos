@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.device_restore_response import DeviceRestoreResponse
 from ...models.device_status_change_request import DeviceStatusChangeRequest
 from ...models.restore_devices_response_400 import RestoreDevicesResponse400
@@ -34,7 +33,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
+) -> Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
     if response.status_code == 200:
         response_200 = DeviceRestoreResponse.from_dict(response.json())
 
@@ -46,8 +45,7 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
@@ -56,8 +54,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -68,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
+) -> Response[Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> Response[ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
+) -> Response[Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
     """Restore archived devices
 
      Restore one or more archived devices by changing their status to active
@@ -94,7 +91,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]
+        Response[Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -112,7 +109,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
+) -> Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
     """Restore archived devices
 
      Restore one or more archived devices by changing their status to active
@@ -125,7 +122,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404
+        Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404
     """
 
     return sync_detailed(
@@ -138,7 +135,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> Response[ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
+) -> Response[Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]:
     """Restore archived devices
 
      Restore one or more archived devices by changing their status to active
@@ -151,7 +148,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]
+        Response[Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -167,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
+) -> Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404 | None:
     """Restore archived devices
 
      Restore one or more archived devices by changing their status to active
@@ -180,7 +177,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404
+        Any | DeviceRestoreResponse | RestoreDevicesResponse400 | RestoreDevicesResponse404
     """
 
     return (

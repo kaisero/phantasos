@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PatchApplicationByTypeAndIDType(str, Enum):
+class PatchApplicationByTypeAndIDType(LenientStrEnum):
     CATALOG = "catalog"
     CUSTOM = "custom"
     LOCALDESKTOPCUSTOM = "localdesktopcustom"

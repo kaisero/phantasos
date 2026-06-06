@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AuthenticationFactorIdentityProviderControlMethod(str, Enum):
+class AuthenticationFactorIdentityProviderControlMethod(LenientStrEnum):
     IDENTITYPROVIDER = "identityProvider"
 
     def __str__(self) -> str:

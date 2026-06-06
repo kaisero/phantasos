@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class OpenLinksInExternalAppsControlType0Action(str, Enum):
+class OpenLinksInExternalAppsControlType0Action(LenientStrEnum):
     ALLOWSPECIFICAPPS = "allowSpecificApps"
     ALWAYSALLOW = "alwaysAllow"
     ALWAYSBLOCK = "alwaysBlock"

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class LaunchingExternalApplicationsControlType0Action(str, Enum):
+class LaunchingExternalApplicationsControlType0Action(LenientStrEnum):
     ALWAYSALLOW = "alwaysAllow"
     ALWAYSBLOCK = "alwaysBlock"
     ASKUSER = "askUser"

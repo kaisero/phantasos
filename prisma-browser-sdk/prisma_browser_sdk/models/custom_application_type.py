@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class CustomApplicationType(str, Enum):
+class CustomApplicationType(LenientStrEnum):
     CUSTOM = "custom"
 
     def __str__(self) -> str:

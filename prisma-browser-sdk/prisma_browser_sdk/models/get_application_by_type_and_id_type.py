@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class GetApplicationByTypeAndIDType(str, Enum):
+class GetApplicationByTypeAndIDType(LenientStrEnum):
     CATALOG = "catalog"
     CUSTOM = "custom"
     LOCALDESKTOPCUSTOM = "localdesktopcustom"

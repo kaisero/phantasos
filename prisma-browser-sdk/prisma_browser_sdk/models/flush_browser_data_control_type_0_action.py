@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class FlushBrowserDataControlType0Action(str, Enum):
+class FlushBrowserDataControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

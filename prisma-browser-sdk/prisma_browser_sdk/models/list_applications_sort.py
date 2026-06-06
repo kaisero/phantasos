@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListApplicationsSort(str, Enum):
+class ListApplicationsSort(LenientStrEnum):
     APPLICATION_CREATE_TIME = "application.create_time"
     APPLICATION_ID = "application.id"
     APPLICATION_NAME = "application.name"

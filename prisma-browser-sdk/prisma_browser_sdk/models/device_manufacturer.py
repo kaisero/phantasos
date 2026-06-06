@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceManufacturer(str, Enum):
+class DeviceManufacturer(LenientStrEnum):
     ACER = "Acer"
     APPLE = "Apple"
     ASUS = "Asus"

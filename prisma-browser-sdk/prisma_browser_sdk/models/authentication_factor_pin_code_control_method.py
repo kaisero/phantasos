@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AuthenticationFactorPinCodeControlMethod(str, Enum):
+class AuthenticationFactorPinCodeControlMethod(LenientStrEnum):
     PINCODE = "pinCode"
 
     def __str__(self) -> str:

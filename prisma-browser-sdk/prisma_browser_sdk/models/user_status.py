@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class UserStatus(str, Enum):
+class UserStatus(LenientStrEnum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
 

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class WebRtcControlType0Action(str, Enum):
+class WebRtcControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

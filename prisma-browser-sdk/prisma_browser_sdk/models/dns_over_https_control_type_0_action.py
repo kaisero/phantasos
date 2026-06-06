@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DnsOverHttpsControlType0Action(str, Enum):
+class DnsOverHttpsControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

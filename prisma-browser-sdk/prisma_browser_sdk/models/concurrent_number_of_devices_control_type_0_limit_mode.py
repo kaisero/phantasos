@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ConcurrentNumberOfDevicesControlType0LimitMode(str, Enum):
+class ConcurrentNumberOfDevicesControlType0LimitMode(LenientStrEnum):
     BYDEVICETYPE = "byDeviceType"
     BYTOTALDEVICES = "byTotalDevices"
 

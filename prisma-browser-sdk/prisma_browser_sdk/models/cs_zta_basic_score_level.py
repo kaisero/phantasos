@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class CsZtaBasicScoreLevel(str, Enum):
+class CsZtaBasicScoreLevel(LenientStrEnum):
     ANY = "Any"
     LOW = "Low"
     MEDIUM = "Medium"

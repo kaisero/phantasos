@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceOsType(str, Enum):
+class DeviceOsType(LenientStrEnum):
     ANDROID = "android"
     IOS = "ios"
     LINUX = "linux"

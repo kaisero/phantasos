@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AllowedPrintersControlType0Action(str, Enum):
+class AllowedPrintersControlType0Action(LenientStrEnum):
     ALLOWANY = "allowAny"
     ALLOWSPECIFIC = "allowSpecific"
 

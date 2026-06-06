@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AllowedOrBlockedExtensionsControlType0RiskLevel(str, Enum):
+class AllowedOrBlockedExtensionsControlType0RiskLevel(LenientStrEnum):
     HIGH = "high"
     MALICIOUS = "malicious"
     MEDIUM = "medium"

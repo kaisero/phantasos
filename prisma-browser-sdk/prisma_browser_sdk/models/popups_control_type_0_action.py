@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PopupsControlType0Action(str, Enum):
+class PopupsControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

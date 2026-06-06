@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BrowserBrand(str, Enum):
+class BrowserBrand(LenientStrEnum):
     ARC = "Arc"
     BRAVE = "Brave"
     CHROME = "Chrome"

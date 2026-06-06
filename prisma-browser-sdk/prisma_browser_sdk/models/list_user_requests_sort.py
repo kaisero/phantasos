@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListUserRequestsSort(str, Enum):
+class ListUserRequestsSort(LenientStrEnum):
     REQUEST_CREATED_AT = "request.created_at"
     REQUEST_RESPONSE_TIME = "request.response_time"
     REQUEST_STATUS = "request.status"

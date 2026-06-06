@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BrowserSelfProtectionWindowsDriverStatus(str, Enum):
+class BrowserSelfProtectionWindowsDriverStatus(LenientStrEnum):
     INACTIVE = "Inactive"
     PROTECTED = "Protected"
     UNKNOWN = "Unknown"

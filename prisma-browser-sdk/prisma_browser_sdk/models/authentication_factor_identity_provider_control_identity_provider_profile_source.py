@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AuthenticationFactorIdentityProviderControlIdentityProviderProfileSource(str, Enum):
+class AuthenticationFactorIdentityProviderControlIdentityProviderProfileSource(LenientStrEnum):
     CUSTOM = "custom"
     USECONFIGUREDAUTHPROFILE = "useConfiguredAuthProfile"
 

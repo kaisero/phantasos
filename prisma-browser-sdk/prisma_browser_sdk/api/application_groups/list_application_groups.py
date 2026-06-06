@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.list_application_groups_response_200 import ListApplicationGroupsResponse200
 from ...models.list_application_groups_response_400 import ListApplicationGroupsResponse400
 from ...models.list_application_groups_sort import ListApplicationGroupsSort
@@ -58,7 +57,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
+) -> Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
     if response.status_code == 200:
         response_200 = ListApplicationGroupsResponse200.from_dict(response.json())
 
@@ -70,13 +69,11 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -87,7 +84,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
+) -> Response[Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -105,7 +102,7 @@ def sync_detailed(
     limit: int | Unset = UNSET,
     sort: ListApplicationGroupsSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> Response[ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
+) -> Response[Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
     """Returns a list of application groups
 
      Fetches all application groups with support for name-based filtering and sorting.
@@ -123,7 +120,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]
+        Response[Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -151,7 +148,7 @@ def sync(
     limit: int | Unset = UNSET,
     sort: ListApplicationGroupsSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
+) -> Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
     """Returns a list of application groups
 
      Fetches all application groups with support for name-based filtering and sorting.
@@ -169,7 +166,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400
+        Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400
     """
 
     return sync_detailed(
@@ -192,7 +189,7 @@ async def asyncio_detailed(
     limit: int | Unset = UNSET,
     sort: ListApplicationGroupsSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> Response[ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
+) -> Response[Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]:
     """Returns a list of application groups
 
      Fetches all application groups with support for name-based filtering and sorting.
@@ -210,7 +207,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]
+        Response[Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -236,7 +233,7 @@ async def asyncio(
     limit: int | Unset = UNSET,
     sort: ListApplicationGroupsSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
+) -> Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400 | None:
     """Returns a list of application groups
 
      Fetches all application groups with support for name-based filtering and sorting.
@@ -254,7 +251,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400
+        Any | ListApplicationGroupsResponse200 | ListApplicationGroupsResponse400
     """
 
     return (

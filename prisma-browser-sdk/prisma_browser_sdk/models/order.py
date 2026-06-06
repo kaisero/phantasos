@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class Order(str, Enum):
+class Order(LenientStrEnum):
     ASC = "asc"
     DESC = "desc"
 

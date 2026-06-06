@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListUserRequestsRequestStatus(str, Enum):
+class ListUserRequestsRequestStatus(LenientStrEnum):
     APPROVED = "Approved"
     DECLINED = "Declined"
     PENDING = "Pending"

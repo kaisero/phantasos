@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PostQuantumKeySecurityControlType0Action(str, Enum):
+class PostQuantumKeySecurityControlType0Action(LenientStrEnum):
     DEFAULT = "default"
     DISABLE = "disable"
     ENABLE = "enable"

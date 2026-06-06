@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AuthenticationServerAllowlistControlType0Action(str, Enum):
+class AuthenticationServerAllowlistControlType0Action(LenientStrEnum):
     ALLOWLIST = "allowList"
     UNSET = "unset"
 

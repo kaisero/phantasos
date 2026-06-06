@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class UserProvider(str, Enum):
+class UserProvider(LenientStrEnum):
     LOCAL = "local"
     OIDC = "oidc"
     SAML = "saml"

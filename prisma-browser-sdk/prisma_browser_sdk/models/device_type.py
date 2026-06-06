@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceType(str, Enum):
+class DeviceType(LenientStrEnum):
     CHROMEBOOK = "chromebook"
     DESKTOP = "desktop"
     LAPTOP = "laptop"

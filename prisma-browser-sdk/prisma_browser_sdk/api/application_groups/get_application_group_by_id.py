@@ -1,12 +1,11 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.application_group import ApplicationGroup
 from ...models.get_application_group_by_id_response_400 import GetApplicationGroupByIDResponse400
 from ...types import UNSET, Response, Unset
@@ -37,7 +36,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
+) -> Any | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
     if response.status_code == 200:
         response_200 = ApplicationGroup.from_dict(response.json())
 
@@ -49,18 +48,15 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
-        response_404 = ApiError.from_dict(response.json())
-
+        response_404 = cast(Any, None)
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -71,7 +67,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400]:
+) -> Response[Any | ApplicationGroup | GetApplicationGroupByIDResponse400]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -85,7 +81,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     configuration_version: str | Unset = "draft",
-) -> Response[ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400]:
+) -> Response[Any | ApplicationGroup | GetApplicationGroupByIDResponse400]:
     """Returns an application group
 
      Fetches a single application group by its unique ID.
@@ -99,7 +95,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400]
+        Response[Any | ApplicationGroup | GetApplicationGroupByIDResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -119,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     configuration_version: str | Unset = "draft",
-) -> ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
+) -> Any | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
     """Returns an application group
 
      Fetches a single application group by its unique ID.
@@ -133,7 +129,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400
+        Any | ApplicationGroup | GetApplicationGroupByIDResponse400
     """
 
     return sync_detailed(
@@ -148,7 +144,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     configuration_version: str | Unset = "draft",
-) -> Response[ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400]:
+) -> Response[Any | ApplicationGroup | GetApplicationGroupByIDResponse400]:
     """Returns an application group
 
      Fetches a single application group by its unique ID.
@@ -162,7 +158,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400]
+        Response[Any | ApplicationGroup | GetApplicationGroupByIDResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -180,7 +176,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     configuration_version: str | Unset = "draft",
-) -> ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
+) -> Any | ApplicationGroup | GetApplicationGroupByIDResponse400 | None:
     """Returns an application group
 
      Fetches a single application group by its unique ID.
@@ -194,7 +190,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ApplicationGroup | GetApplicationGroupByIDResponse400
+        Any | ApplicationGroup | GetApplicationGroupByIDResponse400
     """
 
     return (

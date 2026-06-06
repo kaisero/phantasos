@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PrivateTypeInput(str, Enum):
+class PrivateTypeInput(LenientStrEnum):
     PRIVATE = "private"
 
     def __str__(self) -> str:

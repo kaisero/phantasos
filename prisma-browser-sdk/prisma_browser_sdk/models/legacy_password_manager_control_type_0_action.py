@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class LegacyPasswordManagerControlType0Action(str, Enum):
+class LegacyPasswordManagerControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

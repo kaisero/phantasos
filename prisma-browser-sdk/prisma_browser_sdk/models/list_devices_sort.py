@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListDevicesSort(str, Enum):
+class ListDevicesSort(LenientStrEnum):
     DEVICE_BROWSER_VERSION = "device.browser_version"
     DEVICE_FIRST_SEEN = "device.first_seen"
     DEVICE_HOSTNAME = "device.hostname"

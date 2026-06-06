@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RequestActionAction(str, Enum):
+class RequestActionAction(LenientStrEnum):
     APPROVE = "approve"
     DECLINE = "decline"
 

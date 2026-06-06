@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class NotificationsControlType0Action(str, Enum):
+class NotificationsControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

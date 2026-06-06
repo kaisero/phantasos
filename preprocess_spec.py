@@ -11,9 +11,9 @@ Addresses the review findings:
   2 (Critical) SecurityControls.from_dict crash — 4 control schemas dropped on a
     duplicate-model-name bug (nullable object + nested inline array-of-object).
     Fix: hoist the nested inline `items` objects into named top-level components.
-  4 (partial — errors) Inconsistent 4xx/5xx handling — many error responses have no
-    schema, so the generator returns None. Fix: attach the ApiError schema to every
-    error response that lacks `content`.
+  4 (errors) Inconsistent 4xx/5xx handling is handled in the OVERLAY (unwrap + typed
+    exceptions), NOT here — forcing ApiError onto every error response made the
+    generator crash on empty error bodies (e.g. an empty 404). See note below.
   5 (Low/Med) Mojibake enum values + 4 untagged operations.
     Fix: repair mis-decoded UTF-8 strings (+ dedupe resulting enum members) and add
     tags/operationId to the User Requests operations.
@@ -42,7 +42,6 @@ yaml.indent(mapping=2, sequence=2, offset=0)
 stats = {
     "allof_collapsed": 0,
     "items_hoisted": 0,
-    "errors_filled": 0,
     "mojibake_fixed": 0,
     "enum_dups_removed": 0,
     "ops_tagged": 0,
@@ -144,24 +143,12 @@ def hoist_items(schemas):
         stats["items_hoisted"] += 1
 
 
-# ---- Fix 4 (errors): attach ApiError to error responses lacking content ----------
-def fill_error_responses(spec):
-    if "ApiError" not in spec.get("components", {}).get("schemas", {}):
-        print("  WARN: ApiError schema missing; skipping error-response fill", file=sys.stderr)
-        return
-    api_error = {"application/json": {"schema": {"$ref": "#/components/schemas/ApiError"}}}
-    for path_item in spec.get("paths", {}).values():
-        if not isinstance(path_item, dict):
-            continue
-        for method, op in path_item.items():
-            if method not in ("get", "post", "put", "patch", "delete"):
-                continue
-            for status, resp in op.get("responses", {}).items():
-                s = str(status)
-                if (s.startswith("4") or s.startswith("5")) and isinstance(resp, dict):
-                    if "content" not in resp:
-                        resp["content"] = copy.deepcopy(api_error)
-                        stats["errors_filled"] += 1
+# Fix 4 (errors) is intentionally NOT done here. Forcing an ApiError schema onto
+# every 4xx/5xx response made the generator call response.json() on error bodies
+# that are actually empty (e.g. a 404 with no body), crashing deserialization in
+# the generated code before any caller can react. Consistent, robust error
+# handling is provided instead by the overlay's `unwrap()` + typed ApiException
+# hierarchy, which raises from the status code and parses the body tolerantly.
 
 
 # ---- Fix 5a: repair mojibake strings + dedupe enums ------------------------------
@@ -232,8 +219,6 @@ def main():
     collapse_allof(schemas, spec)
     # Fix 2
     hoist_items(schemas)
-    # Fix 4 (errors)
-    fill_error_responses(spec)
     # Fix 5a
     walk_fix_strings(spec)
     # Fix 5b

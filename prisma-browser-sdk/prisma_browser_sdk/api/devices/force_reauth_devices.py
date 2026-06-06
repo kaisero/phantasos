@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.device_force_reauth_response import DeviceForceReauthResponse
 from ...models.device_status_change_request import DeviceStatusChangeRequest
 from ...models.force_reauth_devices_response_400 import ForceReauthDevicesResponse400
@@ -34,7 +33,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
+) -> Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
     if response.status_code == 200:
         response_200 = DeviceForceReauthResponse.from_dict(response.json())
 
@@ -46,8 +45,7 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
@@ -56,8 +54,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -68,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
+) -> Response[Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> Response[ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
+) -> Response[Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
     """Force re-authentication for devices
 
      Force re-authentication on one or more specific devices. Upon execution, targeted devices will
@@ -95,7 +92,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]
+        Response[Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -113,7 +110,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
+) -> Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
     """Force re-authentication for devices
 
      Force re-authentication on one or more specific devices. Upon execution, targeted devices will
@@ -127,7 +124,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404
+        Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404
     """
 
     return sync_detailed(
@@ -140,7 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> Response[ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
+) -> Response[Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]:
     """Force re-authentication for devices
 
      Force re-authentication on one or more specific devices. Upon execution, targeted devices will
@@ -154,7 +151,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]
+        Response[Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404]
     """
 
     kwargs = _get_kwargs(
@@ -170,7 +167,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: DeviceStatusChangeRequest,
-) -> ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
+) -> Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404 | None:
     """Force re-authentication for devices
 
      Force re-authentication on one or more specific devices. Upon execution, targeted devices will
@@ -184,7 +181,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404
+        Any | DeviceForceReauthResponse | ForceReauthDevicesResponse400 | ForceReauthDevicesResponse404
     """
 
     return (

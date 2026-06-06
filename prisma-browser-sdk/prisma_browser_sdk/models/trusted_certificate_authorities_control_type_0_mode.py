@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class TrustedCertificateAuthoritiesControlType0Mode(str, Enum):
+class TrustedCertificateAuthoritiesControlType0Mode(LenientStrEnum):
     DEVICETRUSTSTORE = "deviceTrustStore"
     NONE = "none"
     PRISMABROWSERTRUSTSTORE = "prismaBrowserTrustStore"

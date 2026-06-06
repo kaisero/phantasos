@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceGroupPlatform(str, Enum):
+class DeviceGroupPlatform(LenientStrEnum):
     BROWSER_EXTENSION = "Browser Extension"
     CHROMEBOOK = "Chromebook"
     DESKTOP_BROWSER = "Desktop Browser"

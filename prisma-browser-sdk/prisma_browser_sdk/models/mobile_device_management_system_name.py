@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class MobileDeviceManagementSystemName(str, Enum):
+class MobileDeviceManagementSystemName(LenientStrEnum):
     JAMF = "Jamf"
     MICROSOFT_INTUNE = "Microsoft Intune"
     OTHER = "Other"

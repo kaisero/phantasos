@@ -1,12 +1,11 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.get_application_plugin_response_400 import GetApplicationPluginResponse400
 from ...models.plugin_response import PluginResponse
 from ...types import Response
@@ -28,7 +27,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | GetApplicationPluginResponse400 | PluginResponse | None:
+) -> Any | GetApplicationPluginResponse400 | PluginResponse | None:
     if response.status_code == 200:
         response_200 = PluginResponse.from_dict(response.json())
 
@@ -40,18 +39,15 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
-        response_404 = ApiError.from_dict(response.json())
-
+        response_404 = cast(Any, None)
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -62,7 +58,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | GetApplicationPluginResponse400 | PluginResponse]:
+) -> Response[Any | GetApplicationPluginResponse400 | PluginResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -75,7 +71,7 @@ def sync_detailed(
     id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ApiError | GetApplicationPluginResponse400 | PluginResponse]:
+) -> Response[Any | GetApplicationPluginResponse400 | PluginResponse]:
     """Returns the plugin associated with the application ID
 
     Args:
@@ -86,7 +82,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | GetApplicationPluginResponse400 | PluginResponse]
+        Response[Any | GetApplicationPluginResponse400 | PluginResponse]
     """
 
     kwargs = _get_kwargs(
@@ -104,7 +100,7 @@ def sync(
     id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> ApiError | GetApplicationPluginResponse400 | PluginResponse | None:
+) -> Any | GetApplicationPluginResponse400 | PluginResponse | None:
     """Returns the plugin associated with the application ID
 
     Args:
@@ -115,7 +111,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | GetApplicationPluginResponse400 | PluginResponse
+        Any | GetApplicationPluginResponse400 | PluginResponse
     """
 
     return sync_detailed(
@@ -128,7 +124,7 @@ async def asyncio_detailed(
     id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ApiError | GetApplicationPluginResponse400 | PluginResponse]:
+) -> Response[Any | GetApplicationPluginResponse400 | PluginResponse]:
     """Returns the plugin associated with the application ID
 
     Args:
@@ -139,7 +135,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | GetApplicationPluginResponse400 | PluginResponse]
+        Response[Any | GetApplicationPluginResponse400 | PluginResponse]
     """
 
     kwargs = _get_kwargs(
@@ -155,7 +151,7 @@ async def asyncio(
     id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> ApiError | GetApplicationPluginResponse400 | PluginResponse | None:
+) -> Any | GetApplicationPluginResponse400 | PluginResponse | None:
     """Returns the plugin associated with the application ID
 
     Args:
@@ -166,7 +162,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | GetApplicationPluginResponse400 | PluginResponse
+        Any | GetApplicationPluginResponse400 | PluginResponse
     """
 
     return (

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class KeyloggingProtectionControlType0Action(str, Enum):
+class KeyloggingProtectionControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

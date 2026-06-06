@@ -1,12 +1,11 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.create_application_plugin_body import CreateApplicationPluginBody
 from ...models.create_application_plugin_response_201 import CreateApplicationPluginResponse201
 from ...models.create_application_plugin_response_400 import CreateApplicationPluginResponse400
@@ -37,7 +36,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
+) -> Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
     if response.status_code == 201:
         response_201 = CreateApplicationPluginResponse201.from_dict(response.json())
 
@@ -49,18 +48,15 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 409:
-        response_409 = ApiError.from_dict(response.json())
-
+        response_409 = cast(Any, None)
         return response_409
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -71,7 +67,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
+) -> Response[Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -85,7 +81,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApplicationPluginBody,
-) -> Response[ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
+) -> Response[Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
     """Creates a new plugin associated with the application ID
 
     Args:
@@ -97,7 +93,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]
+        Response[Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -117,7 +113,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApplicationPluginBody,
-) -> ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
+) -> Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
     """Creates a new plugin associated with the application ID
 
     Args:
@@ -129,7 +125,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400
+        Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400
     """
 
     return sync_detailed(
@@ -144,7 +140,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApplicationPluginBody,
-) -> Response[ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
+) -> Response[Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]:
     """Creates a new plugin associated with the application ID
 
     Args:
@@ -156,7 +152,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]
+        Response[Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400]
     """
 
     kwargs = _get_kwargs(
@@ -174,7 +170,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApplicationPluginBody,
-) -> ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
+) -> Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400 | None:
     """Creates a new plugin associated with the application ID
 
     Args:
@@ -186,7 +182,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400
+        Any | CreateApplicationPluginResponse201 | CreateApplicationPluginResponse400
     """
 
     return (

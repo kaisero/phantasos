@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PluginEventEventType(str, Enum):
+class PluginEventEventType(LenientStrEnum):
     LOGINATTEMPT = "loginAttempt"
     LOGINFAIL = "loginFail"
     PASSWORDRESET = "passwordReset"

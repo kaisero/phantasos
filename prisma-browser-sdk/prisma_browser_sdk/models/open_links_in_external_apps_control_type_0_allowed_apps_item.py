@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class OpenLinksInExternalAppsControlType0AllowedAppsItem(str, Enum):
+class OpenLinksInExternalAppsControlType0AllowedAppsItem(LenientStrEnum):
     GMAIL = "gmail"
     GOOGLEDOCS = "googleDocs"
     GOOGLEDRIVE = "googleDrive"

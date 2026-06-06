@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceScreenLockStatus(str, Enum):
+class DeviceScreenLockStatus(LenientStrEnum):
     SCREENLOCKSTATUSDISABLED = "ScreenLockStatusDisabled"
     SCREENLOCKSTATUSENABLED = "ScreenLockStatusEnabled"
     SCREENLOCKSTATUSUNKNOWN = "ScreenLockStatusUnknown"

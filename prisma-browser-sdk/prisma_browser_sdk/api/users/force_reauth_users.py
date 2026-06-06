@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.force_reauth_users_response_400 import ForceReauthUsersResponse400
 from ...models.force_reauth_users_response_404 import ForceReauthUsersResponse404
 from ...models.user_force_reauth_response import UserForceReauthResponse
@@ -34,7 +33,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
+) -> Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
     if response.status_code == 200:
         response_200 = UserForceReauthResponse.from_dict(response.json())
 
@@ -46,8 +45,7 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
@@ -56,8 +54,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -68,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
+) -> Response[Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> Response[ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
+) -> Response[Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
     """Force re-authentication for users
 
      Force re-authentication on all active devices for one or more users. Upon execution, targeted users
@@ -95,7 +92,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]
+        Response[Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]
     """
 
     kwargs = _get_kwargs(
@@ -113,7 +110,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
+) -> Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
     """Force re-authentication for users
 
      Force re-authentication on all active devices for one or more users. Upon execution, targeted users
@@ -127,7 +124,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse
+        Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse
     """
 
     return sync_detailed(
@@ -140,7 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> Response[ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
+) -> Response[Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]:
     """Force re-authentication for users
 
      Force re-authentication on all active devices for one or more users. Upon execution, targeted users
@@ -154,7 +151,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]
+        Response[Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse]
     """
 
     kwargs = _get_kwargs(
@@ -170,7 +167,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
+) -> Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse | None:
     """Force re-authentication for users
 
      Force re-authentication on all active devices for one or more users. Upon execution, targeted users
@@ -184,7 +181,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse
+        Any | ForceReauthUsersResponse400 | ForceReauthUsersResponse404 | UserForceReauthResponse
     """
 
     return (

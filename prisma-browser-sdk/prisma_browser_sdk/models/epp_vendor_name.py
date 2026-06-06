@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class EppVendorName(str, Enum):
+class EppVendorName(LenientStrEnum):
     ACRONIS = "Acronis"
     ADAWARE = "adaware"
     AGNITUM_LTD = "Agnitum Ltd."

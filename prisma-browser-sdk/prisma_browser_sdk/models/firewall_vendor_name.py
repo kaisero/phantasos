@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class FirewallVendorName(str, Enum):
+class FirewallVendorName(LenientStrEnum):
     ACTIPACE_PRIVATE_LIMITED = "Actipace Private Limited"
     ADAWARE = "adaware"
     AGNITUM_LTD = "Agnitum Ltd."

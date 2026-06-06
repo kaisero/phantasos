@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BulkCreateApplicationsType(str, Enum):
+class BulkCreateApplicationsType(LenientStrEnum):
     CATALOG = "catalog"
     CUSTOM = "custom"
     LOCALDESKTOPCUSTOM = "localdesktopcustom"

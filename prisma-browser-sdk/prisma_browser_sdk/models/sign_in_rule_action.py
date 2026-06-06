@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class SignInRuleAction(str, Enum):
+class SignInRuleAction(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
     PROMPT = "prompt"

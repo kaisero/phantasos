@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class NonWebApplicationType(str, Enum):
+class NonWebApplicationType(LenientStrEnum):
     NON_WEB = "non-web"
 
     def __str__(self) -> str:

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AllowBlockControlType0Action(str, Enum):
+class AllowBlockControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

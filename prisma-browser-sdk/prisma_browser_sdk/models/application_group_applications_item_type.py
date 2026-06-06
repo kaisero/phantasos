@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ApplicationGroupApplicationsItemType(str, Enum):
+class ApplicationGroupApplicationsItemType(LenientStrEnum):
     CATALOG = "catalog"
     CUSTOM = "custom"
     DESKTOP = "desktop"

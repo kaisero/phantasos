@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RestrictExtensionHostPermissionsControlType0Action(str, Enum):
+class RestrictExtensionHostPermissionsControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
     ENABLEFORSPECIFICDOMAINS = "enableForSpecificDomains"

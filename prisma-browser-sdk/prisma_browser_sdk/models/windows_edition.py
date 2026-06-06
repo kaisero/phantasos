@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class WindowsEdition(str, Enum):
+class WindowsEdition(LenientStrEnum):
     EDUCATION = "Education"
     ENTERPRISE = "Enterprise"
     HOME = "Home"

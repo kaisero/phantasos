@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AuthenticationFactorPasskeyControlMethod(str, Enum):
+class AuthenticationFactorPasskeyControlMethod(LenientStrEnum):
     PASSKEY = "passkey"
 
     def __str__(self) -> str:

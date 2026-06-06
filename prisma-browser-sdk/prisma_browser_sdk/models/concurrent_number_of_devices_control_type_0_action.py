@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ConcurrentNumberOfDevicesControlType0Action(str, Enum):
+class ConcurrentNumberOfDevicesControlType0Action(LenientStrEnum):
     LIMITED = "limited"
     UNLIMITED = "unlimited"
 

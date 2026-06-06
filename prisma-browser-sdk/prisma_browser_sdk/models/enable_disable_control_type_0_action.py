@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class EnableDisableControlType0Action(str, Enum):
+class EnableDisableControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

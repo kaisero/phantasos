@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class CustomTypeInput(str, Enum):
+class CustomTypeInput(LenientStrEnum):
     CUSTOM = "custom"
 
     def __str__(self) -> str:

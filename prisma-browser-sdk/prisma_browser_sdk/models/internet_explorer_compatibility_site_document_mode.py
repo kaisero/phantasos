@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class InternetExplorerCompatibilitySiteDocumentMode(str, Enum):
+class InternetExplorerCompatibilitySiteDocumentMode(LenientStrEnum):
     IE10 = "IE10"
     IE10_EDGE = "IE10 Edge"
     IE11 = "IE11"

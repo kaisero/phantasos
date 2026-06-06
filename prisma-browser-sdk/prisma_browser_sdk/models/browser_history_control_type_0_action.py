@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BrowserHistoryControlType0Action(str, Enum):
+class BrowserHistoryControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
     PREVENTDELETION = "preventDeletion"

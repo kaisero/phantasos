@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListApplicationGroupsSort(str, Enum):
+class ListApplicationGroupsSort(LenientStrEnum):
     APPLICATION_GROUP_CREATE_TIME = "application_group.create_time"
     APPLICATION_GROUP_ID = "application_group.id"
     APPLICATION_GROUP_NAME = "application_group.name"

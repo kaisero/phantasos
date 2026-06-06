@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class LocalDesktopTypeInput(str, Enum):
+class LocalDesktopTypeInput(LenientStrEnum):
     LOCALDESKTOPCUSTOM = "localdesktopcustom"
 
     def __str__(self) -> str:

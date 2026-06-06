@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceBrowserBrand(str, Enum):
+class DeviceBrowserBrand(LenientStrEnum):
     ARC = "Arc"
     BRAVE = "Brave"
     CHROME = "Chrome"

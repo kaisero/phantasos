@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class NativeMessagingHostsControlType0Action(str, Enum):
+class NativeMessagingHostsControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     ALLOWADMININSTALLEDONLY = "allowAdminInstalledOnly"
     BLOCK = "block"

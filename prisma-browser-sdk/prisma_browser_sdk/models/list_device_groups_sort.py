@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ListDeviceGroupsSort(str, Enum):
+class ListDeviceGroupsSort(LenientStrEnum):
     DEVICEGROUP_CREATED_AT = "deviceGroup.created_at"
     DEVICEGROUP_NAME = "deviceGroup.name"
     DEVICEGROUP_PLATFORM = "deviceGroup.platform"

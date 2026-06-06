@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BlockExtensionsByPermissionsControlType0BlockedPermissionsItem(str, Enum):
+class BlockExtensionsByPermissionsControlType0BlockedPermissionsItem(LenientStrEnum):
     ACTIVETAB = "activeTab"
     ALARMS = "alarms"
     AUDIOCAPTURE = "audioCapture"

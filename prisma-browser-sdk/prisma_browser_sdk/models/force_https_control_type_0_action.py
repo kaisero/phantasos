@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ForceHttpsControlType0Action(str, Enum):
+class ForceHttpsControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

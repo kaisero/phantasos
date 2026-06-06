@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class Locations(str, Enum):
+class Locations(LenientStrEnum):
     AD = "AD"
     AE = "AE"
     AF = "AF"

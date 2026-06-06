@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class UpdateUserGroupBodyUsersItemAction(str, Enum):
+class UpdateUserGroupBodyUsersItemAction(LenientStrEnum):
     ADD = "add"
     REMOVE = "remove"
 

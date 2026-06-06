@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class SectionType(str, Enum):
+class SectionType(LenientStrEnum):
     SECTION = "Section"
 
     def __str__(self) -> str:

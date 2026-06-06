@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RuleMode(str, Enum):
+class RuleMode(LenientStrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"
     MONITOR = "monitor"

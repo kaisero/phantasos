@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class LinuxDistro(str, Enum):
+class LinuxDistro(LenientStrEnum):
     FEDORA = "Fedora"
     IGEL = "Igel"
     UBUNTU = "Ubuntu"

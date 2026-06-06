@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PositionMoveSubjectType(str, Enum):
+class PositionMoveSubjectType(LenientStrEnum):
     RULE = "Rule"
     SECTION = "Section"
 

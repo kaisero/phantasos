@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PositionMoveTargetAnchorType(str, Enum):
+class PositionMoveTargetAnchorType(LenientStrEnum):
     RULE = "Rule"
     SECTION = "Section"
 

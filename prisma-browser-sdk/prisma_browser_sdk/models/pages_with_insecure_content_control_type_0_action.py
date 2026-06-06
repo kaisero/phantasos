@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PagesWithInsecureContentControlType0Action(str, Enum):
+class PagesWithInsecureContentControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
 

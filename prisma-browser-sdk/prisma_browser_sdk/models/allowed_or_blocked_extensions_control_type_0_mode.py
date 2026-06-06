@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class AllowedOrBlockedExtensionsControlType0Mode(str, Enum):
+class AllowedOrBlockedExtensionsControlType0Mode(LenientStrEnum):
     ALLOWALL = "allowAll"
     ALLOWBYLIST = "allowByList"
     BLOCKALL = "blockAll"

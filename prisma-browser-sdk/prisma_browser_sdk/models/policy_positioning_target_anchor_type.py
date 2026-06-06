@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PolicyPositioningTargetAnchorType(str, Enum):
+class PolicyPositioningTargetAnchorType(LenientStrEnum):
     RULE = "Rule"
     SECTION = "Section"
 

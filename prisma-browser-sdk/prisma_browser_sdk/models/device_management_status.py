@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceManagementStatus(str, Enum):
+class DeviceManagementStatus(LenientStrEnum):
     MANAGED = "managed"
     UNMANAGED = "unmanaged"
 

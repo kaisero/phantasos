@@ -1,11 +1,10 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.suspend_users_response_400 import SuspendUsersResponse400
 from ...models.suspend_users_response_404 import SuspendUsersResponse404
 from ...models.user_status_change_request import UserStatusChangeRequest
@@ -34,7 +33,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
+) -> Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
     if response.status_code == 200:
         response_200 = UserSuspendResponse.from_dict(response.json())
 
@@ -46,8 +45,7 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 404:
@@ -56,8 +54,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -68,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
+) -> Response[Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> Response[ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
+) -> Response[Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
     """Suspend users
 
      Suspend one or more users by changing their status to suspended. Suspended users will lose access to
@@ -96,7 +93,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]
+        Response[Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]
     """
 
     kwargs = _get_kwargs(
@@ -114,7 +111,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
+) -> Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
     """Suspend users
 
      Suspend one or more users by changing their status to suspended. Suspended users will lose access to
@@ -129,7 +126,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse
+        Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse
     """
 
     return sync_detailed(
@@ -142,7 +139,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> Response[ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
+) -> Response[Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]:
     """Suspend users
 
      Suspend one or more users by changing their status to suspended. Suspended users will lose access to
@@ -157,7 +154,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]
+        Response[Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse]
     """
 
     kwargs = _get_kwargs(
@@ -173,7 +170,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: UserStatusChangeRequest,
-) -> ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
+) -> Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse | None:
     """Suspend users
 
      Suspend one or more users by changing their status to suspended. Suspended users will lose access to
@@ -188,7 +185,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse
+        Any | SuspendUsersResponse400 | SuspendUsersResponse404 | UserSuspendResponse
     """
 
     return (

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceDiskEncryptionStatus(str, Enum):
+class DeviceDiskEncryptionStatus(LenientStrEnum):
     DISKENCRYPTIONSTATUSDISABLED = "DiskEncryptionStatusDisabled"
     DISKENCRYPTIONSTATUSENABLED = "DiskEncryptionStatusEnabled"
     DISKENCRYPTIONSTATUSUNKNOWN = "DiskEncryptionStatusUnknown"

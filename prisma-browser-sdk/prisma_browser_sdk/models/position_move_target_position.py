@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PositionMoveTargetPosition(str, Enum):
+class PositionMoveTargetPosition(LenientStrEnum):
     AFTER = "after"
     BEFORE = "before"
     BOTTOM = "bottom"

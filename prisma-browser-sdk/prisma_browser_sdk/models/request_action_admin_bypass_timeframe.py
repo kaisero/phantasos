@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RequestActionAdminBypassTimeframe(str, Enum):
+class RequestActionAdminBypassTimeframe(LenientStrEnum):
     ONCE = "Once"
     VALUE_1 = "10m"
     VALUE_10 = "30d"

@@ -5,7 +5,6 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.publish_draft_configuration_body import PublishDraftConfigurationBody
 from ...models.publish_draft_configuration_response_400 import PublishDraftConfigurationResponse400
 from ...models.publish_draft_configuration_response_409 import PublishDraftConfigurationResponse409
@@ -37,7 +36,6 @@ def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -53,8 +51,7 @@ def _parse_response(
         return response_400
 
     if response.status_code == 403:
-        response_403 = ApiError.from_dict(response.json())
-
+        response_403 = cast(Any, None)
         return response_403
 
     if response.status_code == 409:
@@ -63,8 +60,7 @@ def _parse_response(
         return response_409
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if response.status_code == 501:
@@ -82,7 +78,6 @@ def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -101,7 +96,6 @@ def sync_detailed(
     body: PublishDraftConfigurationBody | Unset = UNSET,
 ) -> Response[
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -116,7 +110,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ApiError | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501]
+        Response[Any | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501]
     """
 
     kwargs = _get_kwargs(
@@ -136,7 +130,6 @@ def sync(
     body: PublishDraftConfigurationBody | Unset = UNSET,
 ) -> (
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -152,7 +145,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ApiError | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501
+        Any | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501
     """
 
     return sync_detailed(
@@ -167,7 +160,6 @@ async def asyncio_detailed(
     body: PublishDraftConfigurationBody | Unset = UNSET,
 ) -> Response[
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -182,7 +174,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ApiError | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501]
+        Response[Any | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501]
     """
 
     kwargs = _get_kwargs(
@@ -200,7 +192,6 @@ async def asyncio(
     body: PublishDraftConfigurationBody | Unset = UNSET,
 ) -> (
     Any
-    | ApiError
     | PublishDraftConfigurationResponse400
     | PublishDraftConfigurationResponse409
     | PublishDraftConfigurationResponse501
@@ -216,7 +207,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ApiError | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501
+        Any | PublishDraftConfigurationResponse400 | PublishDraftConfigurationResponse409 | PublishDraftConfigurationResponse501
     """
 
     return (

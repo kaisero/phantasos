@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ApplicationTypeInput(str, Enum):
+class ApplicationTypeInput(LenientStrEnum):
     CUSTOM = "custom"
     LOCALDESKTOPCUSTOM = "localdesktopcustom"
     NON_WEB = "non-web"

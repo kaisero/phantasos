@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PolicyPositioningTargetPosition(str, Enum):
+class PolicyPositioningTargetPosition(LenientStrEnum):
     AFTER = "after"
     BEFORE = "before"
     BOTTOM = "bottom"

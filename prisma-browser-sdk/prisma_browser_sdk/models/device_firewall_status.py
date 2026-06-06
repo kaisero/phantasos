@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DeviceFirewallStatus(str, Enum):
+class DeviceFirewallStatus(LenientStrEnum):
     FIREWALLSTATUSDISABLED = "FireWallStatusDisabled"
     FIREWALLSTATUSENABLED = "FireWallStatusEnabled"
     FIREWALLSTATUSUNKNOWN = "FireWallStatusUnknown"

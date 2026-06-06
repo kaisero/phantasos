@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class DiskEncryptionVendorName(str, Enum):
+class DiskEncryptionVendorName(LenientStrEnum):
     ACRONIS = "Acronis"
     ADOLIX = "Adolix"
     APIMAC_SOFTWARE = "Apimac, software"

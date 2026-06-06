@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class FlushBrowserDataControlType0DataTypesItem(str, Enum):
+class FlushBrowserDataControlType0DataTypesItem(LenientStrEnum):
     AUTOFILLDATA = "autofillData"
     BROWSINGHISTORY = "browsingHistory"
     CACHEDCONTENT = "cachedContent"

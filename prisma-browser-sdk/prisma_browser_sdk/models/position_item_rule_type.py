@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class PositionItemRuleType(str, Enum):
+class PositionItemRuleType(LenientStrEnum):
     RULE = "Rule"
 
     def __str__(self) -> str:

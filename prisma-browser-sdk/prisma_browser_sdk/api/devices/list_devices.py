@@ -1,12 +1,11 @@
 import datetime
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.api_error import ApiError
 from ...models.list_devices_response_200 import ListDevicesResponse200
 from ...models.list_devices_sort import ListDevicesSort
 from ...models.order import Order
@@ -91,20 +90,18 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiError | ListDevicesResponse200 | None:
+) -> Any | ListDevicesResponse200 | None:
     if response.status_code == 200:
         response_200 = ListDevicesResponse200.from_dict(response.json())
 
         return response_200
 
     if response.status_code == 400:
-        response_400 = ApiError.from_dict(response.json())
-
+        response_400 = cast(Any, None)
         return response_400
 
     if response.status_code == 500:
-        response_500 = ApiError.from_dict(response.json())
-
+        response_500 = cast(Any, None)
         return response_500
 
     if client.raise_on_unexpected_status:
@@ -115,7 +112,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiError | ListDevicesResponse200]:
+) -> Response[Any | ListDevicesResponse200]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -141,7 +138,7 @@ def sync_detailed(
     cursor: str | Unset = UNSET,
     sort: ListDevicesSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> Response[ApiError | ListDevicesResponse200]:
+) -> Response[Any | ListDevicesResponse200]:
     """Returns a list of devices
 
     Args:
@@ -165,7 +162,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListDevicesResponse200]
+        Response[Any | ListDevicesResponse200]
     """
 
     kwargs = _get_kwargs(
@@ -209,7 +206,7 @@ def sync(
     cursor: str | Unset = UNSET,
     sort: ListDevicesSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> ApiError | ListDevicesResponse200 | None:
+) -> Any | ListDevicesResponse200 | None:
     """Returns a list of devices
 
     Args:
@@ -233,7 +230,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListDevicesResponse200
+        Any | ListDevicesResponse200
     """
 
     return sync_detailed(
@@ -272,7 +269,7 @@ async def asyncio_detailed(
     cursor: str | Unset = UNSET,
     sort: ListDevicesSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> Response[ApiError | ListDevicesResponse200]:
+) -> Response[Any | ListDevicesResponse200]:
     """Returns a list of devices
 
     Args:
@@ -296,7 +293,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiError | ListDevicesResponse200]
+        Response[Any | ListDevicesResponse200]
     """
 
     kwargs = _get_kwargs(
@@ -338,7 +335,7 @@ async def asyncio(
     cursor: str | Unset = UNSET,
     sort: ListDevicesSort | Unset = UNSET,
     order: Order | Unset = UNSET,
-) -> ApiError | ListDevicesResponse200 | None:
+) -> Any | ListDevicesResponse200 | None:
     """Returns a list of devices
 
     Args:
@@ -362,7 +359,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiError | ListDevicesResponse200
+        Any | ListDevicesResponse200
     """
 
     return (

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class CookiesControlType0Action(str, Enum):
+class CookiesControlType0Action(LenientStrEnum):
     ALLOW = "allow"
     BLOCK = "block"
     CLEARONSESSIONEND = "clearOnSessionEnd"

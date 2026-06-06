@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class RuleSummaryType(str, Enum):
+class RuleSummaryType(LenientStrEnum):
     RULE = "Rule"
 
     def __str__(self) -> str:

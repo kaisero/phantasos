@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class BrowserSelfProtectionControlType0Action(str, Enum):
+class BrowserSelfProtectionControlType0Action(LenientStrEnum):
     DISABLE = "disable"
     ENABLE = "enable"
 

@@ -1,7 +1,7 @@
-from enum import Enum
+from .._lenient import LenientStrEnum
 
 
-class ApiErrorErrorCode(str, Enum):
+class ApiErrorErrorCode(LenientStrEnum):
     CONFLICT = "CONFLICT"
     CONTIGUITY_VIOLATION = "CONTIGUITY_VIOLATION"
     FORBIDDEN = "FORBIDDEN"
