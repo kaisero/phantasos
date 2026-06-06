@@ -55,7 +55,7 @@ class Facade:
 @dataclass
 class SdkConfig:
     spec: str                      # path or URL to the OpenAPI document
-    package: str                   # python package name (e.g. "prisma_browser")
+    package: str                   # python package name (e.g. "acme_sdk")
     base_url: str                  # default API host
     project_dir: str = "."         # where the SDK project is written
     library: str = "urllib3"       # OAG python library (sync)

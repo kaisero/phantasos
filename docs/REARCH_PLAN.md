@@ -61,6 +61,29 @@ before extracting prisma-browser out.** Keep the current working SDK as the orac
 - **Acceptance:** from a clean checkout of the framework, `sdkgen build <external sdk.py>`
   produces the prisma-browser SDK; framework repo has zero prisma-/SASE-specific code.
 
+### Phase F sign-off (PASSED — adapted)
+Chosen variant (per maintainer): **sibling directory now**, not a separate repo, and the
+**spec config stays in the framework repo as the example spec** (rather than being moved out
+entirely). This keeps a runnable end-to-end example in-repo while still removing all generated
+output and the legacy pipeline.
+
+- The repo was renamed `pan-pab-sdk` → `sdk-gen`. The generated SDK is **never** kept in it.
+- Extracted to the sibling `../prisma-browser-sdk/` (its own self-contained project): the
+  generated `prisma_browser/` + scaffolding, the 6 SDK-specific tests + an SDK-pointing
+  `conftest`, `examples/` (with `_common.py` repointed at the local package), and `.env.example`.
+- Removed the 1st-prototype single-spec pipeline (superseded by `sdkgen/`): `Makefile`,
+  `preprocess_spec.py`, `apply_patches.py`, `tools_smoke.py`, `overlay/`, `findings/`, and the
+  committed `*.preprocessed.yaml`. Rewrote `README.md` (framework) and CI (`pytest tests/` +
+  `sdkgen build` smoke). Kept all of `docs/` (incl. the prototype phase history).
+- The example spec lives at `specs/prisma-browser/{sdk.py,prisma-browser.yaml}`; `sdk.py`
+  resolves the spec relative to its own dir and sets `project_dir` to the sibling.
+- **Genericity check:** `grep -riE 'prisma|sase|tsg|paloalto' sdkgen/ tests/` returns nothing —
+  the framework package and its tests carry **zero** spec-specific code. (Spec-specific content
+  lives only under `specs/`, by design.)
+- **Acceptance:** `sdkgen build specs/prisma-browser/sdk.py` builds into the sibling (427
+  modules, 0 failures, 95 ops), nothing leaks into the framework repo; framework tests 7 passed;
+  sibling SDK tests 16 passed.
+
 ## Phase G — Second-spec validation (deferred until a 2nd spec exists)
 - Onboard a genuinely different OpenAPI spec; add component types as its auth/pagination/error
   shapes demand. This is the real test of the pluggable contracts; expect interface revisions.
