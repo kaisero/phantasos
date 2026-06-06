@@ -14,3 +14,6 @@ GENERATION_NOTES.md
 
 # macOS
 .DS_Store
+
+# Vendored generator jar (fetched by make)
+.tools/

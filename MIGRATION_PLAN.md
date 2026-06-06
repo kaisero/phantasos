@@ -78,17 +78,20 @@ prisma_browser/
 ### Phase 0 — Branch & hygiene  ✅ (this commit)
 - Branch created; `.DS_Store` ignored/removed; this plan committed.
 
-### Phase 1 — Baseline generation + idempotent build
-- Pin OAG CLI (jar 7.7.0) + JRE; document Java prerequisite.
-- `build.sh` v2: `preprocess_spec.py` → `java -jar openapi-generator generate -g python …`
-  → (patches) → (overlay copy) → smoke import.
-- Decide D1/D2 generator flags.
-- **Acceptance:** package generates; **operation count == 95**; deterministic re-run (stable tree hash).
+### Phase 1 — Baseline generation + idempotent build  ✅ DONE
+- Local pipeline (no Docker): `Makefile` (`make build`) drives preprocess (uv) →
+  generate (`java -jar` pinned OAG 7.7.0, `library=urllib3`, D1=sync) → patch → smoke.
+- Jar vendored to `.tools/` (gitignored, `make jar` fetches); JRE 11+ + uv are the only prereqs.
+- Output: `oag-sdk/prisma_browser` (coexists with prototype's `prisma-browser-sdk/` until cutover).
+- **Acceptance met:** generates; **operations == 95**; **deterministic** (stable tree hash on re-run).
 
-### Phase 2 — Codegen-bug patches
-- Idempotent `apply_patches.py`: fix apostrophe enum values (`'Old McDonald's Farm'`);
-  sweep for other syntax/import breakages.
-- **Acceptance:** full byte-compile + import (0 failures), no manual edits.
+### Phase 2 — Codegen-bug patches  ✅ DONE (import/compile)
+- Idempotent `apply_patches.py`: re-quotes apostrophe enum values (`'Old McDonald's Farm'`).
+- **Acceptance met:** 420 modules import, 0 failures, no manual edits.
+- ⚠️ **Finding (model fidelity, revisit Phase 8):** generator logs 38 non-fatal
+  `Required var urls/primaryUrl/mode not in properties` on application-polymorphism
+  schemas (`private_application*`, …) — some `allOf`-composed required fields may not
+  surface as model attributes. Imports fine; validate against live payloads in Phase 8.
 
 ### Phase 3 — Lenient enums (D2)
 - Implement chosen approach; add an `UNKNOWN_ENUM_VALUES`-style registry.
