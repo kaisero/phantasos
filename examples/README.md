@@ -21,6 +21,7 @@ up dependencies and the package path:
 | `list_applications.py` | Paginate applications; group by type |
 | `list_devices.py` | Paginate devices; summarize by status and OS |
 | `sweep_get_endpoints.py` | Call **every** GET endpoint; report enum gaps + errors to `../findings/` |
+| `probe_policy_403.py` | Capture the real request/response for the policy GETs that 403; write `../findings/policy_403.md` |
 
 ## Discovering spec drift
 `sweep_get_endpoints.py` exercises all 31 GET endpoints (resolving `{id}`/`{type}`
