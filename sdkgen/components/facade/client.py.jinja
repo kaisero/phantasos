@@ -1,0 +1,54 @@
+"""Resource-oriented facade (vendored by sdkgen).
+
+`client.<resource>` is the corresponding generated `*Api` instance; `client.paginate`
+follows cursors. Resources are discovered from the generated `api/` package at build time.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Iterator
+
+{% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
+{% endfor %}from .auth import api_client_from_credentials, api_client_from_env
+from .pagination import paginate
+
+__all__ = ["Client"]
+
+_RESOURCES = {
+{% for r in resources %}    "{{ r.attr }}": {{ r.cls }},
+{% endfor %}}
+
+
+class Client:
+    """Resource-oriented entry point. Each resource attribute is a generated *Api."""
+
+    def __init__(self, api_client):
+        self._api_client = api_client
+        for name, api_cls in _RESOURCES.items():
+            setattr(self, name, api_cls(api_client))
+
+{% for r in resources %}    {{ r.attr }}: {{ r.cls }}
+{% endfor %}
+    @classmethod
+    def from_env(cls, **kwargs) -> "Client":
+        return cls(api_client_from_env(**kwargs))
+
+    @classmethod
+    def from_credentials(cls, **kwargs) -> "Client":
+        return cls(api_client_from_credentials(**kwargs))
+
+    def paginate(self, list_method: Callable[..., Any], **filters: Any) -> Iterator[Any]:
+        return paginate(list_method, **filters)
+
+    @property
+    def api_client(self):
+        return self._api_client
+
+    def close(self) -> None:
+        self._api_client.__exit__(None, None, None)
+
+    def __enter__(self) -> "Client":
+        return self
+
+    def __exit__(self, exc_type=None, exc_value=None, traceback=None) -> None:
+        self._api_client.__exit__(exc_type, exc_value, traceback)

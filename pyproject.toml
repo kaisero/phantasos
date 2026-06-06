@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sdkgen"
+version = "0.1.0"
+description = "Generate native, self-contained Python SDKs from OpenAPI specs (OpenAPI Generator + vendored, templated components)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Oliver Kaiser" }]
+keywords = ["openapi", "sdk", "codegen", "openapi-generator"]
+dependencies = [
+    "ruamel.yaml>=0.18",
+    "jinja2>=3.1",
+]
+
+[project.scripts]
+sdkgen = "sdkgen.cli:main"
+
+[project.optional-dependencies]
+# Deps the *generated* SDK imports at smoke/runtime — installed so `sdkgen build`
+# can import-check its own output. A built SDK declares these in its own pyproject.
+generated = ["pydantic>=2", "urllib3>=2", "python-dateutil", "typing_extensions"]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["sdkgen"]
+# Ship the Jinja component templates as package data (vendored at build time).
+artifacts = ["sdkgen/components/**/*.jinja"]
+
+[tool.hatch.build.targets.sdist]
+include = ["sdkgen", "README.md"]

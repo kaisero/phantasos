@@ -44,6 +44,16 @@ before extracting prisma-browser out.** Keep the current working SDK as the orac
 - Docs: "authoring a `sdk.py`" + component param reference.
 - **Acceptance:** `pip install -e . && sdkgen build specs/prisma-browser/sdk.py` reproduces Phase D.
 
+### Phase E sign-off (PASSED)
+- `pyproject.toml` added (hatchling): `console_scripts sdkgen = sdkgen.cli:main`; runtime deps
+  `ruamel.yaml`, `jinja2`; the 5 `.jinja` component templates ship as package data (verified in
+  the built wheel). Jar cache (`~/.cache/sdkgen`, overridable via `SDKGEN_CACHE`) and Java
+  preflight (`check_java`) already live in `generate.py`.
+- `pip install -e ".[generated]"` then the installed `sdkgen build` reproduced Phase D exactly:
+  427 modules imported, 0 failures, 95 operations; the same 6 behavior-neutral `extras/`+`_lenient`
+  files differ from the oracle, all other files byte-identical.
+- Authoring guide: [`AUTHORING_A_SPEC.md`](AUTHORING_A_SPEC.md).
+
 ## Phase F — Split prisma-browser into its own repo
 - Move prisma-browser's `sdk.py` + spec + generated SDK + `.env.example` to a separate repo
   (or a clearly separate top-level dir for now); framework repo retains only `sdkgen/` +
@@ -59,6 +69,30 @@ before extracting prisma-browser out.** Keep the current working SDK as the orac
 ## Parity & rollback
 - The committed prisma-browser SDK on `migrate/openapi-generator-python` is the **oracle** and
   stays untouched until Phase D passes. Abort = keep the current working SDK.
+
+### Phase D parity sign-off (PASSED)
+`sdkgen build specs/prisma-browser/sdk.py` was run against the oracle (`prisma-browser-sdk/`):
+
+- **Generated code: byte-for-byte identical.** Every OpenAPI-Generator output file (`api/`,
+  `models/`, `api_client.py`, `configuration.py`, `rest.py`, `exceptions.py`, …) matches the
+  oracle exactly. File sets are identical (no missing/extra files). Preprocess stats:
+  24 allOf collapsed, 2 mojibake fixed; patches: 1 apostrophe, 124 lenient enums, 9 oneOf.
+- **Behavioral parity.** The full offline suite (`tests/`, 16 SDK + 7 framework = 23 tests)
+  passes with `SDK_UNDER_TEST` pointed at the freshly built SDK. Smoke: 427 modules imported,
+  0 failures, 95 operations.
+- **Reviewed, explained diff (accepted).** Only 6 hand-written files differ, all behavior-neutral:
+  - `extras/{auth,errors,pagination,facade}.py`, `extras/__init__.py`, `_lenient.py` —
+    docstrings/comments were genericized in the framework templates (terser, not prisma-specific).
+  - `extras/auth.py` — `ValueError("scope is required")` drops the prisma-specific
+    `e.g. 'tsg_id:1234567890'` example (now generic).
+  - `extras/facade.py` — `_RESOURCES` is **alphabetical** (auto-discovered from the generated
+    `api/` package) vs. the oracle's hand-curated order. Behavior-neutral: the dict is iterated
+    only to `setattr` attributes; `client.<resource>` access is unaffected.
+  - Type annotations and all executable code are otherwise identical (verified by AST-normalized
+    comparison that strips docstrings/comments). The provenance file `_about.py` is new (expected).
+
+  Decision: keep the templates generic and accept this diff rather than baking prisma-specific
+  prose / a curated resource order into the framework. Revisit prose genericity at spec #2 (Phase G).
 
 ## Out of scope
 - Non-`build` CLI verbs (`new`/`validate`), publishing to PyPI, async client variant,
