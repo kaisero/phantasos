@@ -109,25 +109,25 @@ class CreateOrReplaceAppInput(BaseModel):
         # deserialize data into CustomApplicationInput
         try:
             instance.actual_instance = CustomApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into PrivateApplicationInput
         try:
             instance.actual_instance = PrivateApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into NonWebApplicationInput
         try:
             instance.actual_instance = NonWebApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into LocalDesktopApplicationInput
         try:
             instance.actual_instance = LocalDesktopApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

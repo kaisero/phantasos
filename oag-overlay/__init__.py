@@ -22,9 +22,12 @@ from .errors import (
     error_message,
     is_rate_limited,
 )
+from .facade import Client
 from .pagination import paginate
 
 __all__ = [
+    # facade
+    "Client",
     # auth
     "api_client_from_env",
     "api_client_from_credentials",

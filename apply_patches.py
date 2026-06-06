@@ -20,6 +20,14 @@ from pathlib import Path
 # Enum member whose single-quoted value contains an inner apostrophe.
 _APOSTROPHE_ENUM = re.compile(r"^(\s*[A-Z0-9_]+ = )'(.*'.*)'\s*$")
 
+# oneOf deserialization: OAG raises "Multiple matches" when >1 branch validates the
+# same payload (common when branches share structure / extra fields are tolerated).
+# Make from_json return on the FIRST matching branch instead (the field_validator is
+# isinstance-based, so the concrete instance stays unambiguous). Mirrors the prototype.
+_ONEOF_FIRST_MATCH = re.compile(
+    r"(instance\.actual_instance = \w+\.from_json\(json_str\)\n)(\s*)match \+= 1"
+)
+
 # Rebase generated str-enums onto a lenient base so values the live API returns but
 # the spec omits (e.g. UserProvider 'scm'/'cie', AuthenticationFactorPinCodeControlMethod
 # 'passkey') are accepted instead of raising Pydantic ValidationError. Pydantic v2 honors
@@ -113,6 +121,20 @@ def rebase_lenient_enums(pkg_dir: Path) -> int:
     return rebased
 
 
+def patch_oneof_first_match(models_dir: Path) -> int:
+    """oneOf from_json: return on first matching branch instead of raising 'Multiple matches'."""
+    files = 0
+    for path in sorted(models_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "actual_instance = " not in text or "from_json(json_str)" not in text:
+            continue
+        new_text, k = _ONEOF_FIRST_MATCH.subn(r"\1\2return instance", text)
+        if k:
+            path.write_text(new_text, encoding="utf-8")
+            files += 1
+    return files
+
+
 def main() -> int:
     pkg_dir = Path(sys.argv[1])
     models_dir = pkg_dir / "models"
@@ -123,6 +145,8 @@ def main() -> int:
     print(f"  apostrophe-enum patch: {n} value(s) re-quoted")
     r = rebase_lenient_enums(pkg_dir)
     print(f"  lenient-enum rebase: {r} enum class(es) -> lenient base")
+    o = patch_oneof_first_match(models_dir)
+    print(f"  oneOf first-match patch: {o} model(s)")
     return 0
 
 

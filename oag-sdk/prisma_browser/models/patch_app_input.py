@@ -109,25 +109,25 @@ class PatchAppInput(BaseModel):
         # deserialize data into CustomPatchApplicationInput
         try:
             instance.actual_instance = CustomPatchApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into PrivatePatchApplicationInput
         try:
             instance.actual_instance = PrivatePatchApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into NonWebPatchApplicationInput
         try:
             instance.actual_instance = NonWebPatchApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into LocalDesktopPatchApplicationInput
         try:
             instance.actual_instance = LocalDesktopPatchApplicationInput.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

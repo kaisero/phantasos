@@ -91,7 +91,7 @@ class PatchAppGroupInputApplications(BaseModel):
         # deserialize data into AddRemoveApps
         try:
             instance.actual_instance = AddRemoveApps.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into List[str]

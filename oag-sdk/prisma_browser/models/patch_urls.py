@@ -101,7 +101,7 @@ class PatchUrls(BaseModel):
         # deserialize data into AddRemoveUrls
         try:
             instance.actual_instance = AddRemoveUrls.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

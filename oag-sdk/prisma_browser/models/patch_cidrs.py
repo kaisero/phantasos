@@ -100,7 +100,7 @@ class PatchCidrs(BaseModel):
         # deserialize data into AddRemoveCidrs
         try:
             instance.actual_instance = AddRemoveCidrs.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

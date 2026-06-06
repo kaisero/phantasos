@@ -117,31 +117,31 @@ class ApplicationItem(BaseModel):
         # deserialize data into CustomApplication
         try:
             instance.actual_instance = CustomApplication.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into PrivateApplication
         try:
             instance.actual_instance = PrivateApplication.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into NonWebApplication
         try:
             instance.actual_instance = NonWebApplication.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into CatalogApplication
         try:
             instance.actual_instance = CatalogApplication.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into LocalDesktopApplication
         try:
             instance.actual_instance = LocalDesktopApplication.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

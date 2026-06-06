@@ -93,13 +93,13 @@ class PolicyItem(BaseModel):
         # deserialize data into RuleSummary
         try:
             instance.actual_instance = RuleSummary.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into Section
         try:
             instance.actual_instance = Section.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

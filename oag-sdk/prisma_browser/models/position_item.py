@@ -93,13 +93,13 @@ class PositionItem(BaseModel):
         # deserialize data into PositionItemSection
         try:
             instance.actual_instance = PositionItemSection.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into PositionItemRule
         try:
             instance.actual_instance = PositionItemRule.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 

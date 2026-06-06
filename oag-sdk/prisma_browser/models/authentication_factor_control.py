@@ -107,19 +107,19 @@ class AuthenticationFactorControl(BaseModel):
         # deserialize data into AuthenticationFactorPinCodeControl
         try:
             instance.actual_instance = AuthenticationFactorPinCodeControl.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into AuthenticationFactorPasskeyControl
         try:
             instance.actual_instance = AuthenticationFactorPasskeyControl.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
         # deserialize data into AuthenticationFactorIdentityProviderControl
         try:
             instance.actual_instance = AuthenticationFactorIdentityProviderControl.from_json(json_str)
-            match += 1
+            return instance
         except (ValidationError, ValueError) as e:
             error_messages.append(str(e))
 
