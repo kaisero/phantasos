@@ -24,7 +24,7 @@ PYV      := 3.12
 UV  := uv run --no-project --python $(PYV)
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: all build help check-java jar preprocess generate patch smoke ops clean clobber
+.PHONY: all build help check-java jar preprocess generate patch overlay smoke ops clean clobber
 
 help:
 	@grep -E '^[a-z][a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
@@ -32,7 +32,7 @@ help:
 
 all: build
 
-build: preprocess generate patch smoke ## Full pipeline: preprocess -> generate -> patch -> smoke
+build: preprocess generate patch overlay smoke ## Full pipeline: preprocess -> generate -> patch -> overlay -> smoke
 
 check-java:
 	@command -v java >/dev/null 2>&1 || { echo "ERROR: java (JRE 11+) not found on PATH"; exit 1; }
@@ -61,6 +61,11 @@ generate: check-java $(JAR) $(SPEC_PP) ## Run the generator (python/Pydantic, sy
 
 patch: ## Apply idempotent post-generation fixups (codegen-bug patches)
 	$(UV) python apply_patches.py $(OUT)/$(PKG)
+
+overlay: ## Copy the hand-written overlay into the generated package (extras/)
+	rm -rf $(OUT)/$(PKG)/extras
+	cp -r oag-overlay $(OUT)/$(PKG)/extras
+	find $(OUT)/$(PKG)/extras -name __pycache__ -type d -prune -exec rm -rf {} +
 
 smoke ops: ## Compile + import every module and report operation count (expect 95)
 	@$(UV) --with pydantic --with urllib3 --with python-dateutil --with typing_extensions \
