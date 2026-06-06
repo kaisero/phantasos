@@ -1,0 +1,12 @@
+{
+  "CustomApplicationType": [
+    "catalog"
+  ],
+  "FirewallVendorName": [
+    "OpenBSD"
+  ],
+  "UserProvider": [
+    "cie",
+    "scm"
+  ]
+}
