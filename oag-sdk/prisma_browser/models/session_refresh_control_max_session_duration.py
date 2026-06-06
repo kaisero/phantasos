@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class SessionRefreshControlMaxSessionDuration(str, Enum):
+class SessionRefreshControlMaxSessionDuration(LenientStrEnum):
     """
     Maximum session duration before the user must re-authenticate. Applies when action is 'enable'. Defaults to '7days'.
     """

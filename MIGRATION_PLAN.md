@@ -93,9 +93,16 @@ prisma_browser/
   schemas (`private_application*`, …) — some `allOf`-composed required fields may not
   surface as model attributes. Imports fine; validate against live payloads in Phase 8.
 
-### Phase 3 — Lenient enums (D2)
-- Implement chosen approach; add an `UNKNOWN_ENUM_VALUES`-style registry.
-- **Acceptance:** parsing `provider="scm"`/`"cie"`, `AuthenticationFactorPinCodeControlMethod="passkey"` does **not** raise; values recorded.
+### Phase 3 — Lenient enums (D2)  ✅ DONE
+- **D2 resolved:** Pydantic v2 honors `Enum._missing_` (verified), so we rebase generated
+  enums onto a lenient base (preserves the real value — no `enumUnknownDefaultCase` sentinel).
+- `apply_patches.py` writes `_lenient.py` (`LenientStrEnum`/`LenientIntEnum` + `UNKNOWN_ENUM_VALUES`
+  registry) and rebases all 124 enum classes (121 str + 3 int). Generation uses
+  `RESOLVE_INLINE_ENUMS=true` so every enum is a named class (no inline `field_validator`s).
+- **Acceptance met:** unknown `str` (`scm`) and `int` (`9999`) values parse to pseudo-members,
+  serialize back to the real value (`json.dumps`/`model_dump_json` → `"scm"`), and are recorded;
+  421 modules import; deterministic.
+- Minor finding: OAG `Model.to_json()` chokes on datetime fields (`model_dump_json` works) — note for examples.
 
 ### Phase 4 — Auth (D3)
 - `extras/auth.py`: client-credentials token provider + `client_from_env()` (`CLIENT_ID`,

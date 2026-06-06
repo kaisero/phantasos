@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class Locations(str, Enum):
+class Locations(LenientStrEnum):
     """
     The name of the location.
     """

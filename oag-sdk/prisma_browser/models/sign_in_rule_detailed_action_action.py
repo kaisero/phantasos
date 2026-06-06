@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class SignInRuleDetailedActionAction(str, Enum):
+class SignInRuleDetailedActionAction(LenientStrEnum):
     """
     The action performed by the rule
     """

@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class KeyloggingProtectionControlAction(str, Enum):
+class KeyloggingProtectionControlAction(LenientStrEnum):
     """
     Whether Keylogging Protection is enabled.
     """

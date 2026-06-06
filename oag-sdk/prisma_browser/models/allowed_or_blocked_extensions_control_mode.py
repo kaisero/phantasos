@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class AllowedOrBlockedExtensionsControlMode(str, Enum):
+class AllowedOrBlockedExtensionsControlMode(LenientStrEnum):
     """
     Operating mode for Allowed or Blocked Extensions. When multiple rules match a user, higher-priority allowAll or blockAll rules override lower-priority extension rules, and allowByList allows only the listed extensions.
     """

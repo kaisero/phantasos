@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class BrowserLockControlIdleTimeoutMinutes(int, Enum):
+class BrowserLockControlIdleTimeoutMinutes(LenientIntEnum):
     """
     Time the user can be idle before the browser locks. Use 0 for never. Applies when action is 'enable'. Defaults to 0.
     """

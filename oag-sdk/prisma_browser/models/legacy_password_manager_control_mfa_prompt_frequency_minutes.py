@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class LegacyPasswordManagerControlMfaPromptFrequencyMinutes(int, Enum):
+class LegacyPasswordManagerControlMfaPromptFrequencyMinutes(LenientIntEnum):
     """
     How many minutes before the user must complete MFA again. Use 0 to require MFA every time.
     """

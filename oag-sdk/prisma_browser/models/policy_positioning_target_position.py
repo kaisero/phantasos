@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class PolicyPositioningTargetPosition(str, Enum):
+class PolicyPositioningTargetPosition(LenientStrEnum):
     """
     Where to place the entity: top (first), bottom (last), before (above anchor), after (below anchor). The before and after values require the anchor field. The top and bottom values must not include an anchor field — providing an anchor with top or bottom is a validation error.
     """

@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class PositionMoveTargetPosition(str, Enum):
+class PositionMoveTargetPosition(LenientStrEnum):
     """
     Where to place the subject within its container. 'top'/'bottom': first/last within the container (no anchor allowed). 'before'/'after': immediately before/after the anchor sibling (anchor required). 
     """

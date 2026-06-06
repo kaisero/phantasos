@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class LocalDesktopApplicationAllOfType(str, Enum):
+class LocalDesktopApplicationAllOfType(LenientStrEnum):
     """
     Discriminator field, must be 'localdesktopcustom'.
     """

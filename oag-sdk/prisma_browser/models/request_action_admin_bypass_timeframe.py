@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class RequestActionAdminBypassTimeframe(str, Enum):
+class RequestActionAdminBypassTimeframe(LenientStrEnum):
     """
     The timeframe for which the approval is valid
     """

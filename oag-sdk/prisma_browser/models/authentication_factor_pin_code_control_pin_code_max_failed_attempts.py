@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class AuthenticationFactorPinCodeControlPinCodeMaxFailedAttempts(int, Enum):
+class AuthenticationFactorPinCodeControlPinCodeMaxFailedAttempts(LenientIntEnum):
     """
     Maximum failed PIN attempts before the user is locked out. Use 0 for unlimited.
     """

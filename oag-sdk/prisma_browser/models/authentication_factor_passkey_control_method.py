@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class AuthenticationFactorPasskeyControlMethod(str, Enum):
+class AuthenticationFactorPasskeyControlMethod(LenientStrEnum):
     """
     Method used for browser unlock and step-up MFA.
     """

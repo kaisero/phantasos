@@ -15,10 +15,11 @@
 from __future__ import annotations
 import json
 from enum import Enum
+from prisma_browser._lenient import LenientStrEnum, LenientIntEnum
 from typing_extensions import Self
 
 
-class RestrictExtensionHostPermissionsControlAction(str, Enum):
+class RestrictExtensionHostPermissionsControlAction(LenientStrEnum):
     """
     Whether to restrict extension host permissions on all domains, specific domains, or disable the restriction.
     """
