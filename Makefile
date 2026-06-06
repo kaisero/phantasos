@@ -24,7 +24,7 @@ PYV      := 3.12
 UV  := uv run --no-project --python $(PYV)
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: all build help check-java jar preprocess generate patch overlay smoke ops clean clobber
+.PHONY: all build help check-java jar preprocess generate patch overlay smoke ops test clean clobber
 
 help:
 	@grep -E '^[a-z][a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
@@ -70,6 +70,10 @@ overlay: ## Copy the hand-written overlay into the generated package (extras/)
 smoke ops: ## Compile + import every module and report operation count (expect 95)
 	@$(UV) --with pydantic --with urllib3 --with python-dateutil --with typing_extensions \
 	  python tools_smoke.py $(OUT) $(PKG)
+
+test: ## Run the offline pytest suite (no live calls)
+	$(UV) --with pytest --with pydantic --with urllib3 --with python-dateutil --with typing_extensions \
+	  python -m pytest tests/ -q
 
 clean: ## Remove the generated SDK
 	rm -rf $(OUT)

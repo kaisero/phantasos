@@ -17,3 +17,6 @@ GENERATION_NOTES.md
 
 # Vendored generator jar (fetched by make)
 .tools/
+
+# stray sed temp files
+sed??????
