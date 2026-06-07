@@ -24,12 +24,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
+        from pydantic import ValidationError
+
         from . import build
 
         try:
             loaded = load_product(args.product)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        except ValidationError as exc:
+            print(f"ERROR: invalid sdk.yml:\n{exc}", file=sys.stderr)
             return 2
         result = build(loaded, run_smoke=not args.no_smoke)
         s = result["smoke"]

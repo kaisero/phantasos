@@ -139,6 +139,21 @@ def test_load_product_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert loaded.config.package == "acme"
 
 
+def test_load_product_missing_include_source(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: o\nbase_url: b\n"
+        "include: {x.py: ./templates/nope.jinja}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"template not found|not found"):
+        load_product(str(d / "sdk.yml"))
+
+
 def test_vars_collision_is_error(tmp_path: Path) -> None:
     d = _make_product(tmp_path)
     # A vars key that shadows an auto-exposed name (`package`) must error.

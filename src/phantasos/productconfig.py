@@ -172,6 +172,15 @@ def load_product(name_or_path: str) -> LoadedProduct:
         )
     context.update(cfg.vars)
 
+    for _dest, source in cfg.include.items():
+        src_path = (base_dir / source).resolve()
+        if not src_path.is_relative_to(base_dir):
+            raise ValueError(f"include source {source!r} escapes the product dir")
+        if not src_path.exists():
+            raise ValueError(
+                f"include source {source!r}: template not found at {src_path}"
+            )
+
     return LoadedProduct(
         config=cfg,
         base_dir=base_dir,

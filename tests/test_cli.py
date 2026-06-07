@@ -54,6 +54,24 @@ def test_cli_build_missing_product_returns_2(
     assert cli.main(["build", "nope"]) == 2
 
 
+def test_cli_build_invalid_sdk_yml_returns_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: o\nbase_url: b\npagintion: {type: cursor}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["build", "acme"])
+    assert rc == 2
+    assert "ERROR" in capsys.readouterr().err
+
+
 def test_build_runs_transforms_then_hook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

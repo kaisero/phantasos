@@ -82,7 +82,7 @@ vars:
 
 # ---- arbitrary extra templates vendored into <package>/extras/ (dest -> source) ----
 include:
-  extras/retry.py: ./templates/retry.py.jinja
+  retry.py: ./templates/retry.py.jinja
 ```
 
 ### Template namespace (single source of truth)

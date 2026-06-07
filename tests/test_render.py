@@ -124,6 +124,29 @@ def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
     assert (pkg / "extras" / "banner.py").read_text() == "BANNER = 'acme 1.0.0'\n"
 
 
+def test_vendor_custom_component_template(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
+    prod = tmp_path / "products" / "acme"
+    (prod / "templates").mkdir(parents=True)
+    (prod / "templates" / "api_key.py.jinja").write_text(
+        "HEADER = '{{ header_name }}'  # {{ package }}\n", encoding="utf-8"
+    )
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n"
+        "auth: {type: ./templates/api_key.py.jinja, header_name: X-API-Key}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded)
+    assert "auth.py" in written
+    assert (pkg / "extras" / "auth.py").read_text() == "HEADER = 'X-API-Key'  # acme\n"
+
+
 def test_include_rejects_path_escape(tmp_path: Path) -> None:
     import pytest
 
