@@ -28,10 +28,10 @@ def ensure_jar() -> Path:
 def generate(
     spec_path: str, out_dir: str, package: str, library: str = "urllib3"
 ) -> None:
-    check_java()
+    java = provision.resolve_java()
     jar = ensure_jar()
     cmd = [
-        "java",
+        str(java),
         "-jar",
         str(jar),
         "generate",
