@@ -17,6 +17,28 @@ from .config import (
 )
 
 
+_BASE_DEPS = [
+    "urllib3 >= 2.1.0, < 3.0.0",
+    "python-dateutil >= 2.8.2",
+    "pydantic >= 2.11",
+    "typing-extensions >= 4.7.1",
+]
+
+
+class ProjectConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    distribution: str
+    author: str
+    author_email: str
+    repo_url: str
+    description: str = ""
+    license: str = "Apache-2.0"
+    python_versions: list[str] = Field(
+        default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"]
+    )
+    dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
+
+
 class Hoist(BaseModel):
     # `schema` shadows a pydantic BaseModel attribute, so store it as schema_name
     # with a YAML alias of `schema`. populate_by_name lets tests pass either.
@@ -58,6 +80,7 @@ class ProductConfig(BaseModel):
     facade: bool | dict[str, Any] = True
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
+    project: ProjectConfig | None = None
 
 
 class CustomComponent(BaseModel):
@@ -116,6 +139,14 @@ _AUTO_EXPOSED = {
     "has_errors",
     "has_facade",
     "config_class_name",
+    "distribution",
+    "description",
+    "author",
+    "author_email",
+    "repo_url",
+    "license",
+    "python_versions",
+    "dependencies",
 }
 
 
@@ -165,6 +196,19 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_facade": facade is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
     }
+    if cfg.project is not None:
+        context.update(
+            {
+                "distribution": cfg.project.distribution,
+                "description": cfg.project.description,
+                "author": cfg.project.author,
+                "author_email": cfg.project.author_email,
+                "repo_url": cfg.project.repo_url,
+                "license": cfg.project.license,
+                "python_versions": cfg.project.python_versions,
+                "dependencies": cfg.project.dependencies,
+            }
+        )
     collisions = set(cfg.vars) & _AUTO_EXPOSED
     if collisions:
         raise ValueError(

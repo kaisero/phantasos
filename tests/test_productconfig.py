@@ -163,3 +163,31 @@ def test_vars_collision_is_error(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match=r"shadow|reserved"):
         load_product(str(d / "sdk.yml"))
+
+
+from phantasos.productconfig import ProjectConfig  # noqa: E402
+
+
+def test_project_defaults() -> None:
+    p = ProjectConfig(distribution="acme-sdk", author="A", author_email="a@b.c",
+                      repo_url="https://github.com/x/acme-sdk")
+    assert p.license == "Apache-2.0"
+    assert p.python_versions == ["3.11", "3.12", "3.13", "3.14"]
+    assert "pydantic >= 2.11" in p.dependencies
+
+
+def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {title: Acme, version: '9'}\npaths: {}\n", "utf-8")
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n"
+        "project: {distribution: acme-sdk, author: A, author_email: a@b.c, "
+        "repo_url: https://github.com/x/acme-sdk}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.config.project.distribution == "acme-sdk"
+    assert loaded.context["distribution"] == "acme-sdk"
+    assert loaded.context["repo_url"] == "https://github.com/x/acme-sdk"
+    assert loaded.context["license"] == "Apache-2.0"
