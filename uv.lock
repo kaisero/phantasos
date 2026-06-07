@@ -1065,7 +1065,7 @@ audit = [{ name = "pip-audit", specifier = ">=2.7" }]
 dev = [
     { name = "codespell", specifier = ">=2.3" },
     { name = "mkdocs-material", specifier = ">=9.5" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.25" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "nox", specifier = ">=2024.4" },
     { name = "pip-audit", specifier = ">=2.7" },
@@ -1076,7 +1076,7 @@ dev = [
 ]
 docs = [
     { name = "mkdocs-material", specifier = ">=9.5" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.25" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
 ]
 lint = [
     { name = "codespell", specifier = ">=2.3" },
