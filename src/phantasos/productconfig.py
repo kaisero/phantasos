@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,3 +56,33 @@ class ProductConfig(BaseModel):
     facade: bool | dict[str, Any] = True
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
+
+
+class CustomComponent(BaseModel):
+    """A component backed by a per-product template path (arbitrary config)."""
+
+    model_config = ConfigDict(extra="allow")
+    type: str
+    template: str = ""
+
+    @property
+    def extra(self) -> dict[str, Any]:
+        # pydantic v2 stores extra="allow" fields here, not in __dict__.
+        return dict(self.__pydantic_extra__ or {})
+
+
+def resolve_component(
+    block: dict[str, Any], registry: dict[str, type], base_dir: Path
+) -> Any:
+    """Turn a raw sdk.yml component block into a validated component model."""
+    type_ = block.get("type")
+    if isinstance(type_, str) and (type_.startswith("./") or type_.endswith(".jinja")):
+        path = (base_dir / type_).resolve()
+        if not path.exists():
+            raise ValueError(f"{type_}: template not found at {path}")
+        data = {**block, "template": str(path)}
+        return CustomComponent(**data)
+    model = registry.get(type_) if isinstance(type_, str) else None
+    if model is None:
+        raise ValueError(f"unknown component type {type_!r}; expected one of {sorted(registry)}")
+    return model(**block)
