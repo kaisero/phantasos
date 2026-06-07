@@ -48,3 +48,28 @@ def _venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _ensure_smoke_venv(project_dir: Path) -> Path:
+    """Create (or reuse) a cached venv holding the SDK's declared deps; return its python."""
+    reqs = project_dir / "requirements.txt"
+    if not reqs.exists():
+        raise SmokeError(
+            f"no requirements.txt in {project_dir}; cannot isolate the smoke check. "
+            f"Pass --no-smoke to skip, or build a spec that emits one."
+        )
+    key = hashlib.sha256(reqs.read_bytes()).hexdigest()[:16]
+    venv_dir = provision.cache_dir() / "smoke-envs" / key
+    py = _venv_python(venv_dir)
+    ready = venv_dir / ".ready"
+    if ready.exists() and py.exists():
+        return py
+    shutil.rmtree(venv_dir, ignore_errors=True)
+    venv.EnvBuilder(with_pip=True).create(venv_dir)
+    subprocess.run(  # noqa: S603
+        [str(py), "-m", "pip", "install", "-q", "-r", str(reqs)],
+        check=True,
+        env=_sanitized_env(),
+    )
+    ready.write_text("")  # mark complete only after a successful install
+    return py

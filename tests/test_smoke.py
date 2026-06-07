@@ -52,3 +52,24 @@ def test_sanitized_env_strips_leaky_vars(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "PYTHONPATH" not in env
     assert "PYTHONHOME" not in env
     assert env["KEEP_ME"] == "yes"
+
+
+def test_ensure_smoke_venv_creates_and_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_v", reqs="")  # empty reqs -> offline, fast
+    py = smoke._ensure_smoke_venv(proj)
+    assert py.exists()
+    assert (py.parent.parent / ".ready").exists()
+    # Cached: a second call returns the same interpreter without rebuilding.
+    py2 = smoke._ensure_smoke_venv(proj)
+    assert py2 == py
+
+
+def test_ensure_smoke_venv_missing_requirements(tmp_path: Path) -> None:
+    proj = tmp_path / "noreqs"
+    (proj / "pkg").mkdir(parents=True)
+    with pytest.raises(SmokeError, match="requirements.txt"):
+        smoke._ensure_smoke_venv(proj)
