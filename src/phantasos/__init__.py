@@ -40,6 +40,7 @@ def build(
     *,
     preprocess_hook: Callable[[Any], None] | None = None,
     patch_hook: Callable[[Path], None] | None = None,
+    run_smoke: bool = True,
 ) -> dict[str, Any]:
     from . import generate, preprocess, render, smoke
 
@@ -86,7 +87,7 @@ def build(
     )
 
     # 6. smoke
-    result = smoke.smoke(str(project_dir), config.package)
+    result = smoke.smoke(str(project_dir), config.package, run=run_smoke)
     return {
         "preprocess": dict(stats),
         "patches": patch_stats,

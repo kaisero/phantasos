@@ -87,7 +87,9 @@ def test_cli_build_returns_zero_on_success(
     monkeypatch.setattr(phantasos.generate, "generate", fake_generate)
 
     try:
-        rc = cli.main(["build", str(cfg_path)])
+        # --no-smoke: this test covers the build pipeline + CLI, not the smoke
+        # check (which has its own tests and would otherwise provision a venv).
+        rc = cli.main(["build", str(cfg_path), "--no-smoke"])
     finally:
         for name in list(sys.modules):
             if name == "demo_cli" or name.startswith("demo_cli."):
@@ -108,3 +110,35 @@ def test_cli_build_returns_zero_on_success(
 def test_cli_build_missing_config_returns_2() -> None:
     rc = cli.main(["build", "/no/such/config_module.py"])
     assert rc == 2
+
+
+def test_build_passes_run_smoke_false(tmp_path, monkeypatch) -> None:
+    import phantasos
+
+    captured: dict[str, object] = {}
+
+    def fake_smoke(project_dir, package, *, run=True):
+        captured["run"] = run
+        return {"imported": 0, "failed": 0, "operations": 0, "failures": [], "skipped": True}
+
+    # Stub every pipeline step that needs Java / a real spec so we test only the
+    # run_smoke wiring. build() writes _about.py into <project_dir>/<package>, so
+    # point project_dir at tmp_path and create the package dir.
+    monkeypatch.setattr("phantasos.smoke.smoke", fake_smoke)
+    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr("phantasos.render.vendor", lambda *a, **k: {})
+    monkeypatch.setattr("phantasos.patches.apply_generic_patches", lambda pkg_dir: {})
+    monkeypatch.setattr(
+        "phantasos.preprocess.load", lambda spec: ({"info": {"version": "1"}}, object())
+    )
+    monkeypatch.setattr("phantasos.preprocess.clean", lambda spec, stats: None)
+    monkeypatch.setattr("phantasos.preprocess.dump", lambda spec, yaml, path: None)
+
+    from phantasos.config import SdkConfig
+
+    cfg = SdkConfig(
+        spec="s.yml", package="pkg", base_url="https://api/", project_dir=str(tmp_path)
+    )
+    (tmp_path / "pkg").mkdir()
+    phantasos.build(cfg, run_smoke=False)
+    assert captured["run"] is False

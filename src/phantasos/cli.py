@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
         "config",
         help="path to the spec config module, e.g. transformations/<product>.py",
     )
+    b.add_argument(
+        "--no-smoke",
+        action="store_true",
+        help="skip the isolated import-check (offline/locked-down builds)",
+    )
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
@@ -46,10 +51,17 @@ def main(argv: list[str] | None = None) -> int:
                 mod.CONFIG,
                 preprocess_hook=getattr(mod, "preprocess", None),
                 patch_hook=getattr(mod, "patch", None),
+                run_smoke=not args.no_smoke,
             )
         finally:
             os.chdir(cwd)
         s = result["smoke"]
+        if s.get("skipped"):
+            print(
+                f"built {mod.CONFIG.package}: smoke skipped; "
+                f"operations: {s['operations']}"
+            )
+            return 0
         print(
             f"built {mod.CONFIG.package}: imported {s['imported']} modules, "
             f"{s['failed']} failures; operations: {s['operations']}"
