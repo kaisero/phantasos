@@ -1,30 +1,50 @@
-"""Smoke check: import every generated module and count operations."""
+"""Smoke check: import every generated module (in isolation) and count operations."""
 
 from __future__ import annotations
 
-import importlib
-import pkgutil
+import hashlib
+import json
+import os
 import re
-import sys
+import shutil
+import subprocess
+import tempfile
+import venv
 from pathlib import Path
 from typing import Any
 
+from . import provision
 
-def smoke(project_dir: str, package: str) -> dict[str, Any]:
-    sys.path.insert(0, project_dir)
-    pkg = importlib.import_module(package)
-    ok = err = 0
-    failures: list[tuple[str, str]] = []
-    for mod in pkgutil.walk_packages(pkg.__path__, f"{package}."):
-        try:
-            importlib.import_module(mod.name)
-            ok += 1
-        except Exception as exc:
-            err += 1
-            failures.append((mod.name, repr(exc)[:160]))
+_SKIP_ENV = "PHANTASOS_SKIP_SMOKE"
+# Vars that would leak the *parent* environment into the isolated subprocess and
+# defeat the isolation (parent packages shadowing the venv, interpreter breakage).
+_STRIP = ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP")
+
+
+class SmokeError(RuntimeError):
+    """Raised when the isolated smoke environment cannot be provisioned."""
+
+
+def _sanitized_env() -> dict[str, str]:
+    """A copy of os.environ with venv/python path vars stripped."""
+    return {k: v for k, v in os.environ.items() if k not in _STRIP}
+
+
+def _count_operations(project_dir: str, package: str) -> int:
+    """Count public API operations by scanning api/*_api.py text (no imports needed)."""
     ops = 0
-    for f in sorted((Path(project_dir) / package / "api").glob("*_api.py")):
+    api_dir = Path(project_dir) / package / "api"
+    for f in sorted(api_dir.glob("*_api.py")):
         for m in re.finditer(r"^    def ([a-z][a-zA-Z0-9_]*)\(", f.read_text(), re.M):
-            if not m.group(1).endswith(("_with_http_info", "_without_preload_content")):
+            if not m.group(1).endswith(
+                ("_with_http_info", "_without_preload_content")
+            ):
                 ops += 1
-    return {"imported": ok, "failed": err, "operations": ops, "failures": failures}
+    return ops
+
+
+def _venv_python(venv_dir: Path) -> Path:
+    """Path to the interpreter inside a created venv (cross-platform)."""
+    if os.name == "nt":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
