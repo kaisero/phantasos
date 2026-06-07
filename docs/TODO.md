@@ -7,7 +7,7 @@ The ADEM SDK is generated to the sibling `../adem-sdk/` but has **no test suite 
 `adem-sdk/tests/`, mirroring the prisma-browser-sdk layout but scoped to ADEM's component
 set (`auth` + `facade` only — `pagination=None`, `errors=None`).
 
-Build first: `sdkgen build transformations/adem.py` (writes the SDK to `../adem-sdk/`).
+Build first: `phantasos build transformations/adem.py` (writes the SDK to `../adem-sdk/`).
 
 - [ ] `tests/conftest.py` — put the SDK on `sys.path` (copy from `prisma-browser-sdk/tests/conftest.py`)
 - [ ] `test_auth.py` — `AdemConfiguration` / `TokenManager` / `api_client_from_env`: bearer-JWT
@@ -27,6 +27,6 @@ Notes:
 
 ## Follow-up: consider a Typer CLI
 
-The CLI is currently argparse (`sdkgen.cli:main`). The project template ships a Typer
+The CLI is currently argparse (`phantasos.cli:main`). The project template ships a Typer
 scaffold; porting the one `build` command to Typer would add `--help` polish and shell
 completion (and align with the template's CLI docs). Tracked as optional; argparse works.
