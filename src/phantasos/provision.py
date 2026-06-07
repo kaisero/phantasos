@@ -31,25 +31,25 @@ def cache_dir() -> Path:
 
 
 def _download_verified(url: str, sha256: str, dest: Path) -> None:
-    """Stream `url` to `dest`, verifying SHA256. Atomic: `dest` appears only on success."""
+    """Download `url` to `dest`, verifying SHA256 (atomic on success)."""
     digest = hashlib.sha256()
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dest.parent, suffix=".part")
+    tmp_file = Path(tmp)
     try:
-        with os.fdopen(fd, "wb") as out, urllib.request.urlopen(url) as resp:  # noqa: S310
+        with os.fdopen(fd, "wb") as out, urllib.request.urlopen(url) as resp:
             for chunk in iter(lambda: resp.read(1 << 20), b""):
                 out.write(chunk)
                 digest.update(chunk)
         actual = digest.hexdigest()
         if actual != sha256:
             raise ProvisionError(
-                f"checksum mismatch for {url}\n"
-                f"  expected {sha256}\n  got      {actual}"
+                f"checksum mismatch for {url}\n  expected {sha256}\n  got      {actual}"
             )
-        os.replace(tmp, dest)
+        tmp_file.replace(dest)
     finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        if tmp_file.exists():
+            tmp_file.unlink()
 
 
 def _safe_extract(archive: Path, dest: Path) -> None:
@@ -67,7 +67,7 @@ def _safe_extract(archive: Path, dest: Path) -> None:
             for member in tf.getmembers():
                 if not (dest / member.name).resolve().is_relative_to(dest):
                     raise ProvisionError(f"unsafe path in archive: {member.name}")
-            tf.extractall(dest, filter="data")  # noqa: S202 — members validated + data filter
+            tf.extractall(dest, filter="data")
 
 
 _ARCH = {"x86_64": "x64", "amd64": "x64", "arm64": "aarch64", "aarch64": "aarch64"}
@@ -96,7 +96,9 @@ class _Jre:
 
 
 _JRE_RELEASE = "jdk-17.0.19+10"  # pinned latest Temurin 17 LTS patch
-_TEMURIN_BASE = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
+_TEMURIN_BASE = (
+    "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
+)
 
 _JRE: dict[str, _Jre] = {
     "linux-x64": _Jre(
@@ -143,7 +145,9 @@ def resolve_java() -> Path:
     if java.exists():
         return java
 
-    print(f"  provisioning Temurin JRE {_JRE_RELEASE} ({key}, ~40 MB, one-time) -> {home}")
+    print(
+        f"  provisioning Temurin JRE {_JRE_RELEASE} ({key}, ~40 MB, one-time) -> {home}"
+    )
     suffix = ".zip" if asset.url.endswith(".zip") else ".tar.gz"
     archive = cache_dir() / f"temurin-{_JRE_RELEASE}-{key}{suffix}"
     _download_verified(asset.url, asset.sha256, archive)
@@ -153,10 +157,12 @@ def resolve_java() -> Path:
     _safe_extract(archive, staging)
     top = next(p for p in staging.iterdir() if p.is_dir())  # single top-level dir
     shutil.rmtree(home, ignore_errors=True)
-    os.replace(top, home)
+    top.replace(home)
     shutil.rmtree(staging, ignore_errors=True)
     archive.unlink(missing_ok=True)
 
     if not java.exists():
-        raise ProvisionError(f"java not found after extracting {asset.url} (looked for {java})")
+        raise ProvisionError(
+            f"java not found after extracting {asset.url} (looked for {java})"
+        )
     return java

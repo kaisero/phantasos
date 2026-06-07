@@ -31,16 +31,21 @@ class _FakeResp:
         return self._data
 
 
-def test_download_verified_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_download_verified_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = b"hello-jre-bytes"
-    monkeypatch.setattr(provision.urllib.request, "urlopen", lambda url: _FakeResp(payload))
+    monkeypatch.setattr("urllib.request.urlopen", lambda url: _FakeResp(payload))
     dest = tmp_path / "out.bin"
-    provision._download_verified("https://x/y", hashlib.sha256(payload).hexdigest(), dest)
+    sha = hashlib.sha256(payload).hexdigest()
+    provision._download_verified("https://x/y", sha, dest)
     assert dest.read_bytes() == payload
 
 
-def test_download_verified_checksum_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(provision.urllib.request, "urlopen", lambda url: _FakeResp(b"corrupt"))
+def test_download_verified_checksum_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("urllib.request.urlopen", lambda url: _FakeResp(b"corrupt"))
     dest = tmp_path / "out.bin"
     with pytest.raises(ProvisionError, match="checksum mismatch"):
         provision._download_verified("https://x/y", "0" * 64, dest)
@@ -80,15 +85,17 @@ def test_safe_extract_rejects_traversal(tmp_path: Path) -> None:
         ("Windows", "AMD64", "windows-x64"),
     ],
 )
-def test_platform_key(monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str) -> None:
-    monkeypatch.setattr(provision.platform, "system", lambda: system)
-    monkeypatch.setattr(provision.platform, "machine", lambda: machine)
+def test_platform_key(
+    monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str
+) -> None:
+    monkeypatch.setattr("platform.system", lambda: system)
+    monkeypatch.setattr("platform.machine", lambda: machine)
     assert provision._platform_key() == expected
 
 
 def test_platform_key_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(provision.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(provision.platform, "machine", lambda: "ARM64")
+    monkeypatch.setattr("platform.system", lambda: "Windows")
+    monkeypatch.setattr("platform.machine", lambda: "ARM64")
     with pytest.raises(ProvisionError, match="PHANTASOS_JAVA"):
         provision._platform_key()
 
@@ -106,7 +113,9 @@ def test_resolve_java_override_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         provision.resolve_java()
 
 
-def test_resolve_java_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_java_cache_hit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
     monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
@@ -114,18 +123,23 @@ def test_resolve_java_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     java = home / provision._JRE["linux-x64"].java_subpath
     java.parent.mkdir(parents=True)
     java.write_text("")
-    monkeypatch.setattr(provision, "_download_verified", lambda *a: pytest.fail("downloaded"))
+    monkeypatch.setattr(
+        provision, "_download_verified", lambda *a: pytest.fail("downloaded")
+    )
     assert provision.resolve_java() == java
 
 
-def test_resolve_java_downloads_and_extracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_java_downloads_and_extracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
     monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
 
     def fake_dl(url: str, sha: str, dest: Path) -> None:
+        member = f"temurin-{provision._JRE_RELEASE}-linux-x64/bin/java"
         with tarfile.open(dest, "w:gz") as tf:
-            info = tarfile.TarInfo(f"temurin-{provision._JRE_RELEASE}-linux-x64/bin/java")
+            info = tarfile.TarInfo(member)
             data = b"#!/bin/echo java"
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
