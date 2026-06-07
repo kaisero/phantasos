@@ -45,3 +45,26 @@ def test_download_verified_checksum_mismatch(tmp_path: Path, monkeypatch: pytest
     with pytest.raises(ProvisionError, match="checksum mismatch"):
         provision._download_verified("https://x/y", "0" * 64, dest)
     assert not dest.exists()  # atomic: no partial file left behind
+
+
+def _make_tar(tmp_path: Path, members: dict[str, bytes]) -> Path:
+    archive = tmp_path / "a.tar.gz"
+    with tarfile.open(archive, "w:gz") as tf:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return archive
+
+
+def test_safe_extract_normal(tmp_path: Path) -> None:
+    archive = _make_tar(tmp_path, {"top/bin/java": b"#!/bin/echo java"})
+    dest = tmp_path / "out"
+    provision._safe_extract(archive, dest)
+    assert (dest / "top" / "bin" / "java").read_bytes() == b"#!/bin/echo java"
+
+
+def test_safe_extract_rejects_traversal(tmp_path: Path) -> None:
+    archive = _make_tar(tmp_path, {"../evil": b"x"})
+    with pytest.raises(ProvisionError, match="unsafe path"):
+        provision._safe_extract(archive, tmp_path / "out")

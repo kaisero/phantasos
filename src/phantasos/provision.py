@@ -50,3 +50,21 @@ def _download_verified(url: str, sha256: str, dest: Path) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _safe_extract(archive: Path, dest: Path) -> None:
+    """Extract a .tar.gz or .zip into `dest`, rejecting path-traversal members."""
+    dest = dest.resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+    if archive.name.endswith(".zip"):
+        with zipfile.ZipFile(archive) as zf:
+            for name in zf.namelist():
+                if not (dest / name).resolve().is_relative_to(dest):
+                    raise ProvisionError(f"unsafe path in archive: {name}")
+            zf.extractall(dest)  # noqa: S202 — members validated above
+    else:
+        with tarfile.open(archive) as tf:
+            for member in tf.getmembers():
+                if not (dest / member.name).resolve().is_relative_to(dest):
+                    raise ProvisionError(f"unsafe path in archive: {member.name}")
+            tf.extractall(dest, filter="data")  # noqa: S202 — members validated + data filter
