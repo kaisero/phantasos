@@ -68,3 +68,26 @@ def test_safe_extract_rejects_traversal(tmp_path: Path) -> None:
     archive = _make_tar(tmp_path, {"../evil": b"x"})
     with pytest.raises(ProvisionError, match="unsafe path"):
         provision._safe_extract(archive, tmp_path / "out")
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "expected"),
+    [
+        ("Linux", "x86_64", "linux-x64"),
+        ("Linux", "aarch64", "linux-aarch64"),
+        ("Darwin", "x86_64", "mac-x64"),
+        ("Darwin", "arm64", "mac-aarch64"),
+        ("Windows", "AMD64", "windows-x64"),
+    ],
+)
+def test_platform_key(monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str) -> None:
+    monkeypatch.setattr(provision.platform, "system", lambda: system)
+    monkeypatch.setattr(provision.platform, "machine", lambda: machine)
+    assert provision._platform_key() == expected
+
+
+def test_platform_key_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(provision.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(provision.platform, "machine", lambda: "ARM64")
+    with pytest.raises(ProvisionError, match="PHANTASOS_JAVA"):
+        provision._platform_key()

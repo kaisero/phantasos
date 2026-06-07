@@ -68,3 +68,24 @@ def _safe_extract(archive: Path, dest: Path) -> None:
                 if not (dest / member.name).resolve().is_relative_to(dest):
                     raise ProvisionError(f"unsafe path in archive: {member.name}")
             tf.extractall(dest, filter="data")  # noqa: S202 — members validated + data filter
+
+
+_ARCH = {"x86_64": "x64", "amd64": "x64", "arm64": "aarch64", "aarch64": "aarch64"}
+_OS = {"Linux": "linux", "Darwin": "mac", "Windows": "windows"}
+
+# Temporary placeholder for Task 3's tests; REPLACED by the real table in Task 4.
+_SUPPORTED = {"linux-x64", "linux-aarch64", "mac-x64", "mac-aarch64", "windows-x64"}
+
+
+def _platform_key() -> str:
+    system = platform.system()
+    machine = platform.machine()
+    osname = _OS.get(system)
+    arch = _ARCH.get(machine.lower())
+    key = f"{osname}-{arch}" if osname and arch else None
+    if key not in _SUPPORTED:
+        raise ProvisionError(
+            f"no managed Temurin JRE for this platform ({system} {machine}).\n"
+            f"Install a JRE 11+ and set PHANTASOS_JAVA=/path/to/java to use it."
+        )
+    return key
