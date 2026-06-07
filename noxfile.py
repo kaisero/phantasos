@@ -109,6 +109,6 @@ def smoke(session: nox.Session) -> None:
     your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
     the default session list. Each SDK is written to a sibling dir (transformations/).
     """
-    _sync(session, "smoke")
+    _sync(session)
     session.run("phantasos", "build", "transformations/prisma-browser.py")
     session.run("phantasos", "build", "transformations/adem.py")

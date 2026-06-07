@@ -36,9 +36,7 @@ def _count_operations(project_dir: str, package: str) -> int:
     api_dir = Path(project_dir) / package / "api"
     for f in sorted(api_dir.glob("*_api.py")):
         for m in re.finditer(r"^    def ([a-z][a-zA-Z0-9_]*)\(", f.read_text(), re.M):
-            if not m.group(1).endswith(
-                ("_with_http_info", "_without_preload_content")
-            ):
+            if not m.group(1).endswith(("_with_http_info", "_without_preload_content")):
                 ops += 1
     return ops
 
@@ -51,7 +49,7 @@ def _venv_python(venv_dir: Path) -> Path:
 
 
 def _ensure_smoke_venv(project_dir: Path) -> Path:
-    """Create (or reuse) a cached venv holding the SDK's declared deps; return its python."""
+    """Create (or reuse) a cached venv with the SDK's deps; return its python."""
     reqs = project_dir / "requirements.txt"
     if not reqs.exists():
         raise SmokeError(
@@ -66,7 +64,7 @@ def _ensure_smoke_venv(project_dir: Path) -> Path:
         return py
     shutil.rmtree(venv_dir, ignore_errors=True)
     venv.EnvBuilder(with_pip=True).create(venv_dir)
-    subprocess.run(  # noqa: S603
+    subprocess.run(
         [str(py), "-m", "pip", "install", "-q", "-r", str(reqs)],
         check=True,
         env=_sanitized_env(),
@@ -107,7 +105,7 @@ def _import_walk(project_dir: str, package: str) -> dict[str, Any]:
     os.close(fd)
     out_path = Path(out)
     try:
-        subprocess.run(  # noqa: S603
+        subprocess.run(
             [str(py), "-c", _WALK_SRC, project_dir, package, out],
             check=True,
             env=_sanitized_env(),

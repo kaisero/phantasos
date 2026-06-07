@@ -16,11 +16,14 @@ A product has two files: its OpenAPI source at `specs/<product>.yml` and its pha
 
 ## Quickstart
 ```bash
-pip install -e ".[generated]"          # framework + deps the generated SDK imports
+pip install -e .                       # phantasos itself — no SDK runtime deps needed
 phantasos build transformations/prisma-browser.py
 ```
-No system Java required — see [Requirements](#requirements). The OpenAPI Generator jar
-and a JRE are fetched once to `~/.cache/phantasos` (override with `PHANTASOS_CACHE`).
+No system Java required — see [Requirements](#requirements). The OpenAPI Generator jar and
+a JRE are fetched once to `~/.cache/phantasos` (override with `PHANTASOS_CACHE`). The smoke
+step import-checks the built SDK in an isolated venv built from the SDK's own
+`requirements.txt`, so phantasos needs none of the SDK's runtime deps; pass `--no-smoke` to
+skip it (offline builds).
 
 The build runs: **preprocess** (generic transforms + the spec's `preprocess` hook) →
 **generate** (OpenAPI Generator) → **patch** (apostrophe enums / lenient enums / oneOf

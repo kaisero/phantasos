@@ -112,18 +112,28 @@ def test_cli_build_missing_config_returns_2() -> None:
     assert rc == 2
 
 
-def test_build_passes_run_smoke_false(tmp_path, monkeypatch) -> None:
+def test_build_passes_run_smoke_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import phantasos
 
     captured: dict[str, object] = {}
 
-    def fake_smoke(project_dir, package, *, run=True):
+    def fake_smoke(
+        project_dir: str, package: str, *, run: bool = True
+    ) -> dict[str, object]:
         captured["run"] = run
-        return {"imported": 0, "failed": 0, "operations": 0, "failures": [], "skipped": True}
+        return {
+            "imported": 0,
+            "failed": 0,
+            "operations": 0,
+            "failures": [],
+            "skipped": True,
+        }
 
-    # Stub every pipeline step that needs Java / a real spec so we test only the
-    # run_smoke wiring. build() writes _about.py into <project_dir>/<package>, so
-    # point project_dir at tmp_path and create the package dir.
+    # Stub the pipeline steps (Java / real spec) so we test only run_smoke wiring.
+    # build() writes _about.py into <project_dir>/<package>, so point project_dir
+    # at tmp_path and create the package dir.
     monkeypatch.setattr("phantasos.smoke.smoke", fake_smoke)
     monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
     monkeypatch.setattr("phantasos.render.vendor", lambda *a, **k: {})

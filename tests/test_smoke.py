@@ -1,6 +1,5 @@
 """Unit + integration tests for the isolated smoke check."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -71,7 +70,7 @@ def test_ensure_smoke_venv_creates_and_caches(
 def test_ensure_smoke_venv_missing_requirements(tmp_path: Path) -> None:
     proj = tmp_path / "noreqs"
     (proj / "pkg").mkdir(parents=True)
-    with pytest.raises(SmokeError, match="requirements.txt"):
+    with pytest.raises(SmokeError, match="requirements"):
         smoke._ensure_smoke_venv(proj)
 
 
