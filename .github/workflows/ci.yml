@@ -84,6 +84,6 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/phantasos
-          key: phantasos-toolchain-oag7.22.0-jre17.0.19
+          key: phantasos-toolchain-oag7.22.0-jre17.0.19-smokeenv1
       - name: Build example SDKs (Java auto-provisioned)
         run: uv run nox -s smoke
