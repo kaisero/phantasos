@@ -1,0 +1,23 @@
+package: prisma_browser
+output: ../../../prisma-browser-sdk
+base_url: https://api.sase.paloaltonetworks.com
+auth:
+  type: oauth_client_credentials
+  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  scope_env: SCOPE
+  base_url_env: PRISMA_SASE_BASE_URL
+  config_class_name: PrismaSaseConfiguration
+pagination: {type: cursor}
+errors: {type: nested}
+facade: true
+transforms:
+  hoist:
+    - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
+    - {schema: LaunchingExternalApplicationsControl, field: exceptions, item: ExternalApplicationLaunchException}
+    - {schema: TrustedCertificateAuthoritiesControl, field: additionalCertificates, item: TrustedCertificateEntry}
+    - {schema: InternetExplorerCompatibilityModeControl, field: sites, item: InternetExplorerCompatibilitySite}
+  tag_operations:
+    - {path: /seb-api/v1/user-requests, method: get, operation_id: ListUserRequests, tag: User Requests}
+    - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
+    - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
+    - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
