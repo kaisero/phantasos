@@ -102,10 +102,12 @@ def docs_serve(session: nox.Session) -> None:
 
 @nox.session
 def smoke(session: nox.Session) -> None:
-    """Build the example SDKs end-to-end (requires JDK 17 + network for the OAG jar).
+    """Build the example SDKs end-to-end.
 
-    Not in the default session list because it needs Java and the OpenAPI Generator
-    jar. Each SDK is written to a sibling dir of this repo (see transformations/).
+    phantasos auto-provisions a pinned Temurin JRE 17 on first run (cached under
+    ~/.cache/phantasos), so no system Java is required; set PHANTASOS_JAVA to use
+    your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
+    the default session list. Each SDK is written to a sibling dir (transformations/).
     """
     _sync(session, "smoke")
     session.run("phantasos", "build", "transformations/prisma-browser.py")
