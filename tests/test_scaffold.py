@@ -51,3 +51,17 @@ def test_conditional_skip_via_jinja(tmp_path: Path) -> None:
     written = scaffold.render_scaffold(builtin, None, out, _ctx(has_pagination=False))
     assert not (out / "test_pagination.py").exists()
     assert "test_pagination.py" not in written
+
+
+def test_builtin_pyproject_renders(tmp_path: Path) -> None:
+    out = tmp_path / "sdk"
+    out.mkdir()
+    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
+           "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
+           "package": "acme", "dependencies": ["pydantic >= 2.11"],
+           "python_versions": ["3.12"], "has_auth": True, "has_pagination": True,
+           "has_errors": True, "has_facade": True}
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
+    pp = (out / "pyproject.toml").read_text()
+    assert 'name = "acme-sdk"' in pp and "pydantic >= 2.11" in pp
+    assert 'packages = ["acme"]' in pp

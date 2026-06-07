@@ -18,7 +18,8 @@ def test_cli_build_returns_zero_on_success(
         encoding="utf-8",
     )
     (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out\nbase_url: https://api/\nfacade: true\n",
+        "package: acme\noutput: ../../out\nbase_url: https://api/\nfacade: true\n"
+        "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",
         encoding="utf-8",
     )
 
@@ -108,7 +109,8 @@ def test_build_runs_transforms_then_hook(
         "transforms:\n"
         "  tag_operations:\n"
         "    - {path: /x, method: get, operation_id: G, tag: T}\n"
-        "hooks: ./hooks.py\n",
+        "hooks: ./hooks.py\n"
+        "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",
         encoding="utf-8",
     )
     _order_sentinel: Any = order
