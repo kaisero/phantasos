@@ -11,7 +11,7 @@ from phantasos.smoke import SmokeError
 def _make_generated_pkg(
     project_dir: Path, pkgname: str, *, broken: bool = False, reqs: str = ""
 ) -> None:
-    """Write a tiny generated-style SDK (package + api + requirements.txt)."""
+    """Write a tiny generated-style SDK (package + api + pyproject.toml)."""
     pkg = project_dir / pkgname
     api = pkg / "api"
     api.mkdir(parents=True)
@@ -29,7 +29,12 @@ def _make_generated_pkg(
         "        return None\n",
         encoding="utf-8",
     )
-    (project_dir / "requirements.txt").write_text(reqs, encoding="utf-8")
+    (project_dir / "pyproject.toml").write_text(
+        f"[project]\nname = '{pkgname}'\nversion = '0'\nrequires-python = '>=3.9'\n"
+        f"[build-system]\nrequires = ['setuptools']\nbuild-backend = 'setuptools.build_meta'\n"
+        f"[tool.setuptools]\npackages = ['{pkgname}']\n",
+        encoding="utf-8",
+    )
     if broken:
         (pkg / "broken.py").write_text("import does_not_exist_xyz\n", encoding="utf-8")
 
@@ -67,10 +72,10 @@ def test_ensure_smoke_venv_creates_and_caches(
     assert py2 == py
 
 
-def test_ensure_smoke_venv_missing_requirements(tmp_path: Path) -> None:
-    proj = tmp_path / "noreqs"
+def test_ensure_smoke_venv_missing_pyproject(tmp_path: Path) -> None:
+    proj = tmp_path / "noproj"
     (proj / "pkg").mkdir(parents=True)
-    with pytest.raises(SmokeError, match="requirements"):
+    with pytest.raises(SmokeError, match="pyproject"):
         smoke._ensure_smoke_venv(proj)
 
 

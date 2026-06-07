@@ -49,14 +49,14 @@ def _venv_python(venv_dir: Path) -> Path:
 
 
 def _ensure_smoke_venv(project_dir: Path) -> Path:
-    """Create (or reuse) a cached venv with the SDK's deps; return its python."""
-    reqs = project_dir / "requirements.txt"
-    if not reqs.exists():
+    """Create (or reuse) a cached venv with the SDK installed; return its python."""
+    pyproject = project_dir / "pyproject.toml"
+    if not pyproject.exists():
         raise SmokeError(
-            f"no requirements.txt in {project_dir}; cannot isolate the smoke check. "
-            f"Pass --no-smoke to skip, or build a spec that emits one."
+            f"no pyproject.toml in {project_dir}; cannot isolate the smoke check. "
+            f"Pass --no-smoke to skip."
         )
-    key = hashlib.sha256(reqs.read_bytes()).hexdigest()[:16]
+    key = hashlib.sha256(pyproject.read_bytes()).hexdigest()[:16]
     venv_dir = provision.cache_dir() / "smoke-envs" / key
     py = _venv_python(venv_dir)
     ready = venv_dir / ".ready"
@@ -65,7 +65,7 @@ def _ensure_smoke_venv(project_dir: Path) -> Path:
     shutil.rmtree(venv_dir, ignore_errors=True)
     venv.EnvBuilder(with_pip=True).create(venv_dir)
     subprocess.run(
-        [str(py), "-m", "pip", "install", "-q", "-r", str(reqs)],
+        [str(py), "-m", "pip", "install", "-q", str(project_dir)],
         check=True,
         env=_sanitized_env(),
     )
