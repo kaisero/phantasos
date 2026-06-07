@@ -152,3 +152,38 @@ def test_build_passes_run_smoke_false(
     (tmp_path / "pkg").mkdir()
     phantasos.build(cfg, run_smoke=False)
     assert captured["run"] is False
+
+
+def test_build_runs_transforms_then_hook(tmp_path, monkeypatch) -> None:
+    import phantasos
+    from phantasos.productconfig import load_product
+
+    order: list[str] = []
+    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr("phantasos.render.vendor", lambda *a, **k: [])
+    monkeypatch.setattr("phantasos.patches.apply_generic_patches", lambda d: {})
+    monkeypatch.setattr("phantasos.smoke.smoke", lambda *a, **k: {"skipped": True, "operations": 0})
+    monkeypatch.setattr(
+        "phantasos.preprocess.tag_operations",
+        lambda spec, ops, stats=None: order.append("transforms"),
+    )
+
+    prod = tmp_path / "products" / "acme"
+    (prod / "templates").mkdir(parents=True)
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
+    (prod / "hooks.py").write_text(
+        "def preprocess(spec):\n    import builtins; builtins._ORDER.append('hook')\n",
+        encoding="utf-8",
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out\nbase_url: b\n"
+        "transforms: {tag_operations: [{path: /x, method: get, operation_id: G, tag: T}]}\n"
+        "hooks: ./hooks.py\n",
+        encoding="utf-8",
+    )
+    import builtins
+    builtins._ORDER = order  # let the hook record into the same list
+    loaded = load_product(str(prod / "sdk.yml"))
+    phantasos.build(loaded)
+    del builtins._ORDER
+    assert order == ["transforms", "hook"]
