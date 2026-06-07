@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
 
@@ -86,3 +87,86 @@ def resolve_component(
     if model is None:
         raise ValueError(f"unknown component type {type_!r}; expected one of {sorted(registry)}")
     return model(**block)
+
+
+@_dataclass
+class LoadedProduct:
+    config: ProductConfig
+    base_dir: Path
+    spec_path: Path
+    output_dir: Path
+    auth: Any | None
+    pagination: Any | None
+    errors: Any | None
+    facade: Any | None
+    context: dict[str, Any]
+
+
+_AUTO_EXPOSED = {
+    "package", "library", "base_url", "spec_version", "spec_title",
+    "has_auth", "has_pagination", "has_errors", "has_facade", "config_class_name",
+}
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    from ruamel.yaml import YAML
+
+    with path.open(encoding="utf-8") as fh:
+        return YAML(typ="safe").load(fh)
+
+
+def load_product(name_or_path: str) -> LoadedProduct:
+    p = Path(name_or_path)
+    sdk_path = p if p.name == "sdk.yml" else Path("products") / name_or_path / "sdk.yml"
+    sdk_path = sdk_path.resolve()
+    if not sdk_path.exists():
+        raise FileNotFoundError(f"no sdk.yml at {sdk_path}")
+    base_dir = sdk_path.parent
+    cfg = ProductConfig(**_read_yaml(sdk_path))
+
+    auth = resolve_component(cfg.auth, BUILTIN_AUTH, base_dir) if cfg.auth else None
+    pagination = (
+        resolve_component(cfg.pagination, BUILTIN_PAGINATION, base_dir)
+        if cfg.pagination
+        else None
+    )
+    errors = resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
+    facade = None
+    if cfg.facade:
+        block = {"type": "default"} if cfg.facade is True else dict(cfg.facade)
+        block.setdefault("type", "default")
+        facade = resolve_component(block, BUILTIN_FACADE, base_dir)
+
+    spec_path = (base_dir / cfg.spec).resolve()
+    info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
+
+    context: dict[str, Any] = {
+        "package": cfg.package,
+        "library": cfg.library,
+        "base_url": cfg.base_url,
+        "spec_version": info.get("version"),
+        "spec_title": info.get("title"),
+        "has_auth": auth is not None,
+        "has_pagination": pagination is not None,
+        "has_errors": errors is not None,
+        "has_facade": facade is not None,
+        "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
+    }
+    collisions = set(cfg.vars) & _AUTO_EXPOSED
+    if collisions:
+        raise ValueError(
+            f"vars keys {sorted(collisions)} shadow reserved auto-exposed names"
+        )
+    context.update(cfg.vars)
+
+    return LoadedProduct(
+        config=cfg,
+        base_dir=base_dir,
+        spec_path=spec_path,
+        output_dir=(base_dir / cfg.output).resolve(),
+        auth=auth,
+        pagination=pagination,
+        errors=errors,
+        facade=facade,
+        context=context,
+    )

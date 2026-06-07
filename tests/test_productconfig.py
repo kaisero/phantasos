@@ -85,3 +85,64 @@ def test_resolve_unknown_builtin() -> None:
         resolve_component(
             {"type": "magic"}, BUILTIN_AUTH, base_dir=__import__("pathlib").Path(".")
         )
+
+
+import textwrap  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from phantasos.productconfig import load_product  # noqa: E402
+
+_SDK_YML = """\
+package: acme
+output: ../acme-sdk
+base_url: https://api.example.com
+auth: {type: oauth_client_credentials, token_url: "https://t/"}
+pagination: {type: cursor}
+errors: {type: nested}
+facade: true
+vars: {support_email: sdk@example.com}
+"""
+
+_OPENAPI = """\
+openapi: 3.0.0
+info: {title: Acme, version: 9.9.9}
+paths: {}
+"""
+
+
+def _make_product(root: Path) -> Path:
+    d = root / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "sdk.yml").write_text(_SDK_YML, encoding="utf-8")
+    (d / "openapi.yml").write_text(_OPENAPI, encoding="utf-8")
+    return d
+
+
+def test_load_product_by_path(tmp_path: Path) -> None:
+    d = _make_product(tmp_path)
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.config.package == "acme"
+    assert loaded.auth.token_url == "https://t/"
+    assert loaded.context["spec_version"] == "9.9.9"
+    assert loaded.context["spec_title"] == "Acme"
+    assert loaded.context["package"] == "acme"
+    assert loaded.context["support_email"] == "sdk@example.com"
+    assert loaded.context["has_auth"] is True
+
+
+def test_load_product_by_name(tmp_path: Path, monkeypatch: "pytest.MonkeyPatch") -> None:
+    _make_product(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    loaded = load_product("acme")
+    assert loaded.config.package == "acme"
+
+
+def test_vars_collision_is_error(tmp_path: Path) -> None:
+    d = _make_product(tmp_path)
+    # A vars key that shadows an auto-exposed name (`package`) must error.
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: o\nbase_url: b\nvars: {package: oops}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="shadow|reserved"):
+        load_product(str(d / "sdk.yml"))
