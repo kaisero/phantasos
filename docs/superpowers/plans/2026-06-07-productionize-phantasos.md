@@ -1,22 +1,22 @@
-# Productionize sdkgen (merge python-project-template) Implementation Plan
+# Productionize phantasos (merge python-project-template) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the `sdk-gen` repo up to a production-grade Python setup by merging the `~/git/python-project-template` (Copier) template into it — gaining uv/nox/ruff/mypy/pytest, MkDocs docs, and full GitHub Actions CI/CD — without breaking the working sdkgen generator or its two example specs.
+**Goal:** Bring the `phantasos` repo up to a production-grade Python setup by merging the `~/git/python-project-template` (Copier) template into it — gaining uv/nox/ruff/mypy/pytest, MkDocs docs, and full GitHub Actions CI/CD — without breaking the working phantasos generator or its two example specs.
 
-**Architecture:** Apply the Copier template *into* the existing repo (writing `.copier-answers.yml` so future `copier update` works), then reconcile conflicts file-by-file: template wins for new tooling/scaffolding, our code wins for the engine, and `pyproject.toml`/`.gitignore`/`ci.yml`/docs-nav are hand-merged. Migrate the package to a `src/sdkgen/` layout. All work happens on a new branch and lands as **one squashed commit**.
+**Architecture:** Apply the Copier template *into* the existing repo (writing `.copier-answers.yml` so future `copier update` works), then reconcile conflicts file-by-file: template wins for new tooling/scaffolding, our code wins for the engine, and `pyproject.toml`/`.gitignore`/`ci.yml`/docs-nav are hand-merged. Migrate the package to a `src/phantasos/` layout. All work happens on a new branch and lands as **one squashed commit**.
 
 **Tech stack:** Copier, uv (+ uv.lock, PEP 735 dependency-groups), hatchling, nox, ruff, mypy (strict), pytest + pytest-cov, MkDocs Material + mkdocstrings, GitHub Actions (CI matrix, PyPI Trusted Publishing, Pages, Dependabot, CodeQL), JDK 17 + OpenAPI Generator (for the build-smoke).
 
 **Resolved decisions (from grill-me):**
 - Mechanism: **A** — Copier into the repo (lineage via `.copier-answers.yml`); reconcile by hand. One squashed commit on a new branch.
-- Layout: migrate `sdkgen/` → **`src/sdkgen/`**.
+- Layout: migrate `phantasos/` → **`src/phantasos/`**.
 - CLI: **keep argparse** (`include_cli=false`); Typer port is a documented follow-up.
 - mypy: **strict**, pragmatic per-module overrides only where dynamic code/untyped deps require.
 - Coverage: **70%**, integration glue (`generate.py`) excluded — proven by a Java build-smoke instead.
 - Build-smoke: dedicated **`nox -s smoke`** session + a JDK17 CI job (jar-cached); builds **both** prisma-browser and adem.
 - Docs: full **MkDocs** with curated nav (Home, Authoring, Architecture, API Reference, Project history) + Pages deploy.
-- Metadata: project/slug/package all `sdkgen`; Apache-2.0; owner `kaisero`; `oliver.kaiser@outlook.com`; Python ≥3.11; copyright 2026.
+- Metadata: project/slug/package all `phantasos`; Apache-2.0; owner `kaisero`; `oliver.kaiser@outlook.com`; Python ≥3.11; copyright 2026.
 - Conflicts: template wins for new tooling; ours wins for engine/specs/transformations/our-docs; `pyproject.toml`/`.gitignore`/`ci.yml`/mkdocs-nav merged; README ours + badges.
 
 **Commit policy:** Commit per task on the branch for safety checkpoints; the **final task squashes all task commits into one** so the branch presents a single commit for merging into `main`.
@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Confirm clean tree on `main`**
 
-Run: `cd /home/ubuntu/git/sdk-gen && git status --short | grep -v fuse_hidden`
+Run: `cd /home/ubuntu/git/pan-phantasoserator && git status --short | grep -v fuse_hidden`
 Expected: no output (clean; ignore any `.fuse_hidden*`).
 
 - [ ] **Step 2: Create the work branch**
@@ -51,12 +51,12 @@ Expected: `Switched to a new branch 'chore/productionize-template'`
 uv run --no-project --python 3.12 \
   --with ruamel.yaml --with jinja2 --with pydantic --with urllib3 \
   --with python-dateutil --with typing_extensions \
-  python -m sdkgen.cli build transformations/prisma-browser.py
+  python -m phantasos.cli build transformations/prisma-browser.py
 ```
 Expected: `built prisma_browser: imported 427 modules, 0 failures; operations: 95`
 
 ```bash
-rm -rf ../prisma-browser-sdk/.sdkgen ../adem-sdk/.sdkgen
+rm -rf ../prisma-browser-sdk/.phantasos ../adem-sdk/.phantasos
 ```
 
 ---
@@ -69,9 +69,9 @@ rm -rf ../prisma-browser-sdk/.sdkgen ../adem-sdk/.sdkgen
 
 ```bash
 uvx copier copy --trust --overwrite --defaults --vcs-ref=HEAD \
-  --data project_name=sdkgen \
-  --data project_slug=sdkgen \
-  --data package_name=sdkgen \
+  --data project_name=phantasos \
+  --data project_slug=phantasos \
+  --data package_name=phantasos \
   --data "description=Generate native, self-contained Python SDKs from OpenAPI specs." \
   --data "author_name=Oliver Kaiser" \
   --data author_email=oliver.kaiser@outlook.com \
@@ -105,7 +105,7 @@ git commit -m "wip: apply python-project-template via copier (raw)"
 
 **Files:**
 - Restore: `README.md` (ours)
-- Delete: `src/sdkgen/core.py`, `src/sdkgen/__init__.py` (template stubs — replaced in Task 3), `tests/test_core.py`, `tests/test_cli.py` (if present)
+- Delete: `src/phantasos/core.py`, `src/phantasos/__init__.py` (template stubs — replaced in Task 3), `tests/test_core.py`, `tests/test_cli.py` (if present)
 
 - [ ] **Step 1: Restore our README (keep template's as a reference for badges in Task 12)**
 
@@ -117,14 +117,14 @@ git show main:README.md > README.md
 
 ```bash
 git rm -f --ignore-unmatch tests/test_core.py tests/test_cli.py
-rm -f src/sdkgen/core.py src/sdkgen/__init__.py
+rm -f src/phantasos/core.py src/phantasos/__init__.py
 ```
-(We keep `src/sdkgen/py.typed` from the template. Our real modules move in next task.)
+(We keep `src/phantasos/py.typed` from the template. Our real modules move in next task.)
 
 - [ ] **Step 3: Sanity-check what the template added vs. what we keep**
 
 Run: `git status --short`
-Expected: deleted `tests/test_core.py`; `README.md` modified back to ours; `src/sdkgen/` currently holds only `py.typed`.
+Expected: deleted `tests/test_core.py`; `README.md` modified back to ours; `src/phantasos/` currently holds only `py.typed`.
 
 - [ ] **Step 4: Commit** (checkpoint)
 
@@ -135,36 +135,36 @@ git commit -m "wip: keep our README; drop template package/test stubs"
 
 ---
 
-## Task 3: Migrate the package to `src/sdkgen/`
+## Task 3: Migrate the package to `src/phantasos/`
 
 **Files:**
-- Move: `sdkgen/*` → `src/sdkgen/*` (incl. `components/**/*.jinja`)
+- Move: `phantasos/*` → `src/phantasos/*` (incl. `components/**/*.jinja`)
 - Modify: `tests/conftest.py`
 
 - [ ] **Step 1: Move the package under `src/` (keep template's `py.typed`)**
 
 ```bash
-git mv sdkgen/__init__.py        src/sdkgen/__init__.py
-git mv sdkgen/cli.py             src/sdkgen/cli.py
-git mv sdkgen/config.py          src/sdkgen/config.py
-git mv sdkgen/generate.py        src/sdkgen/generate.py
-git mv sdkgen/patches.py         src/sdkgen/patches.py
-git mv sdkgen/preprocess.py      src/sdkgen/preprocess.py
-git mv sdkgen/render.py          src/sdkgen/render.py
-git mv sdkgen/smoke.py           src/sdkgen/smoke.py
-git mv sdkgen/components         src/sdkgen/components
-rmdir sdkgen 2>/dev/null || true
+git mv phantasos/__init__.py        src/phantasos/__init__.py
+git mv phantasos/cli.py             src/phantasos/cli.py
+git mv phantasos/config.py          src/phantasos/config.py
+git mv phantasos/generate.py        src/phantasos/generate.py
+git mv phantasos/patches.py         src/phantasos/patches.py
+git mv phantasos/preprocess.py      src/phantasos/preprocess.py
+git mv phantasos/render.py          src/phantasos/render.py
+git mv phantasos/smoke.py           src/phantasos/smoke.py
+git mv phantasos/components         src/phantasos/components
+rmdir phantasos 2>/dev/null || true
 ```
-Expected: `src/sdkgen/` now has all modules + `components/` + `py.typed`; `sdkgen/` is gone.
+Expected: `src/phantasos/` now has all modules + `components/` + `py.typed`; `phantasos/` is gone.
 
 - [ ] **Step 2: Point the test conftest at `src/`**
 
 Replace `tests/conftest.py` entirely with:
 
 ```python
-"""Pytest config for the sdkgen framework engine tests.
+"""Pytest config for the phantasos framework engine tests.
 
-Ensures the `sdkgen` package (under src/) is importable even without an editable
+Ensures the `phantasos` package (under src/) is importable even without an editable
 install. SDK-specific tests live with each generated SDK, not here.
 """
 import sys
@@ -175,14 +175,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 - [ ] **Step 3: Verify the package imports from src/**
 
-Run: `cd /home/ubuntu/git/sdk-gen && PYTHONPATH=src uv run --no-project --python 3.12 --with jinja2 --with ruamel.yaml python -c "import sdkgen; print(sdkgen.__file__)"`
-Expected: a path ending in `src/sdkgen/__init__.py`.
+Run: `cd /home/ubuntu/git/pan-phantasoserator && PYTHONPATH=src uv run --no-project --python 3.12 --with jinja2 --with ruamel.yaml python -c "import phantasos; print(phantasos.__file__)"`
+Expected: a path ending in `src/phantasos/__init__.py`.
 
 - [ ] **Step 4: Commit** (checkpoint)
 
 ```bash
 git add -A
-git commit -m "wip: migrate package to src/sdkgen layout"
+git commit -m "wip: migrate package to src/phantasos layout"
 ```
 
 ---
@@ -198,7 +198,7 @@ Write `pyproject.toml` exactly as:
 
 ```toml
 [project]
-name = "sdkgen"
+name = "phantasos"
 version = "0.1.0"
 description = "Generate native, self-contained Python SDKs from OpenAPI specs."
 readme = "README.md"
@@ -222,17 +222,17 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kaisero/sdkgen"
-Documentation = "https://kaisero.github.io/sdkgen/"
-Repository = "https://github.com/kaisero/sdkgen"
-Issues = "https://github.com/kaisero/sdkgen/issues"
-Changelog = "https://github.com/kaisero/sdkgen/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/kaisero/phantasos"
+Documentation = "https://kaisero.github.io/phantasos/"
+Repository = "https://github.com/kaisero/phantasos"
+Issues = "https://github.com/kaisero/phantasos/issues"
+Changelog = "https://github.com/kaisero/phantasos/blob/main/CHANGELOG.md"
 
 [project.scripts]
-sdkgen = "sdkgen.cli:main"
+phantasos = "phantasos.cli:main"
 
 [project.optional-dependencies]
-# Deps the *generated* SDK imports at smoke/runtime — installed so `sdkgen build`
+# Deps the *generated* SDK imports at smoke/runtime — installed so `phantasos build`
 # can import-check its own output. A built SDK declares these in its own pyproject.
 generated = ["pydantic>=2", "urllib3>=2", "python-dateutil", "typing_extensions"]
 
@@ -241,12 +241,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sdkgen"]
+packages = ["src/phantasos"]
 # Ship the Jinja component templates as package data (vendored at build time).
-artifacts = ["src/sdkgen/components/**/*.jinja"]
+artifacts = ["src/phantasos/components/**/*.jinja"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/sdkgen", "README.md"]
+include = ["src/phantasos", "README.md"]
 
 [dependency-groups]
 test = ["pytest>=8", "pytest-cov>=5"]
@@ -278,10 +278,10 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]
 # generate.py runs the pinned OpenAPI Generator jar and fetches it over https — trusted.
-"src/sdkgen/generate.py" = ["S603", "S404", "S310"]
+"src/phantasos/generate.py" = ["S603", "S404", "S310"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sdkgen"]
+known-first-party = ["phantasos"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -306,10 +306,10 @@ addopts = "-ra --strict-markers --strict-config"
 
 [tool.coverage.run]
 branch = true
-source = ["sdkgen"]
+source = ["phantasos"]
 # generate.py is a thin subprocess wrapper around the OpenAPI Generator jar; it is
 # exercised by `nox -s smoke` (which needs Java), not the unit suite.
-omit = ["src/sdkgen/generate.py"]
+omit = ["src/phantasos/generate.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -330,7 +330,7 @@ Expected: resolves, creates `.venv` + `uv.lock`, no errors.
 
 - [ ] **Step 3: Verify the console script + import work from the install**
 
-Run: `uv run sdkgen --help`
+Run: `uv run phantasos --help`
 Expected: argparse help showing the `build` subcommand.
 
 - [ ] **Step 4: Commit** (checkpoint)
@@ -360,8 +360,8 @@ def smoke(session: nox.Session) -> None:
     jar. Each SDK is written to a sibling dir of this repo (see transformations/).
     """
     _sync(session, "smoke")
-    session.run("sdkgen", "build", "transformations/prisma-browser.py")
-    session.run("sdkgen", "build", "transformations/adem.py")
+    session.run("phantasos", "build", "transformations/prisma-browser.py")
+    session.run("phantasos", "build", "transformations/adem.py")
 ```
 
 - [ ] **Step 2: Run the smoke session (proves parity post-migration)**
@@ -375,7 +375,7 @@ built adem: imported 110 modules, 0 failures; operations: 13
 
 - [ ] **Step 3: Confirm nothing leaked into the repo**
 
-Run: `ls -d prisma-browser-sdk adem-sdk 2>/dev/null || echo OK; ls ../prisma-browser-sdk/adem 2>/dev/null; rm -rf ../prisma-browser-sdk/.sdkgen ../adem-sdk/.sdkgen`
+Run: `ls -d prisma-browser-sdk adem-sdk 2>/dev/null || echo OK; ls ../prisma-browser-sdk/adem 2>/dev/null; rm -rf ../prisma-browser-sdk/.phantasos ../adem-sdk/.phantasos`
 Expected: `OK` (no generated SDK inside the repo).
 
 - [ ] **Step 4: Commit** (checkpoint)
@@ -417,7 +417,7 @@ Add this job under `jobs:` (sibling to `lint`/`tests`/`docs`):
       - name: Cache OpenAPI Generator jar
         uses: actions/cache@v4
         with:
-          path: ~/.cache/sdkgen
+          path: ~/.cache/phantasos
           key: oag-jar-7.7.0
       - name: Build example SDKs
         run: uv run nox -s smoke
@@ -425,7 +425,7 @@ Add this job under `jobs:` (sibling to `lint`/`tests`/`docs`):
 
 - [ ] **Step 2: Union the `.gitignore`**
 
-Ensure `.gitignore` contains these (append any missing under a `# sdkgen` section):
+Ensure `.gitignore` contains these (append any missing under a `# phantasos` section):
 
 ```gitignore
 # Secrets — never commit live tenant credentials
@@ -438,8 +438,8 @@ dist/
 build/
 *.egg-info/
 
-# sdkgen per-build preprocess scratch
-.sdkgen/
+# phantasos per-build preprocess scratch
+.phantasos/
 
 # Vendored generator jar (fetched on demand)
 .tools/
@@ -467,16 +467,16 @@ git commit -m "wip: CI smoke job (JDK + jar cache) + gitignore union"
 **Files:**
 - Modify: `mkdocs.yml` (nav)
 - Modify: `docs/index.md` (replace template stub with a real overview)
-- Keep: `docs/reference.md` (`::: sdkgen`), `docs/ARCHITECTURE.md`, `docs/AUTHORING_A_SPEC.md`, `docs/REARCH_PLAN.md`, `docs/phase-*.md`, `docs/README.md`
+- Keep: `docs/reference.md` (`::: phantasos`), `docs/ARCHITECTURE.md`, `docs/AUTHORING_A_SPEC.md`, `docs/REARCH_PLAN.md`, `docs/phase-*.md`, `docs/README.md`
 
 - [ ] **Step 1: Replace `docs/index.md` with a real overview**
 
 Write `docs/index.md`:
 
 ```markdown
-# sdkgen
+# phantasos
 
-Generate native, self-contained Python SDKs from OpenAPI specs. `sdkgen` wraps
+Generate native, self-contained Python SDKs from OpenAPI specs. `phantasos` wraps
 [OpenAPI Generator](https://openapi-generator.tech/) and adds generic spec
 preprocessing, codegen-bug patches, and vendored, templated components (auth,
 pagination, errors, a resource facade) selected per spec.
@@ -490,12 +490,12 @@ pip install -e ".[generated]"
 ## Build an SDK
 
 ```bash
-sdkgen build transformations/prisma-browser.py
+phantasos build transformations/prisma-browser.py
 ```
 
 See the [Authoring guide](AUTHORING_A_SPEC.md) to onboard a new spec, the
 [Architecture](ARCHITECTURE.md) for the design, and the
-[API Reference](reference.md) for the `sdkgen` package.
+[API Reference](reference.md) for the `phantasos` package.
 ```
 
 - [ ] **Step 2: Set the MkDocs nav**
@@ -529,7 +529,7 @@ git commit -m "wip: MkDocs nav + real index over existing docs"
 
 ## Task 8: Make ruff (lint + format) pass
 
-**Files:** `src/sdkgen/*.py`, `transformations/*.py`, `tests/*.py` as ruff reports
+**Files:** `src/phantasos/*.py`, `transformations/*.py`, `tests/*.py` as ruff reports
 
 - [ ] **Step 1: Auto-format and auto-fix**
 
@@ -554,7 +554,7 @@ git commit -m "wip: ruff lint + format clean"
 
 ## Task 9: Make mypy (strict) pass
 
-**Files:** `src/sdkgen/*.py` (annotations), possibly `pyproject.toml` (extra overrides), `tests/*.py`
+**Files:** `src/phantasos/*.py` (annotations), possibly `pyproject.toml` (extra overrides), `tests/*.py`
 
 - [ ] **Step 1: Run mypy and read the errors**
 
@@ -563,7 +563,7 @@ Expected initially: FAIL with a list of `error:` lines.
 
 - [ ] **Step 2: Annotate the public surface to satisfy strict**
 
-Add precise type hints to functions/returns in `src/sdkgen/` that mypy flags. Guidance:
+Add precise type hints to functions/returns in `src/phantasos/` that mypy flags. Guidance:
 - `config.py`: dataclasses already typed; add return types where missing.
 - `preprocess.py`/`patches.py`/`render.py`/`smoke.py`: annotate params and returns (`dict[str, int]`, `Path`, `list[str]`, etc.).
 - `cli.py`: annotate `main(argv: list[str] | None = None) -> int`; the importlib-loaded module is dynamic — type the loaded module as `Any` (`mod: Any = _load_spec_module(...)`).
@@ -597,7 +597,7 @@ Expected: existing 9 tests pass; a coverage report prints. If `fail_under=70` fa
 
 If under gate, add small unit tests in `tests/` for easy wins:
 - `smoke.py`: build a tiny fake package dir in `tmp_path` with one `*_api.py` and assert `smoke()` returns the right `imported`/`operations` counts.
-- `cli.py`: write a minimal `sdk.py` in `tmp_path` whose `CONFIG` points at a trivial spec and assert `cli.main(["build", str(path)])` returns an int (monkeypatch `sdkgen.generate.generate` to a no-op to avoid Java).
+- `cli.py`: write a minimal `sdk.py` in `tmp_path` whose `CONFIG` points at a trivial spec and assert `cli.main(["build", str(path)])` returns an int (monkeypatch `phantasos.generate.generate` to a no-op to avoid Java).
 
 Each as: write test → run `pytest tests/<file>::<test> -v` (expect PASS).
 
@@ -626,7 +626,7 @@ Expected: `lint`, `type_check`, `tests`, `docs` all succeed.
 
 - [ ] **Step 2: Run the build-smoke once more**
 
-Run: `uv run nox -s smoke && rm -rf ../prisma-browser-sdk/.sdkgen ../adem-sdk/.sdkgen`
+Run: `uv run nox -s smoke && rm -rf ../prisma-browser-sdk/.phantasos ../adem-sdk/.phantasos`
 Expected: prisma 427/0/95, adem 110/0/13.
 
 - [ ] **Step 3: Install + run pre-commit on all files**
@@ -655,11 +655,11 @@ git commit -m "wip: green nox + smoke + pre-commit; commit uv.lock"
 
 **Files:** `README.md`, `TODO.md`
 
-- [ ] **Step 1: Add badges to the top of `README.md`** (right after the `# sdkgen` title)
+- [ ] **Step 1: Add badges to the top of `README.md`** (right after the `# phantasos` title)
 
 ```markdown
-[![CI](https://github.com/kaisero/sdkgen/actions/workflows/ci.yml/badge.svg)](https://github.com/kaisero/sdkgen/actions/workflows/ci.yml)
-[![Docs](https://github.com/kaisero/sdkgen/actions/workflows/docs.yml/badge.svg)](https://kaisero.github.io/sdkgen/)
+[![CI](https://github.com/kaisero/phantasos/actions/workflows/ci.yml/badge.svg)](https://github.com/kaisero/phantasos/actions/workflows/ci.yml)
+[![Docs](https://github.com/kaisero/phantasos/actions/workflows/docs.yml/badge.svg)](https://kaisero.github.io/phantasos/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ```
 
@@ -671,7 +671,7 @@ Append:
 
 ## Follow-up: consider a Typer CLI
 
-The CLI is currently argparse (`sdkgen.cli:main`). The project template ships a Typer
+The CLI is currently argparse (`phantasos.cli:main`). The project template ships a Typer
 scaffold; porting the one `build` command to Typer would add `--help` polish and shell
 completion (and align with the template's CLI docs). Tracked as optional; argparse works.
 ```
@@ -710,11 +710,11 @@ git reset --soft main
 git commit -m "$(cat <<'EOF'
 chore: productionize repo from python-project-template
 
-Merge the Copier python-project-template into sdk-gen for a production setup,
+Merge the Copier python-project-template into phantasos for a production setup,
 preserving the generator engine and both example specs.
 
 - Copier applied in-place with .copier-answers.yml (future `copier update` works)
-- Migrate package to src/sdkgen/ layout
+- Migrate package to src/phantasos/ layout
 - uv + PEP 735 dependency-groups + uv.lock; hatchling (ship *.jinja package data)
 - nox single source of truth: lint (ruff), type_check (mypy strict), tests
   (pytest+cov, 70% gate, generate.py excluded), docs (mkdocs --strict), smoke
@@ -740,7 +740,7 @@ Expected: exactly one commit (the chore above).
 
 ```bash
 git status --short | grep -v fuse_hidden || echo "(clean)"
-uv run nox && uv run nox -s smoke && rm -rf ../prisma-browser-sdk/.sdkgen ../adem-sdk/.sdkgen
+uv run nox && uv run nox -s smoke && rm -rf ../prisma-browser-sdk/.phantasos ../adem-sdk/.phantasos
 ```
 Expected: clean tree; full nox + smoke all green.
 
@@ -754,7 +754,7 @@ The branch `chore/productionize-template` is now ready to merge into `main`.
 
 **Placeholder scan:** all file contents (pyproject, conftest, nox session, CI job, gitignore, index.md, nav, badges) are given verbatim; Tasks 8–10 are inherently "fix what the tool reports" but each gives the exact command, the strategy, and the green criterion rather than a vague "handle errors." ✓
 
-**Type/name consistency:** package import name `sdkgen`; dist/slug `sdkgen`; console script `sdkgen.cli:main`; coverage `source=["sdkgen"]` with `omit=["src/sdkgen/generate.py"]`; hatchling `packages=["src/sdkgen"]` — consistent across tasks. ✓
+**Type/name consistency:** package import name `phantasos`; dist/slug `phantasos`; console script `phantasos.cli:main`; coverage `source=["phantasos"]` with `omit=["src/phantasos/generate.py"]`; hatchling `packages=["src/phantasos"]` — consistent across tasks. ✓
 
 **Known risks:**
 - Copier local-path application may need the template committed at HEAD (`--vcs-ref=HEAD`) — Task 1 notes this.

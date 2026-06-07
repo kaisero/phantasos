@@ -85,7 +85,7 @@ jobs:
       - name: Cache OpenAPI Generator jar
         uses: actions/cache@v4
         with:
-          path: ~/.cache/sdkgen
+          path: ~/.cache/phantasos
           key: oag-jar-7.7.0
       - name: Build example SDKs
         run: uv run nox -s smoke

@@ -1,4 +1,4 @@
-"""`sdkgen build <config>` — load a spec's config module and build its SDK."""
+"""`phantasos build <config>` — load a spec's config module and build its SDK."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _load_spec_module(config_path: Path) -> Any:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="sdkgen")
+    parser = argparse.ArgumentParser(prog="phantasos")
     sub = parser.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build an SDK from a spec's config module")
     b.add_argument(

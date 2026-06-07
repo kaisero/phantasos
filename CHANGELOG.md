@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release of sdkgen.
+- Initial release of phantasos.
 
-[Unreleased]: https://github.com/kaisero/sdkgen/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/kaisero/sdkgen/releases/tag/v0.1.0
+[Unreleased]: https://github.com/kaisero/phantasos/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kaisero/phantasos/releases/tag/v0.1.0

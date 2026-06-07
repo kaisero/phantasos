@@ -1,4 +1,4 @@
-"""sdkgen — generate native, self-contained Python SDKs from OpenAPI specs.
+"""phantasos — generate native, self-contained Python SDKs from OpenAPI specs.
 
 Public API: `build(config, preprocess_hook=None, patch_hook=None)`.
 """
@@ -28,9 +28,9 @@ __all__ = [
 ]
 
 _ABOUT = '''\
-"""Build provenance (written by sdkgen)."""
+"""Build provenance (written by phantasos)."""
 SPEC_VERSION = {spec_version!r}
-SDKGEN_VERSION = {sdkgen_version!r}
+PHANTASOS_VERSION = {phantasos_version!r}
 OPENAPI_GENERATOR_VERSION = {oag_version!r}
 '''
 
@@ -51,7 +51,7 @@ def build(
     preprocess.clean(spec, stats)
     if preprocess_hook:
         preprocess_hook(spec)
-    pp_dir = project_dir / ".sdkgen"
+    pp_dir = project_dir / ".phantasos"
     pp_dir.mkdir(parents=True, exist_ok=True)
     pp_path = pp_dir / "preprocessed.yaml"
     preprocess.dump(spec, yaml, str(pp_path))
@@ -79,7 +79,7 @@ def build(
     (pkg_dir / "_about.py").write_text(
         _ABOUT.format(
             spec_version=spec_version,
-            sdkgen_version="0.1.0",
+            phantasos_version="0.1.0",
             oag_version=generate.OAG_VERSION,
         ),
         encoding="utf-8",

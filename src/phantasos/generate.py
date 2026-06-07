@@ -16,7 +16,7 @@ _JAR_URL = (
 
 
 def _cache_dir() -> Path:
-    base = Path(os.environ.get("SDKGEN_CACHE", Path.home() / ".cache" / "sdkgen"))
+    base = Path(os.environ.get("PHANTASOS_CACHE", Path.home() / ".cache" / "phantasos"))
     base.mkdir(parents=True, exist_ok=True)
     return base
 

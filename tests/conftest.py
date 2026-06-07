@@ -1,6 +1,6 @@
-"""Pytest config for the sdkgen framework engine tests.
+"""Pytest config for the phantasos framework engine tests.
 
-Ensures the `sdkgen` package (under src/) is importable even without an editable
+Ensures the `phantasos` package (under src/) is importable even without an editable
 install. SDK-specific tests live with each generated SDK, not here.
 """
 

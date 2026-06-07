@@ -1,4 +1,4 @@
-# Contributing to sdkgen
+# Contributing to phantasos
 
 Thanks for your interest in contributing!
 
@@ -8,8 +8,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for environment management
 and [nox](https://nox.thea.codes/) as the task runner.
 
 ```bash
-git clone https://github.com/kaisero/sdkgen.git
-cd sdkgen
+git clone https://github.com/kaisero/phantasos.git
+cd phantasos
 uv sync --all-groups
 uv run pre-commit install
 ```

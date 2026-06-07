@@ -1,12 +1,12 @@
-"""Unit tests for the sdkgen CLI (offline: generate is monkeypatched out)."""
+"""Unit tests for the phantasos CLI (offline: generate is monkeypatched out)."""
 
 import sys
 from pathlib import Path
 
 import pytest
 
-import sdkgen
-from sdkgen import cli, generate
+import phantasos
+from phantasos import cli, generate
 
 _SPEC = """\
 openapi: 3.0.0
@@ -31,7 +31,7 @@ components:
 """
 
 _CONFIG_MODULE = """\
-from sdkgen import Facade, SdkConfig
+from phantasos import Facade, SdkConfig
 
 CONFIG = SdkConfig(
     spec="demo.yml",
@@ -84,7 +84,7 @@ def test_cli_build_returns_zero_on_success(
         _write_fake_generated_pkg(Path(out_dir), package)
 
     monkeypatch.setattr(generate, "generate", fake_generate)
-    monkeypatch.setattr(sdkgen.generate, "generate", fake_generate)
+    monkeypatch.setattr(phantasos.generate, "generate", fake_generate)
 
     try:
         rc = cli.main(["build", str(cfg_path)])

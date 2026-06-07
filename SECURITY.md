@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-sdkgen is pre-1.0; only the latest released version receives security
+phantasos is pre-1.0; only the latest released version receives security
 fixes. Once 1.0 is released, this table should be updated to reflect the
 supported release line(s).
 
@@ -16,7 +16,7 @@ supported release line(s).
 **Please do not report security vulnerabilities through public GitHub issues.**
 
 Instead, report them privately via GitHub's
-[private vulnerability reporting](https://github.com/kaisero/sdkgen/security/advisories/new)
+[private vulnerability reporting](https://github.com/kaisero/phantasos/security/advisories/new)
 (Security → Advisories → Report a vulnerability). If that is unavailable, email
 oliver.kaiser@outlook.com.
 

@@ -19,7 +19,7 @@ _ONEOF_FIRST_MATCH = re.compile(
 )
 
 LENIENT_SOURCE = '''\
-"""Forward-compatible string/int enum base (injected by sdkgen).
+"""Forward-compatible string/int enum base (injected by phantasos).
 
 Generated enums are rebased onto these so values the live API returns that the spec
 does not declare are accepted (as pseudo-members) instead of failing validation.
