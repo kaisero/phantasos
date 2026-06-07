@@ -13,6 +13,14 @@ default_language_version:
   python: python3.11
 
 repos:
+  # Secrets scanning: block hardcoded credentials/API keys from being committed.
+  # Scans only the staged diff (--staged), so it's fast on every commit. CI runs
+  # a full-history sweep as the backstop (a hook can be bypassed with --no-verify).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

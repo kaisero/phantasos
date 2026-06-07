@@ -38,6 +38,7 @@ nav:
 # the prototype phase write-ups, the migration index/plan, and planning docs.
 exclude_docs: |
   README.md
+  TODO.md
   phase-*.md
   superpowers/
 
