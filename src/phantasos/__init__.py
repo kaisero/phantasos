@@ -68,6 +68,7 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     spec_version = spec.get("info", {}).get("version")
 
     # 2. generate
+    generate.write_openapi_generator_ignore(project_dir)
     generate.generate(str(pp_path), str(project_dir), cfg.package, library=cfg.library)
     pkg_dir = project_dir / cfg.package
     pkg_dir.mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,17 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
 
     # 4. vendor
     vendored = render.vendor(pkg_dir, loaded)
+
+    # 4b. scaffold the project (built-in + per-product overrides, overwrite)
+    from . import scaffold
+
+    overrides = loaded.base_dir / "overrides"
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(),
+        overrides if overrides.is_dir() else None,
+        project_dir,
+        loaded.context,
+    )
 
     # 5. provenance
     (pkg_dir / "_about.py").write_text(

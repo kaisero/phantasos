@@ -40,7 +40,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/phantasos"]
 # Ship the Jinja component templates as package data (vendored at build time).
-artifacts = ["src/phantasos/components/**/*.jinja"]
+artifacts = [
+    "src/phantasos/components/**/*.jinja",
+    "src/phantasos/scaffold/**",
+]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/phantasos", "README.md"]
