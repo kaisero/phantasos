@@ -1,9 +1,9 @@
-"""Offline unit tests for the sdkgen framework engine."""
+"""Offline unit tests for the phantasos framework engine."""
 
 from pathlib import Path
 from typing import Any
 
-from sdkgen import patches, preprocess, render
+from phantasos import patches, preprocess, render
 
 
 def test_collapse_allof_over_array_ref() -> None:

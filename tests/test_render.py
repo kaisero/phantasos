@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from sdkgen import render
-from sdkgen.config import (
+from phantasos import render
+from phantasos.config import (
     CursorPagination,
     Facade,
     NestedError,

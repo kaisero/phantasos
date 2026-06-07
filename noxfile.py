@@ -1,4 +1,4 @@
-"""Task runner for sdkgen.
+"""Task runner for phantasos.
 
 One source of truth for the checks run both locally and in CI. Run everything
 with ``uv run nox`` or a single session with ``uv run nox -s tests``.
@@ -108,5 +108,5 @@ def smoke(session: nox.Session) -> None:
     jar. Each SDK is written to a sibling dir of this repo (see transformations/).
     """
     _sync(session, "smoke")
-    session.run("sdkgen", "build", "transformations/prisma-browser.py")
-    session.run("sdkgen", "build", "transformations/adem.py")
+    session.run("phantasos", "build", "transformations/prisma-browser.py")
+    session.run("phantasos", "build", "transformations/adem.py")

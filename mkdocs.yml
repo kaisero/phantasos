@@ -1,8 +1,8 @@
-site_name: sdkgen
+site_name: phantasos
 site_description: Generate native, self-contained Python SDKs from OpenAPI specs.
-site_url: https://kaisero.github.io/sdkgen/
-repo_url: https://github.com/kaisero/sdkgen
-repo_name: kaisero/sdkgen
+site_url: https://kaisero.github.io/phantasos/
+repo_url: https://github.com/kaisero/phantasos
+repo_name: kaisero/phantasos
 copyright: Copyright &copy; 2026 Oliver Kaiser
 
 theme:

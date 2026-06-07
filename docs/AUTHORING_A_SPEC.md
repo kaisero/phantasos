@@ -1,20 +1,20 @@
 # Authoring a spec (`transformations/<product>.py`)
 
-`sdkgen` builds a vendored, self-contained Python SDK for an OpenAPI spec from a small
+`phantasos` builds a vendored, self-contained Python SDK for an OpenAPI spec from a small
 Python config module. Each product has two files:
 
 - `specs/<product>.yml` — the OpenAPI source document
-- `transformations/<product>.py` — its sdkgen config (`CONFIG` + optional hooks)
+- `transformations/<product>.py` — its phantasos config (`CONFIG` + optional hooks)
 
-You write the config module; `sdkgen build transformations/<product>.py` does the rest.
+You write the config module; `phantasos build transformations/<product>.py` does the rest.
 
 ## Quickstart
 ```bash
 pip install -e ".[generated]"                 # the framework (+ deps the generated SDK imports)
-sdkgen build transformations/<product>.py     # preprocess -> generate -> patch -> vendor -> smoke
+phantasos build transformations/<product>.py     # preprocess -> generate -> patch -> vendor -> smoke
 ```
-Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to `~/.cache/sdkgen`
-(override with `SDKGEN_CACHE`).
+Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to `~/.cache/phantasos`
+(override with `PHANTASOS_CACHE`).
 
 ## The config module
 Define a module-level `CONFIG` and, optionally, `preprocess(spec)` / `patch(pkg_dir)` hooks.
@@ -22,7 +22,7 @@ Resolve paths relative to the module so the build works from any working directo
 
 ```python
 from pathlib import Path
-from sdkgen import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
+from phantasos import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent   # transformations/ -> repo root
 
@@ -39,7 +39,7 @@ CONFIG = SdkConfig(
 )
 
 def preprocess(spec):                   # optional: spec-specific quirks via framework helpers
-    from sdkgen.preprocess import hoist_items, tag_operations
+    from phantasos.preprocess import hoist_items, tag_operations
     hoist_items(spec, [("SomeControl", "items", "SomeEntry")])
     tag_operations(spec, [("/v1/things", "get", "ListThings", "Things")])
 
@@ -101,5 +101,5 @@ with a `template` field pointing at your `.jinja`, implement the relevant `extra
 and reference your class from your config module (it's just Python — import it).
 
 ## Provenance
-Every build writes `<package>/_about.py` with `SPEC_VERSION`, `SDKGEN_VERSION`, and
+Every build writes `<package>/_about.py` with `SPEC_VERSION`, `PHANTASOS_VERSION`, and
 `OPENAPI_GENERATOR_VERSION` for traceability.

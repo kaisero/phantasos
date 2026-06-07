@@ -10,6 +10,6 @@ github_owner: kaisero
 include_cli: false
 license: Apache-2.0
 min_python: '3.11'
-package_name: sdkgen
-project_name: sdkgen
-project_slug: sdkgen
+package_name: phantasos
+project_name: phantasos
+project_slug: phantasos

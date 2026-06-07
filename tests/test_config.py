@@ -1,6 +1,6 @@
 """Unit tests for SdkConfig component selection/ordering."""
 
-from sdkgen.config import (
+from phantasos.config import (
     CursorPagination,
     Facade,
     NestedError,

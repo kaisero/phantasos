@@ -29,15 +29,15 @@ site/
 *.swp
 .DS_Store
 
-# --- sdkgen project additions (union with prior .gitignore) ---
+# --- phantasos project additions (union with prior .gitignore) ---
 
 # Secrets — never commit live tenant credentials
 .env
 .env.*
 !.env.example
 
-# sdkgen per-build preprocess scratch
-.sdkgen/
+# phantasos per-build preprocess scratch
+.phantasos/
 
-# Legacy local jar dir (the jar is now fetched to ~/.cache/sdkgen, not here)
+# Legacy local jar dir (the jar is now fetched to ~/.cache/phantasos, not here)
 .tools/

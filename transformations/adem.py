@@ -1,7 +1,7 @@
-"""ADEM data API SDK — spec config for sdkgen.
+"""ADEM data API SDK — spec config for phantasos.
 
 ADEM (Autonomous Digital Experience Management) is a timeseries data API on Strata
-Cloud Manager / SASE. Build with:  sdkgen build transformations/adem.py
+Cloud Manager / SASE. Build with:  phantasos build transformations/adem.py
 
 Shape notes (vs. prisma-browser, which exercises all components):
 - auth: HTTP bearer JWT obtained via the same SASE client-credentials flow -> reuse
@@ -13,7 +13,7 @@ Shape notes (vs. prisma-browser, which exercises all components):
 
 from pathlib import Path
 
-from sdkgen import Facade, OAuthClientCredentials, SdkConfig
+from phantasos import Facade, OAuthClientCredentials, SdkConfig
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent  # transformations/ -> repo root
 _OUTPUT_DIR = _REPO_ROOT.parent / "adem-sdk"

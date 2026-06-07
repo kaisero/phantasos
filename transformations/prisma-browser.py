@@ -1,11 +1,11 @@
-"""Prisma Browser SDK — spec config for sdkgen.
+"""Prisma Browser SDK — spec config for phantasos.
 
-Build with:  sdkgen build transformations/prisma-browser.py
+Build with:  phantasos build transformations/prisma-browser.py
 """
 
 from pathlib import Path
 
-from sdkgen import (
+from phantasos import (
     CursorPagination,
     Facade,
     NestedError,
@@ -75,7 +75,7 @@ _TAG_OPS = [
 
 
 def preprocess(spec):
-    from sdkgen.preprocess import hoist_items, tag_operations
+    from phantasos.preprocess import hoist_items, tag_operations
 
     hoist_items(spec, _HOISTS)
     tag_operations(spec, _TAG_OPS)

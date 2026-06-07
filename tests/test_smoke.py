@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from sdkgen import smoke
+from phantasos import smoke
 
 
 def _make_generated_pkg(project_dir: Path, pkgname: str, broken: bool = False) -> None:
