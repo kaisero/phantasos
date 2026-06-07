@@ -3,13 +3,7 @@
 from pathlib import Path
 
 from phantasos import render
-from phantasos.config import (
-    CursorPagination,
-    Facade,
-    NestedError,
-    OAuthClientCredentials,
-    SdkConfig,
-)
+from phantasos.productconfig import load_product
 
 
 def _make_pkg(tmp_path: Path) -> Path:
@@ -37,19 +31,31 @@ def test_discover_resources(tmp_path: Path) -> None:
 
 def test_vendor_full_components(tmp_path: Path) -> None:
     pkg = _make_pkg(tmp_path)
-    cfg = SdkConfig(
-        spec="s.yml",
-        package="demo",
-        base_url="https://api.example.com",
-        auth=OAuthClientCredentials(
-            token_url="https://auth/token",
-            config_class_name="DemoConfiguration",
-        ),
-        pagination=CursorPagination(),
-        errors=NestedError(),
-        facade=Facade(),
+
+    prod = tmp_path / "products" / "demo"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Demo, version: 1.0.0}\npaths: {}\n",
+        encoding="utf-8",
     )
-    written = render.vendor(pkg, cfg)
+    (prod / "sdk.yml").write_text(
+        "package: demo\n"
+        "output: x\n"
+        "base_url: https://api.example.com\n"
+        "auth:\n"
+        "  type: oauth_client_credentials\n"
+        "  token_url: 'https://auth/token'\n"
+        "  config_class_name: DemoConfiguration\n"
+        "pagination:\n"
+        "  type: cursor\n"
+        "errors:\n"
+        "  type: nested\n"
+        "facade: true\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded)
+
     assert set(written) == {
         "auth.py",
         "pagination.py",
@@ -71,18 +77,70 @@ def test_vendor_full_components(tmp_path: Path) -> None:
 
 def test_vendor_facade_only(tmp_path: Path) -> None:
     pkg = _make_pkg(tmp_path)
-    cfg = SdkConfig(
-        spec="s.yml",
-        package="demo",
-        base_url="https://api.example.com",
-        auth=None,
-        pagination=None,
-        errors=None,
-        facade=Facade(),
+
+    prod = tmp_path / "products" / "demo"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Demo, version: 1.0.0}\npaths: {}\n",
+        encoding="utf-8",
     )
-    written = render.vendor(pkg, cfg)
+    (prod / "sdk.yml").write_text(
+        "package: demo\n"
+        "output: x\n"
+        "base_url: https://api.example.com\n"
+        "facade: true\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded)
+
     assert set(written) == {"facade.py", "__init__.py"}
     facade_src = (pkg / "extras" / "facade.py").read_text(encoding="utf-8")
     assert "from .auth" not in facade_src
     assert "from .pagination" not in facade_src
     assert "things: ThingsApi" in facade_src
+
+
+def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text(
+        "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
+    )
+    prod = tmp_path / "products" / "acme"
+    (prod / "templates").mkdir(parents=True)
+    (prod / "templates" / "banner.py.jinja").write_text(
+        "BANNER = '{{ package }} {{ spec_version }}'\n", encoding="utf-8"
+    )
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Acme, version: 1.0.0}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: https://api/\n"
+        "facade: true\ninclude: {banner.py: ./templates/banner.py.jinja}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded)
+    assert "facade.py" in written
+    assert (pkg / "extras" / "banner.py").read_text() == "BANNER = 'acme 1.0.0'\n"
+
+
+def test_include_rejects_path_escape(tmp_path: Path) -> None:
+    import pytest
+
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
+    prod = tmp_path / "products" / "acme"
+    (prod / "templates").mkdir(parents=True)
+    (prod / "templates" / "x.jinja").write_text("x\n", encoding="utf-8")
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
+        "include: {'../escape.py': ./templates/x.jinja}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    with pytest.raises(ValueError, match="escapes"):
+        render.vendor(pkg, loaded)

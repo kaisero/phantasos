@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from jinja2 import Environment
 
-    from .config import SdkConfig
+    from .productconfig import LoadedProduct
 
 _COMPONENTS_DIR = Path(__file__).parent / "components"
 _IMPORT_RE = re.compile(r"^from \S+\.api\.(\w+) import (\w+)\s*$", re.M)
@@ -43,47 +42,57 @@ def _discover_resources(pkg_dir: Path) -> list[dict[str, str]]:
     return out
 
 
-def vendor(pkg_dir: Path, config: SdkConfig) -> list[str]:
-    env = _env()
+def vendor(pkg_dir: Path, loaded: "LoadedProduct") -> list[str]:
+    from jinja2 import Environment, FileSystemLoader
+
     extras = pkg_dir / "extras"
     extras.mkdir(exist_ok=True)
     written: list[str] = []
+    ctx = dict(loaded.context)
 
-    flags: dict[str, Any] = {
-        "has_auth": config.auth is not None,
-        "has_pagination": config.pagination is not None,
-        "has_errors": config.errors is not None,
-        "has_facade": config.facade is not None,
-        "config_class_name": config.auth.config_class_name
-        if config.auth
-        else "SdkConfiguration",
-    }
+    builtin_env = _env()
+    product_env = Environment(
+        loader=FileSystemLoader(str(loaded.base_dir)),
+        keep_trailing_newline=True,
+        autoescape=False,  # noqa: S701  renders Python source, not HTML
+    )
 
-    def write(name: str, component: Any, **extra: Any) -> None:
-        ctx = asdict(component)
-        template = ctx.pop("template")
-        ctx.update(extra)
+    def render_template(template: str, **extra: Any) -> str:
+        merged = {**ctx, **extra}
+        if Path(template).is_absolute():
+            rel = Path(template).relative_to(loaded.base_dir)
+            return product_env.get_template(str(rel)).render(**merged)
+        return builtin_env.get_template(template).render(**merged)
+
+    def write_component(name: str, component: Any, **extra: Any) -> None:
+        fields = component.model_dump()
+        template = fields.pop("template")
+        fields.pop("type", None)
         (extras / name).write_text(
-            env.get_template(template).render(**ctx), encoding="utf-8"
+            render_template(template, **{**fields, **extra}), encoding="utf-8"
         )
         written.append(name)
 
-    if config.auth:
-        write("auth.py", config.auth, base_url=config.base_url)
-    if config.pagination:
-        write("pagination.py", config.pagination)
-    if config.errors:
-        write("errors.py", config.errors)
-    if config.facade:
-        write(
-            "facade.py",
-            config.facade,
-            resources=_discover_resources(pkg_dir),
-            has_auth=flags["has_auth"],
-            has_pagination=flags["has_pagination"],
-        )
+    if loaded.auth:
+        write_component("auth.py", loaded.auth)
+    if loaded.pagination:
+        write_component("pagination.py", loaded.pagination)
+    if loaded.errors:
+        write_component("errors.py", loaded.errors)
+    if loaded.facade:
+        write_component("facade.py", loaded.facade, resources=_discover_resources(pkg_dir))
+
+    for dest, source in loaded.config.include.items():
+        target = (extras / dest).resolve()
+        if not target.is_relative_to(extras.resolve()):
+            raise ValueError(f"include destination {dest!r} escapes extras/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        rel = (loaded.base_dir / source).resolve().relative_to(loaded.base_dir)
+        target.write_text(product_env.get_template(str(rel)).render(**ctx), encoding="utf-8")
+        written.append(dest)
+
     (extras / "__init__.py").write_text(
-        env.get_template("extras_init.py.jinja").render(**flags), encoding="utf-8"
+        builtin_env.get_template("extras_init.py.jinja").render(**ctx), encoding="utf-8"
     )
     written.append("__init__.py")
     return written
