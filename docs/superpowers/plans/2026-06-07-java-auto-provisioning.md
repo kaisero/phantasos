@@ -2,37 +2,43 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `phantasos build` run on any mainstream platform without the user pre-installing a JRE — phantasos provisions its own pinned Temurin JRE 17 on first use, with a `PHANTASOS_JAVA` override.
+**Goal:** Make `phantasos build` run on any mainstream platform without the user pre-installing a JRE — phantasos provisions its own pinned Temurin JRE 17 on first use, with a `PHANTASOS_JAVA` override. Also bump the pinned OpenAPI Generator to the latest release.
 
-**Architecture:** A new `provision.py` module owns toolchain provisioning: it resolves a `java` binary by checking the `PHANTASOS_JAVA` override, then a local cache, then downloading a pinned, checksum-verified Temurin JRE 17 for the detected `(os, arch)` and extracting it (path-traversal-safe) into `~/.cache/phantasos`. A shared `_download_verified()` helper does streamed-download + SHA256 verification for **both** the JRE and the existing OpenAPI Generator jar. `generate.py` slims down to "build the command and run it," invoking the resolved java path instead of the literal `"java"`. Pure standard library — no new runtime dependencies.
+**Architecture:** A new `provision.py` module owns toolchain provisioning: it resolves a `java` binary by checking the `PHANTASOS_JAVA` override, then a local cache, then downloading a pinned, checksum-verified Temurin JRE 17 for the detected `(os, arch)` and extracting it (path-traversal-safe) into `~/.cache/phantasos`. A shared `_download_verified()` helper does streamed-download + SHA256 verification for **both** the JRE and the OpenAPI Generator jar. `generate.py` slims down to "build the command and run it," invoking the resolved java path instead of the literal `"java"`. Pure standard library — no new runtime dependencies.
 
-**Tech Stack:** Python 3.11+ (stdlib: `urllib.request`, `hashlib`, `tarfile`, `zipfile`, `platform`, `tempfile`, `shutil`, `pathlib`), pytest, nox, ruff, mypy. Eclipse Temurin JRE 17 (GPLv2+CE, downloaded at runtime — not redistributed).
+**Tech Stack:** Python 3.11+ (stdlib: `urllib.request`, `hashlib`, `tarfile`, `zipfile`, `platform`, `tempfile`, `shutil`, `pathlib`), pytest, nox, ruff, mypy. Eclipse Temurin JRE 17 (`jdk-17.0.19+10`, GPLv2+CE, downloaded at runtime — not redistributed). OpenAPI Generator CLI `7.22.0`.
 
 ---
 
-## Design decisions (from the grill — the contract this plan implements)
+## python-pro validation (of "latest patch for both JRE and OAG")
+
+- **JRE `17.0.13+11` → `17.0.19+10`: adopt.** Within-LTS patch bump; runtime security/bugfixes only. OAG output depends on the jar version, not the JRE patch level, so there is **no output-drift risk**. Cost: pinning "latest patch" means the table needs a manual refresh when a new 17.0.x ships (Dependabot doesn't cover a hardcoded table) — a one-command recipe is in "Notes for the executor."
+- **OAG `7.7.0` → `7.22.0`: adopt, but treat as a guarded, reversible change — it is NOT a patch.** 15 minor generator releases; generated Python can change, and `patches.py` / vendored components / the two example SDKs assume 7.7.0 output. **Guardrail:** `build()` runs `smoke.smoke()` (imports every generated module + counts ops) on both example specs, in CI and locally — that is the gate. This bump is its own commit (Task 5) and is gated on a full smoke run of both specs in Task 10. If drift is material, fix patches/components or pin OAG back; the Java work does not depend on the OAG bump.
+
+## Design decisions (the contract this plan implements)
 
 1. **Keep OpenAPI Generator (Java); provision Java for the user.** Not replacing the engine.
-2. **Provision by runtime download** (consistent with the jar, which is already fetched on first run). Not a bundled JRE wheel.
-3. **Eclipse Temurin JRE 17**, pinned to an exact build.
-4. **Managed-by-default + `PHANTASOS_JAVA` override.** Default uses the managed Temurin; if `PHANTASOS_JAVA` is set, use that java and skip all download logic.
-5. **5 mainstream platforms:** `linux-x64`, `linux-aarch64`, `mac-x64`, `mac-aarch64`, `windows-x64`. Anything else (incl. Windows-arm64, Alpine/musl) → a precise error pointing at `PHANTASOS_JAVA`.
-6. **SHA256 verification on both the JRE and the jar; pin the exact Temurin build.** Refinement (for your review): we pin a hardcoded release + per-platform SHA256 **table** of constructed Adoptium GitHub-release URLs, rather than querying `api.adoptium.net` at runtime. More deterministic, no runtime API dependency, checksums reviewable in source. Checksums are fetched from the authoritative Adoptium source during implementation (Task 4), never hand-written.
-7. **CI smoke exercises the real auto-provision** (remove `setup-java`; extend the existing cache to cover the JRE). The override path is covered by a hermetic unit test.
-8. **Tests are hermetic** (mock only the network; real checksum + real extraction on tiny fixtures). The single real-download integration path is the CI smoke job.
-9. **Docs:** README/docs gain a "Requirements" note that Java is auto-provisioned, documenting `PHANTASOS_JAVA`.
+2. **Provision by runtime download** (consistent with the jar, already fetched on first run). Not a bundled JRE wheel.
+3. **Eclipse Temurin JRE 17, pinned to `jdk-17.0.19+10`** (latest 17 LTS patch).
+4. **Managed-by-default + `PHANTASOS_JAVA` override.** If `PHANTASOS_JAVA` is set, use that java and skip all download logic.
+5. **5 mainstream platforms:** `linux-x64`, `linux-aarch64`, `mac-x64`, `mac-aarch64`, `windows-x64`. Anything else → a precise error pointing at `PHANTASOS_JAVA`.
+6. **SHA256 verification on both the JRE and the jar; pinned via a hardcoded table** of constructed Adoptium GitHub-release URLs + checksums (no runtime `api.adoptium.net` query). The Maven jar publishes only `.sha1`/`.md5`, so the jar's SHA256 is computed once from the authentic artifact (SHA1 cross-checked) and pinned.
+7. **OAG bumped to `7.22.0`** (latest). Supersedes the earlier "OAG unchanged" note, per explicit user decision; guarded as above.
+8. **CI smoke exercises the real auto-provision** (remove `setup-java`; extend the cache to cover the JRE). The override path is covered by a hermetic unit test.
+9. **Tests are hermetic** (mock only the network; real checksum + real extraction on tiny fixtures). The single real-download integration path is the CI smoke job.
+10. **Docs:** README gains a "Requirements" note that Java is auto-provisioned, documenting `PHANTASOS_JAVA`.
 
 ## File structure
 
 | File | Responsibility | Change |
 |---|---|---|
 | `src/phantasos/provision.py` | Toolchain provisioning: `resolve_java()`, platform detection, pinned JRE table, shared `_download_verified()`, safe extraction, `cache_dir()`, `ProvisionError` | **Create** |
-| `src/phantasos/generate.py` | Build the OAG command and run it; `ensure_jar()` now checksum-verified via the shared helper; uses resolved java | Modify |
+| `src/phantasos/generate.py` | Build the OAG command and run it; `ensure_jar()` checksum-verified via the shared helper; uses resolved java; OAG bumped to 7.22.0 | Modify |
 | `tests/test_provision.py` | Unit tests for provisioning (all branches + error paths) | **Create** |
 | `tests/test_generate.py` | Unit tests for `ensure_jar` verification + `generate` using resolved java | **Create** |
 | `.github/workflows/ci.yml` | Smoke job: drop `setup-java`, extend cache key to include the JRE | Modify (lines 69–92) |
 | `noxfile.py` | `smoke` session docstring no longer claims "requires JDK 17" | Modify (lines 104–112) |
-| `pyproject.toml` | Add `provision.py` to ruff `per-file-ignores` (S310 urlopen) | Modify |
+| `pyproject.toml` | Adjust ruff `per-file-ignores` (S310 for provision.py; S603 for generate.py) | Modify |
 | `README.md` | "Requirements" note: Java auto-provisioned + `PHANTASOS_JAVA` | Modify |
 
 ---
@@ -50,6 +56,8 @@
 """Unit tests for the toolchain provisioner (hermetic — only the network is mocked)."""
 
 import hashlib
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -114,8 +122,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
+import shutil
+import tarfile
 import tempfile
 import urllib.request
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -152,6 +165,8 @@ def _download_verified(url: str, sha256: str, dest: Path) -> None:
             os.unlink(tmp)
 ```
 
+(The `tarfile`/`zipfile`/`platform`/`shutil`/`dataclass` imports are added now so later tasks don't re-touch the import block.)
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_provision.py -q`
@@ -176,10 +191,6 @@ git commit -m "feat(provision): add verified-download helper, ProvisionError, ca
 
 ```python
 # append to tests/test_provision.py
-import tarfile
-import io
-
-
 def _make_tar(tmp_path: Path, members: dict[str, bytes]) -> Path:
     archive = tmp_path / "a.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
@@ -208,9 +219,7 @@ def test_safe_extract_rejects_traversal(tmp_path: Path) -> None:
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_provision.py -k safe_extract -q`
 Expected: FAIL — `AttributeError: module 'phantasos.provision' has no attribute '_safe_extract'`.
 
-- [ ] **Step 3: Implement `_safe_extract`**
-
-Add the imports `import tarfile` and `import zipfile` to the top of `provision.py`, then add:
+- [ ] **Step 3: Implement `_safe_extract`** (imports already present from Task 1)
 
 ```python
 def _safe_extract(archive: Path, dest: Path) -> None:
@@ -219,8 +228,7 @@ def _safe_extract(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            names = zf.namelist()
-            for name in names:
+            for name in zf.namelist():
                 if not (dest / name).resolve().is_relative_to(dest):
                     raise ProvisionError(f"unsafe path in archive: {name}")
             zf.extractall(dest)  # noqa: S202 — members validated above
@@ -282,19 +290,16 @@ def test_platform_key_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_provision.py -k platform_key -q`
-Expected: FAIL — `AttributeError: module 'phantasos.provision' has no attribute '_platform_key'` (and `provision.platform` not imported).
+Expected: FAIL — `AttributeError: module 'phantasos.provision' has no attribute '_platform_key'`.
 
-- [ ] **Step 3: Implement detection**
-
-Add `import platform` to the top of `provision.py`, then add (note: `_JRE` is defined in Task 4; until then `_platform_key` references the module-level name, so place this function *below* where `_JRE` will live, or define `_JRE: dict[str, _Jre] = {}` now and fill it in Task 4 — this plan defines the empty dict here and fills it in Task 4):
+- [ ] **Step 3: Implement detection.** The validity check is against `_JRE` (defined in Task 4). To keep this task independently green, add a temporary empty table now and fill it in Task 4:
 
 ```python
-# Set of supported platform keys. The pinned download table (_JRE) is filled in
-# the next task; keep the key set here so detection is testable independently.
-_SUPPORTED = {"linux-x64", "linux-aarch64", "mac-x64", "mac-aarch64", "windows-x64"}
-
 _ARCH = {"x86_64": "x64", "amd64": "x64", "arm64": "aarch64", "aarch64": "aarch64"}
 _OS = {"Linux": "linux", "Darwin": "mac", "Windows": "windows"}
+
+# Temporary placeholder for Task 3's tests; REPLACED by the real table in Task 4.
+_SUPPORTED = {"linux-x64", "linux-aarch64", "mac-x64", "mac-aarch64", "windows-x64"}
 
 
 def _platform_key() -> str:
@@ -327,26 +332,13 @@ git commit -m "feat(provision): detect (os, arch) -> supported platform key"
 
 ### Task 4: Pinned JRE table + `resolve_java()`
 
+The real pinned values below were fetched from Adoptium for `jdk-17.0.19+10` (latest Temurin 17 LTS patch). To re-verify or refresh them, see "Notes for the executor."
+
 **Files:**
 - Modify: `src/phantasos/provision.py`
 - Test: `tests/test_provision.py`
 
-- [ ] **Step 1: Fetch the REAL pinned release + per-platform SHA256 values**
-
-The JRE table must contain authentic checksums — never hand-write them. Run this to print the pinned Temurin 17 JRE URLs and SHA256s for all 5 platforms, then paste the values into `_JRE` in Step 3:
-
-```bash
-REL="jdk-17.0.13+11"; TAG="${REL/+/%2B}"; V="17.0.13_11"
-for pf in "linux x64 tar.gz" "linux aarch64 tar.gz" "mac x64 tar.gz" "mac aarch64 tar.gz" "windows x64 zip"; do
-  set -- $pf; os=$1; arch=$2; ext=$3
-  base="https://github.com/adoptium/temurin17-binaries/releases/download/${TAG}/OpenJDK17U-jre_${arch}_${os}_hotspot_${V}.${ext}"
-  sha=$(curl -fsSL "${base}.sha256.txt" | awk '{print $1}')
-  echo "$os-$arch  url=$base  sha256=$sha"
-done
-```
-Expected: 5 lines, each with a real 64-hex `sha256`. (If a `.sha256.txt` 404s, the release tag/filename drifted — verify against https://adoptium.net/temurin/releases/?version=17 and update `REL`/`V`.)
-
-- [ ] **Step 2: Write the failing tests** (override, missing override, cache hit, download+extract)
+- [ ] **Step 1: Write the failing tests** (override, missing override, cache hit, download+extract)
 
 ```python
 # append to tests/test_provision.py
@@ -371,7 +363,6 @@ def test_resolve_java_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     java = home / provision._JRE["linux-x64"].java_subpath
     java.parent.mkdir(parents=True)
     java.write_text("")
-    # _download_verified must NOT be called on a cache hit:
     monkeypatch.setattr(provision, "_download_verified", lambda *a: pytest.fail("downloaded"))
     assert provision.resolve_java() == java
 
@@ -380,26 +371,25 @@ def test_resolve_java_downloads_and_extracts(tmp_path: Path, monkeypatch: pytest
     monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
     monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
-    # Fake the network: write a tar.gz whose single top dir holds bin/java.
+
     def fake_dl(url: str, sha: str, dest: Path) -> None:
         with tarfile.open(dest, "w:gz") as tf:
             info = tarfile.TarInfo(f"temurin-{provision._JRE_RELEASE}-linux-x64/bin/java")
             data = b"#!/bin/echo java"
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
+
     monkeypatch.setattr(provision, "_download_verified", fake_dl)
     java = provision.resolve_java()
     assert java.name == "java" and java.exists()
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [ ] **Step 2: Run to verify they fail**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_provision.py -k resolve_java -q`
 Expected: FAIL — `AttributeError: ... has no attribute 'resolve_java'` / `_JRE` / `_JRE_RELEASE`.
 
-- [ ] **Step 4: Implement the table + `resolve_java()`**
-
-Add `import shutil` to the top of `provision.py`, add `from dataclasses import dataclass`, then add (replacing the empty `_JRE = {}` placeholder from Task 3 if you used one). Paste the real URLs/SHA256s from Step 1 into the table. `java_subpath` differs by OS — macOS archives nest the runtime under `Contents/Home`:
+- [ ] **Step 3: Implement the table + `resolve_java()`.** Delete the temporary `_SUPPORTED` set from Task 3 and change `_platform_key`'s check from `key not in _SUPPORTED` to `key not in _JRE`. Then add:
 
 ```python
 @dataclass(frozen=True)
@@ -409,33 +399,33 @@ class _Jre:
     java_subpath: str  # path to the java binary, relative to the extracted home dir
 
 
-_JRE_RELEASE = "jdk-17.0.13+11"  # pinned Temurin build
+_JRE_RELEASE = "jdk-17.0.19+10"  # pinned latest Temurin 17 LTS patch
+_TEMURIN_BASE = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
 
-# Values from Task 4 Step 1 (real Adoptium checksums — do not invent).
 _JRE: dict[str, _Jre] = {
     "linux-x64": _Jre(
-        url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_x64_linux_hotspot_17.0.13_11.tar.gz",
-        sha256="<paste linux-x64 sha256>",
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_linux_hotspot_17.0.19_10.tar.gz",
+        sha256="adb5a2364baa51de1ef91bb9911f5a61d24b045fe1d6647cb8050272a3a8ee75",
         java_subpath="bin/java",
     ),
     "linux-aarch64": _Jre(
-        url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_aarch64_linux_hotspot_17.0.13_11.tar.gz",
-        sha256="<paste linux-aarch64 sha256>",
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_aarch64_linux_hotspot_17.0.19_10.tar.gz",
+        sha256="aae834297a87736869745be7c1fca3207ea9167c5824f41c88b0ebb2e3ccb9b1",
         java_subpath="bin/java",
     ),
     "mac-x64": _Jre(
-        url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_x64_mac_hotspot_17.0.13_11.tar.gz",
-        sha256="<paste mac-x64 sha256>",
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_mac_hotspot_17.0.19_10.tar.gz",
+        sha256="91bbd07b9c65d9ecbe1fa0081b3c1ad549ed34ed21085a72fdb76598a740b54c",
         java_subpath="Contents/Home/bin/java",
     ),
     "mac-aarch64": _Jre(
-        url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_aarch64_mac_hotspot_17.0.13_11.tar.gz",
-        sha256="<paste mac-aarch64 sha256>",
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_aarch64_mac_hotspot_17.0.19_10.tar.gz",
+        sha256="cef790b404cf168fd1a8a7abc5054fbb442c7d4bfe390cceccfe3f64b9b776a9",
         java_subpath="Contents/Home/bin/java",
     ),
     "windows-x64": _Jre(
-        url="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_x64_windows_hotspot_17.0.13_11.zip",
-        sha256="<paste windows-x64 sha256>",
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_windows_hotspot_17.0.19_10.zip",
+        sha256="79a598e1fbb4e16582d92c4ee22280a3c4d72fd52606e1e46b1223c0fe53b0da",
         java_subpath="bin/java.exe",
     ),
 }
@@ -476,44 +466,39 @@ def resolve_java() -> Path:
     return java
 ```
 
-Now remove the temporary `_SUPPORTED` set from Task 3 and update `_platform_key` to validate against the real table instead:
-
-```python
-    if key not in _JRE:
-        raise ProvisionError(
-            f"no managed Temurin JRE for this platform ({system} {machine}).\n"
-            f"Install a JRE 11+ and set PHANTASOS_JAVA=/path/to/java to use it."
-        )
-    return key
-```
-(Delete the now-unused `_SUPPORTED` constant.)
-
-- [ ] **Step 5: Run to verify they pass**
+- [ ] **Step 4: Run to verify they pass (full provision suite)**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_provision.py -q`
-Expected: PASS (all provision tests green, incl. the 4 resolve_java tests).
+Expected: PASS — all provision tests green (incl. platform_key now validating against `_JRE`).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/phantasos/provision.py tests/test_provision.py
-git commit -m "feat(provision): pinned Temurin JRE 17 table + resolve_java()"
+git commit -m "feat(provision): pinned Temurin JRE 17.0.19+10 table + resolve_java()"
 ```
 
 ---
 
-### Task 5: Verify the OAG jar download (DRY via the shared helper)
+### Task 5: Verify the OAG jar + bump OAG to 7.22.0 (DRY via the shared helper)
+
+> ⚠️ **Guarded change.** Bumping OAG from 7.7.0 to 7.22.0 can change generated output. This is its own commit; the smoke run in Task 10 is the gate. If smoke/patches break, fix them or revert this commit (the Java work does not depend on it).
 
 **Files:**
 - Modify: `src/phantasos/generate.py`
 - Test: `tests/test_generate.py`
 
-- [ ] **Step 1: Fetch the real OAG jar SHA256**
+- [ ] **Step 1: (Re)confirm the OAG 7.22.0 jar SHA256**
+
+Maven publishes only `.sha1`/`.md5` for the jar, so the SHA256 is computed from the artifact (SHA1 cross-checked). Already done; the pinned value is `3f1e6ce5c6ad4f15242c6170ab43aad4bad771622617eeece4a7d4f72ffaf329`. To re-verify:
 
 ```bash
-curl -fsSL https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.7.0/openapi-generator-cli-7.7.0.jar.sha256
+base="https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.22.0/openapi-generator-cli-7.22.0.jar"
+curl -fsSL "$base" -o /tmp/oag.jar
+test "$(sha1sum /tmp/oag.jar | awk '{print $1}')" = "$(curl -fsSL "$base.sha1")" && echo "sha1 cross-check OK"
+sha256sum /tmp/oag.jar | awk '{print $1}'   # expect 3f1e6ce5...f329
 ```
-Expected: a 64-hex string. (Maven Central publishes the `.sha256` sidecar next to the jar.)
+Expected: `sha1 cross-check OK` and the SHA256 above.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -525,7 +510,7 @@ from pathlib import Path
 
 import pytest
 
-from phantasos import generate, provision
+from phantasos import generate
 
 
 def test_ensure_jar_uses_verified_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -541,7 +526,7 @@ def test_ensure_jar_uses_verified_download(tmp_path: Path, monkeypatch: pytest.M
     assert jar.exists()
     assert called["url"] == generate._JAR_URL
     assert called["sha"] == generate.JAR_SHA256
-    # Cache hit: second call must not re-download.
+    assert "7.22.0" in str(jar)
     monkeypatch.setattr(generate.provision, "_download_verified", lambda *a: pytest.fail("re-downloaded"))
     assert generate.ensure_jar() == jar
 ```
@@ -551,9 +536,7 @@ def test_ensure_jar_uses_verified_download(tmp_path: Path, monkeypatch: pytest.M
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_generate.py -k ensure_jar -q`
 Expected: FAIL — `AttributeError: module 'phantasos.generate' has no attribute 'JAR_SHA256'`.
 
-- [ ] **Step 4: Update `ensure_jar` to verify via the shared helper**
-
-Edit `src/phantasos/generate.py`: replace the top of the file (imports + `_cache_dir`/`ensure_jar`/`check_java`) so it delegates to `provision`. Paste the real jar SHA256 from Step 1 into `JAR_SHA256`:
+- [ ] **Step 4: Rewrite the top of `generate.py`** (bump OAG, verify jar via shared helper)
 
 ```python
 """Run OpenAPI Generator (python) — jar fetch/verify + invocation."""
@@ -565,12 +548,14 @@ from pathlib import Path
 
 from . import provision
 
-OAG_VERSION = "7.7.0"
+OAG_VERSION = "7.22.0"
 _JAR_URL = (
     "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/"
     f"{OAG_VERSION}/openapi-generator-cli-{OAG_VERSION}.jar"
 )
-JAR_SHA256 = "<paste OAG jar sha256 from Step 1>"
+# Maven publishes only .sha1/.md5 for this jar; this SHA256 was computed from the
+# authentic artifact (SHA1 cross-checked against Maven) and pinned. See Task 5 Step 1.
+JAR_SHA256 = "3f1e6ce5c6ad4f15242c6170ab43aad4bad771622617eeece4a7d4f72ffaf329"
 
 
 def ensure_jar() -> Path:
@@ -581,7 +566,7 @@ def ensure_jar() -> Path:
     return jar
 ```
 
-(`check_java()` and the old `_cache_dir()`/`urllib`/`shutil`/`os` imports are removed — `generate()` will use `provision.resolve_java()` in Task 6.)
+(The old `check_java()`, `_cache_dir()`, and the `urllib`/`shutil`/`os` imports are removed — `generate()` uses `provision.resolve_java()` in Task 6.)
 
 - [ ] **Step 5: Run to verify it passes**
 
@@ -592,7 +577,7 @@ Expected: PASS (1 passed).
 
 ```bash
 git add src/phantasos/generate.py tests/test_generate.py
-git commit -m "feat(generate): checksum-verify the OAG jar via the shared helper"
+git commit -m "feat(generate): verify OAG jar via shared helper; bump OAG to 7.22.0"
 ```
 
 ---
@@ -626,11 +611,9 @@ def test_generate_invokes_resolved_java(tmp_path: Path, monkeypatch: pytest.Monk
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/test_generate.py -k resolved_java -q`
-Expected: FAIL — `AssertionError` on `captured["cmd"][0]` being the literal `"java"`, not `/fake/java`.
+Expected: FAIL — `AssertionError` (cmd[0] is still the literal `"java"`).
 
-- [ ] **Step 3: Update `generate()` to use the resolved java**
-
-In `src/phantasos/generate.py`, change `generate()` so it resolves java first and uses that path as `argv[0]`:
+- [ ] **Step 3: Update `generate()`**
 
 ```python
 def generate(
@@ -661,10 +644,10 @@ def generate(
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)  # noqa: S603
 ```
 
-- [ ] **Step 4: Run to verify it passes (and the full unit suite)**
+- [ ] **Step 4: Run to verify it passes (full unit suite)**
 
 Run: `PYTHONPATH=src uv run --no-project --python 3.12 --with pytest pytest tests/ -q`
-Expected: PASS — all existing tests plus the new `test_provision.py`/`test_generate.py`.
+Expected: PASS — all existing tests plus the new `test_provision.py` / `test_generate.py`.
 
 - [ ] **Step 5: Commit**
 
@@ -682,7 +665,7 @@ git commit -m "feat(generate): invoke the resolved (auto-provisioned) java"
 
 - [ ] **Step 1: Update ruff per-file-ignores**
 
-In `pyproject.toml`, the existing line is `"src/phantasos/generate.py" = ["S603", "S404", "S310"]`. `generate.py` no longer opens URLs (that moved to `provision.py`) but still runs a subprocess; `provision.py` opens URLs. Update to:
+In `pyproject.toml`, the existing line is `"src/phantasos/generate.py" = ["S603", "S404", "S310"]`. `generate.py` no longer opens URLs (moved to `provision.py`) but still runs a subprocess; `provision.py` opens URLs. Replace with:
 
 ```toml
 "src/phantasos/generate.py" = ["S603"]
@@ -690,8 +673,6 @@ In `pyproject.toml`, the existing line is `"src/phantasos/generate.py" = ["S603"
 ```
 
 - [ ] **Step 2: Update the `smoke` session docstring in `noxfile.py`**
-
-Replace the docstring of the `smoke` session (lines ~105–109) so it no longer claims a JDK must be installed:
 
 ```python
     """Build the example SDKs end-to-end.
@@ -705,8 +686,8 @@ Replace the docstring of the `smoke` session (lines ~105–109) so it no longer 
 
 - [ ] **Step 3: Run lint + type-check**
 
-Run: `uv run nox -s lint type_check` (or, if the project venv won't build on your filesystem, `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run nox -s lint type_check`)
-Expected: PASS — ruff and mypy clean. (If ruff flags an unused `# noqa`, remove it; if it flags S202 in `provision.py`, confirm the `# noqa: S202` comments from Task 2 are present.)
+Run: `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run nox -s lint type_check`
+Expected: PASS — ruff and mypy clean. (If ruff reports an unused `# noqa`, remove that specific code; if it flags S202 in `provision.py`, confirm the `# noqa: S202` comments from Task 2 are present.)
 
 - [ ] **Step 4: Commit**
 
@@ -723,8 +704,6 @@ git commit -m "chore: ruff ignores for provision.py; smoke docstring no longer r
 - Modify: `.github/workflows/ci.yml` (lines 69–92)
 
 - [ ] **Step 1: Rewrite the `smoke` job**
-
-Replace the whole `smoke:` job so it (a) removes the `setup-java` step — proving the auto-provision works with **no system Java** — and (b) extends the cache key to cover the JRE (so the ~40 MB download happens once, then is reused):
 
 ```yaml
   smoke:
@@ -745,7 +724,7 @@ Replace the whole `smoke:` job so it (a) removes the `setup-java` step — provi
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/phantasos
-          key: phantasos-toolchain-oag7.7.0-jre17.0.13
+          key: phantasos-toolchain-oag7.22.0-jre17.0.19
       - name: Build example SDKs (Java auto-provisioned)
         run: uv run nox -s smoke
 ```
@@ -769,9 +748,7 @@ git commit -m "ci: smoke job auto-provisions Java (drop setup-java; cache the JR
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Add a Requirements note**
-
-Add a short section to `README.md` near the install/usage instructions (place it after the install section; match the surrounding heading style):
+- [ ] **Step 1: Add a Requirements note** (place after the install section; match surrounding heading style)
 
 ```markdown
 ## Requirements
@@ -795,46 +772,58 @@ git commit -m "docs: document Java auto-provisioning and the PHANTASOS_JAVA over
 
 ---
 
-### Task 10: Full verification (the real proof)
+### Task 10: Full verification (the real proof — incl. the OAG-bump gate)
 
 **Files:** none (verification only).
 
 - [ ] **Step 1: Full unit suite + lint + type-check**
 
 Run: `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run nox -s lint type_check tests-3.12`
-Expected: all green. (`tests-3.12` runs pytest with coverage; the new tests are hermetic and must not hit the network.)
+Expected: all green. The new tests are hermetic and must not hit the network.
 
-- [ ] **Step 2: Real end-to-end auto-provision (the actual feature)**
+- [ ] **Step 2: Real end-to-end auto-provision on BOTH specs (also the OAG-bump gate)**
 
 In an environment with **no `java` on PATH** and a clean cache:
 ```bash
 rm -rf ~/.cache/phantasos
-PHANTASOS_JAVA= UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformations/prisma-browser.py
+UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformations/prisma-browser.py
+UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformations/adem.py
 ```
-Expected: prints `provisioning Temurin JRE 17.0.13+11 (...one-time)`, then `fetching openapi-generator-cli 7.7.0`, then the normal build summary — **with no pre-installed Java**. Confirms detect → download → checksum → extract → run.
+Expected: each prints `provisioning Temurin JRE jdk-17.0.19+10 (...one-time)` (first build only), then `fetching openapi-generator-cli 7.22.0`, then a build summary with **0 smoke failures** — with no pre-installed Java.
+**OAG-bump gate:** if either build reports smoke failures or `patches` counts drop to 0 unexpectedly (a sign 7.22.0's output shifted and patches no longer match), STOP — investigate the generated diff. Fix `patches.py`/components, or revert the Task 5 OAG bump and keep 7.7.0. The Java work stands on its own either way.
 
 - [ ] **Step 3: Override path**
 
 ```bash
-PHANTASOS_JAVA=$(command -v java || echo "$HOME/.cache/phantasos/temurin-jdk-17.0.13+11-linux-x64/bin/java") \
+PHANTASOS_JAVA="$HOME/.cache/phantasos/temurin-jdk-17.0.19+10-linux-x64/bin/java" \
   UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformations/adem.py
 ```
-Expected: builds without any new download (uses the provided java).
+Expected: builds without any new JRE download (uses the provided java).
 
 - [ ] **Step 4: Confirm no new runtime dependency crept in**
 
 Run: `grep -nE 'dependencies *=' -A6 pyproject.toml | head -20`
-Expected: the `[project].dependencies` list is unchanged (still just `ruamel.yaml`, `jinja2`) — provisioning is stdlib-only.
+Expected: `[project].dependencies` unchanged (still just `ruamel.yaml`, `jinja2`) — provisioning is stdlib-only.
 
 - [ ] **Step 5: Final review against the design decisions**
 
-Re-read the "Design decisions" section above and confirm each of the 9 points is satisfied by the merged changes. If all green, the feature is complete.
+Re-read the "Design decisions" section and confirm each of the 10 points is satisfied. If all green, the feature is complete.
 
 ---
 
 ## Notes for the executor
 
-- **Never fabricate checksums.** The `<paste …>` markers in Tasks 4 and 5 are filled *only* from the fetch commands in those tasks' Step 1. A wrong checksum is a security regression, not a typo.
+- **Checksums are real and pre-fetched** (Adoptium for the JRE; computed-from-artifact for the jar with SHA1 cross-check). Do not alter them by hand. To **refresh the JRE** to a newer 17 patch:
+  ```bash
+  REL="jdk-17.0.<patch>+<build>"; TAG="${REL/+/%2B}"; V="17.0.<patch>_<build>"
+  for pf in "linux x64 tar.gz" "linux aarch64 tar.gz" "mac x64 tar.gz" "mac aarch64 tar.gz" "windows x64 zip"; do
+    set -- $pf; os=$1; arch=$2; ext=$3
+    base="https://github.com/adoptium/temurin17-binaries/releases/download/${TAG}/OpenJDK17U-jre_${arch}_${os}_hotspot_${V}.${ext}"
+    echo "$os-$arch  $base  $(curl -fsSL "${base}.sha256.txt" | awk '{print $1}')"
+  done
+  ```
+  Then update `_JRE_RELEASE`, `_TEMURIN_BASE`, the per-platform URLs/sha256, and the CI cache key.
 - **macOS layout gotcha:** macOS Temurin archives nest the runtime under `Contents/Home`, hence `java_subpath="Contents/Home/bin/java"` for the two `mac-*` keys. Linux/Windows are flat (`bin/java`, `bin/java.exe`).
-- **Why pinned table over live API:** deterministic builds, no dependency on `api.adoptium.net` uptime at build time, and the security-critical checksums live in version control where they're reviewed. Bumping the JRE = re-run Task 4 Step 1 with a new `REL`/`V` and update the table.
+- **Why pinned table over live API:** deterministic builds, no dependency on `api.adoptium.net` uptime at build time, and the security-critical checksums live in version control where they're reviewed.
+- **OAG bump is reversible:** it's isolated to Task 5 (`OAG_VERSION` + `JAR_SHA256`). Reverting that one commit restores 7.7.0; nothing in the Java provisioning depends on the OAG version.
 - **Filesystem note (this sandbox only):** the repo lives on a symlink-less FUSE mount, so use `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos` for any `uv run`. On normal filesystems this isn't needed.
