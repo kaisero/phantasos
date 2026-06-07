@@ -1,0 +1,15 @@
+# Changes here will be overwritten by Copier; do not edit by hand.
+_commit: 08cf12a
+_src_path: /home/ubuntu/git/python-project-template
+author_email: oliver.kaiser@outlook.com
+author_name: Oliver Kaiser
+copyright_year: 2026
+coverage_threshold: 70
+description: Generate native, self-contained Python SDKs from OpenAPI specs.
+github_owner: kaisero
+include_cli: false
+license: Apache-2.0
+min_python: '3.11'
+package_name: sdkgen
+project_name: sdkgen
+project_slug: sdkgen

@@ -8,37 +8,58 @@ for its own quirks (these used to be hard-coded constants in preprocess_spec.py)
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+from typing import Any
 
-ANNOTATION_KEYS = {"description", "example", "examples", "title", "default",
-                   "deprecated", "readOnly", "writeOnly", "externalDocs"}
-STRUCTURAL_KEYS = {"$ref", "type", "properties", "items", "enum", "oneOf", "anyOf", "allOf"}
+ANNOTATION_KEYS = {
+    "description",
+    "example",
+    "examples",
+    "title",
+    "default",
+    "deprecated",
+    "readOnly",
+    "writeOnly",
+    "externalDocs",
+}
+STRUCTURAL_KEYS = {
+    "$ref",
+    "type",
+    "properties",
+    "items",
+    "enum",
+    "oneOf",
+    "anyOf",
+    "allOf",
+}
 
 
-def load(path: str):
+def load(path: str) -> tuple[Any, Any]:
     from ruamel.yaml import YAML
+
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.width = 4096
     yaml.indent(mapping=2, sequence=2, offset=0)
-    with open(path, encoding="utf-8") as f:
+    with Path(path).open(encoding="utf-8") as f:
         return yaml.load(f), yaml
 
 
-def dump(spec, yaml, path: str):
-    with open(path, "w", encoding="utf-8") as f:
+def dump(spec: Any, yaml: Any, path: str) -> None:
+    with Path(path).open("w", encoding="utf-8") as f:
         yaml.dump(spec, f)
 
 
 # ---- generic transforms ---------------------------------------------------------
-def _is_ref(n):
+def _is_ref(n: Any) -> bool:
     return isinstance(n, dict) and "$ref" in n
 
 
-def _is_structural(n):
+def _is_structural(n: Any) -> bool:
     return isinstance(n, dict) and bool(STRUCTURAL_KEYS & set(n.keys()))
 
 
-def _resolve_type(schemas, node, seen=None):
+def _resolve_type(schemas: Any, node: Any, seen: set[str] | None = None) -> str | None:
     if seen is None:
         seen = set()
     if not isinstance(node, dict):
@@ -50,8 +71,8 @@ def _resolve_type(schemas, node, seen=None):
         seen.add(name)
         return _resolve_type(schemas, schemas.get(name, {}), seen)
     if "type" in node:
-        return node["type"]
-    if "allOf" in node and node["allOf"]:
+        return str(node["type"])
+    if node.get("allOf"):
         for b in node["allOf"]:
             t = _resolve_type(schemas, b, seen)
             if t:
@@ -61,7 +82,7 @@ def _resolve_type(schemas, node, seen=None):
     return None
 
 
-def collapse_allof(schemas, node, stats):
+def collapse_allof(schemas: Any, node: Any, stats: dict[str, int]) -> None:
     """Collapse `allOf` whose single structural branch resolves to a non-object."""
     if isinstance(node, list):
         for i in node:
@@ -72,8 +93,14 @@ def collapse_allof(schemas, node, stats):
     if "allOf" in node and isinstance(node["allOf"], list):
         branches = node["allOf"]
         structural = [b for b in branches if _is_structural(b)]
-        annotation = [b for b in branches if isinstance(b, dict) and set(b) <= ANNOTATION_KEYS]
-        if len(structural) == 1 and _is_ref(structural[0]) and len(structural) + len(annotation) == len(branches):
+        annotation = [
+            b for b in branches if isinstance(b, dict) and set(b) <= ANNOTATION_KEYS
+        ]
+        if (
+            len(structural) == 1
+            and _is_ref(structural[0])
+            and len(structural) + len(annotation) == len(branches)
+        ):
             t = _resolve_type(schemas, structural[0])
             if t is not None and t != "object":
                 ref = structural[0]["$ref"]
@@ -85,7 +112,7 @@ def collapse_allof(schemas, node, stats):
         collapse_allof(schemas, v, stats)
 
 
-def _fix_mojibake(value, stats):
+def _fix_mojibake(value: Any, stats: dict[str, int]) -> Any:
     if isinstance(value, str) and "Ã" in value:
         try:
             repaired = value.encode("latin-1").decode("utf-8")
@@ -97,15 +124,18 @@ def _fix_mojibake(value, stats):
     return value
 
 
-def fix_strings_and_enums(node, stats):
+def fix_strings_and_enums(node: Any, stats: dict[str, int]) -> None:
     """Repair mojibake strings and dedupe enum members (after repair)."""
     if isinstance(node, dict):
         for k in list(node.keys()):
             v = node[k]
             if k == "enum" and isinstance(v, list):
-                seen, out = set(), []
+                seen: set[str] = set()
+                out: list[Any] = []
                 for item in v:
-                    item2 = _fix_mojibake(item, stats) if isinstance(item, str) else item
+                    item2 = (
+                        _fix_mojibake(item, stats) if isinstance(item, str) else item
+                    )
                     key = item2 if isinstance(item2, str) else repr(item2)
                     if key in seen:
                         stats["enum_dups_removed"] += 1
@@ -122,7 +152,7 @@ def fix_strings_and_enums(node, stats):
             fix_strings_and_enums(i, stats)
 
 
-def clean(spec, stats):
+def clean(spec: Any, stats: dict[str, int]) -> None:
     """Run all generic, spec-agnostic transforms."""
     schemas = spec["components"]["schemas"]
     collapse_allof(schemas, spec, stats)
@@ -130,7 +160,11 @@ def clean(spec, stats):
 
 
 # ---- parameterized spec-specific helpers (called from a spec's preprocess hook) --
-def hoist_items(spec, hoists, stats=None):
+def hoist_items(
+    spec: Any,
+    hoists: list[tuple[str, str, str]],
+    stats: dict[str, int] | None = None,
+) -> None:
     """Hoist nested inline array-item objects into named components.
 
     `hoists`: list of (schema_name, property_name, new_component_name).
@@ -149,7 +183,11 @@ def hoist_items(spec, hoists, stats=None):
             stats["items_hoisted"] = stats.get("items_hoisted", 0) + 1
 
 
-def tag_operations(spec, ops, stats=None):
+def tag_operations(
+    spec: Any,
+    ops: list[tuple[str, str, str, str]],
+    stats: dict[str, int] | None = None,
+) -> None:
     """Add tags + operationId to operations that lack them.
 
     `ops`: list of (path, method, operation_id, tag).

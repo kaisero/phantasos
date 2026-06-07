@@ -1,0 +1,34 @@
+name: Audit
+
+# Dependency vulnerability scanning (CodeQL covers first-party code; this covers
+# the dependency tree). Runs on a schedule so newly-disclosed CVEs in already-
+# pinned dependencies are caught even without code changes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      - name: Audit dependencies
+        run: uv run nox -s audit
+        # A newly-disclosed CVE in a transitive dep shouldn't red-X unrelated
+        # PRs. The scheduled run, push-to-main, and Dependabot stay the hard
+        # gate; PR runs surface findings without blocking the merge.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}

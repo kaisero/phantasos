@@ -1,0 +1,60 @@
+site_name: sdkgen
+site_description: Generate native, self-contained Python SDKs from OpenAPI specs.
+site_url: https://kaisero.github.io/sdkgen/
+repo_url: https://github.com/kaisero/sdkgen
+repo_name: kaisero/sdkgen
+copyright: Copyright &copy; 2026 Oliver Kaiser
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Authoring a spec: AUTHORING_A_SPEC.md
+  - Architecture: ARCHITECTURE.md
+  - API Reference: reference.md
+  - Project history:
+      - Re-architecture plan: REARCH_PLAN.md
+
+# Internal/historical markdown kept in the repo but excluded from the published site:
+# the prototype phase write-ups, the migration index/plan, and planning docs.
+exclude_docs: |
+  README.md
+  phase-*.md
+  superpowers/
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - toc:
+      permalink: true

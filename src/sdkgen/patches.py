@@ -84,13 +84,20 @@ def patch_apostrophe_enums(models_dir: Path) -> int:
 
 def rebase_lenient_enums(pkg_dir: Path) -> int:
     (pkg_dir / "_lenient.py").write_text(LENIENT_SOURCE, encoding="utf-8")
-    import_line = f"from {pkg_dir.name}._lenient import LenientStrEnum, LenientIntEnum\n"
+    import_line = (
+        f"from {pkg_dir.name}._lenient import LenientStrEnum, LenientIntEnum\n"
+    )
     rebased = 0
     for path in sorted((pkg_dir / "models").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        if not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text)) or "_lenient import" in text:
+        if (
+            not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text))
+            or "_lenient import" in text
+        ):
             continue
-        text = text.replace("from enum import Enum\n", "from enum import Enum\n" + import_line, 1)
+        text = text.replace(
+            "from enum import Enum\n", "from enum import Enum\n" + import_line, 1
+        )
         text, n1 = _ENUM_CLASS.subn(r"class \1(LenientStrEnum):", text)
         text, n2 = _ENUM_CLASS_INT.subn(r"class \1(LenientIntEnum):", text)
         path.write_text(text, encoding="utf-8")
@@ -111,7 +118,7 @@ def patch_oneof_first_match(models_dir: Path) -> int:
     return files
 
 
-def apply_generic_patches(pkg_dir: Path) -> dict:
+def apply_generic_patches(pkg_dir: Path) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),

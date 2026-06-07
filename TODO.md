@@ -24,3 +24,9 @@ Notes:
 - ADEM has `pagination=None` and `errors=None`, so **no** `test_pagination.py` / `test_errors.py`.
 - The framework CI already smoke-builds ADEM; once the SDK suite exists, run it where the SDK
   lives (the sibling), not in the generator repo (generated-code tests belong to the generated SDK).
+
+## Follow-up: consider a Typer CLI
+
+The CLI is currently argparse (`sdkgen.cli:main`). The project template ships a Typer
+scaffold; porting the one `build` command to Typer would add `--help` polish and shell
+completion (and align with the template's CLI docs). Tracked as optional; argparse works.

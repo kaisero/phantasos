@@ -1,30 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Tooling caches
+.nox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Docs build output
+site/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# --- sdkgen project additions (union with prior .gitignore) ---
+
 # Secrets — never commit live tenant credentials
 .env
 .env.*
 !.env.example
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-.ruff_cache/
-
-# Build artifacts
-dist/
-build/
-*.egg-info/
-
 # sdkgen per-build preprocess scratch
 .sdkgen/
 
-# Claude-authored reports (kept on disk, not part of the SDK)
-GENERATION_NOTES.md
-
-# macOS
-.DS_Store
-
-# Vendored generator jar (fetched by make)
+# Legacy local jar dir (the jar is now fetched to ~/.cache/sdkgen, not here)
 .tools/
-
-# stray sed temp files
-sed??????

@@ -1,5 +1,9 @@
 # sdkgen
 
+[![CI](https://github.com/kaisero/sdkgen/actions/workflows/ci.yml/badge.svg)](https://github.com/kaisero/sdkgen/actions/workflows/ci.yml)
+[![Docs](https://github.com/kaisero/sdkgen/actions/workflows/docs.yml/badge.svg)](https://kaisero.github.io/sdkgen/)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Generate native, self-contained Python SDKs from OpenAPI specs. `sdkgen` wraps
 [OpenAPI Generator](https://openapi-generator.tech/) (`python`/Pydantic v2) and adds
 generic spec preprocessing, codegen-bug patches, and **vendored, templated components**
@@ -55,10 +59,20 @@ Generated SDKs are **not** kept in this repo — each builds into its own direct
 (e.g. the Prisma Browser SDK builds to the sibling `../prisma-browser-sdk/`, which owns
 its own tests, examples, and `.env.example`).
 
-## Tests
+## Development
+
+[uv](https://docs.astral.sh/uv/) + [nox](https://nox.thea.codes/) drive every check (one
+source of truth for local and CI):
+
 ```bash
-python -m pytest tests/ -q                # framework engine tests
+uv sync --all-groups       # venv + locked deps (writes/uses uv.lock)
+uv run nox                  # lint (ruff) + type-check (mypy strict) + tests (pytest+cov) + docs
+uv run nox -s smoke         # build the example SDKs end-to-end (needs JDK 17)
+uv run pre-commit install   # enable git hooks
 ```
+
+Run a single check, e.g. `uv run nox -s tests` or `uv run nox -s lint`. The engine tests
+alone: `python -m pytest tests/ -q`.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/REARCH_PLAN.md`](docs/REARCH_PLAN.md) for the design and the parity sign-off.

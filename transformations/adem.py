@@ -10,11 +10,12 @@ Shape notes (vs. prisma-browser, which exercises all components):
   uniform items array, so no cursor-follower is vendored (pagination=None).
 - errors: responses use bare status codes (no {error:{message}} body) -> errors=None.
 """
+
 from pathlib import Path
 
 from sdkgen import Facade, OAuthClientCredentials, SdkConfig
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent   # transformations/ -> repo root
+_REPO_ROOT = Path(__file__).resolve().parent.parent  # transformations/ -> repo root
 _OUTPUT_DIR = _REPO_ROOT.parent / "adem-sdk"
 
 CONFIG = SdkConfig(
@@ -23,7 +24,7 @@ CONFIG = SdkConfig(
     base_url="https://api.sase.paloaltonetworks.com",
     project_dir=str(_OUTPUT_DIR),
     auth=OAuthClientCredentials(
-        token_url="https://auth.apps.paloaltonetworks.com/oauth2/access_token",
+        token_url="https://auth.apps.paloaltonetworks.com/oauth2/access_token",  # noqa: S106  OAuth token endpoint URL, not a secret
         scope_env="SCOPE",
         base_url_env="ADEM_BASE_URL",
         config_class_name="AdemConfiguration",

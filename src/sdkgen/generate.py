@@ -31,22 +31,34 @@ def ensure_jar() -> Path:
 
 def check_java() -> None:
     if shutil.which("java") is None:
-        raise RuntimeError("java (JRE 11+) not found on PATH — required by OpenAPI Generator")
+        raise RuntimeError(
+            "java (JRE 11+) not found on PATH — required by OpenAPI Generator"
+        )
 
 
-def generate(spec_path: str, out_dir: str, package: str, library: str = "urllib3") -> None:
+def generate(
+    spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+) -> None:
     check_java()
     jar = ensure_jar()
     cmd = [
-        "java", "-jar", str(jar), "generate",
-        "-g", "python",
-        "-i", spec_path,
-        "-o", out_dir,
-        "--package-name", package,
+        "java",
+        "-jar",
+        str(jar),
+        "generate",
+        "-g",
+        "python",
+        "-i",
+        spec_path,
+        "-o",
+        out_dir,
+        "--package-name",
+        package,
         "--additional-properties",
         f"library={library},disallowAdditionalPropertiesIfNotPresent=false",
         "--global-property",
         "modelDocs=false,apiDocs=false,modelTests=false,apiTests=false",
-        "--inline-schema-options", "RESOLVE_INLINE_ENUMS=true",
+        "--inline-schema-options",
+        "RESOLVE_INLINE_ENUMS=true",
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
