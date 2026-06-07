@@ -73,9 +73,6 @@ def _safe_extract(archive: Path, dest: Path) -> None:
 _ARCH = {"x86_64": "x64", "amd64": "x64", "arm64": "aarch64", "aarch64": "aarch64"}
 _OS = {"Linux": "linux", "Darwin": "mac", "Windows": "windows"}
 
-# Temporary placeholder for Task 3's tests; REPLACED by the real table in Task 4.
-_SUPPORTED = {"linux-x64", "linux-aarch64", "mac-x64", "mac-aarch64", "windows-x64"}
-
 
 def _platform_key() -> str:
     system = platform.system()
@@ -83,9 +80,83 @@ def _platform_key() -> str:
     osname = _OS.get(system)
     arch = _ARCH.get(machine.lower())
     key = f"{osname}-{arch}" if osname and arch else None
-    if key not in _SUPPORTED:
+    if key not in _JRE:
         raise ProvisionError(
             f"no managed Temurin JRE for this platform ({system} {machine}).\n"
             f"Install a JRE 11+ and set PHANTASOS_JAVA=/path/to/java to use it."
         )
     return key
+
+
+@dataclass(frozen=True)
+class _Jre:
+    url: str
+    sha256: str
+    java_subpath: str  # path to the java binary, relative to the extracted home dir
+
+
+_JRE_RELEASE = "jdk-17.0.19+10"  # pinned latest Temurin 17 LTS patch
+_TEMURIN_BASE = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
+
+_JRE: dict[str, _Jre] = {
+    "linux-x64": _Jre(
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_linux_hotspot_17.0.19_10.tar.gz",
+        sha256="adb5a2364baa51de1ef91bb9911f5a61d24b045fe1d6647cb8050272a3a8ee75",
+        java_subpath="bin/java",
+    ),
+    "linux-aarch64": _Jre(
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_aarch64_linux_hotspot_17.0.19_10.tar.gz",
+        sha256="aae834297a87736869745be7c1fca3207ea9167c5824f41c88b0ebb2e3ccb9b1",
+        java_subpath="bin/java",
+    ),
+    "mac-x64": _Jre(
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_mac_hotspot_17.0.19_10.tar.gz",
+        sha256="91bbd07b9c65d9ecbe1fa0081b3c1ad549ed34ed21085a72fdb76598a740b54c",
+        java_subpath="Contents/Home/bin/java",
+    ),
+    "mac-aarch64": _Jre(
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_aarch64_mac_hotspot_17.0.19_10.tar.gz",
+        sha256="cef790b404cf168fd1a8a7abc5054fbb442c7d4bfe390cceccfe3f64b9b776a9",
+        java_subpath="Contents/Home/bin/java",
+    ),
+    "windows-x64": _Jre(
+        url=f"{_TEMURIN_BASE}/OpenJDK17U-jre_x64_windows_hotspot_17.0.19_10.zip",
+        sha256="79a598e1fbb4e16582d92c4ee22280a3c4d72fd52606e1e46b1223c0fe53b0da",
+        java_subpath="bin/java.exe",
+    ),
+}
+
+
+def resolve_java() -> Path:
+    """Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed."""
+    override = os.environ.get("PHANTASOS_JAVA")
+    if override:
+        java = Path(override)
+        if not java.exists():
+            raise ProvisionError(f"PHANTASOS_JAVA points to a missing path: {java}")
+        return java
+
+    key = _platform_key()
+    asset = _JRE[key]
+    home = cache_dir() / f"temurin-{_JRE_RELEASE}-{key}"
+    java = home / asset.java_subpath
+    if java.exists():
+        return java
+
+    print(f"  provisioning Temurin JRE {_JRE_RELEASE} ({key}, ~40 MB, one-time) -> {home}")
+    suffix = ".zip" if asset.url.endswith(".zip") else ".tar.gz"
+    archive = cache_dir() / f"temurin-{_JRE_RELEASE}-{key}{suffix}"
+    _download_verified(asset.url, asset.sha256, archive)
+
+    staging = cache_dir() / f".extract-{key}"
+    shutil.rmtree(staging, ignore_errors=True)
+    _safe_extract(archive, staging)
+    top = next(p for p in staging.iterdir() if p.is_dir())  # single top-level dir
+    shutil.rmtree(home, ignore_errors=True)
+    os.replace(top, home)
+    shutil.rmtree(staging, ignore_errors=True)
+    archive.unlink(missing_ok=True)
+
+    if not java.exists():
+        raise ProvisionError(f"java not found after extracting {asset.url} (looked for {java})")
+    return java

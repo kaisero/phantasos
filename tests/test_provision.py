@@ -91,3 +91,45 @@ def test_platform_key_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(provision.platform, "machine", lambda: "ARM64")
     with pytest.raises(ProvisionError, match="PHANTASOS_JAVA"):
         provision._platform_key()
+
+
+def test_resolve_java_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = tmp_path / "java"
+    fake.write_text("")
+    monkeypatch.setenv("PHANTASOS_JAVA", str(fake))
+    assert provision.resolve_java() == fake
+
+
+def test_resolve_java_override_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHANTASOS_JAVA", "/no/such/java")
+    with pytest.raises(ProvisionError, match="PHANTASOS_JAVA points to a missing path"):
+        provision.resolve_java()
+
+
+def test_resolve_java_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
+    monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
+    home = tmp_path / f"temurin-{provision._JRE_RELEASE}-linux-x64"
+    java = home / provision._JRE["linux-x64"].java_subpath
+    java.parent.mkdir(parents=True)
+    java.write_text("")
+    monkeypatch.setattr(provision, "_download_verified", lambda *a: pytest.fail("downloaded"))
+    assert provision.resolve_java() == java
+
+
+def test_resolve_java_downloads_and_extracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
+    monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
+
+    def fake_dl(url: str, sha: str, dest: Path) -> None:
+        with tarfile.open(dest, "w:gz") as tf:
+            info = tarfile.TarInfo(f"temurin-{provision._JRE_RELEASE}-linux-x64/bin/java")
+            data = b"#!/bin/echo java"
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+
+    monkeypatch.setattr(provision, "_download_verified", fake_dl)
+    java = provision.resolve_java()
+    assert java.name == "java" and java.exists()
