@@ -19,13 +19,24 @@ A product has two files: its OpenAPI source at `specs/<product>.yml` and its pha
 pip install -e ".[generated]"          # framework + deps the generated SDK imports
 phantasos build transformations/prisma-browser.py
 ```
-Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to
-`~/.cache/phantasos` (override with `PHANTASOS_CACHE`).
+No system Java required — see [Requirements](#requirements). The OpenAPI Generator jar
+and a JRE are fetched once to `~/.cache/phantasos` (override with `PHANTASOS_CACHE`).
 
 The build runs: **preprocess** (generic transforms + the spec's `preprocess` hook) →
 **generate** (OpenAPI Generator) → **patch** (apostrophe enums / lenient enums / oneOf
 first-match) → **vendor** (render selected component templates into `<package>/extras/`,
 write `_about.py` provenance) → **smoke** (import every module + count operations).
+
+## Requirements
+
+`phantasos build` runs OpenAPI Generator, which needs a Java runtime. **You do not
+need to install Java** — on first build, phantasos downloads a pinned, checksum-verified
+[Eclipse Temurin](https://adoptium.net/) JRE 17 for your platform into `~/.cache/phantasos`
+(a one-time ~40 MB download; override the location with `PHANTASOS_CACHE`).
+
+Supported platforms for auto-provisioning: Linux (x64/arm64), macOS (x64/arm64),
+Windows (x64). On any other platform — or to use your own JVM — install a JRE 11+ and set
+`PHANTASOS_JAVA=/path/to/java`.
 
 ## Describing a spec (`transformations/<product>.py`)
 ```python
