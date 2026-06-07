@@ -15,7 +15,6 @@ from .config import (
     Facade,
     NestedError,
     OAuthClientCredentials,
-    SdkConfig,
 )
 
 __all__ = [
@@ -23,7 +22,6 @@ __all__ = [
     "Facade",
     "NestedError",
     "OAuthClientCredentials",
-    "SdkConfig",
     "build",
 ]
 
@@ -36,7 +34,7 @@ OPENAPI_GENERATOR_VERSION = {oag_version!r}
 
 
 def build(
-    config: SdkConfig,
+    config: Any,
     *,
     preprocess_hook: Callable[[Any], None] | None = None,
     patch_hook: Callable[[Path], None] | None = None,
