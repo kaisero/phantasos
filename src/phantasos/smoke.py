@@ -117,3 +117,25 @@ def _import_walk(project_dir: str, package: str) -> dict[str, Any]:
         out_path.unlink(missing_ok=True)
     data["failures"] = [tuple(item) for item in data["failures"]]
     return data
+
+
+def smoke(project_dir: str, package: str, *, run: bool = True) -> dict[str, Any]:
+    """Verify a built SDK: count operations and (unless skipped) import-walk it.
+
+    The import-walk runs in an isolated venv built from the SDK's own
+    requirements.txt, so phantasos needs none of the SDK's runtime deps. Set
+    run=False or PHANTASOS_SKIP_SMOKE to skip the import-walk (offline builds).
+    """
+    ops = _count_operations(project_dir, package)
+    if not run or os.environ.get(_SKIP_ENV):
+        return {
+            "imported": 0,
+            "failed": 0,
+            "operations": ops,
+            "failures": [],
+            "skipped": True,
+        }
+    result = _import_walk(project_dir, package)
+    result["operations"] = ops
+    result["skipped"] = False
+    return result

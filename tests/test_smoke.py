@@ -98,3 +98,40 @@ def test_import_walk_reports_failures(
     result = smoke._import_walk(str(proj), "demo_broken")
     assert result["failed"] == 1
     assert any(name.endswith("broken") for name, _ in result["failures"])
+
+
+def test_smoke_combines_walk_and_ops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_full", reqs="")
+    result = smoke.smoke(str(proj), "demo_full")
+    assert result["operations"] == 2
+    assert result["failed"] == 0
+    assert result["imported"] >= 1
+    assert result["skipped"] is False
+
+
+def test_smoke_skipped_via_env_does_not_build_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("PHANTASOS_CACHE", str(cache))
+    monkeypatch.setenv("PHANTASOS_SKIP_SMOKE", "1")
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_skip", reqs="")
+    result = smoke.smoke(str(proj), "demo_skip")
+    assert result["skipped"] is True
+    assert result["operations"] == 2  # ops still counted (in-process, no deps)
+    assert result["imported"] == 0 and result["failed"] == 0
+    assert not (cache / "smoke-envs").exists()  # no venv was provisioned
+
+
+def test_smoke_run_false_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv("PHANTASOS_SKIP_SMOKE", raising=False)
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_norun", reqs="")
+    result = smoke.smoke(str(proj), "demo_norun", run=False)
+    assert result["skipped"] is True
