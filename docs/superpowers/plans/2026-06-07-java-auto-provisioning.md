@@ -790,9 +790,20 @@ UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformat
 UV_PROJECT_ENVIRONMENT=$HOME/.venvs/phantasos uv run phantasos build transformations/adem.py
 ```
 Expected: each prints `provisioning Temurin JRE jdk-17.0.19+10 (...one-time)` (first build only), then `fetching openapi-generator-cli 7.22.0`, then a build summary with **0 smoke failures** — with no pre-installed Java.
-**OAG-bump gate:** if either build reports smoke failures or `patches` counts drop to 0 unexpectedly (a sign 7.22.0's output shifted and patches no longer match), STOP — investigate the generated diff. Fix `patches.py`/components, or revert the Task 5 OAG bump and keep 7.7.0. The Java work stands on its own either way.
+**OAG-bump gate (part 1):** if either build reports smoke failures or `patches` counts drop to 0 unexpectedly (a sign 7.22.0's output shifted and patches no longer match), STOP — investigate the generated diff. Fix `patches.py`/components, or revert the Task 5 OAG bump and keep 7.7.0. The Java work stands on its own either way.
 
-- [ ] **Step 3: Override path**
+- [ ] **Step 3: Run the generated SDKs' own test suites (OAG-bump gate, part 2)**
+
+`prisma-browser-sdk/` ships a behavioral suite (`tests/test_{models,auth,pagination,errors,facade,lenient_enums}.py`) that exercises the regenerated SDK + vendored components — the strongest signal that OAG 7.22.0's output didn't break anything. (`adem-sdk/` has no suite; its gate is the Step 2 smoke import.) After regenerating in Step 2, run:
+```bash
+cd /home/ubuntu/git/prisma-browser-sdk
+uv run --no-project --python 3.12 --with pytest --with-requirements requirements.txt \
+  pytest tests/ -q
+cd -
+```
+Expected: all prisma-browser-sdk tests pass. If any fail after the OAG bump (e.g. a model field renamed, enum handling changed, `from_dict`/`to_dict` shape shifted), that's OAG drift — fix the affected component/patch or revert the OAG bump (Task 5). This is the local test run requested for the OAG upgrade.
+
+- [ ] **Step 4: Override path**
 
 ```bash
 PHANTASOS_JAVA="$HOME/.cache/phantasos/temurin-jdk-17.0.19+10-linux-x64/bin/java" \
@@ -800,12 +811,12 @@ PHANTASOS_JAVA="$HOME/.cache/phantasos/temurin-jdk-17.0.19+10-linux-x64/bin/java
 ```
 Expected: builds without any new JRE download (uses the provided java).
 
-- [ ] **Step 4: Confirm no new runtime dependency crept in**
+- [ ] **Step 5: Confirm no new runtime dependency crept in**
 
 Run: `grep -nE 'dependencies *=' -A6 pyproject.toml | head -20`
 Expected: `[project].dependencies` unchanged (still just `ruamel.yaml`, `jinja2`) — provisioning is stdlib-only.
 
-- [ ] **Step 5: Final review against the design decisions**
+- [ ] **Step 6: Final review against the design decisions**
 
 Re-read the "Design decisions" section and confirm each of the 10 points is satisfied. If all green, the feature is complete.
 
