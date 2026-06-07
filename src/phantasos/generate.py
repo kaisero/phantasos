@@ -1,39 +1,28 @@
-"""Run OpenAPI Generator (python) — jar fetch/pin + invocation."""
+"""Run OpenAPI Generator (python) — jar fetch/verify + invocation."""
 
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
-import urllib.request
 from pathlib import Path
 
-OAG_VERSION = "7.7.0"
+from . import provision
+
+OAG_VERSION = "7.22.0"
 _JAR_URL = (
     "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/"
     f"{OAG_VERSION}/openapi-generator-cli-{OAG_VERSION}.jar"
 )
-
-
-def _cache_dir() -> Path:
-    base = Path(os.environ.get("PHANTASOS_CACHE", Path.home() / ".cache" / "phantasos"))
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+# Maven publishes only .sha1/.md5 for this jar; this SHA256 was computed from the
+# authentic artifact (SHA1 cross-checked against Maven) and pinned.
+JAR_SHA256 = "3f1e6ce5c6ad4f15242c6170ab43aad4bad771622617eeece4a7d4f72ffaf329"
 
 
 def ensure_jar() -> Path:
-    jar = _cache_dir() / f"openapi-generator-cli-{OAG_VERSION}.jar"
+    jar = provision.cache_dir() / f"openapi-generator-cli-{OAG_VERSION}.jar"
     if not jar.exists():
         print(f"  fetching openapi-generator-cli {OAG_VERSION} -> {jar}")
-        urllib.request.urlretrieve(_JAR_URL, jar)
+        provision._download_verified(_JAR_URL, JAR_SHA256, jar)
     return jar
-
-
-def check_java() -> None:
-    if shutil.which("java") is None:
-        raise RuntimeError(
-            "java (JRE 11+) not found on PATH — required by OpenAPI Generator"
-        )
 
 
 def generate(
