@@ -3,7 +3,12 @@
 import pytest
 from pydantic import ValidationError
 
-from phantasos.config import CursorPagination, Facade, NestedError, OAuthClientCredentials
+from phantasos.config import (
+    CursorPagination,
+    Facade,
+    NestedError,
+    OAuthClientCredentials,
+)
 
 
 def test_oauth_defaults_and_template() -> None:
@@ -21,7 +26,7 @@ def test_cursor_defaults() -> None:
 
 def test_unknown_field_rejected() -> None:
     with pytest.raises(ValidationError):
-        NestedError(type="nested", bogus_key="x")
+        NestedError.model_validate({"type": "nested", "bogus_key": "x"})
 
 
 def test_facade_template() -> None:

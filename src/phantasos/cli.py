@@ -12,7 +12,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="phantasos")
     sub = parser.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build an SDK from a product's sdk.yml")
-    b.add_argument("product", help="product name (products/<name>/sdk.yml) or a path to sdk.yml")
+    b.add_argument(
+        "product",
+        help="product name (products/<name>/sdk.yml) or a path to sdk.yml",
+    )
     b.add_argument(
         "--no-smoke",
         action="store_true",

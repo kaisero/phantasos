@@ -6,10 +6,10 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .productconfig import LoadedProduct
+
 if TYPE_CHECKING:
     from jinja2 import Environment
-
-    from .productconfig import LoadedProduct
 
 _COMPONENTS_DIR = Path(__file__).parent / "components"
 _IMPORT_RE = re.compile(r"^from \S+\.api\.(\w+) import (\w+)\s*$", re.M)
@@ -42,7 +42,7 @@ def _discover_resources(pkg_dir: Path) -> list[dict[str, str]]:
     return out
 
 
-def vendor(pkg_dir: Path, loaded: "LoadedProduct") -> list[str]:
+def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
     from jinja2 import Environment, FileSystemLoader
 
     extras = pkg_dir / "extras"
@@ -80,7 +80,9 @@ def vendor(pkg_dir: Path, loaded: "LoadedProduct") -> list[str]:
     if loaded.errors:
         write_component("errors.py", loaded.errors)
     if loaded.facade:
-        write_component("facade.py", loaded.facade, resources=_discover_resources(pkg_dir))
+        write_component(
+            "facade.py", loaded.facade, resources=_discover_resources(pkg_dir)
+        )
 
     for dest, source in loaded.config.include.items():
         target = (extras / dest).resolve()
@@ -88,7 +90,9 @@ def vendor(pkg_dir: Path, loaded: "LoadedProduct") -> list[str]:
             raise ValueError(f"include destination {dest!r} escapes extras/")
         target.parent.mkdir(parents=True, exist_ok=True)
         rel = (loaded.base_dir / source).resolve().relative_to(loaded.base_dir)
-        target.write_text(product_env.get_template(str(rel)).render(**ctx), encoding="utf-8")
+        target.write_text(
+            product_env.get_template(str(rel)).render(**ctx), encoding="utf-8"
+        )
         written.append(dest)
 
     (extras / "__init__.py").write_text(

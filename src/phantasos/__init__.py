@@ -6,7 +6,6 @@ Public API: `build(loaded)`.
 from __future__ import annotations
 
 from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 from .config import (
@@ -52,7 +51,10 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     if cfg.transforms.tag_operations:
         preprocess.tag_operations(
             spec,
-            [(t.path, t.method, t.operation_id, t.tag) for t in cfg.transforms.tag_operations],
+            [
+                (t.path, t.method, t.operation_id, t.tag)
+                for t in cfg.transforms.tag_operations
+            ],
             stats,
         )
     hook_mod = _load_hooks(loaded)
@@ -94,7 +96,12 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
 
     # 6. smoke
     result = smoke.smoke(str(project_dir), cfg.package, run=run_smoke)
-    return {"preprocess": dict(stats), "patches": patch_stats, "vendored": vendored, "smoke": result}
+    return {
+        "preprocess": dict(stats),
+        "patches": patch_stats,
+        "vendored": vendored,
+        "smoke": result,
+    }
 
 
 def _load_hooks(loaded: LoadedProduct) -> Any | None:

@@ -85,10 +85,7 @@ def test_vendor_facade_only(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (prod / "sdk.yml").write_text(
-        "package: demo\n"
-        "output: x\n"
-        "base_url: https://api.example.com\n"
-        "facade: true\n",
+        "package: demo\noutput: x\nbase_url: https://api.example.com\nfacade: true\n",
         encoding="utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -113,7 +110,8 @@ def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
         "BANNER = '{{ package }} {{ spec_version }}'\n", encoding="utf-8"
     )
     (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {title: Acme, version: 1.0.0}\npaths: {}\n", encoding="utf-8"
+        "openapi: 3.0.0\ninfo: {title: Acme, version: 1.0.0}\npaths: {}\n",
+        encoding="utf-8",
     )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: https://api/\n"
@@ -135,7 +133,9 @@ def test_include_rejects_path_escape(tmp_path: Path) -> None:
     prod = tmp_path / "products" / "acme"
     (prod / "templates").mkdir(parents=True)
     (prod / "templates" / "x.jinja").write_text("x\n", encoding="utf-8")
-    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: b\n"
         "include: {'../escape.py': ./templates/x.jinja}\n",

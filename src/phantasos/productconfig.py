@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,7 @@ class CustomComponent(BaseModel):
 
 
 def resolve_component(
-    block: dict[str, Any], registry: dict[str, type], base_dir: Path
+    block: dict[str, Any], registry: Mapping[str, type], base_dir: Path
 ) -> Any:
     """Turn a raw sdk.yml component block into a validated component model."""
     type_ = block.get("type")
@@ -85,7 +86,9 @@ def resolve_component(
         return CustomComponent(**data)
     model = registry.get(type_) if isinstance(type_, str) else None
     if model is None:
-        raise ValueError(f"unknown component type {type_!r}; expected one of {sorted(registry)}")
+        raise ValueError(
+            f"unknown component type {type_!r}; expected one of {sorted(registry)}"
+        )
     return model(**block)
 
 
@@ -103,16 +106,24 @@ class LoadedProduct:
 
 
 _AUTO_EXPOSED = {
-    "package", "library", "base_url", "spec_version", "spec_title",
-    "has_auth", "has_pagination", "has_errors", "has_facade", "config_class_name",
+    "package",
+    "library",
+    "base_url",
+    "spec_version",
+    "spec_title",
+    "has_auth",
+    "has_pagination",
+    "has_errors",
+    "has_facade",
+    "config_class_name",
 }
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
     from ruamel.yaml import YAML
 
-    with path.open(encoding="utf-8") as fh:
-        return YAML(typ="safe").load(fh)
+    result: dict[str, Any] = YAML(typ="safe").load(path.open(encoding="utf-8"))
+    return result
 
 
 def load_product(name_or_path: str) -> LoadedProduct:
@@ -130,7 +141,9 @@ def load_product(name_or_path: str) -> LoadedProduct:
         if cfg.pagination
         else None
     )
-    errors = resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
+    errors = (
+        resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
+    )
     facade = None
     if cfg.facade:
         block = {"type": "default"} if cfg.facade is True else dict(cfg.facade)

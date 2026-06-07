@@ -1,105 +1,242 @@
-# Authoring a spec (`transformations/<product>.py`)
+# Authoring a product (`products/<product>/sdk.yml`)
 
-`phantasos` builds a vendored, self-contained Python SDK for an OpenAPI spec from a small
-Python config module. Each product has two files:
+`phantasos` builds a vendored, self-contained Python SDK for an OpenAPI spec from a
+declarative product directory. Create `products/<product>/` with at minimum:
 
-- `specs/<product>.yml` — the OpenAPI source document
-- `transformations/<product>.py` — its phantasos config (`CONFIG` + optional hooks)
+- `openapi.yml` — the OpenAPI source document (or set `spec:` to point elsewhere)
+- `sdk.yml` — the build config described below
 
-You write the config module; `phantasos build transformations/<product>.py` does the rest.
+Then run:
 
-## Quickstart
 ```bash
-pip install -e ".[generated]"                 # the framework (+ deps the generated SDK imports)
-phantasos build transformations/<product>.py     # preprocess -> generate -> patch -> vendor -> smoke
+phantasos build <product>           # resolves products/<product>/sdk.yml
+# or pass a direct path:
+phantasos build path/to/sdk.yml
 ```
-Needs a JRE (11+) on `PATH`; the OpenAPI Generator jar is fetched once to `~/.cache/phantasos`
-(override with `PHANTASOS_CACHE`).
 
-## The config module
-Define a module-level `CONFIG` and, optionally, `preprocess(spec)` / `patch(pkg_dir)` hooks.
-Resolve paths relative to the module so the build works from any working directory:
+The build pipeline: **preprocess** (generic transforms → declarative transforms →
+`hooks.py` `preprocess`) → **generate** (OpenAPI Generator) → **patch** (generic patches
+→ `hooks.py` `patch`) → **vendor** (render component templates into `<package>/extras/`,
+write `_about.py` provenance) → **smoke** (import every module + count operations).
+
+---
+
+## Build-config fields (`sdk.yml`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `package` | string | — (required) | Python package name for the generated SDK |
+| `output` | string | — (required) | Path to write the SDK to (relative to `sdk.yml`) |
+| `base_url` | string | — (required) | Default API host injected into component templates |
+| `library` | string | `"urllib3"` | OpenAPI Generator HTTP library (`urllib3` or `httpx`) |
+| `spec` | string | `"./openapi.yml"` | Path to the OpenAPI document (relative to `sdk.yml`) |
+| `apply_generic_patches` | bool | `true` | Apply apostrophe-enum, lenient-enum, and oneOf first-match patches |
+
+---
+
+## Components
+
+Each component produces a vendored file under `<package>/extras/`. Set a component to
+the built-in type name, a custom template path, or omit it entirely to skip vendoring.
+
+### `auth`
+
+Writes `extras/auth.py`.
+
+**Built-in type: `oauth_client_credentials`**
+
+OAuth2 client-credentials grant (Basic creds, form body), auto-refreshing token.
+
+```yaml
+auth:
+  type: oauth_client_credentials
+  token_url: https://auth.example.com/oauth2/token
+  scope_env: SCOPE                    # default: SCOPE
+  client_id_env: CLIENT_ID            # default: CLIENT_ID
+  client_secret_env: CLIENT_SECRET    # default: CLIENT_SECRET
+  base_url_env: BASE_URL              # default: BASE_URL
+  config_class_name: SdkConfiguration # default: SdkConfiguration
+  retry_statuses: [429, 500, 502, 503, 504]  # default
+  backoff_factor: 0.5                 # default
+```
+
+### `pagination`
+
+Writes `extras/pagination.py`.
+
+**Built-in type: `cursor`**
+
+Cursor paging: items under `data_field`, cursor under `page_info`.
+
+```yaml
+pagination:
+  type: cursor
+  data_field: data            # default
+  page_info_field: page_info  # default
+  cursor_field: cursor        # default
+  has_next_field: has_next_page  # default
+```
+
+### `errors`
+
+Writes `extras/errors.py`.
+
+**Built-in type: `nested`**
+
+Helpers over typed exceptions; extracts a message from
+`body[error_field][message_field]`.
+
+```yaml
+errors:
+  type: nested
+  error_field: error     # default
+  message_field: message # default
+  code_field: code       # default
+```
+
+### `facade`
+
+Writes `extras/facade.py`. Binds each generated `*Api` class as
+`client.<resource>` and exposes `client.paginate(...)` when pagination is present.
+Resources are auto-discovered from the generated `api/__init__.py`.
+
+```yaml
+facade: true   # shorthand for type: default (no config fields)
+```
+
+### Custom templates
+
+Set any component's `type` to a relative path ending in `.jinja` to use a per-product
+template instead of a built-in:
+
+```yaml
+auth:
+  type: ./templates/api_key.py.jinja
+  header_name: X-API-Key
+```
+
+phantasos resolves the path relative to `sdk.yml`'s directory, verifies it exists, and
+passes all other fields as template variables.
+
+---
+
+## `transforms:`
+
+Declarative spec pre-processing applied before OpenAPI Generator runs.
+
+### `hoist`
+
+Promote an inline `array.items` object to a named schema.
+
+```yaml
+transforms:
+  hoist:
+    - schema: SomeControl   # component schema containing the array
+      field: items          # property name of the array
+      item: SomeEntry       # new name for the hoisted schema
+```
+
+### `tag_operations`
+
+Assign `operationId` and tag to a specific path+method.
+
+```yaml
+transforms:
+  tag_operations:
+    - path: /v1/things
+      method: get
+      operation_id: ListThings
+      tag: Things
+```
+
+---
+
+## `hooks: ./hooks.py`
+
+Optional Python module (path relative to `sdk.yml`). Define either or both of:
 
 ```python
-from pathlib import Path
-from phantasos import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
+def preprocess(spec: dict) -> None:
+    """Called after declarative transforms, before OpenAPI Generator."""
+    ...
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent   # transformations/ -> repo root
-
-CONFIG = SdkConfig(
-    spec=str(_REPO_ROOT / "specs" / "my-product.yml"),  # the OpenAPI document
-    package="my_sdk",                   # python package name
-    base_url="https://api.example.com", # default API host
-    project_dir=str(_REPO_ROOT.parent / "my-sdk"),      # sibling dir; SDK is written here
-    auth=OAuthClientCredentials(token_url="https://auth.example.com/oauth2/token"),
-    pagination=CursorPagination(),
-    errors=NestedError(),
-    facade=Facade(),
-    # apply_generic_patches=True        # apostrophe / lenient enums / oneOf first-match (default on)
-)
-
-def preprocess(spec):                   # optional: spec-specific quirks via framework helpers
-    from phantasos.preprocess import hoist_items, tag_operations
-    hoist_items(spec, [("SomeControl", "items", "SomeEntry")])
-    tag_operations(spec, [("/v1/things", "get", "ListThings", "Things")])
-
-def patch(pkg_dir):                     # optional: extra codegen fixups on the generated package
+def patch(pkg_dir) -> None:
+    """Called after generic patches, on the generated package directory."""
     ...
 ```
 
-Set a component to `None` to skip vendoring it (e.g. `auth=None`). `facade` defaults on.
+Hooks run **after** the declarative `transforms:` block.
 
-## Build pipeline
-`load the config module` → fetch/pin jar → **preprocess** (generic transforms + your `preprocess`) →
-**generate** (OpenAPI Generator) → **patch** (generic patches + your `patch`) →
-**vendor** (render selected component templates → `<package>/extras/`, write `_about.py`
-provenance) → **smoke** (import every module + count operations).
+---
 
-## Component param reference
-Each component is a dataclass whose fields are inlined into a Jinja template at vendor time.
+## `vars:`
 
-### `OAuthClientCredentials` → `extras/auth.py`
-OAuth2 client-credentials grant (Basic creds, form body), auto-refreshing token.
+Supplemental template variables merged into the Jinja context for all component
+templates and `include:` templates.
 
-| field | default | meaning |
-|-------|---------|---------|
-| `token_url` | — (required) | token endpoint |
-| `scope_env` | `"SCOPE"` | env var read for the OAuth scope |
-| `client_id_env` | `"CLIENT_ID"` | env var for the client id |
-| `client_secret_env` | `"CLIENT_SECRET"` | env var for the client secret |
-| `base_url_env` | `"BASE_URL"` | env var that overrides `base_url` at runtime |
-| `config_class_name` | `"SdkConfiguration"` | name of the generated `Configuration` subclass |
-| `retry_statuses` | `(429,500,502,503,504)` | statuses retried by urllib3 |
-| `backoff_factor` | `0.5` | retry backoff factor |
+```yaml
+vars:
+  support_email: sdk@example.com
+  api_version: v2
+```
 
-### `CursorPagination` → `extras/pagination.py`
-Cursor paging: items under `data_field`, cursor under `page_info`.
+**Reserved names** (auto-exposed by phantasos — must NOT be shadowed):
+`package`, `library`, `base_url`, `spec_version`, `spec_title`,
+`has_auth`, `has_pagination`, `has_errors`, `has_facade`, `config_class_name`.
 
-| field | default | meaning |
-|-------|---------|---------|
-| `data_field` | `"data"` | response attribute holding the page items |
-| `page_info_field` | `"page_info"` | response attribute holding paging info |
-| `cursor_field` | `"cursor"` | next-page cursor attribute on page_info |
-| `has_next_field` | `"has_next_page"` | boolean attribute on page_info |
+---
 
-### `NestedError` → `extras/errors.py`
-Helpers over the generated typed exceptions; extracts a message from `body[error_field][message_field]`.
+## `include:`
 
-| field | default | meaning |
-|-------|---------|---------|
-| `error_field` | `"error"` | top-level error object key |
-| `message_field` | `"message"` | message key inside the error object |
-| `code_field` | `"code"` | code key inside the error object |
+Copy additional Jinja templates into `<package>/extras/`. Keys are destination
+filenames (under `extras/`); values are template paths relative to `sdk.yml`.
 
-### `Facade` → `extras/facade.py`
-Binds each generated `*Api` class as `client.<resource>` and exposes `client.paginate(...)`.
-Resources are discovered from the generated `api/` package (alphabetical) — no params.
+```yaml
+include:
+  banner.py: ./templates/banner.py.jinja
+```
 
-## Custom components
-A component is `{param dataclass, Jinja template, interface}`. To add one, write a dataclass
-with a `template` field pointing at your `.jinja`, implement the relevant `extras/` contract,
-and reference your class from your config module (it's just Python — import it).
+Destination paths must stay within `extras/` — path traversal is rejected.
 
-## Provenance
-Every build writes `<package>/_about.py` with `SPEC_VERSION`, `PHANTASOS_VERSION`, and
-`OPENAPI_GENERATOR_VERSION` for traceability.
+---
+
+## Concrete examples
+
+### `products/prisma-browser/sdk.yml`
+
+```yaml
+package: prisma_browser
+output: ../../../prisma-browser-sdk
+base_url: https://api.sase.paloaltonetworks.com
+auth:
+  type: oauth_client_credentials
+  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  scope_env: SCOPE
+  base_url_env: PRISMA_SASE_BASE_URL
+  config_class_name: PrismaSaseConfiguration
+pagination: {type: cursor}
+errors: {type: nested}
+facade: true
+transforms:
+  hoist:
+    - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
+    - {schema: LaunchingExternalApplicationsControl, field: exceptions, item: ExternalApplicationLaunchException}
+  tag_operations:
+    - {path: /seb-api/v1/user-requests, method: get, operation_id: ListUserRequests, tag: User Requests}
+```
+
+### `products/adem/sdk.yml`
+
+```yaml
+package: adem
+output: ../../../adem-sdk
+base_url: https://api.sase.paloaltonetworks.com
+auth:
+  type: oauth_client_credentials
+  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  scope_env: SCOPE
+  base_url_env: ADEM_BASE_URL
+  config_class_name: AdemConfiguration
+facade: true
+hooks: ./hooks.py
+```

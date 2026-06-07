@@ -107,8 +107,8 @@ def smoke(session: nox.Session) -> None:
     phantasos auto-provisions a pinned Temurin JRE 17 on first run (cached under
     ~/.cache/phantasos), so no system Java is required; set PHANTASOS_JAVA to use
     your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
-    the default session list. Each SDK is written to a sibling dir (transformations/).
+    the default session list. Each SDK is written to a sibling dir of its product dir.
     """
     _sync(session)
-    session.run("phantasos", "build", "transformations/prisma-browser.py")
-    session.run("phantasos", "build", "transformations/adem.py")
+    session.run("phantasos", "build", "prisma-browser")
+    session.run("phantasos", "build", "adem")

@@ -7,17 +7,16 @@
 Generate native, self-contained Python SDKs from OpenAPI specs. `phantasos` wraps
 [OpenAPI Generator](https://openapi-generator.tech/) (`python`/Pydantic v2) and adds
 generic spec preprocessing, codegen-bug patches, and **vendored, templated components**
-(auth, pagination, errors, a resource facade) selected per spec. Each spec is described
-by a small Python config module under `transformations/`; the generated SDK is written to
-its own directory and depends only on `httpx`/`urllib3`/`pydantic`.
-
-A product has two files: its OpenAPI source at `specs/<product>.yml` and its phantasos config
-(`CONFIG` + optional `preprocess`/`patch` hooks) at `transformations/<product>.py`.
+(auth, pagination, errors, a resource facade) selected per spec. Each product is described
+by a declarative `products/<product>/` directory containing `openapi.yml`, `sdk.yml`, and
+optionally `templates/` (custom component Jinja files) and `hooks.py` (Python preprocessing
+hooks); the generated SDK is written to its own directory and depends only on
+`httpx`/`urllib3`/`pydantic`.
 
 ## Quickstart
 ```bash
 pip install -e .                       # phantasos itself — no SDK runtime deps needed
-phantasos build transformations/prisma-browser.py
+phantasos build prisma-browser
 ```
 No system Java required — see [Requirements](#requirements). The OpenAPI Generator jar and
 a JRE are fetched once to `~/.cache/phantasos` (override with `PHANTASOS_CACHE`). The smoke
@@ -41,32 +40,30 @@ Supported platforms for auto-provisioning: Linux (x64/arm64), macOS (x64/arm64),
 Windows (x64). On any other platform — or to use your own JVM — install a JRE 11+ and set
 `PHANTASOS_JAVA=/path/to/java`.
 
-## Describing a spec (`transformations/<product>.py`)
-```python
-from phantasos import SdkConfig, OAuthClientCredentials, CursorPagination, NestedError, Facade
-
-CONFIG = SdkConfig(
-    spec="../specs/my-product.yml", package="my_sdk", base_url="https://api.example.com",
-    project_dir="../my-sdk",                       # generated SDK lands here
-    auth=OAuthClientCredentials(token_url="https://auth.example.com/oauth2/token"),
-    pagination=CursorPagination(), errors=NestedError(), facade=Facade(),
-)
-
-def preprocess(spec):                              # optional spec-specific quirks
-    from phantasos.preprocess import hoist_items, tag_operations
-    ...
+## Describing a product (`products/<product>/sdk.yml`)
+```yaml
+# products/<product>/sdk.yml
+package: my_sdk
+output: ../../../my-sdk
+base_url: https://api.example.com
+auth: {type: oauth_client_credentials, token_url: https://auth.example.com/oauth2/token}
+pagination: {type: cursor}
+errors: {type: nested}
+facade: true
 ```
-Full guide + component param reference: [`docs/AUTHORING_A_SPEC.md`](docs/AUTHORING_A_SPEC.md).
+Full schema reference + hooks guide: [`docs/AUTHORING_A_SPEC.md`](docs/AUTHORING_A_SPEC.md).
 
 ## Layout
 | Path | What |
 |------|------|
-| `phantasos/` | the framework package (`config`, `preprocess`, `generate`, `patches`, `render`, `smoke`, `cli`) |
-| `phantasos/components/*.jinja` | vendored component templates (auth / pagination / errors / facade) |
-| `specs/<product>.yml` | a product's OpenAPI source (e.g. `prisma-browser.yml`, `adem.yml`) |
-| `transformations/<product>.py` | a product's phantasos config; e.g. `prisma-browser.py` builds to the **sibling** `../prisma-browser-sdk/` |
-| `tests/` | framework engine tests (`test_framework.py`) |
-| `docs/` | architecture, re-arch plan, authoring guide, and the prototype migration history |
+| `src/phantasos/` | the framework package (`config`, `productconfig`, `preprocess`, `generate`, `patches`, `render`, `smoke`, `cli`) |
+| `src/phantasos/components/*.jinja` | vendored component templates (auth / pagination / errors / facade) |
+| `products/<product>/openapi.yml` | a product's OpenAPI source spec |
+| `products/<product>/sdk.yml` | a product's declarative build config (package, output, components, transforms) |
+| `products/<product>/templates/` | optional per-product custom component Jinja templates |
+| `products/<product>/hooks.py` | optional Python hooks (`preprocess(spec)` / `patch(pkg_dir)`) |
+| `tests/` | framework unit tests |
+| `docs/` | architecture docs and authoring guide |
 | `pyproject.toml` | packaging (`console_scripts: phantasos = phantasos.cli:main`) |
 
 Generated SDKs are **not** kept in this repo — each builds into its own directory
