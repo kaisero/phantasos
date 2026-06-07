@@ -73,3 +73,28 @@ def test_ensure_smoke_venv_missing_requirements(tmp_path: Path) -> None:
     (proj / "pkg").mkdir(parents=True)
     with pytest.raises(SmokeError, match="requirements.txt"):
         smoke._ensure_smoke_venv(proj)
+
+
+def test_import_walk_counts_and_isolates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    # Leak a bogus PYTHONPATH in the parent; the subprocess must NOT inherit it.
+    monkeypatch.setenv("PYTHONPATH", "/totally/bogus/path")
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_walk", reqs="")
+    result = smoke._import_walk(str(proj), "demo_walk")
+    assert result["failed"] == 0
+    assert result["imported"] >= 1
+    assert result["failures"] == []
+
+
+def test_import_walk_reports_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_broken", broken=True, reqs="")
+    result = smoke._import_walk(str(proj), "demo_broken")
+    assert result["failed"] == 1
+    assert any(name.endswith("broken") for name, _ in result["failures"])

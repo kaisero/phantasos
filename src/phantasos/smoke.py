@@ -73,3 +73,47 @@ def _ensure_smoke_venv(project_dir: Path) -> Path:
     )
     ready.write_text("")  # mark complete only after a successful install
     return py
+
+
+# Runs inside the isolated interpreter. project_dir is added to sys.path here
+# (NOT via env) so the parent's PYTHONPATH stays stripped. Results go to a file
+# to avoid mixing with anything the imported modules print to stdout.
+_WALK_SRC = r"""
+import importlib
+import json
+import pkgutil
+import sys
+
+project_dir, package, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, project_dir)
+pkg = importlib.import_module(package)
+ok = 0
+failures = []
+for mod in pkgutil.walk_packages(pkg.__path__, package + "."):
+    try:
+        importlib.import_module(mod.name)
+        ok += 1
+    except Exception as exc:  # noqa: BLE001 - record any import failure, keep going
+        failures.append([mod.name, repr(exc)[:160]])
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump({"imported": ok, "failed": len(failures), "failures": failures}, fh)
+"""
+
+
+def _import_walk(project_dir: str, package: str) -> dict[str, Any]:
+    """Import-check every module of the generated SDK in an isolated venv."""
+    py = _ensure_smoke_venv(Path(project_dir))
+    fd, out = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    out_path = Path(out)
+    try:
+        subprocess.run(  # noqa: S603
+            [str(py), "-c", _WALK_SRC, project_dir, package, out],
+            check=True,
+            env=_sanitized_env(),
+        )
+        data: dict[str, Any] = json.loads(out_path.read_text(encoding="utf-8"))
+    finally:
+        out_path.unlink(missing_ok=True)
+    data["failures"] = [tuple(item) for item in data["failures"]]
+    return data
