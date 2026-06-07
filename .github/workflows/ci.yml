@@ -67,25 +67,23 @@ jobs:
         run: uv run nox -s docs
 
   smoke:
-    name: Build smoke (OpenAPI Generator)
+    name: Build smoke (auto-provisioned Java)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-      - name: Set up JDK (for OpenAPI Generator)
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: "17"
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-      - name: Cache OpenAPI Generator jar
+      # Caches both the OAG jar and the auto-provisioned Temurin JRE so the
+      # one-time downloads are reused across runs. NO actions/setup-java — the
+      # point of this job is to prove phantasos provisions Java itself.
+      - name: Cache OAG jar + Temurin JRE
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/phantasos
-          key: oag-jar-7.7.0
-      - name: Build example SDKs
+          key: phantasos-toolchain-oag7.22.0-jre17.0.19
+      - name: Build example SDKs (Java auto-provisioned)
         run: uv run nox -s smoke
