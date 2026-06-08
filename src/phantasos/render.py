@@ -84,6 +84,8 @@ def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
         write_component(
             "facade.py", loaded.facade, resources=_discover_resources(pkg_dir)
         )
+    if loaded.retry:
+        write_component("retry.py", loaded.retry)
 
     for dest, source in loaded.config.include.items():
         target = (extras / dest).resolve()
