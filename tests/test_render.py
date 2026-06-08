@@ -186,6 +186,33 @@ def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
     assert "is_rate_limited" not in src
 
 
+def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text(
+        "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
+    )
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
+        "auth: {type: oauth_client_credentials, token_url: 'https://t/'}\nfacade: true\n",
+        "utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    render.vendor(pkg, loaded)
+    auth_src = (pkg / "extras" / "auth.py").read_text()
+    facade_src = (pkg / "extras" / "facade.py").read_text()
+    assert "from .retry import default_retry" in auth_src
+    assert "default_retry()" in auth_src
+    assert "from .retry import default_retry" in facade_src
+    assert "default_retry()" in facade_src
+    import ast
+    ast.parse(auth_src)
+    ast.parse(facade_src)
+
+
 def test_include_rejects_path_escape(tmp_path: Path) -> None:
     import pytest
 
