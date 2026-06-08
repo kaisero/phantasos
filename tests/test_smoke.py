@@ -31,7 +31,8 @@ def _make_generated_pkg(
     )
     (project_dir / "pyproject.toml").write_text(
         f"[project]\nname = '{pkgname}'\nversion = '0'\nrequires-python = '>=3.9'\n"
-        f"[build-system]\nrequires = ['setuptools']\nbuild-backend = 'setuptools.build_meta'\n"
+        "[build-system]\nrequires = ['setuptools']\n"
+        "build-backend = 'setuptools.build_meta'\n"
         f"[tool.setuptools]\npackages = ['{pkgname}']\n",
         encoding="utf-8",
     )

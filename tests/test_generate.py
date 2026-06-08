@@ -54,6 +54,14 @@ def test_write_ignore_lists_suppressed_files(tmp_path: Path) -> None:
 
     generate.write_openapi_generator_ignore(tmp_path)
     text = (tmp_path / ".openapi-generator-ignore").read_text(encoding="utf-8")
-    for f in ("setup.py", "requirements.txt", "tox.ini", "git_push.sh",
-              ".gitlab-ci.yml", ".travis.yml", ".github/workflows/python.yml", "README.md"):
+    for f in (
+        "setup.py",
+        "requirements.txt",
+        "tox.ini",
+        "git_push.sh",
+        ".gitlab-ci.yml",
+        ".travis.yml",
+        ".github/workflows/python.yml",
+        "README.md",
+    ):
         assert f in text

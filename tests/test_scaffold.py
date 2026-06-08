@@ -1,13 +1,19 @@
 """Tests for the project-scaffold renderer."""
 
 from pathlib import Path
+from typing import Any
 
 from phantasos import scaffold
 
 
-def _ctx(**over):
-    base = {"package": "acme", "distribution": "acme-sdk", "has_auth": True,
-            "has_pagination": False, "repo_url": "https://x/acme-sdk"}
+def _ctx(**over: object) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "package": "acme",
+        "distribution": "acme-sdk",
+        "has_auth": True,
+        "has_pagination": False,
+        "repo_url": "https://x/acme-sdk",
+    }
     base.update(over)
     return base
 
@@ -15,9 +21,14 @@ def _ctx(**over):
 def test_scaffold_renders_builtin_and_strips_jinja(tmp_path: Path) -> None:
     builtin = tmp_path / "scaffold"
     (builtin / ".github" / "workflows").mkdir(parents=True)
-    (builtin / "pyproject.toml.jinja").write_text("name = '{{ distribution }}'\n", "utf-8")
-    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text("on: [push]\n", "utf-8")
-    (builtin / ".editorconfig").write_text("root = true\n", "utf-8")  # non-jinja: copied verbatim
+    (builtin / "pyproject.toml.jinja").write_text(
+        "name = '{{ distribution }}'\n", "utf-8"
+    )
+    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text(
+        "on: [push]\n", "utf-8"
+    )
+    # non-jinja: copied verbatim
+    (builtin / ".editorconfig").write_text("root = true\n", "utf-8")
     out = tmp_path / "sdk"
     out.mkdir()
     written = scaffold.render_scaffold(builtin, None, out, _ctx())
@@ -56,11 +67,21 @@ def test_conditional_skip_via_jinja(tmp_path: Path) -> None:
 def test_builtin_pyproject_renders(tmp_path: Path) -> None:
     out = tmp_path / "sdk"
     out.mkdir()
-    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
-           "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
-           "package": "acme", "dependencies": ["pydantic >= 2.11"],
-           "python_versions": ["3.12"], "has_auth": True, "has_pagination": True,
-           "has_errors": True, "has_facade": True}
+    ctx = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "a@b.c",
+        "repo_url": "https://x/y",
+        "package": "acme",
+        "dependencies": ["pydantic >= 2.11"],
+        "python_versions": ["3.12"],
+        "has_auth": True,
+        "has_pagination": True,
+        "has_errors": True,
+        "has_facade": True,
+    }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     pp = (out / "pyproject.toml").read_text()
     assert 'name = "acme-sdk"' in pp and "pydantic >= 2.11" in pp
@@ -70,16 +91,28 @@ def test_builtin_pyproject_renders(tmp_path: Path) -> None:
 def test_builtin_noxfile_renders(tmp_path: Path) -> None:
     out = tmp_path / "sdk"
     out.mkdir()
-    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
-           "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
-           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.11", "3.12"],
-           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    ctx = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "a@b.c",
+        "repo_url": "https://x/y",
+        "package": "acme",
+        "dependencies": ["pydantic"],
+        "python_versions": ["3.11", "3.12"],
+        "has_auth": True,
+        "has_pagination": True,
+        "has_errors": True,
+        "has_facade": True,
+    }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     nox_src = (out / "noxfile.py").read_text()
     assert "PYTHON_VERSIONS = ['3.11', '3.12']" in nox_src
     assert "--cov=acme" in nox_src
     assert (out / ".pre-commit-config.yaml").exists()
     import ast
+
     ast.parse(nox_src)  # the rendered noxfile must be valid Python
 
 
@@ -90,13 +123,32 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
 
     out = tmp_path / "sdk"
     out.mkdir()
-    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
-           "author": "A", "author_email": "a@b.c", "repo_url": "https://github.com/x/acme-sdk",
-           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.11", "3.12"],
-           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    ctx = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "a@b.c",
+        "repo_url": "https://github.com/x/acme-sdk",
+        "package": "acme",
+        "dependencies": ["pydantic"],
+        "python_versions": ["3.11", "3.12"],
+        "has_auth": True,
+        "has_pagination": True,
+        "has_errors": True,
+        "has_facade": True,
+    }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     wfs = sorted((out / ".github" / "workflows").glob("*.yml"))
-    assert {p.name for p in wfs} >= {"ci.yml", "release.yml", "audit.yml", "secrets.yml", "codeql.yml", "docs.yml"}
+    expected_wfs = {
+        "ci.yml",
+        "release.yml",
+        "audit.yml",
+        "secrets.yml",
+        "codeql.yml",
+        "docs.yml",
+    }
+    assert {p.name for p in wfs} >= expected_wfs
     for wf in wfs:
         parse(wf.read_text())  # raises on invalid YAML
     parse((out / "mkdocs.yml").read_text())
@@ -105,10 +157,21 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
 def test_builtin_meta_files_render(tmp_path: Path) -> None:
     out = tmp_path / "sdk"
     out.mkdir()
-    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
-           "author": "A", "author_email": "sec@example.com", "repo_url": "https://x/y",
-           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.12"],
-           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    ctx = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "sec@example.com",
+        "repo_url": "https://x/y",
+        "package": "acme",
+        "dependencies": ["pydantic"],
+        "python_versions": ["3.12"],
+        "has_auth": True,
+        "has_pagination": True,
+        "has_errors": True,
+        "has_facade": True,
+    }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     assert (out / "CHANGELOG.md").exists()
     assert "acme-sdk" in (out / "CHANGELOG.md").read_text()
@@ -117,26 +180,57 @@ def test_builtin_meta_files_render(tmp_path: Path) -> None:
 
 
 def test_builtin_component_tests_gating(tmp_path: Path) -> None:
-    base_ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
-                "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
-                "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.12"],
-                "config_class_name": "AcmeConfiguration"}
+    base_ctx = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "a@b.c",
+        "repo_url": "https://x/y",
+        "package": "acme",
+        "dependencies": ["pydantic"],
+        "python_versions": ["3.12"],
+        "config_class_name": "AcmeConfiguration",
+    }
     # all components present -> all 4 component tests + conftest render
     out_all = tmp_path / "all"
     out_all.mkdir()
-    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_all,
-                             {**base_ctx, "has_auth": True, "has_pagination": True,
-                              "has_errors": True, "has_facade": True})
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(),
+        None,
+        out_all,
+        {
+            **base_ctx,
+            "has_auth": True,
+            "has_pagination": True,
+            "has_errors": True,
+            "has_facade": True,
+        },
+    )
     t = out_all / "tests"
     assert (t / "conftest.py").exists()
-    for name in ("test_auth.py", "test_pagination.py", "test_errors.py", "test_facade.py"):
+    for name in (
+        "test_auth.py",
+        "test_pagination.py",
+        "test_errors.py",
+        "test_facade.py",
+    ):
         assert (t / name).exists(), name
     # only auth present -> only test_auth renders; others skipped
     out_auth = tmp_path / "authonly"
     out_auth.mkdir()
-    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_auth,
-                             {**base_ctx, "has_auth": True, "has_pagination": False,
-                              "has_errors": False, "has_facade": False})
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(),
+        None,
+        out_auth,
+        {
+            **base_ctx,
+            "has_auth": True,
+            "has_pagination": False,
+            "has_errors": False,
+            "has_facade": False,
+        },
+    )
     t2 = out_auth / "tests"
     assert (t2 / "test_auth.py").exists()
     assert not (t2 / "test_pagination.py").exists()
@@ -144,4 +238,5 @@ def test_builtin_component_tests_gating(tmp_path: Path) -> None:
     assert not (t2 / "test_facade.py").exists()
     # the rendered test_auth.py is valid Python
     import ast
+
     ast.parse((t2 / "test_auth.py").read_text())

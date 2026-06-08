@@ -121,26 +121,40 @@ def test_build_runs_transforms_then_hook(
     assert order == ["transforms", "hook"]
 
 
-def test_build_writes_ignore_and_scaffolds(tmp_path, monkeypatch) -> None:
+def test_build_writes_ignore_and_scaffolds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import phantasos
     from phantasos.productconfig import load_product
 
     calls: list[str] = []
 
-    def fake_generate(spec_path, out_dir, package, library="urllib3"):
+    def fake_generate(
+        spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+    ) -> None:
         assert (Path(out_dir) / ".openapi-generator-ignore").exists()
         calls.append("generate")
         pkg = Path(out_dir) / package
         (pkg / "api").mkdir(parents=True)
         (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
 
+    def fake_scaffold(*a: object, **k: object) -> list[str]:
+        calls.append("scaffold")
+        return []
+
     monkeypatch.setattr("phantasos.generate.generate", fake_generate)
-    monkeypatch.setattr("phantasos.smoke.smoke", lambda *a, **k: {"skipped": True, "operations": 0})
-    monkeypatch.setattr("phantasos.scaffold.render_scaffold", lambda *a, **k: calls.append("scaffold") or [])
+    monkeypatch.setattr(
+        "phantasos.smoke.smoke",
+        lambda *a, **k: {"skipped": True, "operations": 0},
+    )
+    monkeypatch.setattr("phantasos.scaffold.render_scaffold", fake_scaffold)
 
     prod = tmp_path / "products" / "acme"
     (prod / "templates").mkdir(parents=True)
-    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n",
+        encoding="utf-8",
+    )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out\nbase_url: b\nfacade: false\n"
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",

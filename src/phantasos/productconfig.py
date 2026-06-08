@@ -16,7 +16,6 @@ from .config import (
     BUILTIN_PAGINATION,
 )
 
-
 _BASE_DEPS = [
     "urllib3 >= 2.1.0, < 3.0.0",
     "python-dateutil >= 2.8.2",

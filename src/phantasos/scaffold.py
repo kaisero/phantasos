@@ -39,10 +39,10 @@ def render_scaffold(
 
     # overrides FIRST so same-name templates resolve to the override at render time
     search = [str(p) for p in (overrides, builtin) if p]
-    env = Environment(  # noqa: S701  renders config/source, not HTML
+    env = Environment(
         loader=FileSystemLoader(search),
         keep_trailing_newline=True,
-        autoescape=False,
+        autoescape=False,  # noqa: S701  renders config/source, not HTML
     )
     written: list[str] = []
     for rel, src in sorted(files.items()):
