@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 _BUILTIN = Path(__file__).parent / "scaffold"
 
@@ -43,6 +43,7 @@ def render_scaffold(
         loader=FileSystemLoader(search),
         keep_trailing_newline=True,
         autoescape=False,  # noqa: S701  renders config/source, not HTML
+        undefined=StrictUndefined,
     )
     written: list[str] = []
     for rel, src in sorted(files.items()):

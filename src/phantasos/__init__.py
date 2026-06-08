@@ -87,6 +87,18 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     vendored = render.vendor(pkg_dir, loaded)
 
     # 4b. scaffold the project (built-in + per-product overrides, overwrite)
+    if loaded.config.project is None:
+        raise ValueError(
+            "sdk.yml needs a 'project:' block to scaffold the SDK; "
+            "see docs/ONBOARDING.md"
+        )
+    readme_tpl = loaded.base_dir / "overrides" / "README.md.jinja"
+    if not readme_tpl.exists():
+        raise ValueError(
+            f"missing {readme_tpl} — each product must provide a per-product README "
+            "(overrides/README.md.jinja); see docs/ONBOARDING.md"
+        )
+
     from . import scaffold
 
     overrides = loaded.base_dir / "overrides"

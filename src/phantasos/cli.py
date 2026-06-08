@@ -36,7 +36,11 @@ def main(argv: list[str] | None = None) -> int:
         except ValidationError as exc:
             print(f"ERROR: invalid sdk.yml:\n{exc}", file=sys.stderr)
             return 2
-        result = build(loaded, run_smoke=not args.no_smoke)
+        try:
+            result = build(loaded, run_smoke=not args.no_smoke)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
         s = result["smoke"]
         pkg = loaded.config.package
         if s.get("skipped"):

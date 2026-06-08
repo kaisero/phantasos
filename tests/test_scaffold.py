@@ -81,6 +81,7 @@ def test_builtin_pyproject_renders(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     pp = (out / "pyproject.toml").read_text()
@@ -105,6 +106,7 @@ def test_builtin_noxfile_renders(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     nox_src = (out / "noxfile.py").read_text()
@@ -137,6 +139,7 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     wfs = sorted((out / ".github" / "workflows").glob("*.yml"))
@@ -171,6 +174,7 @@ def test_builtin_meta_files_render(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     assert (out / "CHANGELOG.md").exists()

@@ -22,6 +22,9 @@ def test_cli_build_returns_zero_on_success(
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",
         encoding="utf-8",
     )
+    (prod / "overrides").mkdir()
+    readme = prod / "overrides" / "README.md.jinja"
+    readme.write_text("# Acme SDK\n", encoding="utf-8")
 
     def fake_generate(
         spec_path: str, out_dir: str, package: str, library: str = "urllib3"
@@ -113,6 +116,9 @@ def test_build_runs_transforms_then_hook(
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",
         encoding="utf-8",
     )
+    (prod / "overrides").mkdir()
+    readme = prod / "overrides" / "README.md.jinja"
+    readme.write_text("# Acme SDK\n", encoding="utf-8")
     _order_sentinel: Any = order
     builtins._ORDER = _order_sentinel  # type: ignore[attr-defined]
     loaded = load_product(str(prod / "sdk.yml"))
@@ -160,6 +166,47 @@ def test_build_writes_ignore_and_scaffolds(
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, repo_url: https://x/y}\n",
         encoding="utf-8",
     )
+    (prod / "overrides").mkdir()
+    readme = prod / "overrides" / "README.md.jinja"
+    readme.write_text("# Acme SDK\n", encoding="utf-8")
     loaded = load_product(str(prod / "sdk.yml"))
     phantasos.build(loaded, run_smoke=False)
     assert calls == ["generate", "scaffold"]
+
+
+def test_build_requires_project_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out\nbase_url: b\nfacade: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["build", "acme", "--no-smoke"])
+    assert rc == 2
+
+
+def test_build_requires_readme_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out\nbase_url: b\nfacade: false\n"
+        "project: {distribution: acme-sdk, author: A, author_email: a@b.c,"
+        " repo_url: https://x/y}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["build", "acme", "--no-smoke"])  # no overrides/README.md.jinja
+    assert rc == 2

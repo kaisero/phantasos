@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: pypi
-      url: https://pypi.org/p/${{ github.event.repository.name }}
+      url: https://pypi.org/p/{% endraw %}{{ distribution }}{% raw %}
     permissions:
       id-token: write  # required for PyPI Trusted Publishing (OIDC) + attestations
     steps:
