@@ -180,6 +180,29 @@ def test_project_defaults() -> None:
     assert "pydantic >= 2.11" in p.dependencies
 
 
+def test_retry_default_on(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (d / "sdk.yml").write_text("package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8")
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.retry is not None
+    assert loaded.context["has_retry"] is True
+    assert loaded.retry.max_retries == 3
+
+
+def test_retry_disabled(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\nretry: false\n", "utf-8"
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.retry is None
+    assert loaded.context["has_retry"] is False
+
+
 def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
