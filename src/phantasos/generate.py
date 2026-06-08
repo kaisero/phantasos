@@ -39,6 +39,18 @@ def write_openapi_generator_ignore(out_dir: Path) -> None:
     (out_dir / ".openapi-generator-ignore").write_text(body, encoding="utf-8")
 
 
+def prune_suppressed_files(out_dir: Path) -> None:
+    """Delete any pre-existing copies of the suppressed OAG files.
+
+    `.openapi-generator-ignore` stops OAG from *writing* these, but does not remove
+    ones left by earlier builds — this cleans them so the SDK stays junk-free.
+    """
+    for rel in _OAG_IGNORE:
+        target = out_dir / rel
+        if target.is_file():
+            target.unlink()
+
+
 def ensure_jar() -> Path:
     jar = provision.cache_dir() / f"openapi-generator-cli-{OAG_VERSION}.jar"
     if not jar.exists():

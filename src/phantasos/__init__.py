@@ -70,6 +70,7 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     # 2. generate
     generate.write_openapi_generator_ignore(project_dir)
     generate.generate(str(pp_path), str(project_dir), cfg.package, library=cfg.library)
+    generate.prune_suppressed_files(project_dir)
     pkg_dir = project_dir / cfg.package
     pkg_dir.mkdir(parents=True, exist_ok=True)
 

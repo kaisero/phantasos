@@ -65,3 +65,27 @@ def test_write_ignore_lists_suppressed_files(tmp_path: Path) -> None:
         "README.md",
     ):
         assert f in text
+
+
+def test_prune_removes_suppressed_files(tmp_path: Path) -> None:
+    from phantasos import generate
+
+    # simulate stale OAG files + a real package + a scaffold file that must survive
+    (tmp_path / "setup.py").write_text("old", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("old", encoding="utf-8")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "python.yml").write_text(
+        "old", encoding="utf-8"
+    )
+    (tmp_path / ".github" / "workflows" / "ci.yml").write_text("keep", encoding="utf-8")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+
+    generate.prune_suppressed_files(tmp_path)
+
+    assert not (tmp_path / "setup.py").exists()
+    assert not (tmp_path / "requirements.txt").exists()
+    assert not (tmp_path / ".github" / "workflows" / "python.yml").exists()
+    # non-suppressed files survive
+    assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
+    assert (tmp_path / "pkg" / "__init__.py").exists()
