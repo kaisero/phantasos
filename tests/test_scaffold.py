@@ -100,3 +100,17 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
     for wf in wfs:
         parse(wf.read_text())  # raises on invalid YAML
     parse((out / "mkdocs.yml").read_text())
+
+
+def test_builtin_meta_files_render(tmp_path: Path) -> None:
+    out = tmp_path / "sdk"
+    out.mkdir()
+    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
+           "author": "A", "author_email": "sec@example.com", "repo_url": "https://x/y",
+           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.12"],
+           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
+    assert (out / "CHANGELOG.md").exists()
+    assert "acme-sdk" in (out / "CHANGELOG.md").read_text()
+    assert (out / "CONTRIBUTING.md").exists()
+    assert "sec@example.com" in (out / "SECURITY.md").read_text()
