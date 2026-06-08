@@ -25,4 +25,19 @@ def test_backoff_is_capped() -> None:
     r.history = tuple(_H() for _ in range(8))
     backoff = r.get_backoff_time()
     assert 0.0 <= backoff <= r.backoff_max
+
+
+def test_jitter_is_applied(monkeypatch) -> None:
+    # jitter must actually reduce the backoff: random()->1.0 takes the full fraction off
+    class _H:
+        redirect_location = None
+
+    r = default_retry()
+    r.history = tuple(_H() for _ in range(3))
+    monkeypatch.setattr("random.random", lambda: 1.0)
+    full_jitter = r.get_backoff_time()
+    monkeypatch.setattr("random.random", lambda: 0.0)
+    no_jitter = r.get_backoff_time()
+    assert full_jitter < no_jitter
+    assert full_jitter == no_jitter * (1 - JitteredRetry.jitter_frac)
 {% endif %}

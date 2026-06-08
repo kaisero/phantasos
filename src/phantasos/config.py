@@ -23,8 +23,6 @@ class OAuthClientCredentials(_Component):
     client_secret_env: str = "CLIENT_SECRET"  # noqa: S105  env-var name, not a secret
     base_url_env: str = "BASE_URL"
     config_class_name: str = "SdkConfiguration"
-    retry_statuses: tuple[int, ...] = (429, 500, 502, 503, 504)
-    backoff_factor: float = 0.5
     template: str = "auth/oauth_client_credentials.py.jinja"
 
 
