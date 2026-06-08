@@ -65,3 +65,19 @@ def test_builtin_pyproject_renders(tmp_path: Path) -> None:
     pp = (out / "pyproject.toml").read_text()
     assert 'name = "acme-sdk"' in pp and "pydantic >= 2.11" in pp
     assert 'packages = ["acme"]' in pp
+
+
+def test_builtin_noxfile_renders(tmp_path: Path) -> None:
+    out = tmp_path / "sdk"
+    out.mkdir()
+    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
+           "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
+           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.11", "3.12"],
+           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
+    nox_src = (out / "noxfile.py").read_text()
+    assert "PYTHON_VERSIONS = ['3.11', '3.12']" in nox_src
+    assert "--cov=acme" in nox_src
+    assert (out / ".pre-commit-config.yaml").exists()
+    import ast
+    ast.parse(nox_src)  # the rendered noxfile must be valid Python
