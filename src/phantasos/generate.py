@@ -17,6 +17,40 @@ _JAR_URL = (
 JAR_SHA256 = "3f1e6ce5c6ad4f15242c6170ab43aad4bad771622617eeece4a7d4f72ffaf329"
 
 
+_OAG_IGNORE = [
+    "setup.py",
+    "setup.cfg",
+    "requirements.txt",
+    "test-requirements.txt",
+    "tox.ini",
+    "git_push.sh",
+    ".gitlab-ci.yml",
+    ".travis.yml",
+    ".github/workflows/python.yml",
+    "README.md",
+]
+
+
+def write_openapi_generator_ignore(out_dir: Path) -> None:
+    """Suppress OAG's supporting files so phantasos's scaffold owns them."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    body = "# Written by phantasos — these are provided by the project scaffold.\n"
+    body += "\n".join(_OAG_IGNORE) + "\n"
+    (out_dir / ".openapi-generator-ignore").write_text(body, encoding="utf-8")
+
+
+def prune_suppressed_files(out_dir: Path) -> None:
+    """Delete any pre-existing copies of the suppressed OAG files.
+
+    `.openapi-generator-ignore` stops OAG from *writing* these, but does not remove
+    ones left by earlier builds — this cleans them so the SDK stays junk-free.
+    """
+    for rel in _OAG_IGNORE:
+        target = out_dir / rel
+        if target.is_file():
+            target.unlink()
+
+
 def ensure_jar() -> Path:
     jar = provision.cache_dir() / f"openapi-generator-cli-{OAG_VERSION}.jar"
     if not jar.exists():

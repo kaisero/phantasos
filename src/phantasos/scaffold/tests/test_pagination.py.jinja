@@ -1,0 +1,8 @@
+{% if has_pagination %}"""Pagination component smoke tests (generated)."""
+
+from {{ package }}.extras import pagination
+
+
+def test_paginate_is_callable() -> None:
+    assert callable(pagination.paginate)
+{% endif %}

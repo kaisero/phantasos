@@ -1,52 +1,33 @@
-"""Unit tests for SdkConfig component selection/ordering."""
+"""Tests for the pydantic component models."""
+
+import pytest
+from pydantic import ValidationError
 
 from phantasos.config import (
     CursorPagination,
     Facade,
     NestedError,
     OAuthClientCredentials,
-    SdkConfig,
 )
 
 
-def test_components_full_order() -> None:
-    auth = OAuthClientCredentials(token_url="https://t/")
-    pagination = CursorPagination()
-    errors = NestedError()
-    facade = Facade()
-    cfg = SdkConfig(
-        spec="s.yml",
-        package="pkg",
-        base_url="https://api/",
-        auth=auth,
-        pagination=pagination,
-        errors=errors,
-        facade=facade,
-    )
-    # auth, pagination, errors, facade — in that order.
-    assert cfg.components() == [auth, pagination, errors, facade]
+def test_oauth_defaults_and_template() -> None:
+    a = OAuthClientCredentials(type="oauth_client_credentials", token_url="https://t/")
+    assert a.scope_env == "SCOPE"
+    assert a.config_class_name == "SdkConfiguration"
+    assert a.template == "auth/oauth_client_credentials.py.jinja"
 
 
-def test_components_skips_none() -> None:
-    cfg = SdkConfig(
-        spec="s.yml",
-        package="pkg",
-        base_url="https://api/",
-        auth=None,
-        pagination=None,
-        errors=None,
-    )
-    # facade defaults to a Facade() instance via default_factory.
-    components = cfg.components()
-    assert len(components) == 1
-    assert isinstance(components[0], Facade)
+def test_cursor_defaults() -> None:
+    p = CursorPagination(type="cursor")
+    assert p.data_field == "data" and p.cursor_field == "cursor"
+    assert p.template == "pagination/cursor.py.jinja"
 
 
-def test_components_facade_only_explicit_none() -> None:
-    cfg = SdkConfig(
-        spec="s.yml",
-        package="pkg",
-        base_url="https://api/",
-        facade=None,
-    )
-    assert cfg.components() == []
+def test_unknown_field_rejected() -> None:
+    with pytest.raises(ValidationError):
+        NestedError.model_validate({"type": "nested", "bogus_key": "x"})
+
+
+def test_facade_template() -> None:
+    assert Facade(type="default").template == "facade/client.py.jinja"

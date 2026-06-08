@@ -154,8 +154,9 @@ def fix_strings_and_enums(node: Any, stats: dict[str, int]) -> None:
 
 def clean(spec: Any, stats: dict[str, int]) -> None:
     """Run all generic, spec-agnostic transforms."""
-    schemas = spec["components"]["schemas"]
-    collapse_allof(schemas, spec, stats)
+    schemas = (spec.get("components") or {}).get("schemas")
+    if schemas:
+        collapse_allof(schemas, spec, stats)
     fix_strings_and_enums(spec, stats)
 
 

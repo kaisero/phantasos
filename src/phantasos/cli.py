@@ -1,57 +1,53 @@
-"""`phantasos build <config>` — load a spec's config module and build its SDK."""
+"""`phantasos build <product>` — load products/<product>/sdk.yml and build its SDK."""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
-from pathlib import Path
-from typing import Any
 
-
-def _load_spec_module(config_path: Path) -> Any:
-    spec = importlib.util.spec_from_file_location("_sdk_config", config_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load spec config module from {config_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from .productconfig import load_product
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="phantasos")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    b = sub.add_parser("build", help="build an SDK from a spec's config module")
+    b = sub.add_parser("build", help="build an SDK from a product's sdk.yml")
     b.add_argument(
-        "config",
-        help="path to the spec config module, e.g. transformations/<product>.py",
+        "product",
+        help="product name (products/<name>/sdk.yml) or a path to sdk.yml",
+    )
+    b.add_argument(
+        "--no-smoke",
+        action="store_true",
+        help="skip the isolated import-check (offline/locked-down builds)",
     )
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
+        from pydantic import ValidationError
+
         from . import build
 
-        config_path = Path(args.config).resolve()
-        if not config_path.exists():
-            print(f"ERROR: {config_path} not found", file=sys.stderr)
-            return 2
-        # resolve relative paths (spec=) against the config's directory
-        import os
-
-        cwd = Path.cwd()
-        os.chdir(config_path.parent)
         try:
-            mod = _load_spec_module(config_path)
-            result = build(
-                mod.CONFIG,
-                preprocess_hook=getattr(mod, "preprocess", None),
-                patch_hook=getattr(mod, "patch", None),
-            )
-        finally:
-            os.chdir(cwd)
+            loaded = load_product(args.product)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        except ValidationError as exc:
+            print(f"ERROR: invalid sdk.yml:\n{exc}", file=sys.stderr)
+            return 2
+        try:
+            result = build(loaded, run_smoke=not args.no_smoke)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
         s = result["smoke"]
+        pkg = loaded.config.package
+        if s.get("skipped"):
+            print(f"built {pkg}: smoke skipped; operations: {s['operations']}")
+            return 0
         print(
-            f"built {mod.CONFIG.package}: imported {s['imported']} modules, "
+            f"built {pkg}: imported {s['imported']} modules, "
             f"{s['failed']} failures; operations: {s['operations']}"
         )
         for name, err in s["failures"][:10]:

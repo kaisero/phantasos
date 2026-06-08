@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
     "ruamel.yaml>=0.18",
     "jinja2>=3.1",
+    "pydantic>=2",
 ]
 
 [project.urls]
@@ -32,11 +33,6 @@ Changelog = "https://github.com/kaisero/phantasos/blob/main/CHANGELOG.md"
 [project.scripts]
 phantasos = "phantasos.cli:main"
 
-[project.optional-dependencies]
-# Deps the *generated* SDK imports at smoke/runtime — installed so `phantasos build`
-# can import-check its own output. A built SDK declares these in its own pyproject.
-generated = ["pydantic>=2", "urllib3>=2", "python-dateutil", "typing_extensions"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -44,7 +40,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/phantasos"]
 # Ship the Jinja component templates as package data (vendored at build time).
-artifacts = ["src/phantasos/components/**/*.jinja"]
+artifacts = [
+    "src/phantasos/components/**/*.jinja",
+    "src/phantasos/scaffold/**",
+]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/phantasos", "README.md"]
@@ -55,8 +54,6 @@ typecheck = ["mypy>=1.11", { include-group = "test" }]
 lint = ["ruff>=0.6", "codespell>=2.3"]
 audit = ["pip-audit>=2.7"]
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
-# Deps the generated SDK imports, so `nox -s smoke` can import-check its output.
-smoke = ["pydantic>=2", "urllib3>=2", "python-dateutil", "typing_extensions"]
 dev = [
     "nox>=2024.4",
     "pre-commit>=3.7",
@@ -82,6 +79,8 @@ ignore = []
 "src/phantasos/generate.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
 "src/phantasos/provision.py" = ["S310"]
+# smoke.py shells out to the isolated venv's python/pip — trusted argv.
+"src/phantasos/smoke.py" = ["S603"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]

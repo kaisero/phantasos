@@ -998,15 +998,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
-    { name = "ruamel-yaml" },
-]
-
-[package.optional-dependencies]
-generated = [
     { name = "pydantic" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
-    { name = "urllib3" },
+    { name = "ruamel-yaml" },
 ]
 
 [package.dev-dependencies]
@@ -1033,12 +1026,6 @@ lint = [
     { name = "codespell" },
     { name = "ruff" },
 ]
-smoke = [
-    { name = "pydantic" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
-    { name = "urllib3" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1052,13 +1039,9 @@ typecheck = [
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "pydantic", marker = "extra == 'generated'", specifier = ">=2" },
-    { name = "python-dateutil", marker = "extra == 'generated'" },
+    { name = "pydantic", specifier = ">=2" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
-    { name = "typing-extensions", marker = "extra == 'generated'" },
-    { name = "urllib3", marker = "extra == 'generated'", specifier = ">=2" },
 ]
-provides-extras = ["generated"]
 
 [package.metadata.requires-dev]
 audit = [{ name = "pip-audit", specifier = ">=2.7" }]
@@ -1081,12 +1064,6 @@ docs = [
 lint = [
     { name = "codespell", specifier = ">=2.3" },
     { name = "ruff", specifier = ">=0.6" },
-]
-smoke = [
-    { name = "pydantic", specifier = ">=2" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
-    { name = "urllib3", specifier = ">=2" },
 ]
 test = [
     { name = "pytest", specifier = ">=8" },

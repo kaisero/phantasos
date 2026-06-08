@@ -1,13 +1,17 @@
-"""Unit tests for the smoke import/operation-count check."""
+"""Unit + integration tests for the isolated smoke check."""
 
-import sys
 from pathlib import Path
 
+import pytest
+
 from phantasos import smoke
+from phantasos.smoke import SmokeError
 
 
-def _make_generated_pkg(project_dir: Path, pkgname: str, broken: bool = False) -> None:
-    """Write a tiny generated-style package under ``project_dir``."""
+def _make_generated_pkg(
+    project_dir: Path, pkgname: str, *, broken: bool = False, reqs: str = ""
+) -> None:
+    """Write a tiny generated-style SDK (package + api + pyproject.toml)."""
     pkg = project_dir / pkgname
     api = pkg / "api"
     api.mkdir(parents=True)
@@ -25,37 +29,114 @@ def _make_generated_pkg(project_dir: Path, pkgname: str, broken: bool = False) -
         "        return None\n",
         encoding="utf-8",
     )
+    (project_dir / "pyproject.toml").write_text(
+        f"[project]\nname = '{pkgname}'\nversion = '0'\nrequires-python = '>=3.9'\n"
+        "[build-system]\nrequires = ['setuptools']\n"
+        "build-backend = 'setuptools.build_meta'\n"
+        f"[tool.setuptools]\npackages = ['{pkgname}']\n",
+        encoding="utf-8",
+    )
     if broken:
         (pkg / "broken.py").write_text("import does_not_exist_xyz\n", encoding="utf-8")
 
 
-def test_smoke_counts_imports_and_operations(tmp_path: Path) -> None:
-    _make_generated_pkg(tmp_path, "demo_ok")
-    try:
-        result = smoke.smoke(str(tmp_path), "demo_ok")
-    finally:
-        sys.path[:] = [p for p in sys.path if p != str(tmp_path)]
-        for name in list(sys.modules):
-            if name == "demo_ok" or name.startswith("demo_ok."):
-                del sys.modules[name]
+def test_count_operations_excludes_helpers(tmp_path: Path) -> None:
+    _make_generated_pkg(tmp_path, "demo_ops")
+    # Only list_things + get_thing count (the _with_http_info /
+    # _without_preload_content helpers are excluded).
+    assert smoke._count_operations(str(tmp_path), "demo_ops") == 2
 
+
+def test_sanitized_env_strips_leaky_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIRTUAL_ENV", "/parent/venv")
+    monkeypatch.setenv("PYTHONPATH", "/parent/src")
+    monkeypatch.setenv("PYTHONHOME", "/parent/home")
+    monkeypatch.setenv("KEEP_ME", "yes")
+    env = smoke._sanitized_env()
+    assert "VIRTUAL_ENV" not in env
+    assert "PYTHONPATH" not in env
+    assert "PYTHONHOME" not in env
+    assert env["KEEP_ME"] == "yes"
+
+
+def test_ensure_smoke_venv_creates_and_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_v", reqs="")  # empty reqs -> offline, fast
+    py = smoke._ensure_smoke_venv(proj)
+    assert py.exists()
+    assert (py.parent.parent / ".ready").exists()
+    # Cached: a second call returns the same interpreter without rebuilding.
+    py2 = smoke._ensure_smoke_venv(proj)
+    assert py2 == py
+
+
+def test_ensure_smoke_venv_missing_pyproject(tmp_path: Path) -> None:
+    proj = tmp_path / "noproj"
+    (proj / "pkg").mkdir(parents=True)
+    with pytest.raises(SmokeError, match="pyproject"):
+        smoke._ensure_smoke_venv(proj)
+
+
+def test_import_walk_counts_and_isolates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    # Leak a bogus PYTHONPATH in the parent; the subprocess must NOT inherit it.
+    monkeypatch.setenv("PYTHONPATH", "/totally/bogus/path")
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_walk", reqs="")
+    result = smoke._import_walk(str(proj), "demo_walk")
     assert result["failed"] == 0
     assert result["imported"] >= 1
     assert result["failures"] == []
-    # Only list_things + get_thing count; the _with_http_info / _without_preload_content
-    # helpers are excluded.
-    assert result["operations"] == 2
 
 
-def test_smoke_reports_import_failures(tmp_path: Path) -> None:
-    _make_generated_pkg(tmp_path, "demo_bad", broken=True)
-    try:
-        result = smoke.smoke(str(tmp_path), "demo_bad")
-    finally:
-        sys.path[:] = [p for p in sys.path if p != str(tmp_path)]
-        for name in list(sys.modules):
-            if name == "demo_bad" or name.startswith("demo_bad."):
-                del sys.modules[name]
-
+def test_import_walk_reports_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_broken", broken=True, reqs="")
+    result = smoke._import_walk(str(proj), "demo_broken")
     assert result["failed"] == 1
     assert any(name.endswith("broken") for name, _ in result["failures"])
+
+
+def test_smoke_combines_walk_and_ops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_full", reqs="")
+    result = smoke.smoke(str(proj), "demo_full")
+    assert result["operations"] == 2
+    assert result["failed"] == 0
+    assert result["imported"] >= 1
+    assert result["skipped"] is False
+
+
+def test_smoke_skipped_via_env_does_not_build_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("PHANTASOS_CACHE", str(cache))
+    monkeypatch.setenv("PHANTASOS_SKIP_SMOKE", "1")
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_skip", reqs="")
+    result = smoke.smoke(str(proj), "demo_skip")
+    assert result["skipped"] is True
+    assert result["operations"] == 2  # ops still counted (in-process, no deps)
+    assert result["imported"] == 0 and result["failed"] == 0
+    assert not (cache / "smoke-envs").exists()  # no venv was provisioned
+
+
+def test_smoke_run_false_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv("PHANTASOS_SKIP_SMOKE", raising=False)
+    proj = tmp_path / "proj"
+    _make_generated_pkg(proj, "demo_norun", reqs="")
+    result = smoke.smoke(str(proj), "demo_norun", run=False)
+    assert result["skipped"] is True

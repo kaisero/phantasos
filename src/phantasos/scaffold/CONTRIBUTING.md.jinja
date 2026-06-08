@@ -1,0 +1,15 @@
+# Contributing to {{ distribution }}
+
+> This SDK is **generated** by [phantasos](https://github.com/kaisero/phantasos) from an
+> OpenAPI spec. Do not hand-edit the generated code — changes should be made upstream in the
+> phantasos product definition and regenerated.
+
+## Development
+
+```bash
+uv sync --all-groups
+uv run nox            # lint (ruff) + type-check (mypy) + tests (pytest)
+uv run pre-commit install
+```
+
+Run a single check, e.g. `uv run nox -s lint` or `uv run nox -s tests`.
