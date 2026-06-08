@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 _BUILTIN = Path(__file__).parent / "scaffold"
 
@@ -42,7 +42,7 @@ def render_scaffold(
     env = Environment(
         loader=FileSystemLoader(search),
         keep_trailing_newline=True,
-        autoescape=False,  # noqa: S701  renders config/source, not HTML
+        autoescape=select_autoescape(),  # renders config/source, not HTML
         undefined=StrictUndefined,
     )
     written: list[str] = []

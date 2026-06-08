@@ -16,14 +16,15 @@ _IMPORT_RE = re.compile(r"^from \S+\.api\.(\w+) import (\w+)\s*$", re.M)
 
 
 def _env() -> Environment:
-    from jinja2 import Environment, FileSystemLoader
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-    # autoescape stays off: templates render Python source, not HTML — HTML escaping
-    # would corrupt the generated code (e.g. `>` -> `&gt;`).
+    # Templates render Python source, not HTML. select_autoescape() only escapes
+    # .html/.xml names (we have none), so generated code is never HTML-mangled
+    # (e.g. `>` -> `&gt;`) — and it satisfies the autoescape security lint.
     return Environment(
         loader=FileSystemLoader(str(_COMPONENTS_DIR)),
         keep_trailing_newline=True,
-        autoescape=False,  # noqa: S701  renders Python source, not HTML
+        autoescape=select_autoescape(),
     )
 
 
@@ -43,7 +44,7 @@ def _discover_resources(pkg_dir: Path) -> list[dict[str, str]]:
 
 
 def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
-    from jinja2 import Environment, FileSystemLoader
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     extras = pkg_dir / "extras"
     extras.mkdir(exist_ok=True)
@@ -54,7 +55,7 @@ def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
     product_env = Environment(
         loader=FileSystemLoader(str(loaded.base_dir)),
         keep_trailing_newline=True,
-        autoescape=False,  # noqa: S701  renders Python source, not HTML
+        autoescape=select_autoescape(),  # renders Python source, not HTML
     )
 
     def render_template(template: str, **extra: Any) -> str:
