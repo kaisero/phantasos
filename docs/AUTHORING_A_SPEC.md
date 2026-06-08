@@ -200,6 +200,54 @@ Destination paths must stay within `extras/` — path traversal is rejected.
 
 ---
 
+## `project:`
+
+The `project:` block is required when building a scaffold (i.e. when phantasos renders
+`pyproject.toml`, GitHub workflows, docs, and other project files into the generated SDK).
+
+```yaml
+project:
+  distribution: my-sdk           # PyPI distribution name (required)
+  author: Jane Smith             # (required)
+  author_email: jane@example.com # (required)
+  repo_url: https://github.com/org/my-sdk  # (required)
+  description: "Python SDK for the My API" # default: ""
+  license: Apache-2.0            # SPDX id; default: Apache-2.0
+  python_versions: ["3.11", "3.12", "3.13", "3.14"]  # default
+  dependencies:                  # default: urllib3/python-dateutil/pydantic/typing-extensions
+    - "urllib3 >= 2.1.0, < 3.0.0"
+    - "python-dateutil >= 2.8.2"
+    - "pydantic >= 2.11"
+    - "typing-extensions >= 4.7.1"
+```
+
+**`dependencies`** — the defaults match what OpenAPI Generator itself would emit for
+`library: urllib3`, so you almost never need to override this field. Only set it when
+the SDK genuinely needs additional or different runtime deps.
+
+---
+
+## `overrides/`
+
+`products/<product>/overrides/` mirrors the generated SDK tree. Any file placed here at
+the same relative path **replaces** the corresponding built-in scaffold template
+(same-path-wins). This is how per-product customisation is layered over the shared
+`src/phantasos/scaffold/` templates without modifying the scaffold itself.
+
+**`overrides/README.md.jinja`** — required. This becomes the `README.md` of the generated
+SDK. The Jinja context exposes all `sdk.yml` values plus the standard phantasos variables
+(`package`, `base_url`, `spec_title`, `has_auth`, `has_pagination`, `has_errors`,
+`has_facade`, `config_class_name`).
+
+**`overrides/tests/`** — optional. Jinja templates here are rendered into the generated
+SDK's `tests/` directory alongside the gated component tests from the built-in scaffold.
+Use this for per-product integration, contract, or model-specific tests.
+
+All files in `overrides/` are version-controlled in this repo and are never lost across
+regenerations — the generated SDK is a pure build artifact.
+
+---
+
 ## Concrete examples
 
 ### `products/prisma-browser/sdk.yml`

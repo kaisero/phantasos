@@ -53,22 +53,39 @@ facade: true
 ```
 Full schema reference + hooks guide: [`docs/AUTHORING_A_SPEC.md`](docs/AUTHORING_A_SPEC.md).
 
+## Generated SDK structure
+
+Each generated SDK is a full phantasos-grade project — not just the OAG-generated
+package. phantasos suppresses OAG's own scaffolding (`setup.py`, `requirements.txt`,
+`tox.ini`, CI) via `.openapi-generator-ignore`, then renders a complete project on top:
+
+- **Built-in scaffold** (`src/phantasos/scaffold/`): `pyproject.toml`, `noxfile.py`,
+  `.pre-commit-config.yaml`, six GitHub workflows (ci / release / audit / secrets /
+  codeql / docs), `mkdocs.yml`, `.gitignore`, `.editorconfig`, `LICENSE`,
+  `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, and gated component tests.
+- **Per-product overrides** (`products/<product>/overrides/`): same-path files replace
+  the corresponding built-in scaffold template. `overrides/README.md.jinja` is required;
+  `overrides/tests/` holds optional per-product tests.
+
+The generated SDK is a pure build artifact — never hand-edit it. All customisation lives
+in `products/<name>/` and `src/phantasos/scaffold/`, both version-controlled here.
+
 ## Layout
 | Path | What |
 |------|------|
 | `src/phantasos/` | the framework package (`config`, `productconfig`, `preprocess`, `generate`, `patches`, `render`, `smoke`, `cli`) |
 | `src/phantasos/components/*.jinja` | vendored component templates (auth / pagination / errors / facade) |
+| `src/phantasos/scaffold/` | built-in project scaffold templates (pyproject, noxfile, CI/CD, docs, tests, …) |
 | `products/<product>/openapi.yml` | a product's OpenAPI source spec |
-| `products/<product>/sdk.yml` | a product's declarative build config (package, output, components, transforms) |
-| `products/<product>/templates/` | optional per-product custom component Jinja templates |
+| `products/<product>/sdk.yml` | a product's declarative build config (package, output, components, transforms, project block) |
+| `products/<product>/overrides/` | per-product scaffold overrides; `README.md.jinja` required, `tests/` optional |
 | `products/<product>/hooks.py` | optional Python hooks (`preprocess(spec)` / `patch(pkg_dir)`) |
 | `tests/` | framework unit tests |
 | `docs/` | architecture docs and authoring guide |
 | `pyproject.toml` | packaging (`console_scripts: phantasos = phantasos.cli:main`) |
 
 Generated SDKs are **not** kept in this repo — each builds into its own directory
-(e.g. the Prisma Browser SDK builds to the sibling `../prisma-browser-sdk/`, which owns
-its own tests, examples, and `.env.example`).
+(e.g. the Prisma Browser SDK builds to the sibling `../prisma-browser-sdk/`).
 
 ## Development
 
