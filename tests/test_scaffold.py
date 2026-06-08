@@ -114,3 +114,34 @@ def test_builtin_meta_files_render(tmp_path: Path) -> None:
     assert "acme-sdk" in (out / "CHANGELOG.md").read_text()
     assert (out / "CONTRIBUTING.md").exists()
     assert "sec@example.com" in (out / "SECURITY.md").read_text()
+
+
+def test_builtin_component_tests_gating(tmp_path: Path) -> None:
+    base_ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
+                "author": "A", "author_email": "a@b.c", "repo_url": "https://x/y",
+                "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.12"],
+                "config_class_name": "AcmeConfiguration"}
+    # all components present -> all 4 component tests + conftest render
+    out_all = tmp_path / "all"
+    out_all.mkdir()
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_all,
+                             {**base_ctx, "has_auth": True, "has_pagination": True,
+                              "has_errors": True, "has_facade": True})
+    t = out_all / "tests"
+    assert (t / "conftest.py").exists()
+    for name in ("test_auth.py", "test_pagination.py", "test_errors.py", "test_facade.py"):
+        assert (t / name).exists(), name
+    # only auth present -> only test_auth renders; others skipped
+    out_auth = tmp_path / "authonly"
+    out_auth.mkdir()
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_auth,
+                             {**base_ctx, "has_auth": True, "has_pagination": False,
+                              "has_errors": False, "has_facade": False})
+    t2 = out_auth / "tests"
+    assert (t2 / "test_auth.py").exists()
+    assert not (t2 / "test_pagination.py").exists()
+    assert not (t2 / "test_errors.py").exists()
+    assert not (t2 / "test_facade.py").exists()
+    # the rendered test_auth.py is valid Python
+    import ast
+    ast.parse((t2 / "test_auth.py").read_text())

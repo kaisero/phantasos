@@ -1,0 +1,10 @@
+"""Pytest config for the {{ package }} SDK (generated)."""
+
+import os
+import sys
+import warnings
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.environ.get("SDK_UNDER_TEST", str(ROOT)))
+warnings.simplefilter("ignore")  # lenient-enum warnings are expected

@@ -1,0 +1,9 @@
+{% if has_errors %}"""Errors component smoke tests (generated)."""
+
+from {{ package }}.extras import errors
+
+
+def test_errors_helpers_callable() -> None:
+    assert callable(errors.error_message)
+    assert callable(errors.is_rate_limited)
+{% endif %}
