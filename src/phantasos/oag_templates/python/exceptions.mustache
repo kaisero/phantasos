@@ -185,7 +185,10 @@ def _phantasos_retry_after(headers) -> "Optional[float]":
     val = str(val).strip()
     if val.isdigit():
         return float(val)
-    dt = email.utils.parsedate_to_datetime(val)
+    try:
+        dt = email.utils.parsedate_to_datetime(val)
+    except (TypeError, ValueError):
+        return None
     if dt is None:
         return None
     return max(0.0, dt.timestamp() - time.time())
