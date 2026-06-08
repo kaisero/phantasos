@@ -1,0 +1,16 @@
+{% if has_retry %}"""Retry component smoke tests (generated)."""
+
+from {{ package }}.extras.retry import JitteredRetry, default_retry
+
+
+def test_default_retry_config() -> None:
+    r = default_retry()
+    assert isinstance(r, JitteredRetry)
+    assert r.total >= 1
+    assert 429 in r.status_forcelist
+
+
+def test_jitter_attrs() -> None:
+    assert JitteredRetry.backoff_max > 0
+    assert 0.0 <= JitteredRetry.jitter_frac < 1.0
+{% endif %}
