@@ -81,3 +81,22 @@ def test_builtin_noxfile_renders(tmp_path: Path) -> None:
     assert (out / ".pre-commit-config.yaml").exists()
     import ast
     ast.parse(nox_src)  # the rendered noxfile must be valid Python
+
+
+def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    parse = YAML(typ="safe").load
+
+    out = tmp_path / "sdk"
+    out.mkdir()
+    ctx = {"distribution": "acme-sdk", "description": "d", "license": "Apache-2.0",
+           "author": "A", "author_email": "a@b.c", "repo_url": "https://github.com/x/acme-sdk",
+           "package": "acme", "dependencies": ["pydantic"], "python_versions": ["3.11", "3.12"],
+           "has_auth": True, "has_pagination": True, "has_errors": True, "has_facade": True}
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
+    wfs = sorted((out / ".github" / "workflows").glob("*.yml"))
+    assert {p.name for p in wfs} >= {"ci.yml", "release.yml", "audit.yml", "secrets.yml", "codeql.yml", "docs.yml"}
+    for wf in wfs:
+        parse(wf.read_text())  # raises on invalid YAML
+    parse((out / "mkdocs.yml").read_text())
