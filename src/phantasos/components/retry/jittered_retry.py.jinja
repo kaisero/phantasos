@@ -11,17 +11,20 @@ __all__ = ["JitteredRetry", "default_retry"]
 
 
 class JitteredRetry(Retry):
-    """urllib3 Retry with cloudflare-style multiplicative jitter on the backoff."""
+    """urllib3 Retry with cloudflare-style multiplicative jitter on the backoff.
 
-    backoff_base = {{ backoff_base }}
-    backoff_max = {{ backoff_max }}
+    Reuses urllib3's own ``backoff_factor`` (base) and ``backoff_max`` (cap) — set via
+    ``default_retry()`` so they survive ``Retry.new()`` cloning — and applies multiplicative
+    jitter here. Only ``jitter_frac`` is phantasos-specific.
+    """
+
     jitter_frac = {{ jitter_frac }}
 
     def get_backoff_time(self) -> float:
         consecutive = len([h for h in self.history if h.redirect_location is None])
         if consecutive <= 1:
             return 0.0
-        exp = min(self.backoff_base * (2 ** (consecutive - 1)), self.backoff_max)
+        exp = min(self.backoff_factor * (2 ** (consecutive - 1)), self.backoff_max)
         return exp * (1 - self.jitter_frac * random.random())
 
 
@@ -30,6 +33,8 @@ def default_retry() -> JitteredRetry:
     return JitteredRetry(
         total={{ max_retries }},
         status_forcelist={{ statuses }},
+        backoff_factor={{ backoff_base }},
+        backoff_max={{ backoff_max }},
         allowed_methods=None,
         respect_retry_after_header={{ respect_retry_after }},
         raise_on_status=False,

@@ -11,6 +11,18 @@ def test_default_retry_config() -> None:
 
 
 def test_jitter_attrs() -> None:
-    assert JitteredRetry.backoff_max > 0
+    r = default_retry()
+    assert r.backoff_max > 0
     assert 0.0 <= JitteredRetry.jitter_frac < 1.0
+
+
+def test_backoff_is_capped() -> None:
+    # backoff must never exceed the cap, even after many consecutive failures
+    class _H:
+        redirect_location = None
+
+    r = default_retry()
+    r.history = tuple(_H() for _ in range(8))
+    backoff = r.get_backoff_time()
+    assert 0.0 <= backoff <= r.backoff_max
 {% endif %}
