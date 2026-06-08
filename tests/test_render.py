@@ -154,7 +154,9 @@ def test_vendor_writes_retry(tmp_path: Path) -> None:
     (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n", "utf-8"
     )
@@ -165,6 +167,7 @@ def test_vendor_writes_retry(tmp_path: Path) -> None:
     assert "class JitteredRetry" in src and "def default_retry" in src
     assert "status_forcelist=[408, 429, 500, 502, 503, 504]" in src
     import ast
+
     ast.parse(src)
 
 
@@ -174,9 +177,12 @@ def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
     (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
     (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out/acme\nbase_url: b\nerrors: {type: nested}\nfacade: false\n",
+        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
+        "errors: {type: nested}\nfacade: false\n",
         "utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -194,10 +200,13 @@ def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
     )
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: b\n"
-        "auth: {type: oauth_client_credentials, token_url: 'https://t/'}\nfacade: true\n",
+        "auth: {type: oauth_client_credentials, token_url: 'https://t/'}\n"
+        "facade: true\n",
         "utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -209,6 +218,7 @@ def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
     assert "from .retry import default_retry" in facade_src
     assert "default_retry()" in facade_src
     import ast
+
     ast.parse(auth_src)
     ast.parse(facade_src)
 

@@ -271,9 +271,13 @@ def test_scaffold_retry_test_gated(tmp_path: Path) -> None:
     }
     out_on = tmp_path / "on"
     out_on.mkdir()
-    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True})
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True}
+    )
     assert (out_on / "tests" / "test_retry.py").exists()
     out_off = tmp_path / "off"
     out_off.mkdir()
-    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False})
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False}
+    )
     assert not (out_off / "tests" / "test_retry.py").exists()

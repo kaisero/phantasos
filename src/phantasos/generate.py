@@ -89,4 +89,8 @@ def _oag_cmd(spec_path: str, out_dir: str, package: str, library: str) -> list[s
 def generate(
     spec_path: str, out_dir: str, package: str, library: str = "urllib3"
 ) -> None:
-    subprocess.run(_oag_cmd(spec_path, out_dir, package, library), check=True, stdout=subprocess.DEVNULL)  # noqa: S603
+    subprocess.run(
+        _oag_cmd(spec_path, out_dir, package, library),
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
