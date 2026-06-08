@@ -168,6 +168,24 @@ def test_vendor_writes_retry(tmp_path: Path) -> None:
     ast.parse(src)
 
 
+def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\nerrors: {type: nested}\nfacade: false\n",
+        "utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    render.vendor(pkg, loaded)
+    src = (pkg / "extras" / "errors.py").read_text()
+    assert "RateLimitException" in src
+    assert "is_rate_limited" not in src
+
+
 def test_include_rejects_path_escape(tmp_path: Path) -> None:
     import pytest
 
