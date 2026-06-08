@@ -21,3 +21,9 @@ transforms:
     - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
+project:
+  distribution: prisma-browser-sdk
+  description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-browser-sdk

@@ -9,3 +9,9 @@ auth:
   config_class_name: AdemConfiguration
 facade: true
 hooks: ./hooks.py
+project:
+  distribution: adem-sdk
+  description: Python SDK for the Palo Alto Networks ADEM data API
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/adem-sdk
