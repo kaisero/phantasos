@@ -1,42 +1,64 @@
 # Design: Modern retry (jitter) + typed RateLimitException
 
 **Date:** 2026-06-08
-**Status:** Draft for review
+**Status:** Draft for review (revised after senior architecture review)
 **Branch:** `sdk-retry-jitter` (off `main`)
 **Closes:** Gap report §4.2 (Retries — no jitter / no defaults) and §4.3 (Rate limiting — no typed 429 exception). Report: `docs/research/2026-06-08-sdk-feature-gap-analysis.md`.
 
 ## Goal
 
 Give every generated SDK a **modern retry policy with jitter** (on by default) and replace the
-`is_rate_limited()` helper with a first-class, user-friendly **`RateLimitException`** — all via a
-clean **augmentation layer** that wraps the generated primitives. **Generated code is never
-modified** (no `patches.py` surgery, no OAG template forks).
+`is_rate_limited()` helper with a first-class, user-friendly **`RateLimitException`**. This change
+also **establishes the layered architecture** phantasos will use for the rest of the modern-SDK
+roadmap.
 
-## Architectural principle: the augmentation layer
+## Architecture: a deliberate three-tier model
 
-phantasos enhances the generated SDK by **subclassing/composing** over its primitives, exposed
-through the supported entry point (the `facade` `Client`). The generated classes stay pristine
-("raw primitives"); phantasos's `extras/` classes are the supported surface. This is the reusable
-pattern for *future* capabilities too (hooks, telemetry, User-Agent, etc.) — each is an override
-on a phantasos subclass or a small `extras/` module, wired through the facade. The retry default
-applies through this entry point; a caller reaching past it to the bare generated `Configuration`
-opts out (using internals).
+A senior review concluded that a strict "never modify generated code" rule cannot deliver the full
+roadmap (async, raw/streaming, request hooks, a rich typed-error hierarchy) — those must live on the
+core client/every entry point, which `extras/` cannot reach cleanly; forcing them through `extras/`
+yields fragile runtime proxies that couple to OAG internals *invisibly*. So phantasos adopts three
+tiers, **preferring the least-invasive tier that delivers the capability on all entry points**:
 
-The only generated seam we rely on is `configuration.retries` — **urllib3's own documented
-extension point** that `rest.py` already reads.
+- **Tier 1 — `extras/` augmentation (preferred).** Additive composition over public seams / the
+  facade: auth, pagination helpers, error helpers, facade, branded User-Agent, **`JitteredRetry`
+  wiring**, idempotency headers, webhooks, OTel. No generated-code changes.
+- **Tier 2 — OAG custom templates (`-t <dir>`, override only the few `.mustache` files we touch).**
+  For capabilities that must live in the *core generated client and be present on every path*: the
+  typed-error hierarchy (incl. **429 → `RateLimitException` dispatch**), request/response hooks,
+  raw/streaming responses, per-method options. OAG falls back to its built-in templates for every
+  file we don't override, so coupling is bounded to the few files we own.
+- **Tier 3 — `patches.py` source surgery.** Reserved for bug-fixes to OAG output (where it already
+  lives: apostrophe/lenient enums, oneOf) and as a small escape hatch — not for net-new features.
 
-## Scope
+**Async is a special case → generate twice.** True async needs generated `async def` bodies; an
+external wrapper can only fake it with a thread pool. OAG's python generator already offers
+`library=asyncio`/`httpx`. The future async story is a second generation (e.g. `<pkg>/aio/`) sharing
+`models/`, exposing `AsyncClient` — *not* an external wrapper. (Out of scope here; recorded as the
+intended path so this spec doesn't preclude it.)
 
-**In:** `JitteredRetry` (urllib3.Retry subclass) + on-by-default wiring; typed `RateLimitException`
-surfaced at the facade; removal of `is_rate_limited()`.
+The only generated runtime seam this feature relies on for retry is `configuration.retries` —
+urllib3's own documented extension point that `rest.py` already reads.
 
-**Out (future gap items, per the report):** per-request `with_options(max_retries=…)` overrides,
-idempotency keys, `x-stainless-retry-count` request header, proactive throttling / `X-RateLimit-*`
--driven sleeping, async retry, the `x-should-retry` server hint.
+## Scope (this change)
 
-## New `retry` component
+**In:**
+1. **`JitteredRetry`** (urllib3.Retry subclass) + on-by-default wiring — **Tier 1**.
+2. **Typed `RateLimitException`** with 429 dispatch in generated `exceptions.py` via an OAG
+   **`exceptions.mustache` override** — **Tier 2** (covers facade *and* raw `ApiClient` users; seeds
+   the broader error-hierarchy gap).
+3. Removal of `is_rate_limited()`.
+4. **New phantasos capability: OAG custom-template overrides** — ship a templates dir and pass
+   `-t <dir>` to OAG (the Tier-2 mechanism), with `exceptions.mustache` as its first user.
 
-A dedicated, typed component — **on by default** (every SDK gets it unless `retry: false`).
+**Out (future gap items):** per-request `with_options()`, idempotency keys, retry-count header,
+proactive throttling / `X-RateLimit-*` sleeping, async (generate-twice), `x-should-retry`, the
+*rest* of the typed-error hierarchy (network/timeout/5xx-granularity, `.response`/`.request`) — the
+`exceptions.mustache` override here is the foundation those build on, but we add only 429 now.
+
+## Tier 1 — the `retry` component
+
+A dedicated, typed component, **on by default** (every SDK gets it unless `retry: false`).
 
 ### `sdk.yml` config (typed `RetryConfig`, pydantic `extra="forbid"`)
 
@@ -50,103 +72,88 @@ retry:                         # optional; on-by-default. `retry: false` disable
   respect_retry_after: true
 ```
 
-All fields default as shown, so a product needs **zero** config. `retry: false` skips the
-component and the wiring. Modelled like `facade` (`bool | dict`).
+All fields default as shown (zero config needed). `retry: false` disables. Modelled like `facade`
+(`bool | dict`).
 
-### Vendored template → `extras/retry.py`
-
-`components/retry/jittered_retry.py.jinja` renders:
+### Vendored template → `extras/retry.py` (`components/retry/jittered_retry.py.jinja`)
 
 - **`JitteredRetry(urllib3.Retry)`** — overrides `get_backoff_time()` (urllib3's documented hook):
   ```
   exp = min(backoff_base * 2 ** (consecutive_errors - 1), backoff_max)
   return exp * (1 - jitter_frac * random())     # cloudflare-style multiplicative jitter
   ```
-  `Retry-After` handling stays urllib3's (`respect_retry_after_header=…`), so jitter only affects
-  the exponential path. Stateless (clean fit for a `Retry` subclass).
-- **`default_retry() -> JitteredRetry`** — factory returning a `JitteredRetry` configured from the
-  block: `total=max_retries`, `status_forcelist=statuses`, `allowed_methods=None` (retry all verbs),
-  `respect_retry_after_header=respect_retry_after`, `raise_on_status=False`.
+  `Retry-After` handling stays urllib3's; jitter only affects the exponential path. Stateless.
+- **`default_retry() -> JitteredRetry`** — `total=max_retries`, `status_forcelist=statuses`,
+  `allowed_methods=None`, `respect_retry_after_header=respect_retry_after`, `raise_on_status=False`.
 
-## `errors` component changes
+Consumed by `facade` (every client it builds sets `cfg.retries = default_retry()` when retry is
+enabled and no explicit `retries` given) and by `auth` (replaces its private `_retry()` with the
+shared `default_retry()`).
 
-- **Add `RateLimitException(ApiException)`** with:
-  - `retry_after: float | None` — parsed from the response `Retry-After` header in **both** standard
-    forms: integer seconds, and HTTP-date (`email.utils.parsedate_to_datetime`).
-  - `reset: float | None` — convenience parsed from `X-RateLimit-Reset` (epoch → seconds-from-now)
-    when present.
-  - inherited `.status` (429), `.headers`, `.body`, `.reason`; `error_message(exc)` still works.
-  - `classmethod from_api_exception(exc) -> RateLimitException` — builds it from a caught 429
-    `ApiException`, copying status/reason/body/headers and parsing `retry_after`/`reset`.
-- **Remove `is_rate_limited()`**; update `__all__` (drop `is_rate_limited`, add `RateLimitException`).
-  `error_message()` stays.
+## Tier 2 — `RateLimitException` via an OAG template override
 
-## `facade` component changes
+phantasos ships an OAG template directory (e.g. `src/phantasos/oag_templates/python/`) containing a
+single overridden file, **`exceptions.mustache`** — a copy of OAG 7.22.0's python `exceptions.mustache`
+with two additions:
 
-- **Wire retry by default:** the `Client` it builds applies `default_retry()` to its
-  `Configuration` (when retry is enabled and the config has no explicit `retries`), so every facade
-  client retries — independent of auth.
-- **Surface `RateLimitException`:** each bound resource is wrapped in a thin proxy that forwards
-  attribute access to the generated `*Api` instance and, on a caught `ApiException` with
-  `status == 429`, raises `RateLimitException.from_api_exception(exc)`. The proxy preserves the
-  resource type annotations (`{{ r.attr }}: {{ r.cls }}`), so static typing/IDE autocomplete are
-  unaffected; only runtime behavior is augmented. Non-429 `ApiException`s propagate unchanged.
+1. A **`RateLimitException(ApiException)`** class with:
+   - `retry_after: float | None` — parsed from the response `Retry-After` header in both standard
+     forms (integer seconds, and HTTP-date via `email.utils.parsedate_to_datetime`).
+   - `reset: float | None` — convenience from `X-RateLimit-Reset` (epoch → seconds-from-now) when
+     present.
+   - inherited `.status` (429), `.headers`, `.body`, `.reason`.
+2. A branch in **`ApiException.from_response()`**: `if http_resp.status == 429: raise RateLimitException(...)`.
 
-```python
-class _RateLimitAware:
-    def __init__(self, api): self._api = api
-    def __getattr__(self, name):
-        attr = getattr(self._api, name)
-        if not callable(attr):
-            return attr
-        @functools.wraps(attr)
-        def call(*a, **k):
-            try:
-                return attr(*a, **k)
-            except ApiException as exc:
-                if getattr(exc, "status", None) == 429:
-                    raise RateLimitException.from_api_exception(exc) from exc
-                raise
-        return call
-```
+`generate.py` passes `-t <abs path to phantasos oag_templates>` to OAG. OAG uses our
+`exceptions.mustache` and its own built-in templates for everything else. The base template must be
+extracted from the pinned OAG jar (`openapi-generator author template -g python`) and minimally
+edited — the plan verifies the rendered `exceptions.py` is valid and the diff vs. upstream is small.
 
-## `auth` component changes
+Because dispatch is in generated `from_response()`, **every** path raises `RateLimitException`
+(facade and bare `ApiClient(Configuration())`). **No facade proxy** is needed (the previously-specced
+`_RateLimitAware` shim is dropped).
 
-- Replace its private `_retry()` with the `retry` component's `default_retry()` (single retry
-  definition consumed across the layer). `api_client_from_env`/`api_client_from_credentials` set
-  `cfg.retries = default_retry()` (unless retry disabled).
+## `errors` component changes (Tier 1)
+
+- **Re-export `RateLimitException`** from `..exceptions` (now generated) in `extras/errors.py`'s
+  `__all__`, alongside the other typed exceptions.
+- **Remove `is_rate_limited()`**; keep `error_message()`.
+
+## `facade` / `auth` component changes (Tier 1)
+
+- **`facade`:** wire `default_retry()` into the `Configuration` of every `Client` it builds. **No**
+  429 proxy (handled by the template). Annotations/typing unchanged.
+- **`auth`:** `api_client_from_env`/`api_client_from_credentials` set `cfg.retries = default_retry()`
+  (replacing the private `_retry()`), so one retry definition is shared.
 
 ## Wiring / context
 
 - `productconfig`: `retry: RetryConfig | bool = True` on `ProductConfig`; resolved like `facade`
-  (default-on). A new built-in component registry entry; `render.vendor` writes `extras/retry.py`
-  when enabled and exposes `has_retry` + the retry fields in the template context so `facade`/`auth`
-  import from `extras.retry`.
-- `extras/__init__.py` (`extras_init.py.jinja`) re-exports `JitteredRetry`, `default_retry`,
-  `RateLimitException` for ergonomic imports.
+  (default-on); registry entry for the `retry` component; `render.vendor` writes `extras/retry.py`
+  and exposes `has_retry` + retry fields in the context so `facade`/`auth` import from `extras.retry`.
+- `extras/__init__.py` re-exports `JitteredRetry`, `default_retry`, `RateLimitException`.
 
 ## Scaffold test changes (built-in component tests)
 
 - **Update `scaffold/tests/test_errors.py.jinja`:** assert `RateLimitException` is importable, is an
-  `ApiException` subclass, and has a `retry_after` attribute; **drop** the `is_rate_limited`
-  assertion.
+  `ApiException` subclass, has a `retry_after` attribute; **drop** the `is_rate_limited` assertion.
 - **Add `scaffold/tests/test_retry.py.jinja`** (gated on `has_retry`): assert `JitteredRetry` import;
-  that `get_backoff_time()` returns a value within `[0.75*exp, exp]` and never exceeds
-  `backoff_max`; that `default_retry()` has the configured `total`/`status_forcelist`.
+  `get_backoff_time()` ∈ `[0.75*exp, exp]` and ≤ `backoff_max`; `default_retry()` has configured
+  `total`/`status_forcelist`.
 
-## Migration
+## Migration & verification
 
-Both example products (`prisma-browser`, `adem`) get retry **with zero config** (default-on; both
-have `facade` + `auth`). Rebuild → each SDK gains `extras/retry.py`, `RateLimitException`, retry
-wired through facade + auth, and the regenerated component test suite (now testing
-`RateLimitException` + retry) passes.
+Both example products (`prisma-browser`, `adem`) get retry + `RateLimitException` with **zero
+config** (default-on; both have `facade` + `auth`). Rebuild → each SDK has `extras/retry.py`, a
+generated `RateLimitException` (429-dispatched), retry wired through facade + auth; the regenerated
+component test suite (now testing `RateLimitException` + retry) passes; smoke is green.
 
 ## Backward-incompatible note
 
-`is_rate_limited()` is removed from generated SDKs — callers migrate to `except RateLimitException`.
-Acceptable: SDKs are regenerated artifacts, and this is the requested ergonomic improvement.
+`is_rate_limited()` is removed — callers migrate to `except RateLimitException`. Acceptable: SDKs are
+regenerated artifacts and this is the requested ergonomic improvement.
 
-## Out of scope / unchanged
+## Unchanged
 
-- Async (gap §4.1), per-request overrides, idempotency, proactive throttle — future gaps.
-- No change to generated `rest.py`/`api_client.py`/`exceptions.py`/`configuration.py` source.
+- No change to generated `rest.py`/`api_client.py`/`configuration.py`/`api/*` (only `exceptions.py`
+  is template-overridden, declaratively, via OAG's own mechanism).
