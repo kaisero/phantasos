@@ -67,6 +67,15 @@ def test_write_ignore_lists_suppressed_files(tmp_path: Path) -> None:
         assert f in text
 
 
+def test_generate_cmd_uses_template_dir() -> None:
+    from phantasos import generate
+
+    cmd = generate._oag_cmd("spec.yaml", "/out", "pkg", "urllib3")
+    assert "-t" in cmd
+    i = cmd.index("-t")
+    assert cmd[i + 1].endswith("oag_templates/python")
+
+
 def test_prune_removes_suppressed_files(tmp_path: Path) -> None:
     from phantasos import generate
 

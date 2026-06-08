@@ -43,6 +43,7 @@ packages = ["src/phantasos"]
 artifacts = [
     "src/phantasos/components/**/*.jinja",
     "src/phantasos/scaffold/**",
+    "src/phantasos/oag_templates/**",
 ]
 
 [tool.hatch.build.targets.sdist]
