@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterator
 {% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
 {% endfor %}{% if has_auth %}from .auth import api_client_from_credentials, api_client_from_env
 {% endif %}{% if has_pagination %}from .pagination import paginate
+{% endif %}{% if has_retry %}from .retry import default_retry
 {% endif %}
 __all__ = ["Client"]
 
@@ -24,7 +25,9 @@ class Client:
 
     def __init__(self, api_client):
         self._api_client = api_client
-        for name, api_cls in _RESOURCES.items():
+{% if has_retry %}        if getattr(api_client.configuration, "retries", None) is None:
+            api_client.configuration.retries = default_retry()
+{% endif %}        for name, api_cls in _RESOURCES.items():
             setattr(self, name, api_cls(api_client))
 
 {% for r in resources %}    {{ r.attr }}: {{ r.cls }}

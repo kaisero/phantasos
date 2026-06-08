@@ -81,6 +81,7 @@ def test_builtin_pyproject_renders(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "has_retry": True,
         "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
@@ -106,6 +107,7 @@ def test_builtin_noxfile_renders(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "has_retry": True,
         "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
@@ -139,6 +141,7 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "has_retry": True,
         "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
@@ -174,6 +177,7 @@ def test_builtin_meta_files_render(tmp_path: Path) -> None:
         "has_pagination": True,
         "has_errors": True,
         "has_facade": True,
+        "has_retry": True,
         "config_class_name": "AcmeConfiguration",
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
@@ -209,6 +213,7 @@ def test_builtin_component_tests_gating(tmp_path: Path) -> None:
             "has_pagination": True,
             "has_errors": True,
             "has_facade": True,
+            "has_retry": True,
         },
     )
     t = out_all / "tests"
@@ -233,6 +238,7 @@ def test_builtin_component_tests_gating(tmp_path: Path) -> None:
             "has_pagination": False,
             "has_errors": False,
             "has_facade": False,
+            "has_retry": False,
         },
     )
     t2 = out_auth / "tests"
@@ -244,3 +250,34 @@ def test_builtin_component_tests_gating(tmp_path: Path) -> None:
     import ast
 
     ast.parse((t2 / "test_auth.py").read_text())
+
+
+def test_scaffold_retry_test_gated(tmp_path: Path) -> None:
+    base = {
+        "distribution": "acme-sdk",
+        "description": "d",
+        "license": "Apache-2.0",
+        "author": "A",
+        "author_email": "a@b.c",
+        "repo_url": "https://x/y",
+        "package": "acme",
+        "dependencies": ["pydantic"],
+        "python_versions": ["3.12"],
+        "config_class_name": "AcmeConfiguration",
+        "has_auth": True,
+        "has_pagination": True,
+        "has_errors": True,
+        "has_facade": True,
+    }
+    out_on = tmp_path / "on"
+    out_on.mkdir()
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True}
+    )
+    assert (out_on / "tests" / "test_retry.py").exists()
+    out_off = tmp_path / "off"
+    out_off.mkdir()
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False}
+    )
+    assert not (out_off / "tests" / "test_retry.py").exists()
