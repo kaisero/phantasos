@@ -157,18 +157,29 @@ class Flag(BaseModel):
     help: str
     choices: list[str] | None       # for enum kind
 
+# A user-facing command maps to ONE-OR-MORE SDK methods, selected at runtime by which
+# args are supplied. The IR aggregates them (decided after the Phase-1 python-pro review).
+class MethodBinding(BaseModel):
+    sdk_method: str                 # e.g. "create_application"
+    sub_verb: Literal["create", "patch", "update", "get", "list",
+                      "delete", "bulk_create", "bulk_delete"]
+    requires: list[str]             # param names that must be present to select this binding
+                                    # (e.g. ["id"] for patch/get-one; ["type"] for by_type)
+
 class Command(BaseModel):
     verb: Literal["set", "del", "show", "request", "load", "backup"]
     object: str                     # kebab-case object noun
     variant: str | None             # union variant, if any
+    key: str                        # canonical "verb:object[:variant]" — shared by templates,
+                                    # factory exclude=, and ir.json
     sdk_resource: str               # facade attribute, e.g. "applications"
-    sdk_method: str                 # e.g. "create_application"
-    path_params: list[Flag]
-    body_flags: list[Flag]
+    bindings: list[MethodBinding]   # candidate SDK methods; runtime dispatch picks one by args
+    path_params: list[Flag]         # ALL required path params (id + any discriminators, e.g. --type)
+    body_flags: list[Flag]          # union across bindings
     query_flags: list[Flag]
     summary: str
     description: str
-    paginated: bool
+    paginated: bool                 # true if any binding is a list
 
 class CliIR(BaseModel):
     sdk_package: str
@@ -176,9 +187,14 @@ class CliIR(BaseModel):
     commands: list[Command]
 ```
 
-`Command.variant` is resolved from the method's path enum via `cli.yml` `variants:` (not from a
-body discriminator — the SDK's oneOf wrappers are undiscriminated). The id `Flag` (kind `"id"`) is
-the detected required path param, not assumed to be literally named `id`.
+`build_cli_ir` groups operations by `(verb, object, variant)` into one `Command` with multiple
+`bindings`; the generated runtime dispatches to the right `sdk_method` by which args were given
+(`--id`→patch/update/get-one, none→create/list, `--type`→by_type, `--bulk`→bulk; `--replace`
+selects update over patch). `path_params` carries **every** required path param (not just the id),
+so the call is always reconstructable. `Command.variant` is resolved from the method's path enum
+via `cli.yml` `variants:` (not from a body discriminator — the SDK's oneOf wrappers are
+undiscriminated). The id `Flag` (kind `"id"`) is the detected required path param, not assumed to
+be literally named `id`.
 
 This is the single artifact rendered by templates, reported by discovery, and serialized to
 `_generated/ir.json` (command map + SDK version) for runtime provenance and hand-written-code
