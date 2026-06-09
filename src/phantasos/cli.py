@@ -21,6 +21,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip the isolated import-check (offline/locked-down builds)",
     )
+    cli_p = sub.add_parser("cli", help="generate / inspect a CLI from a built SDK")
+    cli_sub = cli_p.add_subparsers(dest="cli_cmd", required=True)
+    disc = cli_sub.add_parser(
+        "discover", help="print the classification table + cli.yml stub"
+    )
+    disc.add_argument(
+        "product", help="product name (products/<name>/) or path to sdk.yml"
+    )
+    disc.add_argument("--write-stub", action="store_true",
+                      help="write products/<name>/cli.yml.stub next to sdk.yml")
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
@@ -53,6 +63,35 @@ def main(argv: list[str] | None = None) -> int:
         for name, err in s["failures"][:10]:
             print("  FAIL", name, err)
         return 1 if s["failed"] else 0
+
+    if args.cmd == "cli" and args.cli_cmd == "discover":
+        from pathlib import Path
+
+        from .generator.cli.classify import build_cli_ir
+        from .generator.cli.cliconfig import load_cli_config
+        from .generator.cli.discover import render_stub, render_table
+        from .generator.cli.introspect import introspect
+
+        try:
+            loaded = load_product(args.product)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
+        try:
+            inv = introspect(loaded.config.package, Path(loaded.output_dir))
+        except ImportError as exc:
+            print(
+                f"ERROR: SDK not importable — build it first ({exc})", file=sys.stderr
+            )
+            return 2
+        ir, unmapped = build_cli_ir(inv, cfg)
+        print(render_table(ir, unmapped))
+        if getattr(args, "write_stub", False):
+            stub_path = Path(loaded.base_dir) / "cli.yml.stub"
+            stub_path.write_text(render_stub(ir, unmapped), encoding="utf-8")
+            print(f"\nwrote {stub_path}", file=sys.stderr)
+        return 0
     return 0
 
 
