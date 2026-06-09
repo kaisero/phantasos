@@ -109,6 +109,7 @@ def render_cli(
         written.append(str(dest.relative_to(out_dir)))
     # commands package marker
     (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
+    written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
     # app factory
     all_views = [_command_view(c) for c in ir.commands]
     (gen / "app.py").write_text(

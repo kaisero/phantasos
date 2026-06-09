@@ -4,9 +4,25 @@ from pathlib import Path
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.introspect import introspect
-from phantasos.generator.cli.render_cli import render_cli
+from phantasos.generator.cli.render_cli import _py_name, render_cli
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
+
+
+def test_py_name_sanitizes_keywords_and_reserved():
+    # Python keyword -> suffixed
+    assert _py_name("from") == "from_"
+    assert _py_name("class") == "class_"
+    # reserved (collide with injected Typer options) -> suffixed
+    assert _py_name("output") == "output_"
+    assert _py_name("verbose") == "verbose_"
+    assert _py_name("replace") == "replace_"
+    # ordinary identifiers (incl. builtins, which are legal as params) -> unchanged
+    assert _py_name("type") == "type"
+    assert _py_name("name") == "name"
+    assert _py_name("device_group_id") == "device_group_id"
+    # non-identifier -> prefixed + cleaned
+    assert _py_name("weird-name").startswith("p_")
 
 
 def _ir():

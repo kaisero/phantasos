@@ -11,7 +11,7 @@ from .. import runtime as _rt
 {% for c in commands %}
 def {{ c.func_name }}(
 {%- for f in c.all_flags %}
-    {{ f.py_name }}: Optional[str] = typer.Option(None, "{{ f.name }}"{% if f.help %}, help={{ f.help|tojson }}{% endif %}),
+    {{ f.py_name }}: Optional[str] = typer.Option(None, {{ f.name|tojson }}{% if f.help %}, help={{ f.help|tojson }}{% endif %}),
 {%- endfor %}
     output: str = typer.Option("table", "--output"),
     all_: bool = typer.Option(False, "--all"),
