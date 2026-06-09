@@ -7,13 +7,15 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 Verb = Literal["set", "del", "show", "request", "load", "backup"]
 
 
 class Flag(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str  # CLI flag, e.g. "--name"
     param: str  # SDK parameter name, e.g. "name"
     py_type: str  # rendered annotation, e.g. "str"
@@ -25,6 +27,8 @@ class Flag(BaseModel):
 
 
 class Command(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     verb: Verb
     object: str  # kebab-case noun, e.g. "application"
     variant: str | None = None  # union variant subcommand, if any
@@ -39,6 +43,8 @@ class Command(BaseModel):
 
 
 class CliIR(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sdk_package: str
     sdk_version: str
     commands: list[Command] = []
