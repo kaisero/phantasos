@@ -89,7 +89,7 @@ def test_build_cli_ir_emits_request_commands():
     ir, unmapped = build_cli_ir(inv, cfg)
     by_key = {c.key: c for c in ir.commands}
 
-    # both mappings became request commands (verb=request, action carried in variant)
+    # both mappings became request commands (verb=request, dedicated `action` field; variant=None)
     assert "request:widget:suspend" in by_key
     assert "request:widget:revoke" in by_key
     susp = by_key["request:widget:suspend"]
