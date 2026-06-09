@@ -45,6 +45,11 @@
 - Modify: `src/phantasos/scaffold/pyproject.toml.jinja`
 - Test: `tests/test_cli_scaffold.py`
 
+**This task makes TWO additions to `pyproject.toml.jinja`:** (a) a conditional `[project.scripts]`
+block, and (b) a conditional `[tool.uv.sources]` block that pins the SDK dependency to the sibling
+directory as an editable path (decision: the SDK isn't on PyPI yet; `uv` resolves it locally, and
+when it's published you drop this one table — the dependency name `prisma-browser-sdk` is unchanged).
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -83,6 +88,23 @@ def test_pyproject_no_scripts_block_for_sdk():
     # SDK context has no `scripts` key — StrictUndefined must not error, no scripts block
     out = _render("pyproject.toml.jinja", _BASE)
     assert "[project.scripts]" not in out
+
+
+def test_pyproject_pins_sdk_to_sibling_path_when_provided():
+    out = _render("pyproject.toml.jinja", {
+        **_BASE,
+        "dependencies": ["typer>=0.12", "prisma-browser-sdk"],
+        "sdk_dist": "prisma-browser-sdk",
+        "sdk_source_path": "../prisma-browser-sdk",
+    })
+    assert "[tool.uv.sources]" in out
+    assert 'prisma-browser-sdk = { path = "../prisma-browser-sdk", editable = true }' in out
+
+
+def test_pyproject_no_uv_sources_for_sdk():
+    # SDK context provides no sdk_source_path -> no [tool.uv.sources], no StrictUndefined error
+    out = _render("pyproject.toml.jinja", _BASE)
+    assert "[tool.uv.sources]" not in out
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -99,6 +121,16 @@ Expected: FAIL — `test_pyproject_emits_scripts_when_provided` (no scripts bloc
 {% endfor %}{% endif %}
 ```
 (Note the tight `{% endfor %}{% endif %}` on one line — avoids a stray trailing blank line, matching the SDK template's `dependencies`-loop style.)
+
+Then append a guarded `[tool.uv.sources]` block at the **end** of the template (after the existing
+`[tool.*]` tables) so `uv` installs the SDK dep from the sibling dir until it's published:
+```jinja
+{% if sdk_source_path is defined and sdk_source_path %}
+[tool.uv.sources]
+{{ sdk_dist }} = { path = "{{ sdk_source_path }}", editable = true }
+{% endif %}
+```
+(SDK build sets neither `sdk_source_path` nor `sdk_dist` → block skipped, SDK pyproject unchanged.)
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -251,10 +283,14 @@ class _FakeLoaded:
         }
         self.auth = type("A", (), {"scope_env": "SCOPE",
                                    "base_url_env": "PRISMA_SASE_BASE_URL"})()
+        self.output_dir = Path("/home/x/git/prisma-browser-sdk")
 
 
 def test_build_context_overrides_for_cli():
     ctx = build_cli_scaffold_context(_FakeLoaded(), ir=None, cli_cfg=None)
+    # SDK dep pinned to the sibling dir for uv (PyPI later)
+    assert ctx["sdk_dist"] == "prisma-browser-sdk"
+    assert ctx["sdk_source_path"] == "../prisma-browser-sdk"
     # package + distribution become the CLI's
     assert ctx["package"] == "prisma_browser_cli"
     assert ctx["distribution"] == "prisma-browser-cli"
@@ -332,6 +368,10 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
 
     project = getattr(cli_cfg, "project", None) if cli_cfg is not None else None
 
+    # sibling SDK dir, relative to the emitted CLI project root (decision: not on PyPI yet)
+    from pathlib import Path
+    sdk_source_path = f"../{Path(loaded.output_dir).name}"
+
     ctx = dict(base)
     ctx.update(
         package=cli_package,
@@ -341,6 +381,9 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
         dependencies=[*_CLI_DEPS, sdk_distribution],
         scripts={(project.distribution if project else cli_distribution):
                  f"{cli_package}.main:app"},
+        # pin the SDK dep to the sibling dir for `uv` until it's published to PyPI
+        sdk_dist=sdk_distribution,
+        sdk_source_path=sdk_source_path,
         # turn OFF SDK component tests for the CLI (they gate on these flags)
         has_auth=False, has_pagination=False, has_errors=False, has_facade=False,
         auth_env_vars=_auth_env_vars(loaded),
@@ -354,7 +397,7 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
     return ctx
 ```
 
-Note the `cli_distribution` computation: `prisma-browser-sdk` → `prisma-browser-cli` (strip a trailing `-sdk`, else append `-cli`). The `cli.yml project.distribution` block overrides it for any oddball name. **Install caveat to surface in the README/docs:** `<sdk-distribution>` (e.g. `prisma-browser-sdk`) is a *sibling editable install, not on PyPI* — so `pip install -e .` of the emitted CLI (and the emitted `ci.yml`) requires installing the SDK first (`pip install -e ../prisma-browser-sdk`). The generic CLI README (Task 5) must say this.
+Note the `cli_distribution` computation: `prisma-browser-sdk` → `prisma-browser-cli` (strip a trailing `-sdk`, else append `-cli`). The `cli.yml project.distribution` block overrides it for any oddball name. **SDK install (decision 2):** the SDK isn't on PyPI yet, so the emitted `pyproject.toml` pins it to the sibling dir via `[tool.uv.sources]` (`{ path = "../<sdk-dir>", editable = true }`) — `uv sync` then resolves it automatically (no manual pre-install). The dependency name stays `prisma-browser-sdk`, so publishing later = delete the `[tool.uv.sources]` table. The README (Task 5) documents `uv sync`.
 
 - [ ] **Step 4: Run → PASS** (`uv run pytest tests/test_cli_scaffold.py -k context -v`).
 
@@ -402,12 +445,13 @@ A generated command-line interface over the `{{ spec_title }}` API. Verbs: `set`
 `del`, `show`. Run `{{ distribution }} --help` to explore.
 
 ## Install
-This CLI depends on the `{{ spec_title }}` SDK, which is a sibling project (not on PyPI).
-Install it first, then this CLI:
+This CLI depends on the `{{ spec_title }}` SDK, a sibling project. Until it's published to PyPI,
+`pyproject.toml` already pins it to the sibling directory via `[tool.uv.sources]`, so a single:
 ```bash
-pip install -e ../<sdk-distribution>   # the generated SDK, e.g. ../prisma-browser-sdk
-pip install -e .
+uv sync
 ```
+installs the CLI, the sibling SDK (editable), and all deps. (Once the SDK is on PyPI, delete the
+`[tool.uv.sources]` table and it resolves from the index normally.)
 
 ## Configure
 Copy `.env.example` to `.env` and fill in your credentials (loaded by the SDK at runtime).
@@ -521,6 +565,9 @@ def test_cli_build_emits_full_project(tmp_path, monkeypatch):
     assert "fakesdk-sdk" in pyproject              # SDK distribution dep (the fix)
     assert "fakesdk_cli.main:app" in pyproject      # console-script
     assert "typer" in pyproject
+    # SDK pinned to the sibling dir for uv (PyPI later)
+    assert "[tool.uv.sources]" in pyproject
+    assert 'path = "../fakesdk-sdk"' in pyproject
     # SDK component tests did NOT render for the CLI (has_auth was forced False)
     assert not (root / "tests" / "test_auth.py").exists()
 ```
@@ -585,6 +632,9 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     pyproject = (root / "pyproject.toml").read_text()
     assert "prisma-browser-sdk" in pyproject and "prisma_browser" not in pyproject.split("dependencies")[1].split("]")[0].replace("prisma-browser-sdk", "")
     assert "prisma-browser-cli = " in pyproject
+    # SDK pinned to the sibling dir for uv (decision: PyPI later)
+    assert "[tool.uv.sources]" in pyproject
+    assert 'path = "../prisma-browser-sdk", editable = true' in pyproject
     assert (root / "README.md").exists() and (root / "noxfile.py").exists()
     assert (root / ".github" / "workflows" / "ci.yml").exists()
     assert (root / ".env.example").read_text()  # non-empty (auth vars)
