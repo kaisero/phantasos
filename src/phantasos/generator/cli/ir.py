@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict
 
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 Verb = Literal["set", "del", "show", "request", "load", "backup"]
+SubVerb = Literal[
+    "create", "patch", "update", "get", "list", "delete", "bulk_create", "bulk_delete"
+]
 
 
 class Flag(BaseModel):

@@ -12,18 +12,18 @@ from pydantic import BaseModel, ConfigDict
 
 from .cliconfig import CliConfig, VariantMap
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
-from .ir import CliIR, Command, Flag, Verb
+from .ir import CliIR, Command, Flag, SubVerb, Verb
 
-# (prefix, verb) — ORDER MATTERS: longer/compound prefixes first.
-_VERB_PREFIXES: list[tuple[str, Verb]] = [
-    ("bulk_create_", "set"),
-    ("bulk_delete_", "del"),
-    ("create_", "set"),
-    ("update_", "set"),
-    ("patch_", "set"),
-    ("delete_", "del"),
-    ("get_", "show"),
-    ("list_", "show"),
+# (prefix, verb, sub_verb) — ORDER MATTERS: longer/compound prefixes first.
+_VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
+    ("bulk_create_", "set", "bulk_create"),
+    ("bulk_delete_", "del", "bulk_delete"),
+    ("create_", "set", "create"),
+    ("update_", "set", "update"),
+    ("patch_", "set", "patch"),
+    ("delete_", "del", "delete"),
+    ("get_", "show", "get"),
+    ("list_", "show", "list"),
 ]
 
 # Method-name fragments that mark non-CRUD ops to skip even if a verb prefix matches.
@@ -34,6 +34,7 @@ class Classification(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verb: Verb
+    sub_verb: SubVerb
     object: str  # kebab-case noun
 
 
@@ -58,11 +59,13 @@ def classify_name(method: str) -> Classification | None:
     """Prefix-heuristic classification. Returns None for unmapped/skip ops."""
     if any(frag in method for frag in _SKIP_FRAGMENTS):
         return None
-    for prefix, verb in _VERB_PREFIXES:
+    for prefix, verb, sub_verb in _VERB_PREFIXES:
         if method.startswith(prefix):
-            noun = _strip_id_suffix(method[len(prefix) :])
+            noun = _strip_id_suffix(method[len(prefix):])
             noun = _singularize(noun)
-            return Classification(verb=verb, object=noun.replace("_", "-"))
+            return Classification(
+                verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
+            )
     return None
 
 

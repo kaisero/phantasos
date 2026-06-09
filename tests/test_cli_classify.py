@@ -171,3 +171,22 @@ def test_build_cli_ir_end_to_end():
     assert "widgets.update_widget_positions" in unmapped
 
     assert ir.sdk_version == "9.9.9"
+
+
+@pytest.mark.parametrize(
+    "method,sub_verb",
+    [
+        ("create_application", "create"),
+        ("patch_application_by_type_and_id", "patch"),
+        ("update_device_group", "update"),
+        ("get_application_by_id", "get"),
+        ("list_applications", "list"),
+        ("delete_application_by_id", "delete"),
+        ("bulk_create_applications", "bulk_create"),
+        ("bulk_delete_applications", "bulk_delete"),
+    ],
+)
+def test_classify_sub_verb(method, sub_verb):
+    c = classify_name(method)
+    assert c is not None
+    assert c.sub_verb == sub_verb
