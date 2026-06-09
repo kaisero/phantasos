@@ -103,10 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "cli" and args.cli_cmd == "build":
         from pathlib import Path
 
+        from . import scaffold
         from .generator.cli.classify import build_cli_ir
         from .generator.cli.cliconfig import load_cli_config
         from .generator.cli.introspect import introspect
-        from .generator.cli.render_cli import render_cli
+        from .generator.cli.render_cli import cli_overrides_dir, render_cli
+        from .generator.cli.scaffold_context import build_cli_scaffold_context
 
         try:
             loaded = load_product(args.product)
@@ -123,13 +125,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         ir, unmapped = build_cli_ir(inv, cfg)
+        if loaded.config.project is None and cfg.project is None:
+            print(
+                "ERROR: cli build needs project metadata to scaffold the CLI — add a "
+                "'project:' block to sdk.yml or cli.yml (see docs/ONBOARDING.md)",
+                file=sys.stderr,
+            )
+            return 2
         cli_pkg = f"{loaded.config.package}_cli"
         out_dir = Path(loaded.output_dir).parent / f"{loaded.config.package}-cli"
         written = render_cli(ir, package=cli_pkg, out_dir=out_dir)
-
-        from . import scaffold
-        from .generator.cli.render_cli import cli_overrides_dir
-        from .generator.cli.scaffold_context import build_cli_scaffold_context
 
         scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
         scaffold_written = scaffold.render_scaffold(

@@ -11,17 +11,14 @@ _CLI_DEPS = ["typer>=0.12", "rich>=13", "pyyaml>=6"]
 def _auth_env_vars(loaded: Any) -> list[dict[str, str]]:
     """Best-effort {name, example} list from the SDK auth component for .env.example."""
     auth = getattr(loaded, "auth", None)
-    out: list[dict[str, str]] = [
-        {"name": "CLIENT_ID", "example": "<client-id>"},
-        {"name": "CLIENT_SECRET", "example": "<client-secret>"},
+    pairs = [
+        (getattr(auth, "client_id_env", None) or "CLIENT_ID", "<client-id>"),
+        (getattr(auth, "client_secret_env", None) or "CLIENT_SECRET",
+         "<client-secret>"),
+        (getattr(auth, "scope_env", None), "<scope>"),
+        (getattr(auth, "base_url_env", None), "<base-url>"),
     ]
-    scope = getattr(auth, "scope_env", None)
-    if scope:
-        out.append({"name": str(scope), "example": "<scope>"})
-    base = getattr(auth, "base_url_env", None)
-    if base:
-        out.append({"name": str(base), "example": "<base-url>"})
-    return out
+    return [{"name": str(n), "example": ex} for n, ex in pairs if n]
 
 
 def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, Any]:

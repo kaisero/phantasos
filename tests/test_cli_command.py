@@ -40,6 +40,7 @@ def test_cli_build_emits_full_project(tmp_path, monkeypatch):
     class _Loaded:
         class config:  # noqa: N801
             package = "fakesdk"
+            project = object()  # non-None: metadata present in sdk_ctx
         base_dir = FIXTURE
         output_dir = tmp_path / "fakesdk-sdk"
         context = sdk_ctx
@@ -56,7 +57,8 @@ def test_cli_build_emits_full_project(tmp_path, monkeypatch):
     assert (root / "README.md").exists()
     assert (root / "noxfile.py").exists()
     assert (root / ".github" / "workflows" / "ci.yml").exists()
-    assert (root / ".env.example").read_text().strip()  # non-empty (auth vars)
+    env_example = (root / ".env.example").read_text()
+    assert "FAKE_BASE_URL=" in env_example   # auth-derived var, not just non-empty
     pyproject = (root / "pyproject.toml").read_text()
     assert "fakesdk-sdk" in pyproject               # SDK distribution dep (the fix)
     assert "fakesdk_cli.main:app" in pyproject       # console-script
@@ -64,3 +66,23 @@ def test_cli_build_emits_full_project(tmp_path, monkeypatch):
     assert "[tool.uv.sources]" in pyproject and 'path = "../fakesdk-sdk"' in pyproject
     # SDK component tests did NOT render for the CLI (has_auth forced False)
     assert not (root / "tests" / "test_auth.py").exists()
+
+
+def test_cli_build_errors_without_project_metadata(tmp_path, monkeypatch):
+    import phantasos.cli as climod
+
+    _ctx = {"package": "fakesdk"}  # no project keys
+
+    class _Loaded:
+        class config:  # noqa: N801
+            package = "fakesdk"
+            project = None
+        base_dir = FIXTURE
+        output_dir = tmp_path / "fakesdk-sdk"
+        context = _ctx
+        auth = None
+
+    monkeypatch.setattr(climod, "load_product", lambda name: _Loaded())
+    # ensure no cli.yml project block is found
+    rc = main(["cli", "build", "fakesdk"])
+    assert rc == 2
