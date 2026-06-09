@@ -86,7 +86,11 @@ def _union_members(model: type[BaseModel]) -> list[str] | None:
         return None
     inner = _unwrap_optional(field.annotation)
     if get_origin(inner) in (Union, UnionType):
-        return [a.__name__ for a in get_args(inner) if a is not type(None)]
+        return [
+            getattr(a, "__name__", None) or str(a)
+            for a in get_args(inner)
+            if a is not type(None)
+        ]
     return None
 
 
@@ -123,6 +127,8 @@ def introspect(package: str, sdk_path: Path) -> OperationInventory:
                 tp = hints.get(pname, p.annotation)
                 base = _unwrap_optional(tp)
                 required = p.default is inspect.Parameter.empty
+                # TODO(phase2): detect dict and list[Model] request bodies (currently
+                # classified as path/query because they are not BaseModel subclasses).
                 is_body = isinstance(base, type) and issubclass(base, BaseModel)
                 if is_body:
                     location: str = "body"
@@ -145,7 +151,11 @@ def introspect(package: str, sdk_path: Path) -> OperationInventory:
                     if members:
                         ns: ModuleType = sys.modules[base.__module__]
                         for m in members:
-                            body_fields[m] = _model_fields(getattr(ns, m))
+                            member_cls = getattr(ns, m, None)
+                            if member_cls is None:
+                                # member not importable from wrapper module; skip
+                                continue
+                            body_fields[m] = _model_fields(member_cls)
                     else:
                         body_fields[base.__name__] = _model_fields(base)
                 params.append(info)
