@@ -207,7 +207,7 @@ def test_build_cli_ir_aggregates_methods():
     assert show_widget.paginated is True
 
     set_widget = by_key["set:widget"]
-    assert {b.sub_verb for b in set_widget.bindings} == {"create", "patch"}
+    assert {b.sub_verb for b in set_widget.bindings} == {"create", "patch", "update"}
     assert len([c for c in ir.commands if c.key == "set:widget"]) == 1
 
     show_gizmo = by_key["show:gizmo"]

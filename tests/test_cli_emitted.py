@@ -162,3 +162,45 @@ def test_runtime_friendly_error_on_sdk_exception(emitted, monkeypatch, capsys):
                paginate_all=False, dry_run=False, verbose=False)
     assert ei.value.code == 1
     assert "error:" in capsys.readouterr().err
+
+
+def test_set_with_id_defaults_to_patch_not_update(emitted, monkeypatch):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+    rt.run(
+        "set:widget", path={"id": "w1"}, body={"name": "n"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False, replace=False,
+    )
+    assert calls[0][0] == "patch_widget"   # NOT update_widget
+
+
+def test_set_with_replace_uses_update(emitted, monkeypatch):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+    rt.run(
+        "set:widget", path={"id": "w1"}, body={"name": "n"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False, replace=True,
+    )
+    assert calls[0][0] == "update_widget"
+
+
+def test_set_without_id_creates(emitted, monkeypatch):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+    rt.run(
+        "set:widget", path={}, body={"name": "n"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False, replace=False,
+    )
+    assert calls[0][0] == "create_widget"

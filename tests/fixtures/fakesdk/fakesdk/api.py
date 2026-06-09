@@ -33,6 +33,9 @@ class WidgetsApi:
     def patch_widget(self, id: str, widget_input: WidgetInput):
         """Patch a widget."""
 
+    def update_widget(self, id: str, widget_input: WidgetInput):
+        """Replace a widget (PUT)."""
+
     def update_widget_positions(self, body: dict):
         """Reorder widgets."""
 
