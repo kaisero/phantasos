@@ -7,12 +7,15 @@ from .ir import CliIR
 
 def render_table(ir: CliIR, unmapped: list[str]) -> str:
     lines = [f"# {ir.sdk_package} {ir.sdk_version} — {len(ir.commands)} commands"]
-    for c in sorted(ir.commands, key=lambda c: (c.verb, c.object, c.variant or "")):
+    for c in sorted(ir.commands, key=lambda c: c.key):
         target = f"{c.verb} {c.object}" + (f" {c.variant}" if c.variant else "")
-        lines.append(f"  {target:<40} <- {c.sdk_resource}.{c.sdk_method}")
+        methods = ", ".join(b.sdk_method for b in c.bindings)
+        lines.append(f"  {target:<40} <- {c.sdk_resource}.[{methods}]")
     if unmapped:
-        n = len(unmapped)
-        lines.append(f"\n# UNMAPPED ({n}) — map in cli.yml (request:/override:/hide:)")
+        lines.append(
+            f"\n# UNMAPPED ({len(unmapped)})"
+            " — map in cli.yml (request:/override:/hide:)"
+        )
         for key in sorted(unmapped):
             lines.append(f"  UNMAPPED  {key}")
     return "\n".join(lines)

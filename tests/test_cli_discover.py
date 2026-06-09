@@ -22,8 +22,16 @@ def test_render_table_lists_commands_and_unmapped():
     table = render_table(ir, unmapped)
     assert "set widget" in table
     assert "show widget" in table
+    # bindings are shown for a merged command (get + list under one show)
+    assert "get_widget_by_id" in table and "list_widgets" in table
     assert "UNMAPPED" in table
     assert "widgets.update_widget_positions" in table
+
+
+def test_command_keys_are_unique():
+    ir, _ = _ir_and_unmapped()
+    keys = [c.key for c in ir.commands]
+    assert len(keys) == len(set(keys))  # aggregation produced no duplicate commands
 
 
 def test_render_stub_is_valid_yaml_with_todos():
@@ -48,6 +56,8 @@ def test_real_sdk_classifies_without_error():
             f"prisma-browser-sdk runtime deps not installed in this venv: {exc}"
         )
     ir, unmapped = build_cli_ir(inv, CliConfig())
+    # no duplicate commands
+    assert len({c.key for c in ir.commands}) == len(ir.commands)
     verbs = {c.verb for c in ir.commands}
     assert {"set", "del", "show"} <= verbs
     # non-CRUD ops land in unmapped (force_reauth/positions/publish/etc.)
