@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (Augmentation & extensibility; Generated CLI project; the aggregated `CliIR`). **Builds on:** Phase 2a (aggregated IR), committed on branch `cli-generator`.
 
+> **⚠️ READ THE HARDENING SECTION FIRST.** This plan was reviewed by a python-pro pass and a python-anti-patterns pass, which found correctness bugs the fake-SDK fixture hides. The **"Hardening (review pass) — AUTHORITATIVE"** section below corrects the task bodies; where it conflicts with a task's inline code, the Hardening section wins. The original task code is kept for structure/TDD flow but several snippets are superseded.
+
 ---
 
 ## Conventions for every task
@@ -28,6 +30,140 @@
 3. **Aggregated body flags are OPTIONAL at the CLI layer.** Requiredness is enforced by the SDK's Pydantic body model at call time (a missing required field → a friendly error), because a field required by `create` is not required by `patch`.
 4. **Dispatch:** the binding whose `requires` (required path-param names) are all present in the supplied args, choosing the most specific (largest `requires`); fall back to the unique zero-`requires` binding (create/list). Ambiguity or no match → a clear error.
 5. **`ir.json` is the single runtime source** (provenance + dispatch), loaded once via `importlib.resources`.
+
+---
+
+## Hardening (review pass) — AUTHORITATIVE
+
+These corrections come from a python-pro review and a python-anti-patterns review. They are **must-apply**; where they conflict with a task's inline code below, follow these. Each is tagged with the task it amends.
+
+### H1 — Emit & load the IR as TYPED Pydantic models, not raw dicts (amends Tasks 2 & 5)
+
+The generated CLI cannot import `phantasos`, so **emit a copy of the IR models** into the package and load them typed. Add a template `_generated/spec.py.jinja` that contains the `Flag`, `MethodBinding`, `Command`, `CliIR` (+ `FlagKind`/`Verb`/`SubVerb`) definitions verbatim from `src/phantasos/generator/cli/ir.py` (no phantasos import). `render_cli` renders it (Task 2). The runtime then does:
+```python
+from functools import lru_cache
+from importlib.resources import files
+from .spec import CliIR
+
+@lru_cache(maxsize=1)
+def _ir() -> dict[str, "Command"]:
+    text = files(__package__).joinpath("ir.json").read_text(encoding="utf-8")
+    return {c.key: c for c in CliIR.model_validate_json(text).commands}
+```
+All runtime access is then attribute-based (`cmd.bindings`, `binding.requires`, `binding.body_param`) — no `cmd["..."]` KeyError/`kwargs[None]` footguns, validated at load.
+
+### H2 — `Client.from_env()` lives in the facade, not the package root (amends Task 5; CRITICAL)
+
+`mod.Client` does **not** exist on `prisma_browser`; `Client` is defined in `prisma_browser.extras.facade`. The runtime MUST import from the facade. Carry the facade path on the IR: add `facade_module: str` to `CliIR` (default `f"{sdk_package}.extras.facade"`), populated by `build_cli_ir`. Runtime:
+```python
+def _client() -> Any:   # NO lru_cache — one-shot CLI, and keeps it monkeypatch-friendly
+    facade = importlib.import_module(_IR_META["facade_module"])
+    return facade.Client.from_env()
+```
+**Test gap this closes:** every test monkeypatches `rt._client`, and Task 9 only ran `--help`, so the real `_client()` path had ZERO coverage. See H8.
+
+### H3 — Wrap variant bodies in the oneOf wrapper (amends Tasks 1 & 5; CRITICAL)
+
+Real `create_application(type, create_or_replace_app_input: CreateOrReplaceAppInput)` takes the **wrapper**, not the bare variant. Building `CustomApplicationInput(**body)` and passing it as `create_or_replace_app_input` is type-incorrect. Carry BOTH on the binding:
+```python
+class MethodBinding(BaseModel):
+    ...
+    body_param: str | None = None     # SDK arg name, e.g. "create_or_replace_app_input"
+    body_model: str | None = None     # model to BUILD: variant for variant cmds, else the param's model
+    body_wrapper: str | None = None   # oneOf wrapper to wrap the built model in (None if body_model IS the param type)
+```
+In `build_cli_ir._emit`: for a variant command, `body_model = v.model` (variant) and `body_wrapper = body_info.body_model` (the wrapper, e.g. `CreateOrReplaceAppInput`) **only if** the wrapper differs from the variant; for a non-variant body, `body_model = body_info.body_model` and `body_wrapper = None`. Runtime `_build_model`:
+```python
+def _build_model(binding, body, models_mod):
+    inner_cls = getattr(models_mod, binding.body_model)
+    obj = inner_cls(**{k: _coerce(k, v) for k, v in body.items() if v is not None})
+    if binding.body_wrapper:
+        return getattr(models_mod, binding.body_wrapper)(obj)  # wrapper.__init__(actual_instance)
+    return obj
+```
+Add a fixture union+variant create whose body param is a wrapper (the current `create_gizmo` uses `CreateGizmoInput` as the param type AND wrapper — extend the fixture so the variant model differs from the param type, mirroring the real `create_application`/`CreateOrReplaceAppInput`/`CustomApplicationInput` shape), and a test asserting the wrapper is constructed.
+
+### H4 — Include the variant param in `present` BEFORE picking the binding (amends Task 5)
+
+For a variant `show`/`del` (e.g. `get_application_by_type_and_id` requires `[type, id]`), `type` is supplied via `cmd.variant`/`variant_param`, not the `path` dict, so it must be added to `present` before `_pick_binding`:
+```python
+present = {k for k, v in path.items() if v is not None}
+if cmd.variant and cmd.variant_param:
+    present.add(cmd.variant_param)
+binding = _pick_binding(cmd, present)
+```
+
+### H5 — Catch the SDK exception + `ValidationError` only; let bugs propagate (amends Task 5)
+
+Replace `except Exception` with specific types, and build the body model INSIDE the try so a missing required field is friendly:
+```python
+from {{ ir.sdk_package }}.exceptions import OpenApiException
+from pydantic import ValidationError
+...
+try:
+    if binding.body_model:
+        kwargs[binding.body_param] = _build_model(binding, body, _models())
+    ... call ...
+except (OpenApiException, ValidationError) as exc:
+    if verbose:
+        raise
+    print(f"error: {exc}", file=sys.stderr)
+    raise SystemExit(1) from exc
+# any other exception propagates with a full traceback (it's a generator/programming bug)
+```
+(Verify `OpenApiException` is the root in `prisma_browser/exceptions.py`; it is.)
+
+### H6 — Bind the client once; don't double-call on `--all`; guard `paginate` (amends Task 5)
+
+`client.paginate(method, **kwargs)` itself calls `method`, so the eager `method(**kwargs)` before it double-calls the endpoint and a second `_client()` mixes two clients:
+```python
+client = _client()
+api = getattr(client, cmd.sdk_resource)
+method = getattr(api, binding.sdk_method)
+if binding.sub_verb == "list" and paginate_all:
+    pg = getattr(client, "paginate", None)
+    result = list(pg(method, **kwargs)) if pg else method(**kwargs)
+else:
+    result = method(**kwargs)
+```
+
+### H7 — Parse JSON by flag KIND, not by string-sniffing (amends Tasks 5 & 6)
+
+`_maybe_json` guessing from `v[:1] in "[{"` (which is also `True` for `""`) corrupts scalar strings like `"[draft]"`. Pass the per-flag `kind` to the runtime: emit, per command, a `body_kinds: dict[param,kind]` (and likewise coerce int/bool — H9). Only `json.loads` params whose kind is `"json"`; only `int()`/`bool` for kind-typed scalars. Concretely, `commands.py.jinja` passes `body={...}` plus the runtime reads kinds from the typed IR (`cmd` has the flags with `.kind`), so the runtime can look up each body param's kind from `cmd.body_flags` — no extra dict needed once H1 lands (typed IR available at runtime).
+
+### H8 — Add a real-`_client()` dispatch test; stop only testing `--help` (amends Tasks 6 & 9)
+
+The mocked tests patch `rt._client`, so H2/H3 bugs ship untested. Add a gated test that builds the REAL CLI and invokes a command end-to-end with the SDK mocked **at the facade boundary** (monkeypatch `facade.Client.from_env` to return a Mock whose `.applications.create_application(...)` records the call), asserting: (a) `set application custom --name x --urls '[{"url":"..."}]'` constructs `CreateOrReplaceAppInput(CustomApplicationInput(...))` and calls `create_application(type="custom", create_or_replace_app_input=<wrapper>)`; (b) `show application --type custom --id Y` dispatches `get_application_by_type_and_id(type="custom", id="Y")`. This exercises H2/H3/H4 against the real signatures.
+
+### H9 — Emit int/bool flags with real types (amends Task 6 & `_query_flags`)
+
+`list_applications(limit: Optional[StrictInt])` rejects `"50"`. `_query_flags` flattens everything to `"str"` — instead map `kind`/`py_type` to `int`/`bool` for scalar path/query flags, and coerce body scalars by kind in `_build_model`. Body string/enum stay `str` (LenientStrEnum-friendly).
+
+### H10 — `_py_name` must sanitize reserved names + keywords (amends Task 6)
+
+Emitted function params collide with the injected `output`/`all_`/`dry_run`/`verbose` and with Python keywords. Implement (don't just "confirm"):
+```python
+import keyword
+_RESERVED = {"output", "all_", "dry_run", "verbose", "self"}
+def _py_name(param: str) -> str:
+    ident = param if param.isidentifier() else "p_" + re.sub(r"\W", "_", param)
+    return ident + "_" if keyword.iskeyword(ident) or ident in _RESERVED else ident
+```
+The `path=/body=/query=` dict KEYS keep the real SDK `param` (only the function-arg identifier is sanitized). Add tests for a param named `type`, one named `from` (keyword), and one named `output` (reserved collision). Also use `tojson` for emitted flag names/dict keys (defense-in-depth), not just help text.
+
+### H11 — Split Task 6 into 6a (non-variant + factory) and 6b (variant sub-apps) (amends Task 6)
+
+Typer command names can't contain spaces, so `set <object> <variant>` needs an object-level sub-`Typer`. Emitter computes `typer_path: list[str]` per command (`[object]` or `[object, variant]`); `app.py` groups by `(verb, object)`, creates an object sub-app when any command for that object has a variant, and registers leaves by walking the path. 6a ships non-variant commands + the factory with the existing CliRunner test; 6b adds variant sub-apps with a `set gizmo simple ...` CliRunner test.
+
+### H12 — Config env prefix is explicit, not derived from the CLI package (amends Task 3)
+
+`{{ package|upper }}` gives `FAKESDK_CLI_*`, but auth/env reuse the SDK's names. Pass an explicit `env_prefix` to `render_cli` (default from the product/SDK, e.g. `PRISMA` / `FAKESDK`), bake it into `config.py`, and fix `test_config_precedence` to use that prefix consistently.
+
+### Should-fix (apply opportunistically)
+- `output.py`: use `_console.print_json(data=data)` (not `print_json(json.dumps(...))` — avoids double-serialize).
+- Document that `patch` cannot send JSON `null` to clear a field (all flags default `None`→dropped); a `--unset <field>` mechanism is a Phase-3 follow-up.
+- `callable()`-guard hook lookups (`pre := getattr(hooks,"before_call",None)) and callable(pre)`).
+- Task 10 (`COMMANDS.md`) is the lowest-value/highest-fiddle task and mutates `sys.path`/`sys.modules` in-process — isolate it in a subprocess, or DEFER it to Phase 3 to keep 2b tight. Recommendation: defer; it's not needed for a working set/del/show CLI.
 
 ---
 
@@ -103,9 +239,11 @@ class MethodBinding(BaseModel):
     sdk_method: str
     sub_verb: SubVerb
     requires: list[str] = []
-    body_param: str | None = None   # SDK body parameter name, e.g. "widget_input"
-    body_model: str | None = None   # body model class to construct, e.g. "WidgetInput"
+    body_param: str | None = None     # SDK body parameter name, e.g. "create_or_replace_app_input"
+    body_model: str | None = None     # model to BUILD (variant for variant cmds, else the param's model)
+    body_wrapper: str | None = None   # H3: oneOf wrapper to wrap body_model in (None if none needed)
 ```
+(See **H3** for populating `body_wrapper` and the wrap-then-pass construction — this is required for the real `create_application(type, CreateOrReplaceAppInput)` shape.)
 
 In `Command`, add (after `variant`):
 ```python
@@ -681,10 +819,11 @@ def _ir() -> dict[str, Any]:
     return {c["key"]: c for c in data["commands"]}
 
 
-@functools.lru_cache(maxsize=1)
+# ⚠️ SUPERSEDED BY H2 — `Client` is in `<pkg>.extras.facade`, NOT the package root,
+# and this must NOT be lru_cached (breaks monkeypatch + one-shot). Use H2's version:
 def _client() -> Any:
-    mod = importlib.import_module(_SDK_PACKAGE)
-    return mod.Client.from_env()
+    facade = importlib.import_module(_IR_META["facade_module"])
+    return facade.Client.from_env()
 
 
 def _hooks() -> Any | None:
