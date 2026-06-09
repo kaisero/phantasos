@@ -299,14 +299,24 @@ design — all human augmentation lives **outside `_generated/`**, in one predic
   render_override(command: str, result: Any, ctx) -> bool        # take over output for a command
   ```
 
-**Regen contract (a new behavior vs the always-overwrite `render_scaffold`, called out explicitly):**
+**Regen contract — three ownership layers (Phase 3g: the project shell is scaffold-owned):**
 
-- `_generated/` is deleted and re-emitted on every build. Never hand-edit.
-- `main.py`, `custom/`, `hooks.py`, `config.yaml`, `pyproject.toml`, `tests/` are emitted **only if
-  missing** (or via `overrides/`), then owned by the human; regen leaves them untouched.
-- `cli.yml` stays declarative-only; it MAY carry a thin `custom:` pointer (e.g.
-  `custom: {commands: [prisma_browser_cli.custom.doctor]}`) purely so `build` knows to leave a stub
-  and `COMMANDS.md` can mention hand-written commands. The *code* lives in `custom/`, not YAML.
+- **`_generated/`** (render_cli): deleted and re-emitted on every build. Never hand-edit.
+- **Project shell — scaffold-owned (overwrite every build), via `render_scaffold`:** `pyproject.toml`,
+  `README.md`, `noxfile.py`, `.github/workflows/*`, `.pre-commit-config.yaml`, `.gitignore`,
+  `.editorconfig`, `mkdocs.yml`, `LICENSE`, `CHANGELOG/CONTRIBUTING/SECURITY.md`, `.env.example`,
+  and the `tests/` scaffold. These are version-controlled templates (in `src/phantasos/scaffold/`
+  + the CLI's `cli_overrides/`), never hand-edited — exactly like the SDK. **`pyproject.toml` is
+  scaffold-owned**, so custom-command dependencies are added via `cli.yml project.dependencies`
+  (not by hand-editing pyproject). The SDK dependency is the SDK **distribution** name and is pinned
+  to the sibling dir via a generated `[tool.uv.sources]` block until it's published to PyPI.
+- **Hand-owned (emit-once, never overwritten):** `main.py` (the entrypoint), `custom/`, `hooks.py`.
+- `cli.yml` stays declarative-only; it MAY carry a thin `custom:` pointer and an optional `project:`
+  block (reusing the SDK's `ProjectConfig`) to supply the CLI's distribution/author/repo for the
+  scaffold. The *code* lives in `custom/`, not YAML.
+
+`phantasos cli build` runs `render_cli` (package code) then `render_scaffold` (project shell with a
+CLI-shaped context built from the SDK product's context); the two write disjoint paths.
 
 This makes "build SDK → build CLI → never hand-edit *generated*" genuinely robust while giving
 humans a real place to write Python: overrides via the factory `exclude` + re-registration, new
