@@ -6,11 +6,13 @@ prefix heuristic. classify_name implements only the prefix heuristic + skip rule
 
 from __future__ import annotations
 
+from typing import cast
+
 from pydantic import BaseModel, ConfigDict
 
-from .cliconfig import VariantMap
-from .inventory import FieldInfo, OperationInfo, ParamInfo
-from .ir import Flag, Verb
+from .cliconfig import CliConfig, VariantMap
+from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
+from .ir import CliIR, Command, Flag, Verb
 
 # (prefix, verb) — ORDER MATTERS: longer/compound prefixes first.
 _VERB_PREFIXES: list[tuple[str, Verb]] = [
@@ -128,3 +130,74 @@ def resolve_variants(
     return [
         ResolvedVariant(name=value, model=model) for value, model in vmap.map.items()
     ]
+
+
+def _id_flag(param: ParamInfo) -> Flag:
+    return Flag(name="--id", param=param.name, py_type="str", kind="id",
+                required=True, help=param.description)
+
+
+def _query_flags(params: list[ParamInfo]) -> list[Flag]:
+    return [
+        Flag(name=_flag_name(p.name), param=p.name,
+             py_type="str", kind="enum" if p.enum_values else "scalar",
+             required=False, default=p.default, help=p.description,
+             choices=p.enum_values)
+        for p in params if p.location == "query"
+    ]
+
+
+def _body_flags_for(op: OperationInfo, model: str | None) -> list[Flag]:
+    if model and model in op.body_fields:
+        return fields_to_flags(op.body_fields[model])
+    # single (non-union) body model
+    for fields in op.body_fields.values():
+        return fields_to_flags(fields)
+    return []
+
+
+def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[str]]:
+    commands: list[Command] = []
+    unmapped: list[str] = []
+    for op in inv.operations:
+        key = f"{op.resource}.{op.method}"
+        if key in cfg.hide:
+            continue
+        ov = cfg.override.get(key)
+        cls = classify_name(op.method)
+        if cls is None and key not in cfg.request:
+            unmapped.append(key)
+            continue
+        if key in cfg.request:
+            # request-namespace ops: handled in a later phase; skip silently
+            continue
+        if cls is None:
+            continue  # unreachable: guarded above, satisfies type-narrowing
+        verb: Verb = cast(Verb, ov.verb) if (ov and ov.verb) else cls.verb
+        obj: str = ov.object if (ov and ov.object) else cls.object
+        id_param = detect_id_param(op.params)
+        path_flags = [_id_flag(id_param)] if id_param else []
+        query_flags = _query_flags(op.params)
+        variants = resolve_variants(op, cfg.variants.get(key))
+        if variants:
+            for v in variants:
+                commands.append(Command(
+                    verb=verb, object=obj, variant=v.name,
+                    sdk_resource=op.resource, sdk_method=op.method,
+                    path_params=path_flags, body_flags=_body_flags_for(op, v.model),
+                    query_flags=query_flags, summary=op.summary,
+                    description=op.description,
+                    paginated=op.method.startswith("list_"),
+                ))
+        else:
+            commands.append(Command(
+                verb=verb, object=obj, variant=None,
+                sdk_resource=op.resource, sdk_method=op.method,
+                path_params=path_flags, body_flags=_body_flags_for(op, None),
+                query_flags=query_flags, summary=op.summary, description=op.description,
+                paginated=op.method.startswith("list_"),
+            ))
+    ir = CliIR(
+        sdk_package=inv.sdk_package, sdk_version=inv.sdk_version, commands=commands
+    )
+    return ir, unmapped

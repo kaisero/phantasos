@@ -1,13 +1,19 @@
+from pathlib import Path
+
 import pytest
 
 from phantasos.generator.cli.classify import (
+    build_cli_ir,
     classify_name,
     detect_id_param,
     fields_to_flags,
     resolve_variants,
 )
-from phantasos.generator.cli.cliconfig import VariantMap
+from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
+from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.inventory import FieldInfo, OperationInfo, ParamInfo
+
+FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
 @pytest.mark.parametrize(
@@ -127,3 +133,41 @@ def test_resolve_variants_from_config():
 def test_resolve_variants_none_without_config():
     op = OperationInfo(resource="widgets", method="create_widget")
     assert resolve_variants(op, None) == []
+
+
+def test_build_cli_ir_end_to_end():
+    inv = introspect("fakesdk", FIXTURE)
+    cfg = CliConfig(
+        variants={
+            "gizmos.create_gizmo": VariantMap(
+                path_param="type",
+                map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+            )
+        }
+    )
+    ir, unmapped = build_cli_ir(inv, cfg)
+    cmds = {(c.verb, c.object, c.variant): c for c in ir.commands}
+
+    # CRUD on widgets
+    assert ("set", "widget", None) in cmds
+    assert ("show", "widget", None) in cmds
+    assert ("del", "widget", None) in cmds
+
+    # set widget has body flags incl. --name
+    setw = cmds[("set", "widget", None)]
+    assert any(f.name == "--name" for f in setw.body_flags)
+
+    # gizmo create fans out into variant subcommands
+    assert ("set", "gizmo", "simple") in cmds
+    assert ("set", "gizmo", "complex") in cmds
+    complex_cmd = cmds[("set", "gizmo", "complex")]
+    assert any(f.name == "--depth" for f in complex_cmd.body_flags)
+
+    # things use a non-literal id param
+    show_thing = cmds[("show", "thing", None)]
+    assert any(f.kind == "id" and f.param == "thing_id" for f in show_thing.path_params)
+
+    # *_positions is unmapped
+    assert "widgets.update_widget_positions" in unmapped
+
+    assert ir.sdk_version == "9.9.9"
