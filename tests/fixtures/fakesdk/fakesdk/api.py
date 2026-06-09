@@ -39,6 +39,12 @@ class WidgetsApi:
     def update_widget_positions(self, body: dict):
         """Reorder widgets."""
 
+    def suspend_widget(self, widget_input: WidgetInput):
+        """Suspend widgets (body-only action)."""
+
+    def revoke_widget(self, id: str, widget_input: WidgetInput):
+        """Revoke a widget grant (id + body action)."""
+
     # excluded by introspection:
     def create_widget_with_http_info(self, widget_input: WidgetInput):
         ...
