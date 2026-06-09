@@ -28,6 +28,25 @@ def emitted(tmp_path):
             del sys.modules[name]
 
 
+def test_output_formats(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Model:
+        def model_dump(self, mode="python"):
+            return {"id": "a1", "name": "slack", "nested": {"x": 1}}
+
+    out.render(_Model(), fmt="json")
+    assert '"name"' in capsys.readouterr().out  # json includes name
+
+    out.render([_Model()], fmt="yaml")
+    assert "name: slack" in capsys.readouterr().out
+
+    out.render([_Model()], fmt="table")
+    table = capsys.readouterr().out
+    assert "id" in table and "name" in table and "a1" in table
+    assert "nested" not in table  # dict columns are dropped from the table view
+
+
 def test_config_precedence(emitted, monkeypatch):
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     assert cfg.resolve("output", flag=None, default="table") == "table"

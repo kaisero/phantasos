@@ -1,0 +1,49 @@
+"""Render SDK results as a Rich table (default), JSON, or YAML."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import yaml
+from rich.console import Console
+from rich.table import Table
+
+_console = Console()
+
+
+def _to_data(obj: Any) -> Any:
+    if isinstance(obj, list):
+        return [_to_data(o) for o in obj]
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    return obj
+
+
+def render(result: Any, fmt: str = "table") -> None:
+    data = _to_data(result)
+    if fmt == "json":
+        _console.print_json(data=data)
+        return
+    if fmt == "yaml":
+        print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
+        return
+    _render_table(data)
+
+
+def _render_table(data: Any) -> None:
+    rows = data if isinstance(data, list) else [data]
+    rows = [r for r in rows if isinstance(r, dict)]
+    if not rows:
+        _console.print(data)
+        return
+    keys: list[str] = []
+    for pref in ("id", "name"):
+        if pref in rows[0]:
+            keys.append(pref)
+    for k, v in rows[0].items():
+        if k not in keys and not isinstance(v, (dict, list)):
+            keys.append(k)
+    table = Table(*keys)
+    for r in rows:
+        table.add_row(*[str(r.get(k, "")) for k in keys])
+    _console.print(table)
