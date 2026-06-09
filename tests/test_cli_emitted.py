@@ -264,3 +264,22 @@ def test_cli_runner_variant_and_nonvariant_under_object(emitted, monkeypatch):
     create_call = next(kw for n, kw in calls if n == "create_gizmo")
     assert create_call["type"] == "simple"
     assert isinstance(create_call["create_gizmo_input"], models.CreateGizmoInput)
+
+
+def test_runtime_coerces_int_query(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app, ["show", "widget", "--limit", "50", "--output", "json"]
+    )
+    assert res.exit_code == 0, res.output
+    _, kw = next((n, k) for n, k in calls if n == "list_widgets")
+    assert kw.get("limit") == 50 and isinstance(kw["limit"], int)  # coerced str->int

@@ -141,7 +141,9 @@ def _query_flags(params: list[ParamInfo]) -> list[Flag]:
     return [
         Flag(name=_flag_name(p.name), param=p.name,
              # Enum query params stay permissive (str + choices), like fields_to_flags.
-             py_type="str", kind="enum" if p.enum_values else "scalar",
+             # Plain int/bool scalars get their real type for _coerce to work correctly.
+             py_type="str" if p.enum_values else p.scalar_type,
+             kind="enum" if p.enum_values else "scalar",
              required=False, default=p.default, help=p.description,
              choices=p.enum_values)
         for p in params if p.location == "query"
@@ -170,7 +172,9 @@ def _path_flags(params: list[ParamInfo], id_param: ParamInfo | None) -> list[Fla
                               required=False, help=p.description))
         else:
             kind: FlagKind = "enum" if p.enum_values else "scalar"
-            flags.append(Flag(name=_flag_name(p.name), param=p.name, py_type="str",
+            # Enums stay permissive (str + choices); plain int/bool scalars get typed.
+            py_type = "str" if p.enum_values else p.scalar_type
+            flags.append(Flag(name=_flag_name(p.name), param=p.name, py_type=py_type,
                               kind=kind, required=False, help=p.description,
                               choices=p.enum_values))
     return flags

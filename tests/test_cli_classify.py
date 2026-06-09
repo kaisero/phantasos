@@ -269,3 +269,13 @@ def test_fixture_client_from_env_and_wrapper():
         assert isinstance(wrapped.actual_instance, SimpleGizmoInput)
     finally:
         sys.path.remove(str(FIXTURE))
+
+
+def test_query_int_flag_has_int_py_type():
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, CliConfig())
+    show_widget = next(c for c in ir.commands if c.key == "show:widget")
+    limit = next(f for f in show_widget.query_flags if f.param == "limit")
+    assert limit.py_type == "int"
+    name = next(f for f in show_widget.query_flags if f.param == "name")
+    assert name.py_type == "str"

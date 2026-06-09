@@ -63,6 +63,16 @@ def _unwrap_optional(tp: object) -> object:
     return tp
 
 
+def _scalar_type(tp: object) -> str:
+    """Return the normalized scalar type for path/query coercion."""
+    base = _unwrap_optional(tp)
+    if base is bool:
+        return "bool"
+    if base is int:
+        return "int"
+    return "str"
+
+
 def _field_kind(tp: object) -> str:
     tp = _unwrap_optional(tp)
     if _enum_values(tp):
@@ -167,6 +177,7 @@ def _introspect(package: str, sdk_path: Path) -> OperationInventory:
                     default=None if required else p.default,
                     description=_annotated_description(tp),
                     enum_values=_enum_values(base),
+                    scalar_type=_scalar_type(tp),
                 )
                 if is_body and isinstance(base, type) and issubclass(base, BaseModel):
                     info.body_model = base.__name__

@@ -23,6 +23,8 @@ class ParamInfo(BaseModel):
     body_model: str | None = None  # set when location == "body"
     # variant model names if the body is a oneOf wrapper
     union_members: list[str] | None = None
+    # normalized: "str" | "int" | "bool" (for path/query scalar coercion)
+    scalar_type: str = "str"
 
 
 class FieldInfo(BaseModel):
