@@ -115,3 +115,30 @@ def test_set_constructs_real_model(real_cli, monkeypatch):
         f"Expected DeviceGroupRequest, got {type(body)}"
     )
     assert body.name == "Kiosks"
+
+
+def test_set_application_variant_constructs_wrapped_body(real_cli, monkeypatch):
+    import prisma_browser.models as models
+    from typer.testing import CliRunner
+
+    mock = _patch_client(monkeypatch)
+    mock.applications.create_application.return_value = {
+        "id": "APP-1", "type": "custom", "name": "MyApp"
+    }
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        ["set", "application", "custom", "--name", "MyApp",
+         "--urls", '[{"url": "https://example.com"}]', "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output
+    call = mock.applications.create_application
+    assert call.called
+    kwargs = call.call_args.kwargs
+    assert kwargs.get("type") == "custom"                       # top-level path param
+    body = kwargs.get("create_or_replace_app_input")
+    assert isinstance(body, models.CreateOrReplaceAppInput)      # wrapped (H3)
+    inner = body.actual_instance
+    assert isinstance(inner, models.CustomApplicationInput)
+    assert inner.type == "custom"  # discriminator injected into body
+    assert inner.name == "MyApp"

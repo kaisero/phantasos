@@ -84,8 +84,11 @@ def _pick_binding(cmd: Command, present: set[str], replace: bool) -> MethodBindi
 
 
 def _build_body(binding: MethodBinding, body: dict[str, Any],
-                flags: dict[str, Flag], models: Any) -> Any:
+                flags: dict[str, Flag], models: Any,
+                extra: dict[str, Any] | None = None) -> Any:
     parsed = {k: _coerce(flags[k], v) for k, v in body.items() if v is not None}
+    if extra:
+        parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion
     inner = getattr(models, binding.body_model)(**parsed)
     if binding.body_wrapper:
         return getattr(models, binding.body_wrapper)(inner)
@@ -125,8 +128,15 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     hooks = _hooks()
     try:
         if binding.body_model:
+            models_mod = _models()
+            extra: dict[str, Any] = {}
+            if cmd.variant and cmd.variant_param:
+                model_cls = getattr(models_mod, binding.body_model, None)
+                fields = getattr(model_cls, "model_fields", {}) if model_cls else {}
+                if cmd.variant_param in fields:
+                    extra[cmd.variant_param] = cmd.variant
             kwargs[binding.body_param] = _build_body(
-                binding, body, body_flags, _models()
+                binding, body, body_flags, models_mod, extra
             )
         if hooks and (pre := getattr(hooks, "before_call", None)) and callable(pre):
             kwargs = pre(binding.sdk_method, kwargs, cmd) or kwargs
