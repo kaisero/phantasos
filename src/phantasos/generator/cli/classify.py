@@ -86,6 +86,8 @@ def select_method_for_verb(methods: list[str]) -> str:
 
     Prefer the shortest name (fewest path params); ties broken alphabetically.
     """
+    # TODO(phase2): not yet wired into build_cli_ir; reserved for
+    # command-collision dedup.
     return sorted(methods, key=lambda m: (m.count("_"), m))[0]
 
 

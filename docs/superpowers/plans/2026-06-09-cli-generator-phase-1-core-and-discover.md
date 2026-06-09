@@ -1550,3 +1550,8 @@ git commit -m "test(cli-gen): gated smoke against the real prisma-browser SDK"
 - `request:`-mapped ops are parsed by `CliConfig` but not yet turned into commands (Phase 3).
 - `select_method_for_verb` (Task 6) is defined but only exercised when an object has two same-verb methods; Phase 2 wires it where commands collide.
 - `settings:` (per-flag tweaks) is parsed but not yet applied to flags.
+- **Command collision dedup:** `_by_id` vs `_by_type_and_id` (and `list_*` vs `list_*_by_type`) currently produce duplicate `(verb, object)` commands (e.g. multiple `del application` / `show application`). Wire `select_method_for_verb` into `build_cli_ir` to resolve these. Cosmetic in discover; must be fixed before emission.
+- **Path/query flag help is empty:** `introspect` does not populate `ParamInfo.description` (uses `get_type_hints(include_extras=False)`), so path/query flags render no `--help`. Body-field descriptions are captured. Revisit for emission so flags get help text.
+- **`introspect` mutates `sys.path` without cleanup:** fine for the one-shot CLI, but wrap in `try/finally` (or use an isolated import mechanism) before any multi-SDK-in-one-process use.
+- **Discover stub singularization:** `discover.render_stub` uses naive `rstrip("s")` for the commented `object:` hint; reuse `_singularize` for a more useful placeholder.
+- **End-to-end precedence tests:** add `build_cli_ir` tests asserting a `hide`d op is dropped and an `override` changes verb/object (currently precedence is only tested indirectly).
