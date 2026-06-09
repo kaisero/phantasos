@@ -105,6 +105,9 @@ def test_build_cli_ir_emits_request_commands():
     # request ops are NOT reported as unmapped
     assert "widgets.suspend_widget" not in unmapped
     assert "widgets.revoke_widget" not in unmapped
+    # N2: all command keys are distinct (no accidental request/CRUD key collision)
+    keys = [c.key for c in ir.commands]
+    assert len(keys) == len(set(keys))
 ```
 
 - [ ] **Step 2: Run → FAIL**
@@ -137,34 +140,38 @@ In `build_cli_ir`, replace the request-skip branch:
             continue  # request-namespace handled in Phase 3
 ```
 with emission of a request command. Add a helper near `_emit` and call it:
+Mirror the existing `_emit` idiom (review S1 — clearer than create-in-`if`/append-after, and it merges flags on a collision instead of dropping them):
 ```python
 def _emit_request(groups: dict[str, "Command"], op: "OperationInfo",
                   mapping: "RequestMapping") -> None:
     key = _command_key("request", mapping.object, mapping.action)
     id_param = detect_id_param(op.params)
     body_info = _body_param_info(op)
+    body_model = body_info.body_model if body_info else None
     binding = MethodBinding(
         sdk_method=op.method, sub_verb="action",
         requires=_required_path_names(op.params),
         body_param=body_info.name if body_info else None,
-        body_model=body_info.body_model if body_info else None,
-        body_wrapper=None,
+        body_model=body_model, body_wrapper=None,
     )
     cmd = groups.get(key)
     if cmd is None:
-        groups[key] = Command(
+        cmd = Command(
             verb="request", object=mapping.object, variant=mapping.action,
             variant_param=None, key=key, sdk_resource=op.resource,
             path_params=_path_flags(op.params, id_param),
-            body_flags=_body_flags_for(op, body_info.body_model if body_info else None),
+            body_flags=_body_flags_for(op, body_model),
             query_flags=_query_flags(op.params),
             summary=op.summary, description=op.description, paginated=False,
         )
-    else:
-        cmd.bindings.append(binding)
-        return
-    groups[key].bindings.append(binding)
+        groups[key] = cmd
+    else:  # two ops → same (object, action): merge flags, both bindings kept
+        _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
+        _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
+        _merge_flags(cmd.query_flags, _query_flags(op.params))
+    cmd.bindings.append(binding)
 ```
+(`_merge_flags` already exists in classify.py.)
 (Imports: `RequestMapping` from `.cliconfig`, `OperationInfo` already imported. Add `from .cliconfig import CliConfig, RequestMapping, VariantMap` — merge with the existing `.cliconfig` import.)
 
 And in the `build_cli_ir` loop, where the old `continue` was:
@@ -229,6 +236,8 @@ def test_cli_runner_request_actions(emitted, monkeypatch):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: FakeClient()))
 
     r = CliRunner()
+    # M1: `request` is a registered top-level verb group
+    assert "request" in r.invoke(main.app, ["--help"]).output
     # body-only action: request widget suspend --name X
     res = r.invoke(main.app, ["request", "widget", "suspend", "--name", "W", "--output", "json"])
     assert res.exit_code == 0, res.output
@@ -341,8 +350,8 @@ Expected: PASS. If a request method's body validation blocks the call, adjust th
 
 - [ ] **Step 3: Eyeball the real build**
 
-Run: `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run phantasos cli build prisma-browser 2>&1 | tail -1 && UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run phantasos cli discover prisma-browser 2>/dev/null | grep -E "^  request " | head`
-Expected: build clean (no unmapped); discover shows `request device suspend|resume|...`, `request user-request revoke|action`, `request configuration publish`, `request *-section reorder`, etc.
+Run: `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run phantasos cli build prisma-browser; echo "exit=$?"; UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run phantasos cli discover prisma-browser 2>/dev/null | grep -E "^  request " | head`
+Expected (M2 — explicit): `exit=0` and the build's stdout reports `emitted N files … (M commands)` with **NO `note: … unmapped ops omitted` line** (all 16 now EMIT, not skip). discover shows `request device suspend|resume|restore|archive|force-reauth`, `request user-request revoke|action`, `request configuration publish`, and `request <policy>-section reorder`. If any of the 16 fails to emit, it now surfaces as a build error/traceback (a real safety net) rather than a silent skip — investigate that op's shape (don't re-hide it).
 
 - [ ] **Step 4: Full suite + lint + types + commit**
 
@@ -376,6 +385,9 @@ git commit -m "docs: request namespace emitted (Phase 3b done)"
 - **Spec coverage:** `request <object> <action>` emission (Tasks 2,3); built from id+body (Task 2 helper handles both shapes — verified against real `suspend_devices` (body) and `revoke_user_request` (id+body)); driven by `cli.yml request:` (already authored in 3a) (Task 4 real test); verb sub-app registration reuses the variant machinery (Task 3). Out of scope (later phases): `load`/`backup`, COMMANDS.md, dynamic completion, dot-notation flags.
 - **Placeholder scan:** none — every step has concrete code. Task 4 flags a real unknown (RevokeRequestAction required fields) with the test as the contract + a fallback (use a body-less action).
 - **Type/name consistency:** `SubVerb` gains `"action"` (Task 2, ir.py) used by the request binding + `_SUBVERB_PRIORITY` (Task 2, classify); `_emit_request` uses `_command_key`/`detect_id_param`/`_body_param_info`/`_path_flags`/`_body_flags_for`/`_query_flags`/`MethodBinding`/`Command` — all already defined in classify.py; `RequestMapping` is the existing `cliconfig` model (`{object, action}`); `_VERBS += "request"` (Task 3) matches the `verb="request"` set in Task 2; the `emitted` fixture gains request mappings (Task 3) consumed by the request CliRunner test.
+
+## python-pro review (applied)
+GO-WITH-CHANGES. The review traced the core mechanics against real code + live SDK introspection and confirmed: the `variant`-as-action overload produces `request <object> <action>` correctly (emitter `typer_path`/`variant_groups` + `app.py` object sub-Typers), `variant_param=None` reliably skips body-discriminator injection in `runtime.py`, the precedence reorder is behavior-preserving and correctly emits classifier-skipped `*_positions` ops, all 16 mapped ops have real-model bodies (no `dict`/`list[Model]` gap), and `sub_verb="action"` + `_pick_binding` (single binding) work. **Folded in:** `_emit_request` rewritten to the `_emit` idiom (S1 — clearer + merges flags on collision); Task 3 test asserts `request` is a registered verb group (M1); Task 2 test asserts distinct command keys (N2); Task 4 Step 3 build expectation made explicit — exit 0 + no unmapped line (M2). **Accepted tech-debt (S2):** the action is carried in `Command.variant` (not a new `action` field) — pragmatic reuse of the variant machinery for this phase; documented at the field. The Task-4 real dispatch test asserts `revoke` (body field `revoker_comment` optional) rather than `action` (required enum field) so a bare invocation succeeds (N1).
 
 ## Risks the review pass should scrutinize
 1. **`variant`-as-action overload** — is reusing `Command.variant` for the action segment clean, or should there be an explicit `action` field? Confirm `variant_param=None` reliably prevents body-discriminator injection in the emitted `runtime.py` for request commands, and that the emitter's `variant_groups`/`typer_path` + `app.py` registration produce `request <object> <action>` correctly (incl. an object with multiple actions → one object sub-Typer).
