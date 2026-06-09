@@ -206,7 +206,7 @@ def test_real_cli_yml_loads_project_and_variants():
     assert "applications.patch_application_by_type_and_id" in cfg.variants
     assert set(cfg.variants["applications.create_application"].map) == {
         "custom", "private", "non-web", "localdesktopcustom"}
-    # the 16 non-CRUD ops are reserved under request (so the build has no unmapped warnings)
+    # the 16 non-CRUD ops are reserved under request (so the build warns about none)
     assert len(cfg.request) == 16
     assert cfg.request["devices.suspend_devices"].action == "suspend"
 
