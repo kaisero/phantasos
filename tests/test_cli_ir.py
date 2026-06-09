@@ -1,4 +1,4 @@
-from phantasos.generator.cli.ir import CliIR, Command, Flag
+from phantasos.generator.cli.ir import CliIR, Command, Flag, MethodBinding
 
 
 def test_flag_defaults():
@@ -8,9 +8,23 @@ def test_flag_defaults():
     assert f.help == ""
 
 
-def test_command_and_ir_roundtrip():
+def test_command_with_bindings_roundtrip():
     cmd = Command(
-        verb="set", object="widget", sdk_resource="widgets", sdk_method="create_widget",
+        verb="set", object="application", variant=None, key="set:application",
+        sdk_resource="applications",
+        bindings=[
+            MethodBinding(
+                sdk_method="create_application", sub_verb="create", requires=[]
+            ),
+            MethodBinding(
+                sdk_method="patch_application_by_type_and_id",
+                sub_verb="patch",
+                requires=["type", "id"],
+            ),
+        ],
+        path_params=[
+            Flag(name="--id", param="id", py_type="str", kind="id", required=False)
+        ],
         body_flags=[
             Flag(
                 name="--name", param="name", py_type="str", kind="scalar", required=True
@@ -18,7 +32,6 @@ def test_command_and_ir_roundtrip():
         ],
     )
     ir = CliIR(sdk_package="fakesdk", sdk_version="9.9.9", commands=[cmd])
-    assert ir.commands[0].verb == "set"
-    assert ir.commands[0].variant is None
-    # round-trips through JSON (used for _generated/ir.json in Phase 2)
+    assert ir.commands[0].key == "set:application"
+    assert [b.sub_verb for b in ir.commands[0].bindings] == ["create", "patch"]
     assert CliIR.model_validate_json(ir.model_dump_json()) == ir

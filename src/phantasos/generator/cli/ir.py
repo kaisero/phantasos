@@ -29,14 +29,25 @@ class Flag(BaseModel):
     choices: list[str] | None = None  # enum values; flag stays permissive
 
 
+class MethodBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sdk_method: str          # e.g. "create_application"
+    sub_verb: SubVerb
+    requires: list[str] = []  # path-param names that select this binding at runtime
+
+
 class Command(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verb: Verb
-    object: str  # kebab-case noun, e.g. "application"
+    object: str               # kebab-case noun, e.g. "application"
     variant: str | None = None  # union variant subcommand, if any
-    sdk_resource: str  # facade attribute, e.g. "applications"
-    sdk_method: str  # e.g. "create_application"
+    key: str                  # canonical "verb:object[:variant]"
+    sdk_resource: str         # facade attribute, e.g. "applications"
+    # candidate SDK methods; runtime dispatch picks one by args
+    bindings: list[MethodBinding] = []
+    # ALL required path params (id + discriminators like --type)
     path_params: list[Flag] = []
     body_flags: list[Flag] = []
     query_flags: list[Flag] = []
