@@ -23,7 +23,9 @@ def _env() -> Environment:
     )
 
 
-def render_cli(ir: CliIR, package: str, out_dir: Path) -> list[str]:
+def render_cli(
+    ir: CliIR, package: str, out_dir: Path, *, env_prefix: str | None = None
+) -> list[str]:
     env = _env()
     pkg = out_dir / package
     gen = pkg / "_generated"
@@ -32,7 +34,8 @@ def render_cli(ir: CliIR, package: str, out_dir: Path) -> list[str]:
             raise ValueError("refusing to wipe a path outside the package")
         shutil.rmtree(gen)
     (gen / "commands").mkdir(parents=True, exist_ok=True)
-    ctx = {"ir": ir, "package": package}
+    resolved_prefix = env_prefix or package.upper().removesuffix("_CLI")
+    ctx = {"ir": ir, "package": package, "env_prefix": resolved_prefix}
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
@@ -41,6 +44,7 @@ def render_cli(ir: CliIR, package: str, out_dir: Path) -> list[str]:
         written.append(str(dest.relative_to(out_dir)))
 
     render("_generated/__init__.py.jinja", gen / "__init__.py")
+    render("_generated/config.py.jinja", gen / "config.py")
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
     spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
     (gen / "spec.py").write_text(spec_src, encoding="utf-8")

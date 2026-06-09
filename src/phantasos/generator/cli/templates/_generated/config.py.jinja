@@ -1,0 +1,34 @@
+"""Config resolution: flag > env ({{ env_prefix }}_<KEY>) > config.yaml > default."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+_ENV_PREFIX = "{{ env_prefix }}"
+
+
+def _config_path() -> Path:
+    return Path.home() / ".config" / "{{ package }}" / "config.yaml"
+
+
+def _load_file() -> dict[str, Any]:
+    path = _config_path()
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def resolve(key: str, *, flag: Any | None, default: Any) -> Any:
+    if flag is not None:
+        return flag
+    env = os.environ.get(f"{_ENV_PREFIX}_{key.upper()}")
+    if env is not None:
+        return env
+    file_val = _load_file().get(key)
+    if file_val is not None:
+        return file_val
+    return default
