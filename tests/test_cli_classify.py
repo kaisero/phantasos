@@ -222,3 +222,50 @@ def test_build_cli_ir_aggregates_methods():
     assert get_one.requires == ["id"]
     list_all = next(b for b in show_widget.bindings if b.sub_verb == "list")
     assert list_all.requires == []
+
+
+def test_bindings_carry_body_and_variant_metadata():
+    inv = introspect("fakesdk", FIXTURE)
+    cfg = CliConfig(
+        variants={
+            "gizmos.create_gizmo": VariantMap(
+                path_param="type",
+                map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+            )
+        }
+    )
+    ir, _ = build_cli_ir(inv, cfg)
+    by_key = {c.key: c for c in ir.commands}
+
+    # plain body: build the param's model, no wrapper
+    create_widget = next(
+        b for b in by_key["set:widget"].bindings if b.sub_verb == "create"
+    )
+    assert create_widget.body_param == "widget_input"
+    assert create_widget.body_model == "WidgetInput"
+    assert create_widget.body_wrapper is None
+
+    # variant body: build the VARIANT model, wrap in the param's wrapper model
+    simple = by_key["set:gizmo:simple"].bindings[0]
+    assert simple.body_model == "SimpleGizmoInput"
+    assert simple.body_wrapper == "CreateGizmoInput"
+
+    # variant_param recorded; facade_module set
+    assert by_key["set:gizmo:simple"].variant_param == "type"
+    assert by_key["set:widget"].variant_param is None
+    assert ir.facade_module == "fakesdk.extras.facade"
+
+
+def test_fixture_client_from_env_and_wrapper():
+    # the fixture mirrors the real facade Client + positional-wrapper construction
+    import sys
+    sys.path.insert(0, str(FIXTURE))
+    try:
+        from fakesdk.extras.facade import Client
+        from fakesdk.models import CreateGizmoInput, SimpleGizmoInput
+        c = Client.from_env()
+        assert hasattr(c, "widgets") and hasattr(c, "paginate")
+        wrapped = CreateGizmoInput(SimpleGizmoInput(name="x"))
+        assert isinstance(wrapped.actual_instance, SimpleGizmoInput)
+    finally:
+        sys.path.remove(str(FIXTURE))

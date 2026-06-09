@@ -180,6 +180,14 @@ def _required_path_names(params: list[ParamInfo]) -> list[str]:
     return [p.name for p in params if p.location == "path"]
 
 
+def _body_param_info(op: OperationInfo) -> ParamInfo | None:
+    """Return the first body ParamInfo for the operation, or None."""
+    for p in op.params:
+        if p.location == "body":
+            return p
+    return None
+
+
 def _command_key(verb: str, obj: str, variant: str | None) -> str:
     return f"{verb}:{obj}" + (f":{variant}" if variant else "")
 
@@ -197,17 +205,37 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
     unmapped: list[str] = []
 
     def _emit(verb: Verb, obj: str, variant: str | None, op: OperationInfo,
-              sub_verb: SubVerb, body_model: str | None) -> None:
+              sub_verb: SubVerb, body_model: str | None,
+              variant_param: str | None = None) -> None:
         key = _command_key(verb, obj, variant)
         id_param = detect_id_param(op.params)
+        body_info = _body_param_info(op)
+        bp_model: str | None
+        bp_wrapper: str | None
+        if body_model:  # variant command: build the variant, wrap in the param's model
+            bp_model = body_model
+            bp_wrapper = (
+                body_info.body_model
+                if body_info and body_info.body_model != body_model
+                else None
+            )
+        elif body_info:  # plain body: build the param's model directly
+            bp_model = body_info.body_model
+            bp_wrapper = None
+        else:
+            bp_model = None
+            bp_wrapper = None
         binding = MethodBinding(
             sdk_method=op.method, sub_verb=sub_verb,
             requires=_required_path_names(op.params),
+            body_param=body_info.name if body_info else None,
+            body_model=bp_model, body_wrapper=bp_wrapper,
         )
         cmd = groups.get(key)
         if cmd is None:
             cmd = Command(
-                verb=verb, object=obj, variant=variant, key=key,
+                verb=verb, object=obj, variant=variant,
+                variant_param=variant_param, key=key,
                 sdk_resource=op.resource,
                 path_params=_path_flags(op.params, id_param),
                 body_flags=_body_flags_for(op, body_model),
@@ -238,13 +266,19 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             continue
         verb = cast(Verb, ov.verb) if ov and ov.verb else cls.verb
         obj = ov.object if ov and ov.object else cls.object
-        variants = resolve_variants(op, cfg.variants.get(key0))
+        vmap = cfg.variants.get(key0)
+        variants = resolve_variants(op, vmap)
         if variants:
             for v in variants:
-                _emit(verb, obj, v.name, op, cls.sub_verb, v.model)
+                _emit(verb, obj, v.name, op, cls.sub_verb, v.model,
+                      variant_param=vmap.path_param if vmap else None)
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
 
-    ir = CliIR(sdk_package=inv.sdk_package, sdk_version=inv.sdk_version,
-               commands=list(groups.values()))
+    ir = CliIR(
+        sdk_package=inv.sdk_package,
+        sdk_version=inv.sdk_version,
+        facade_module=f"{inv.sdk_package}.extras.facade",
+        commands=list(groups.values()),
+    )
     return ir, unmapped

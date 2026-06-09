@@ -38,3 +38,9 @@ class CreateGizmoInput(BaseModel):
 
     discriminator_value_class_map: dict = {}  # empty, like the real SDK
     actual_instance: Optional[Union[SimpleGizmoInput, ComplexGizmoInput]] = None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        if args:
+            super().__init__(actual_instance=args[0])
+        else:
+            super().__init__(**kwargs)
