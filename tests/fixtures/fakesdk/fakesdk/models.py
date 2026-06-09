@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel
 
@@ -21,6 +21,7 @@ class WidgetInput(BaseModel):
     color: Optional[Color] = None
     tags: list[str] = []
     spec: Optional[dict] = None  # nested -> json flag
+    mode: Literal["fast", "slow"] = "fast"  # inline enum (Literal, not an Enum class)
 
 
 class SimpleGizmoInput(BaseModel):

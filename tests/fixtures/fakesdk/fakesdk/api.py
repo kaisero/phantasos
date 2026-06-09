@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import Field
+
 from .models import CreateGizmoInput, WidgetInput, WidgetType
 
 
@@ -13,7 +17,11 @@ class WidgetsApi:
         Adds a new widget to the system.
         """
 
-    def get_widget_by_id(self, id: str, configuration_version: str | None = None):
+    def get_widget_by_id(
+        self,
+        id: Annotated[str, Field(description="The widget id.")],
+        configuration_version: str | None = None,
+    ):
         """Get a widget by id."""
 
     def list_widgets(self, name: str | None = None, limit: int | None = None):
