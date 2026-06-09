@@ -142,3 +142,53 @@ def test_set_application_variant_constructs_wrapped_body(real_cli, monkeypatch):
     assert isinstance(inner, models.CustomApplicationInput)
     assert inner.type == "custom"  # discriminator injected into body
     assert inner.name == "MyApp"
+
+
+def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    import phantasos.cli as climod
+    from phantasos.cli import main
+
+    # LoadedProduct is a plain (non-frozen) dataclass — redirect output_dir into
+    # tmp_path so the build does NOT write the real ../prisma-browser-sdk tree.
+    # cli build computes: out_dir = Path(loaded.output_dir).parent / f"{package}-cli"
+    # so setting output_dir = tmp_path / "prisma-browser-sdk" gives
+    # out_dir = tmp_path / "prisma_browser-cli" (package name uses underscore).
+    real = climod.load_product("prisma-browser")
+    real.output_dir = tmp_path / "prisma-browser-sdk"
+    monkeypatch.setattr(climod, "load_product", lambda name: real)
+
+    # Ensure prisma_browser is importable: introspect() inserts sdk_path into sys.path,
+    # but tmp_path/prisma-browser-sdk is empty; make the real SDK importable first.
+    if str(REAL_SDK) not in sys.path:
+        sys.path.insert(0, str(REAL_SDK))
+
+    rc = main(["cli", "build", "prisma-browser"])
+    assert rc == 0
+    # out_dir = tmp_path.parent/prisma_browser-cli would be wrong;
+    # since output_dir = tmp_path/"prisma-browser-sdk", parent = tmp_path,
+    # and package = "prisma_browser", so out_dir = tmp_path/"prisma_browser-cli".
+    root = tmp_path / "prisma_browser-cli"
+
+    pyproject = (root / "pyproject.toml").read_text()
+    assert "prisma-browser-sdk" in pyproject               # SDK distribution dep
+    assert "prisma-browser-cli = " in pyproject             # console-script
+    assert "[tool.uv.sources]" in pyproject
+    assert 'path = "../prisma-browser-sdk", editable = true' in pyproject
+
+    # project shell (render_scaffold)
+    assert (root / "README.md").exists()
+    assert (root / "noxfile.py").exists()
+    assert (root / ".github" / "workflows" / "ci.yml").exists()
+    env_example = (root / ".env.example").read_text()
+    assert "SCOPE=" in env_example and "PRISMA_SASE_BASE_URL=" in env_example
+
+    # package code (render_cli)
+    assert (root / "prisma_browser_cli" / "_generated" / "app.py").exists()
+    assert (root / "prisma_browser_cli" / "main.py").exists()
+
+    # SDK component tests did NOT render for the CLI
+    assert not (root / "tests" / "test_auth.py").exists()
+    # the CLI smoke test + conftest DID render (from cli_overrides)
+    assert (root / "tests" / "test_cli_smoke.py").exists()
