@@ -96,9 +96,9 @@ Expected: FAIL — `test_pyproject_emits_scripts_when_provided` (no scripts bloc
 {% if scripts is defined and scripts %}
 [project.scripts]
 {% for name, target in scripts.items() %}{{ name }} = "{{ target }}"
-{% endfor %}
-{% endif %}
+{% endfor %}{% endif %}
 ```
+(Note the tight `{% endfor %}{% endif %}` on one line — avoids a stray trailing blank line, matching the SDK template's `dependencies`-loop style.)
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -324,7 +324,11 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
     base = dict(loaded.context)
     sdk_distribution = base.get("distribution") or f"{base['package'].replace('_', '-')}-sdk"
     cli_package = f"{base['package']}_cli"
-    cli_distribution = f"{sdk_distribution}-cli".replace("-sdk-cli", "-cli")
+    # robust: strip a trailing "-sdk" suffix, else append "-cli"
+    cli_distribution = (
+        f"{sdk_distribution[:-4]}-cli" if sdk_distribution.endswith("-sdk")
+        else f"{sdk_distribution}-cli"
+    )
 
     project = getattr(cli_cfg, "project", None) if cli_cfg is not None else None
 
@@ -350,7 +354,7 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
     return ctx
 ```
 
-Note the `cli_distribution` computation: `prisma-browser-sdk` → `prisma-browser-cli` (the `.replace("-sdk-cli", "-cli")` collapses the doubled suffix). For a distribution not ending in `-sdk`, it appends `-cli`. (If the implementer finds a cleaner derivation, keep the test assertions as the contract.)
+Note the `cli_distribution` computation: `prisma-browser-sdk` → `prisma-browser-cli` (strip a trailing `-sdk`, else append `-cli`). The `cli.yml project.distribution` block overrides it for any oddball name. **Install caveat to surface in the README/docs:** `<sdk-distribution>` (e.g. `prisma-browser-sdk`) is a *sibling editable install, not on PyPI* — so `pip install -e .` of the emitted CLI (and the emitted `ci.yml`) requires installing the SDK first (`pip install -e ../prisma-browser-sdk`). The generic CLI README (Task 5) must say this.
 
 - [ ] **Step 4: Run → PASS** (`uv run pytest tests/test_cli_scaffold.py -k context -v`).
 
@@ -398,7 +402,10 @@ A generated command-line interface over the `{{ spec_title }}` API. Verbs: `set`
 `del`, `show`. Run `{{ distribution }} --help` to explore.
 
 ## Install
+This CLI depends on the `{{ spec_title }}` SDK, which is a sibling project (not on PyPI).
+Install it first, then this CLI:
 ```bash
+pip install -e ../<sdk-distribution>   # the generated SDK, e.g. ../prisma-browser-sdk
 pip install -e .
 ```
 
@@ -419,6 +426,40 @@ Add a helper to `render_cli.py` (near `_TEMPLATES`):
 def cli_overrides_dir() -> Path:
     return Path(__file__).parent / "cli_overrides"
 ```
+
+Also add a CLI-appropriate conftest + a smoke test under `cli_overrides/tests/` (these override
+the SDK-worded `conftest.py.jinja` and give the emitted `tests/`/CI a real test instead of an
+empty collection):
+
+`src/phantasos/generator/cli/cli_overrides/tests/conftest.py.jinja`:
+```jinja
+"""Pytest config for the {{ distribution }} CLI (generated)."""
+
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.environ.get("CLI_UNDER_TEST", str(ROOT)))
+```
+
+`src/phantasos/generator/cli/cli_overrides/tests/test_cli_smoke.py.jinja`:
+```jinja
+"""Smoke test: the generated app builds and --help works (no SDK/network needed)."""
+
+from typer.testing import CliRunner
+
+from {{ package }}.main import app
+
+
+def test_help_runs() -> None:
+    result = CliRunner().invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "set" in result.output and "show" in result.output
+```
+(The smoke test imports the app only — `runtime._client()` imports the SDK lazily at call time,
+so `--help` needs neither the SDK installed nor credentials.) Extend the Task-5 test to also
+assert these two files exist in `cli_overrides_dir()`.
 
 - [ ] **Step 4: Run → PASS.**
 
@@ -505,7 +546,7 @@ In `src/phantasos/generator/cli/render_cli.py`: delete the `pyproject.toml.jinja
 - [ ] **Step 5: Run → PASS**
 
 Run: `uv run pytest tests/test_cli_command.py -v`
-Expected: the new test passes; existing `cli discover`/`build` tests still pass (update the old `test_cli_build_emits_project` if it asserted the old lean pyproject — align it to the scaffold-emitted project or fold it into the new test).
+Expected: the new test passes. **MUST-FIX:** the existing `tests/test_cli_command.py::test_cli_build_emits_project` stub `_Loaded` has **no `context` and no `auth`** — once `cli build` calls `build_cli_scaffold_context(loaded, …)` → `dict(loaded.context)`, that test raises `AttributeError` (not just an assertion miss). Either delete it in favor of `test_cli_build_emits_full_project`, or add `context = {…}` + `auth = type("A",(),{"scope_env":"SCOPE","base_url_env":"FAKE_BASE_URL"})()` to its stub. Do this explicitly so the implementer isn't surprised by an unrelated failure.
 
 - [ ] **Step 6: Full suite + lint + types + commit**
 
@@ -532,13 +573,10 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     import phantasos.cli as climod
     from phantasos.cli import main
 
-    # build into an isolated tmp dir (don't write to the real sibling)
-    loaded = climod.load_product("prisma-browser")
-    monkeypatch.setattr(type(loaded), "output_dir",
-                        property(lambda self: tmp_path / "prisma-browser-sdk"), raising=False)
-    # simplest: monkeypatch load_product to return `loaded` with output_dir redirected
+    # LoadedProduct is a plain (non-frozen) dataclass — output_dir is directly assignable.
+    # Redirect it into tmp_path so the build does NOT write the real ../prisma-browser-sdk tree.
     real = climod.load_product("prisma-browser")
-    object.__setattr__(real, "output_dir", tmp_path / "prisma-browser-sdk")
+    real.output_dir = tmp_path / "prisma-browser-sdk"
     monkeypatch.setattr(climod, "load_product", lambda name: real)
 
     rc = main(["cli", "build", "prisma-browser"])
@@ -598,4 +636,18 @@ git commit -m "docs: CLI pyproject/project shell is scaffold-owned (Phase 3g)"
 3. **Component-test gating.** With `has_auth=False` etc., do ALL SDK-specific test templates render empty, or does any reference a var unconditionally before the `{% if %}`? (e.g. a module docstring outside the gate.) If so it would emit a stray file — verify each `scaffold/tests/*.jinja` gates the WHOLE body.
 4. **`conftest.py.jinja` is ungated and SDK-worded** — for the CLI it renders a "for the {{ package }} SDK" conftest that puts the project root on `sys.path`. Harmless for the CLI? Or should the CLI override it? Decide.
 5. **`cli_distribution` derivation** (`-sdk` → `-cli`) — is it robust for distributions that don't end in `-sdk`? The `cli.yml project.distribution` is the clean escape hatch.
-6. **pyproject `packages = ["{{ package }}"]`** with `package = prisma_browser_cli` — confirm hatchling will package the CLI correctly (the `_generated`/`custom` subpackages included).
+6. **pyproject `packages = ["{{ package }}"]`** with `package = prisma_browser_cli` — confirm hatchling will package the CLI correctly (the `_generated`/`custom` subpackages included; each has `__init__.py` so it does).
+
+## python-pro review (applied)
+A python-pro review pass (GO-WITH-CHANGES) confirmed the architecture is sound — StrictUndefined
+coverage is complete (every scaffold var is in `loaded.context` or added here), the four component
+tests gate their whole body (skip when `has_*`=False), the two template guards are non-breaking for
+the SDK build, the dep-fix source is correct, and `render_scaffold`/`render_cli` touch disjoint
+paths (no clobber). **Folded into this plan:** tight `[project.scripts]` whitespace (Task 1);
+explicit fix of the existing `test_cli_build_emits_project` stub which lacks `context`/`auth` (Task 6);
+plain-dataclass `output_dir` reassignment for the real-build test (Task 7, `LoadedProduct` is
+non-frozen); robust `endswith("-sdk")` `cli_distribution` derivation + the sibling-editable-install
+caveat in the README (Tasks 4/5); and a CLI `conftest` + `--help` smoke test so the emitted `tests/`
+isn't empty (Task 5). **Known pre-existing (out of scope):** the inherited `mkdocs.yml`/`docs.yml`
+reference `index.md`/`reference.md` and a `docs` dependency-group that the SDK scaffold doesn't
+define — a phantasos-wide scaffold gap affecting the SDK equally, not introduced here.
