@@ -46,6 +46,7 @@ def render_cli(
     render("_generated/__init__.py.jinja", gen / "__init__.py")
     render("_generated/config.py.jinja", gen / "config.py")
     render("_generated/output.py.jinja", gen / "output.py")
+    render("_generated/runtime.py.jinja", gen / "runtime.py")
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
     spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
     (gen / "spec.py").write_text(spec_src, encoding="utf-8")

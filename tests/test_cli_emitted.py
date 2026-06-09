@@ -5,17 +5,27 @@ from pathlib import Path
 import pytest
 
 from phantasos.generator.cli.classify import build_cli_ir
-from phantasos.generator.cli.cliconfig import CliConfig
+from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
 from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
+# Variant config so the fixture produces `set:gizmo:simple` and `set:gizmo:complex`
+_FAKESDK_CLI_CONFIG = CliConfig(
+    variants={
+        "gizmos.create_gizmo": VariantMap(
+            path_param="type",
+            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+        )
+    }
+)
+
 
 @pytest.fixture
 def emitted(tmp_path):
     """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
-    ir = build_cli_ir(introspect("fakesdk", FIXTURE), CliConfig())[0]
+    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     sys.path.insert(0, str(tmp_path))
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
@@ -56,3 +66,99 @@ def test_config_precedence(emitted, monkeypatch):
     monkeypatch.setenv("FAKESDK_OUTPUT", "yaml")
     assert cfg.resolve("output", flag=None, default="table") == "yaml"
     assert cfg.resolve("output", flag="table", default="table") == "table"
+
+
+def _fake_client(recorder):
+    """A stand-in matching the fixture facade shape; records calls into `recorder`."""
+    import fakesdk.extras.facade as facade
+
+    class _Rec:
+        def __getattr__(self, name):
+            def _call(**kw):
+                recorder.append((name, kw))
+                return {"id": kw.get("id", "new")}
+            return _call
+
+    class _FakeClientCls:
+        widgets = _Rec()
+        gizmos = _Rec()
+        things = _Rec()
+
+        def paginate(self, method, **kw):
+            return iter(method(**kw) or [])
+
+    return facade, _FakeClientCls
+
+
+def test_runtime_create_vs_patch(emitted, monkeypatch):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+
+    rt.run("set:widget", path={}, body={"name": "foo"}, query={}, output="json",
+           paginate_all=False, dry_run=False, verbose=False)
+    rt.run(
+        "set:widget", path={"id": "w9"}, body={"name": "bar"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False,
+    )
+    assert calls[0][0] == "create_widget"
+    assert calls[1][0] == "patch_widget" and calls[1][1].get("id") == "w9"
+
+
+def test_runtime_variant_wraps_body_and_fills_type(emitted, monkeypatch):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    import fakesdk.models as models
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+
+    rt.run("set:gizmo:simple", path={}, body={"name": "x"}, query={},
+           output="json", paginate_all=False, dry_run=False, verbose=False)
+    name, kw = calls[0]
+    assert name == "create_gizmo"
+    assert kw["type"] == "simple"  # H4: variant fills the path param
+    wrapped = kw["create_gizmo_input"]
+    assert isinstance(wrapped, models.CreateGizmoInput)  # H3: oneOf wrapper
+    assert isinstance(wrapped.actual_instance, models.SimpleGizmoInput)
+    assert wrapped.actual_instance.name == "x"
+
+
+def test_runtime_dry_run_does_not_call(emitted, monkeypatch, capsys):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
+    )
+    rt.run("set:widget", path={}, body={"name": "x"}, query={}, output="json",
+           paginate_all=False, dry_run=True, verbose=False)
+    assert calls == []
+    assert "set:widget" in capsys.readouterr().out
+
+
+def test_runtime_friendly_error_on_sdk_exception(emitted, monkeypatch, capsys):
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    import fakesdk.exceptions as exc_mod
+    import fakesdk.extras.facade as facade
+
+    class _Boom:
+        widgets = None
+
+        def __init__(self):
+            class _W:
+                def create_widget(self, **kw):
+                    raise exc_mod.OpenApiException("boom")
+            self.widgets = _W()
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Boom()))
+    import pytest as _pytest
+    with _pytest.raises(SystemExit) as ei:
+        rt.run("set:widget", path={}, body={"name": "x"}, query={}, output="json",
+               paginate_all=False, dry_run=False, verbose=False)
+    assert ei.value.code == 1
+    assert "error:" in capsys.readouterr().err
