@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.discover import render_stub, render_table
 from phantasos.generator.cli.introspect import introspect
+
+REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
@@ -33,3 +37,18 @@ def test_render_stub_is_valid_yaml_with_todos():
     # unmapped ops appear under a commented TODO section as request/hide candidates
     assert "request" in data or "hide" in data
     assert "update_widget_positions" in stub  # surfaced as a TODO
+
+
+@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
+def test_real_sdk_classifies_without_error():
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(
+            f"prisma-browser-sdk runtime deps not installed in this venv: {exc}"
+        )
+    ir, unmapped = build_cli_ir(inv, CliConfig())
+    verbs = {c.verb for c in ir.commands}
+    assert {"set", "del", "show"} <= verbs
+    # non-CRUD ops land in unmapped (force_reauth/positions/publish/etc.)
+    assert any("positions" in u or "force" in u or "publish" in u for u in unmapped)
