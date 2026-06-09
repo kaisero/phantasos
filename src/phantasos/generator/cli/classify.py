@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .inventory import ParamInfo
-from .ir import Verb
+from .inventory import FieldInfo, ParamInfo
+from .ir import Flag, Verb
 
 # (prefix, verb) — ORDER MATTERS: longer/compound prefixes first.
 _VERB_PREFIXES: list[tuple[str, Verb]] = [
@@ -84,3 +84,28 @@ def select_method_for_verb(methods: list[str]) -> str:
     Prefer the shortest name (fewest path params); ties broken alphabetically.
     """
     return sorted(methods, key=lambda m: (m.count("_"), m))[0]
+
+
+def _flag_name(param: str) -> str:
+    return "--" + param.replace("_", "-")
+
+
+def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
+    flags: list[Flag] = []
+    for f in fields:
+        # Enum flags stay permissive: emit str + completer choices, never a
+        # validating Enum (the SDK uses LenientStrEnum — unknowns must pass through).
+        py_type = "str" if f.kind == "enum" else f.annotation
+        flags.append(
+            Flag(
+                name=_flag_name(f.name),
+                param=f.name,
+                py_type=py_type,
+                kind=f.kind,
+                required=f.required,
+                default=f.default,
+                help=f.description,
+                choices=f.enum_values,
+            )
+        )
+    return flags

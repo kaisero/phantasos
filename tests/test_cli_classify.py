@@ -1,7 +1,11 @@
 import pytest
 
-from phantasos.generator.cli.classify import classify_name, detect_id_param
-from phantasos.generator.cli.inventory import ParamInfo
+from phantasos.generator.cli.classify import (
+    classify_name,
+    detect_id_param,
+    fields_to_flags,
+)
+from phantasos.generator.cli.inventory import FieldInfo, ParamInfo
 
 
 @pytest.mark.parametrize(
@@ -64,3 +68,26 @@ def test_detect_id_ignores_discriminator_enum():
 def test_detect_id_none_when_no_path_id():
     params = [_p("name", "query", required=False)]
     assert detect_id_param(params) is None
+
+
+def test_fields_to_flags_kinds():
+    fields = [
+        FieldInfo(name="name", annotation="str", kind="scalar", required=True),
+        FieldInfo(name="color", annotation="Color", kind="enum", required=False,
+                  enum_values=["red", "blue"]),
+        FieldInfo(name="spec", annotation="dict", kind="json", required=False),
+    ]
+    flags = {f.param: f for f in fields_to_flags(fields)}
+    assert flags["name"].name == "--name" and flags["name"].required
+    # enum stays permissive: kind == enum, choices populated, but py_type is str
+    assert flags["color"].kind == "enum"
+    assert flags["color"].choices == ["red", "blue"]
+    assert flags["color"].py_type == "str"
+    assert flags["spec"].kind == "json"
+
+
+def test_snake_case_field_becomes_kebab_flag():
+    fields = [
+        FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)
+    ]
+    assert fields_to_flags(fields)[0].name == "--ip-netmask"
