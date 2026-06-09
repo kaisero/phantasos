@@ -1,0 +1,39 @@
+"""Builds the generated Typer app. Compose it from a hand-owned entrypoint."""
+
+from __future__ import annotations
+
+import typer
+
+{% for resource in resources %}
+from .commands import {{ resource }} as _cmd_{{ resource }}
+{%- endfor %}
+
+_VERBS = ["set", "del", "show"]
+
+# (key, verb, typer_path, resource, func_name)
+_REGISTRY = [
+{%- for c in commands %}
+    ({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
+{%- endfor %}
+]
+
+
+def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
+    exclude = exclude or set()
+    app = typer.Typer(no_args_is_help=True)
+    verb_apps = {v: typer.Typer(no_args_is_help=True) for v in _VERBS}
+    for v, t in verb_apps.items():
+        app.add_typer(t, name=v)
+    resources = {
+{%- for resource in resources %}
+        {{ resource|tojson }}: _cmd_{{ resource }},
+{%- endfor %}
+    }
+    for key, verb, path, resource, func_name in _REGISTRY:
+        if key in exclude or verb not in verb_apps:
+            continue
+        fn = getattr(resources[resource], func_name)
+        if len(path) == 1:
+            verb_apps[verb].command(path[0])(fn)
+        # variant commands (len(path) == 2) are registered in Task 6b
+    return app

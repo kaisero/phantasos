@@ -204,3 +204,29 @@ def test_set_without_id_creates(emitted, monkeypatch):
         output="json", paginate_all=False, dry_run=False, verbose=False, replace=False,
     )
     assert calls[0][0] == "create_widget"
+
+
+def test_cli_runner_show_set_del(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    import fakesdk.extras.facade as facade
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+
+    r = CliRunner()
+    res1 = r.invoke(main.app, ["show", "widget", "--output", "json"])
+    assert res1.exit_code == 0
+    res2 = r.invoke(main.app, ["show", "widget", "--id", "w1", "--output", "json"])
+    assert res2.exit_code == 0
+    res3 = r.invoke(main.app, ["set", "widget", "--name", "foo", "--output", "json"])
+    assert res3.exit_code == 0
+    res4 = r.invoke(main.app, ["del", "widget", "--id", "w1", "--output", "json"])
+    assert res4.exit_code == 0
+
+    kinds = [c[0] for c in calls]
+    assert "list_widgets" in kinds and "get_widget_by_id" in kinds
+    assert "create_widget" in kinds and "delete_widget_by_id" in kinds

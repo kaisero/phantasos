@@ -57,6 +57,7 @@ docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
 dev = [
     "nox>=2024.4",
     "pre-commit>=3.7",
+    "typer>=0.26.7",
     { include-group = "test" },
     { include-group = "typecheck" },
     { include-group = "lint" },
