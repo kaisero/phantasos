@@ -29,8 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     disc.add_argument(
         "product", help="product name (products/<name>/) or path to sdk.yml"
     )
-    disc.add_argument("--write-stub", action="store_true",
-                      help="write products/<name>/cli.yml.stub next to sdk.yml")
+    disc.add_argument(
+        "--write-stub",
+        action="store_true",
+        help="write products/<name>/cli.yml.stub next to sdk.yml",
+    )
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
@@ -87,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         ir, unmapped = build_cli_ir(inv, cfg)
         print(render_table(ir, unmapped))
-        if getattr(args, "write_stub", False):
+        if args.write_stub:
             stub_path = Path(loaded.base_dir) / "cli.yml.stub"
             stub_path.write_text(render_stub(ir, unmapped), encoding="utf-8")
             print(f"\nwrote {stub_path}", file=sys.stderr)
