@@ -4,8 +4,10 @@ from phantasos.generator.cli.classify import (
     classify_name,
     detect_id_param,
     fields_to_flags,
+    resolve_variants,
 )
-from phantasos.generator.cli.inventory import FieldInfo, ParamInfo
+from phantasos.generator.cli.cliconfig import VariantMap
+from phantasos.generator.cli.inventory import FieldInfo, OperationInfo, ParamInfo
 
 
 @pytest.mark.parametrize(
@@ -91,3 +93,37 @@ def test_snake_case_field_becomes_kebab_flag():
         FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)
     ]
     assert fields_to_flags(fields)[0].name == "--ip-netmask"
+
+
+def test_resolve_variants_from_config():
+    op = OperationInfo(
+        resource="gizmos", method="create_gizmo",
+        params=[
+            ParamInfo(name="type", annotation="WidgetType", location="path",
+                      required=True, enum_values=["simple", "complex"]),
+            ParamInfo(name="create_gizmo_input", annotation="CreateGizmoInput",
+                      location="body", required=True, body_model="CreateGizmoInput",
+                      union_members=["SimpleGizmoInput", "ComplexGizmoInput"]),
+        ],
+        body_fields={
+            "SimpleGizmoInput": [
+                FieldInfo(name="name", annotation="str", kind="scalar", required=True),
+            ],
+            "ComplexGizmoInput": [
+                FieldInfo(name="name", annotation="str", kind="scalar", required=True),
+                FieldInfo(name="depth", annotation="int", kind="scalar", required=True),
+            ],
+        },
+    )
+    vmap = VariantMap(
+        path_param="type",
+        map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+    )
+    variants = resolve_variants(op, vmap)
+    assert [v.name for v in variants] == ["simple", "complex"]
+    assert variants[1].model == "ComplexGizmoInput"
+
+
+def test_resolve_variants_none_without_config():
+    op = OperationInfo(resource="widgets", method="create_widget")
+    assert resolve_variants(op, None) == []

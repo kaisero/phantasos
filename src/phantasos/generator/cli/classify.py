@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .inventory import FieldInfo, ParamInfo
+from .cliconfig import VariantMap
+from .inventory import FieldInfo, OperationInfo, ParamInfo
 from .ir import Flag, Verb
 
 # (prefix, verb) — ORDER MATTERS: longer/compound prefixes first.
@@ -109,3 +110,21 @@ def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
             )
         )
     return flags
+
+
+class ResolvedVariant(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+    name: str  # path-enum value, e.g. "custom"
+    model: str  # variant model class name, e.g. "CustomApplicationInput"
+
+
+def resolve_variants(
+    op: OperationInfo, vmap: VariantMap | None
+) -> list[ResolvedVariant]:
+    """Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
+    wrapper is undiscriminated, so this mapping must be authored)."""
+    if vmap is None:
+        return []
+    return [
+        ResolvedVariant(name=value, model=model) for value, model in vmap.map.items()
+    ]
