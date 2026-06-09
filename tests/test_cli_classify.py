@@ -146,26 +146,23 @@ def test_build_cli_ir_end_to_end():
         }
     )
     ir, unmapped = build_cli_ir(inv, cfg)
-    cmds = {(c.verb, c.object, c.variant): c for c in ir.commands}
+    by_key = {c.key: c for c in ir.commands}
 
     # CRUD on widgets
-    assert ("set", "widget", None) in cmds
-    assert ("show", "widget", None) in cmds
-    assert ("del", "widget", None) in cmds
+    assert "set:widget" in by_key
+    assert "show:widget" in by_key
+    assert "del:widget" in by_key
 
     # set widget has body flags incl. --name
-    setw = cmds[("set", "widget", None)]
-    assert any(f.name == "--name" for f in setw.body_flags)
+    assert any(f.name == "--name" for f in by_key["set:widget"].body_flags)
 
     # gizmo create fans out into variant subcommands
-    assert ("set", "gizmo", "simple") in cmds
-    assert ("set", "gizmo", "complex") in cmds
-    complex_cmd = cmds[("set", "gizmo", "complex")]
-    assert any(f.name == "--depth" for f in complex_cmd.body_flags)
+    assert "set:gizmo:simple" in by_key
+    assert "set:gizmo:complex" in by_key
+    assert any(f.name == "--depth" for f in by_key["set:gizmo:complex"].body_flags)
 
     # things use a non-literal id param
-    show_thing = cmds[("show", "thing", None)]
-    assert any(f.kind == "id" and f.param == "thing_id" for f in show_thing.path_params)
+    assert any(f.kind == "id" for f in by_key["show:thing"].path_params)
 
     # *_positions is unmapped
     assert "widgets.update_widget_positions" in unmapped
@@ -190,3 +187,38 @@ def test_classify_sub_verb(method, sub_verb):
     c = classify_name(method)
     assert c is not None
     assert c.sub_verb == sub_verb
+
+
+def test_build_cli_ir_aggregates_methods():
+    inv = introspect("fakesdk", FIXTURE)
+    cfg = CliConfig(
+        variants={
+            "gizmos.create_gizmo": VariantMap(
+                path_param="type",
+                map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+            )
+        }
+    )
+    ir, _unmapped = build_cli_ir(inv, cfg)
+    by_key = {c.key: c for c in ir.commands}
+
+    show_widget = by_key["show:widget"]
+    assert {b.sub_verb for b in show_widget.bindings} == {"get", "list"}
+    assert show_widget.paginated is True
+
+    set_widget = by_key["set:widget"]
+    assert {b.sub_verb for b in set_widget.bindings} == {"create", "patch"}
+    assert len([c for c in ir.commands if c.key == "set:widget"]) == 1
+
+    show_gizmo = by_key["show:gizmo"]
+    pp = {f.param for f in show_gizmo.path_params}
+    assert "id" in pp and "type" in pp
+
+    assert "set:gizmo:simple" in by_key
+    assert "set:gizmo:complex" in by_key
+    assert any(f.name == "--depth" for f in by_key["set:gizmo:complex"].body_flags)
+
+    get_one = next(b for b in show_widget.bindings if b.sub_verb == "get")
+    assert get_one.requires == ["id"]
+    list_all = next(b for b in show_widget.bindings if b.sub_verb == "list")
+    assert list_all.requires == []
