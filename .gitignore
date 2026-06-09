@@ -35,9 +35,13 @@ site/
 .env
 .env.*
 !.env.example
+!.env.example.jinja
 
 # phantasos per-build preprocess scratch
 .phantasos/
 
 # Legacy local jar dir (the jar is now fetched to ~/.cache/phantasos, not here)
 .tools/
+
+# Research artifacts — not part of the committed repo
+docs/research/

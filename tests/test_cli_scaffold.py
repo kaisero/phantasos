@@ -89,3 +89,19 @@ def test_cli_pyproject_is_valid_toml():
     assert parsed["project"]["scripts"] == {"my-cli": "my_cli.main:app"}
     assert parsed["tool"]["uv"]["sources"]["prisma-browser-sdk"] == {
         "path": "../prisma-browser-sdk", "editable": True}
+
+
+def test_env_example_renders_vars_when_provided():
+    out = _render(".env.example.jinja", {"auth_env_vars": [
+        {"name": "PRISMA_CLIENT_ID", "example": "<client-id>"},
+        {"name": "SCOPE", "example": "tsg_id:123"},
+    ]})
+    assert "PRISMA_CLIENT_ID=<client-id>" in out
+    assert "SCOPE=tsg_id:123" in out
+
+
+def test_env_example_empty_without_vars():
+    # SDK context has no auth_env_vars -> renders only-whitespace
+    # -> render_scaffold skips it
+    out = _render(".env.example.jinja", {})
+    assert out.strip() == ""
