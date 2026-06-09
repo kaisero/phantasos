@@ -11,7 +11,11 @@ def test_flag_defaults():
 def test_command_and_ir_roundtrip():
     cmd = Command(
         verb="set", object="widget", sdk_resource="widgets", sdk_method="create_widget",
-        body_flags=[Flag(name="--name", param="name", py_type="str", kind="scalar", required=True)],
+        body_flags=[
+            Flag(
+                name="--name", param="name", py_type="str", kind="scalar", required=True
+            )
+        ],
     )
     ir = CliIR(sdk_package="fakesdk", sdk_version="9.9.9", commands=[cmd])
     assert ir.commands[0].verb == "set"

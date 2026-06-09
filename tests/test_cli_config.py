@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from phantasos.generator.cli.cliconfig import CliConfig, load_cli_config
 
 

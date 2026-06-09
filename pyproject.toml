@@ -75,6 +75,8 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]
+# fixture intentionally mirrors OpenAPI-Generator output (old-style annotations)
+"tests/fixtures/**" = ["UP042", "UP045", "UP007"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
 "src/phantasos/generate.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.

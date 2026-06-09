@@ -14,7 +14,9 @@ def inv():
 
 
 def _op(inv, resource, method):
-    return next(o for o in inv.operations if o.resource == resource and o.method == method)
+    return next(
+        o for o in inv.operations if o.resource == resource and o.method == method
+    )
 
 
 def test_version_and_resources(inv):
@@ -56,5 +58,7 @@ def test_body_fields_recursed(inv):
     fields = op.body_fields["WidgetInput"]
     by_name = {f.name: f for f in fields}
     assert by_name["name"].kind == "scalar" and by_name["name"].required
-    assert by_name["color"].kind == "enum" and by_name["color"].enum_values == ["red", "blue"]
+    assert by_name["color"].kind == "enum" and by_name["color"].enum_values == [
+        "red", "blue"
+    ]
     assert by_name["spec"].kind == "json"

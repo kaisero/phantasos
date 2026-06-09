@@ -140,6 +140,7 @@ def _id_flag(param: ParamInfo) -> Flag:
 def _query_flags(params: list[ParamInfo]) -> list[Flag]:
     return [
         Flag(name=_flag_name(p.name), param=p.name,
+             # Enum query params stay permissive (str + choices), like fields_to_flags.
              py_type="str", kind="enum" if p.enum_values else "scalar",
              required=False, default=p.default, help=p.description,
              choices=p.enum_values)
