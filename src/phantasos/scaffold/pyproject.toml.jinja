@@ -13,6 +13,10 @@ dependencies = [
 [project.urls]
 Repository = "{{ repo_url }}"
 
+{% if scripts is defined and scripts %}
+[project.scripts]
+{% for name, target in scripts.items() %}{{ name }} = "{{ target }}"
+{% endfor %}{% endif %}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -35,3 +39,7 @@ select = ["E", "F", "I", "UP", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+{% if sdk_source_path is defined and sdk_source_path %}
+[tool.uv.sources]
+{{ sdk_dist }} = { path = "{{ sdk_source_path }}", editable = true }
+{% endif %}
