@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from .inventory import ParamInfo
 from .ir import Verb
 
 # (prefix, verb) — ORDER MATTERS: longer/compound prefixes first.
@@ -60,3 +61,26 @@ def classify_name(method: str) -> Classification | None:
             noun = _singularize(noun)
             return Classification(verb=verb, object=noun.replace("_", "-"))
     return None
+
+
+def detect_id_param(params: list[ParamInfo]) -> ParamInfo | None:
+    """The id is the single required path param that is not a discriminator enum.
+
+    Works before SDK id-name harmonization lands (handles id, device_group_id, etc.).
+    """
+    candidates = [p for p in params if p.location == "path" and not p.enum_values]
+    if not candidates:
+        return None
+    # Prefer an exactly-named "id"; else the first non-enum path param.
+    for p in candidates:
+        if p.name == "id":
+            return p
+    return candidates[0]
+
+
+def select_method_for_verb(methods: list[str]) -> str:
+    """Return the preferred method when multiple share the same verb.
+
+    Prefer the shortest name (fewest path params); ties broken alphabetically.
+    """
+    return sorted(methods, key=lambda m: (m.count("_"), m))[0]
