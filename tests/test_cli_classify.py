@@ -1,6 +1,7 @@
 import pytest
 
-from phantasos.generator.cli.classify import classify_name
+from phantasos.generator.cli.classify import classify_name, detect_id_param
+from phantasos.generator.cli.inventory import ParamInfo
 
 
 @pytest.mark.parametrize(
@@ -37,11 +38,6 @@ def test_classify_verb_and_noun(method, verb, obj):
 )
 def test_unmapped_returns_none(method):
     assert classify_name(method) is None
-
-
-# tests/test_cli_classify.py  (append)
-from phantasos.generator.cli.classify import detect_id_param
-from phantasos.generator.cli.inventory import ParamInfo
 
 
 def _p(name, location, required=True, enum_values=None):
