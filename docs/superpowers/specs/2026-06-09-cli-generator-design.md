@@ -61,7 +61,8 @@ built SDK ─► introspect.py ─► classify.py ─► CliIR (typed) ─┬─
   `*_serialize`). Per method, extracts: each parameter's name, resolved type hint
   (`typing.get_type_hints(..., include_extras=True)`), `Annotated`/pydantic `Field` metadata,
   required/optional + default, the return type, and the docstring summary + description. For
-  body-model params it recurses `model.model_fields`, resolving discriminated-union variants.
+  body-model params it recurses `model.model_fields`, and for union bodies records the candidate
+  member models (the path-enum→variant mapping is applied later in `classify` via `cli.yml`).
   Output: a typed `OperationInventory`.
 - **`classify.py`** — applies the classifier rules (below), merges `cli.yml` deltas, and
   produces the typed **`CliIR`** — the fully-resolved command tree. Pure and unit-testable.
@@ -79,9 +80,15 @@ Verb-first: **`<verb> <object> [<variant>] [flags]`**
   `load` (bulk import), `backup` (export).
 - **Object** = facade resource **+ method noun**, so one facade resource splits into its real
   object types: `access_and_data_policy` → `access-and-data-rule`, `access-and-data-section`, …
-- **Variant** = a body-level discriminated-union member: `set application custom|private|…`.
-  When a path discriminator (e.g. the `type` param) matches the body discriminator, the variant
-  subcommand sets both.
+- **Variant** = a body-level union member surfaced as a subcommand: `set application custom|private|…`.
+  **Important — the SDK's oneOf wrappers are *undiscriminated*** (verified: `CreateOrReplaceAppInput`
+  has an empty `discriminator_value_class_map = {}` and deserializes by first-match trial). So
+  variants are **not** auto-derivable from the body model. Instead, drive variant subcommands off
+  the method's **path enum** (e.g. `type: ListApplicationsTypeParameter`), and map each path value
+  to its variant model via a required `cli.yml` `variants:` entry (the SDK does not encode this
+  mapping). Then flatten the chosen variant model's fields into flags. Note the cardinality can
+  differ — applications expose **5 path values vs 4 body variants** (`catalog` has no create input),
+  so the mapping is authored, not 1:1.
 - **`set` resolution:** no `--id` → create (POST); `--id` + fields → patch (PATCH, default);
   `--id --replace` → update (PUT). If an object has only one write verb, `--id` uses it.
 - **`--dry-run`** on every mutating verb (`set`/`del`/`load`/`request`): print the resolved SDK
@@ -103,16 +110,34 @@ Verb-first: **`<verb> <object> [<variant>] [flags]`**
 `_by_type`, then singularize (`list_applications` → `application`). Methods sharing a noun group
 under one object.
 
+**Classification precedence (authoritative order):** `cli.yml hide`/skip-list → `cli.yml`
+`override`/`request` → prefix heuristic. The skip/hide and explicit mappings are consulted
+**before** prefix matching, so e.g. `update_security_positions` is treated as a reorder action
+(`request`/skip) and never mis-classified as `set security-position`.
+
+**ID parameter detection:** introspect must **detect** the id path-param per operation rather than
+assume the literal name `id` (the SDK uses `id`, `device_group_id`, two-key `_by_type_and_id`,
+etc.). Rule: the single required path param that is not a discriminator enum is the id; expose it
+as `--id`. This lets v1 work *before* the SDK id-harmonization TODO lands. When an object has
+multiple methods of the same verb (e.g. `delete_application_by_id` **and**
+`delete_application_by_type_and_id`), the selection rule is: prefer the variant whose required
+path params are all satisfied by the flags the user supplied; default to the fewest-params
+variant, with `cli.yml override` as the tie-breaker.
+
 **Unmapped policy: warn + skip.** Ops that don't classify (e.g. `suspend_*`, `archive_*`,
-`force_reauth_*`, `revoke_*`, `publish_*`, `*_positions`, sub-resource reads like
-`list_application_categories`) are listed in a build warning with guidance, and omitted from the
-CLI until mapped in `cli.yml`. No `cli.yml` → CRUD-only + warnings.
+`force_reauth_*`, `revoke_*`, `publish_*`, `restore_*`, `resume_*`, `action_*`, `*_positions`,
+sub-resource reads like `list_application_categories`) are listed in a build warning with guidance,
+and omitted from the CLI until mapped in `cli.yml`. No `cli.yml` → CRUD-only + warnings. **Honest
+caveat:** for prisma-browser ~14 ops are non-CRUD, so a no-`cli.yml` build is *substantially*
+incomplete for this product — `cli.yml` authoring is expected, not optional.
 
 ### Flag generation (mirrors pydantic-settings)
 
 - **Scalar / enum / simple-list** field → an individual typed flag (`--name`, `--enabled`,
-  `--urls`). Enum fields carry `choices` (drive static completion); enum values may contain
-  spaces/hyphens.
+  `--urls`). Enum fields carry `choices` to drive static completion, but the generated flag is
+  **permissive**: emit a `str` param with a completer, **not** a validating Typer `Enum`. The SDK
+  enums are `LenientStrEnum` (unknown values pass through by design), so the CLI must not be
+  stricter than the SDK it wraps. Enum values may contain spaces/hyphens.
 - **Nested object / array-of-objects / field-level union / dict** → a single JSON-string flag
   (`--extensions '[{...}]'`).
 - An optional whole-body `--data <file|->` override (YAML/JSON) is always accepted.
@@ -146,11 +171,18 @@ class Command(BaseModel):
     paginated: bool
 
 class CliIR(BaseModel):
+    sdk_package: str
+    sdk_version: str                # built-SDK provenance, persisted to _generated/ir.json
     commands: list[Command]
 ```
 
-This is the single artifact rendered by templates, reported by discovery, and (potentially
-later) serialized to a JSON command map.
+`Command.variant` is resolved from the method's path enum via `cli.yml` `variants:` (not from a
+body discriminator — the SDK's oneOf wrappers are undiscriminated). The id `Flag` (kind `"id"`) is
+the detected required path param, not assumed to be literally named `id`.
+
+This is the single artifact rendered by templates, reported by discovery, and serialized to
+`_generated/ir.json` (command map + SDK version) for runtime provenance and hand-written-code
+introspection.
 
 ## `cli.yml` schema (override-only)
 
@@ -165,8 +197,16 @@ override:                         # fix object/verb/variant the classifier got w
   applications.create_application: {object: application}
 hide:                             # ops intentionally excluded from the CLI
   - applications.list_application_categories
+variants:                         # REQUIRED for union bodies: path-enum value -> variant model
+  applications.create_application:
+    path_param: type
+    map: {custom: CustomApplicationInput, private: PrivateApplicationInput,
+          non-web: NonWebApplicationInput, localdesktopcustom: LocalDesktopApplicationInput}
+    # 'catalog' path value has no create variant — omitted intentionally
 settings:                         # optional per-command tweaks (flag rename/hide/help)
   applications.list_applications: {flags: {configuration_version: {hidden: true}}}
+custom:                           # thin pointer to hand-owned commands (code lives in custom/)
+  commands: [prisma_browser_cli.custom.doctor]
 ```
 
 ## Generated CLI project (runtime behavior)
@@ -174,17 +214,26 @@ settings:                         # optional per-command tweaks (flag rename/hid
 ```
 ../prisma-browser-cli/
   prisma_browser_cli/
-    main.py                  # Typer app; registers set/del/show/request/load/backup sub-apps
-    commands/<resource>.py   # generated: one module per facade resource
-    config.py                # config.yaml + env + flag precedence
-    output.py                # Rich table (default) | json | yaml
-    runtime.py               # Client.from_env(); ApiException→exit-code; JSON-flag parsing
+    _generated/              # WIPED + re-emitted every build — never hand-edited
+      __init__.py
+      app.py                 # build_generated_app(exclude=...) -> typer.Typer  (factory, NOT entrypoint)
+      commands/<resource>.py # generated: one module per facade resource
+      runtime.py             # Client.from_env(); ApiException→exit-code; JSON-flag parsing; hook dispatch
+      output.py              # Rich table (default) | json | yaml
+      config.py              # config.yaml + env + flag precedence
+      ir.json                # serialized CliIR + built-SDK version (provenance / introspection)
+    main.py                  # HAND-OWNED entrypoint: composes generated + custom  ← console_scripts points HERE
+    custom/                  # HAND-OWNED: commands the generator can't infer (doctor, login, ...)
+      __init__.py
+    hooks.py                 # HAND-OWNED: cross-cutting hooks (before_call/after_call/confirm_delete/render_override)
     logging.py               # errors-only rotating file; --verbose → full req/resp (redacted)
   pyproject.toml             # deps: typer, rich, prisma-browser-sdk, pyyaml, platformdirs
                              # console_scripts: prisma-browser = prisma_browser_cli.main:app
   docs/COMMANDS.md           # generated command reference (typer utils docs)
   tests/                     # from products/<product>/overrides/tests/
 ```
+
+See **Augmentation & extensibility** below for the generated-vs-hand-owned split and the regen contract.
 
 - **Config:** `config.yaml` (e.g. `~/.config/prisma-browser/config.yaml`) for behavior defaults
   (`paginate`, `output`, `log_level`); `.env` for secrets. Precedence:
@@ -201,22 +250,73 @@ settings:                         # optional per-command tweaks (flag rename/hid
   YAML list; `load <object> --file f.yaml [--dry-run]` validates each entry and creates/updates.
   File format + engine designed to extend to whole-tenant (`--all`, ordered) later.
 
+## Augmentation & extensibility
+
+**Principle:** generated code is disposable and never hand-edited; hand-written code lives in a
+stable, separate location and *layers on top*. This is the single most important property of the
+design — all human augmentation lives **outside `_generated/`**, in one predictable place.
+
+**The split:**
+
+- **`_generated/`** — emitted wholesale on every `cli build`; deleting and re-emitting it is
+  always safe. `_generated/app.py` exposes a factory `build_generated_app(exclude: set[str] = set())
+  -> typer.Typer` that builds and *returns* the CRUD app — it does **not** become the entrypoint.
+- **`main.py`** (hand-owned) is the `console_scripts` entrypoint. It composes the final app:
+
+  ```python
+  from prisma_browser_cli._generated.app import build_generated_app
+  from prisma_browser_cli.custom import doctor
+
+  app = build_generated_app(exclude={"set:application"})  # drop a generated command to replace it
+  app.add_typer(doctor.app)                               # add a hand-written command
+  app.command()(custom_set_application)                   # register the replacement
+  ```
+
+- **`custom/`** (hand-owned) — new commands the generator can't infer.
+- **`hooks.py`** (hand-owned) — a small, *named* hook protocol (not an event bus) for
+  cross-cutting Python. Generated `runtime.py` calls these if present, no-ops otherwise:
+
+  ```python
+  before_call(method: str, payload: Any, ctx) -> Any | None      # mutate/validate outbound payload
+  after_call(method: str, result: Any, ctx) -> Any | None        # massage result before render
+  confirm_delete(object: str, ident: str, ctx) -> bool           # custom confirmation
+  render_override(command: str, result: Any, ctx) -> bool        # take over output for a command
+  ```
+
+**Regen contract (a new behavior vs the always-overwrite `render_scaffold`, called out explicitly):**
+
+- `_generated/` is deleted and re-emitted on every build. Never hand-edit.
+- `main.py`, `custom/`, `hooks.py`, `config.yaml`, `pyproject.toml`, `tests/` are emitted **only if
+  missing** (or via `overrides/`), then owned by the human; regen leaves them untouched.
+- `cli.yml` stays declarative-only; it MAY carry a thin `custom:` pointer (e.g.
+  `custom: {commands: [prisma_browser_cli.custom.doctor]}`) purely so `build` knows to leave a stub
+  and `COMMANDS.md` can mention hand-written commands. The *code* lives in `custom/`, not YAML.
+
+This makes "build SDK → build CLI → never hand-edit *generated*" genuinely robust while giving
+humans a real place to write Python: overrides via the factory `exclude` + re-registration, new
+commands via `custom/`, cross-cutting logic via `hooks.py`.
+
 ## Generation & discovery commands
 
 Added to `phantasos.cli`:
 
-- `phantasos cli discover <product>` — introspect + classify; print the report (resource.method
-  → verb/object/variant or UNMAPPED) and write a `cli.yml` stub (CRUD pre-filled, non-CRUD as
-  TODOs).
+- `phantasos cli discover <product>` — introspect + classify; print the **full classification
+  table** (every resource.method → verb/object/variant or UNMAPPED) and write a `cli.yml` stub
+  (CRUD pre-filled, non-CRUD/ambiguous as TODOs). This table is a **required review artifact** —
+  `cli build` also prints it (the unmapped subset as warnings) so coverage gaps are never silent.
 - `phantasos cli build <product>` — emit the CLI project to the sibling output dir. Requires the
-  SDK to be built and importable first (errors helpfully otherwise). Post-build smoke: import the
+  SDK to be built and importable first (errors helpfully otherwise). **Records the built SDK
+  version** into `_generated/ir.json`; the generated CLI warns at runtime if the installed SDK
+  version differs (mirrors the SDK's `_about.py` provenance pattern). Post-build smoke: import the
   emitted app and run `typer ... utils docs`.
 
 ## Testing strategy
 
-- **Generator unit tests** (in phantasos `tests/`): `introspect` / `classify` / flag-mapping
-  against small fixture SDKs and the real prisma-browser SDK — e.g.
-  `assert classify("get_application_by_id").verb == "show"`; union → variant subcommands;
+- **Generator unit tests** (in phantasos `tests/`): `introspect` / `classify` / flag-mapping.
+  **Seed the `classify` test matrix from the real 90-method prisma-browser inventory** (a free
+  golden corpus) — e.g. `assert classify("get_application_by_id").verb == "show"`; precedence
+  (skip/hide before prefix); id-param detection across `id`/`device_group_id`/`_by_type_and_id`;
+  multi-method-same-verb selection; union → variant subcommands via `cli.yml variants:`;
   `cli.yml` override/hide/request merge; unmapped → warn.
 - **Golden-file tests:** emitted source for a few representative commands.
 - **Generated-CLI tests** (shipped via `products/<product>/overrides/tests/`): Typer `CliRunner`
