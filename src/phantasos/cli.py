@@ -34,6 +34,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="write products/<name>/cli.yml.stub next to sdk.yml",
     )
+    bld = cli_sub.add_parser("build", help="emit the CLI project from a built SDK")
+    bld.add_argument(
+        "product", help="product name (products/<name>/) or path to sdk.yml"
+    )
     args = parser.parse_args(argv)
 
     if args.cmd == "build":
@@ -95,6 +99,43 @@ def main(argv: list[str] | None = None) -> int:
             stub_path.write_text(render_stub(ir, unmapped), encoding="utf-8")
             print(f"\nwrote {stub_path}", file=sys.stderr)
         return 0
+
+    if args.cmd == "cli" and args.cli_cmd == "build":
+        from pathlib import Path
+
+        from .generator.cli.classify import build_cli_ir
+        from .generator.cli.cliconfig import load_cli_config
+        from .generator.cli.introspect import introspect
+        from .generator.cli.render_cli import render_cli
+
+        try:
+            loaded = load_product(args.product)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
+        try:
+            inv = introspect(loaded.config.package, Path(loaded.output_dir))
+        except ImportError as exc:
+            print(
+                f"ERROR: SDK not importable — build it first ({exc})",
+                file=sys.stderr,
+            )
+            return 2
+        ir, unmapped = build_cli_ir(inv, cfg)
+        cli_pkg = f"{loaded.config.package}_cli"
+        out_dir = Path(loaded.output_dir).parent / f"{loaded.config.package}-cli"
+        written = render_cli(ir, package=cli_pkg, out_dir=out_dir)
+        print(
+            f"emitted {len(written)} files to {out_dir} ({len(ir.commands)} commands)"
+        )
+        if unmapped:
+            print(
+                f"note: {len(unmapped)} unmapped ops omitted (map in cli.yml)",
+                file=sys.stderr,
+            )
+        return 0
+
     return 0
 
 
