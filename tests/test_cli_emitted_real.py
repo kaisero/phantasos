@@ -1,0 +1,117 @@
+import importlib
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from phantasos.generator.cli.classify import build_cli_ir
+from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
+from phantasos.generator.cli.introspect import introspect
+from phantasos.generator.cli.render_cli import render_cli
+
+REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+
+_APP_VARIANTS = VariantMap(
+    path_param="type",
+    map={
+        "custom": "CustomApplicationInput",
+        "private": "PrivateApplicationInput",
+        "non-web": "NonWebApplicationInput",
+        "localdesktopcustom": "LocalDesktopApplicationInput",
+    },
+)
+
+
+@pytest.fixture
+def real_cli(tmp_path):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
+    cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
+    ir, _ = build_cli_ir(inv, cfg)
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path,
+               env_prefix="PRISMA", sdk_dependency="prisma-browser-sdk")
+    sys.path.insert(0, str(tmp_path))
+    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+        del sys.modules[n]
+    try:
+        yield tmp_path
+    finally:
+        sys.path.remove(str(tmp_path))
+        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+            del sys.modules[n]
+
+
+def _patch_client(monkeypatch):
+    import prisma_browser.extras.facade as facade
+    mock = MagicMock(name="Client")
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: mock))
+    return mock
+
+
+def test_help_lists_verbs_and_objects(real_cli):
+    from typer.testing import CliRunner
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(main.app, ["--help"])
+    assert res.exit_code == 0
+    assert "set" in res.output and "show" in res.output and "del" in res.output
+    res2 = CliRunner().invoke(main.app, ["show", "--help"])
+    assert "application" in res2.output
+
+
+def test_show_by_type_and_id_dispatch(real_cli, monkeypatch):
+    from typer.testing import CliRunner
+    mock = _patch_client(monkeypatch)
+    # Give the mock a JSON-serializable return so the output renderer doesn't error.
+    mock.applications.get_application_by_type_and_id.return_value = {
+        "id": "APP-123", "type": "custom", "name": "Test App"
+    }
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        ["show", "application", "--type", "custom", "--id", "APP-123",
+         "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output
+    # real facade: get_application_by_type_and_id(type="custom", id="APP-123")
+    call = mock.applications.get_application_by_type_and_id
+    assert call.called
+    kwargs = call.call_args.kwargs
+    assert kwargs.get("type") == "custom" and kwargs.get("id") == "APP-123"
+
+
+def test_set_constructs_real_model(real_cli, monkeypatch):
+    # Build a `set device-group` with the two required flat scalar fields: name (str)
+    # and platform (DeviceGroupPlatform enum with value "Desktop Browser").
+    # Asserts that the REAL DeviceGroupRequest model is constructed and passed to
+    # create_device_group — proving model build + dispatch end-to-end.
+    from prisma_browser.models.device_group_request import DeviceGroupRequest
+    from typer.testing import CliRunner
+
+    mock = _patch_client(monkeypatch)
+    mock.device_groups.create_device_group.return_value = {
+        "id": "DG-1", "name": "Kiosks", "platform": "Desktop Browser"
+    }
+    main = importlib.import_module("prisma_browser_cli.main")
+
+    res = CliRunner().invoke(
+        main.app,
+        ["set", "device-group", "--name", "Kiosks",
+         "--platform", "Desktop Browser", "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output
+
+    # find the create_device_group call on the mock and assert a real model was passed
+    create_call = mock.device_groups.create_device_group
+    assert create_call.called, "create_device_group was not called"
+    call_kwargs = create_call.call_args.kwargs
+    body = call_kwargs.get("device_group_request")
+    assert body is not None, f"device_group_request kwarg missing; got: {call_kwargs}"
+    assert isinstance(body, DeviceGroupRequest), (
+        f"Expected DeviceGroupRequest, got {type(body)}"
+    )
+    assert body.name == "Kiosks"

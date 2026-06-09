@@ -59,6 +59,18 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
+    # Deduplicate all_flags: path params take priority; body/query flags whose
+    # param name already appears in path_params are suppressed (avoids duplicate
+    # argument errors when an SDK body model field shares a name with a path param
+    # — e.g. the `type` discriminator that appears both as a path param and as a
+    # field of the request body).
+    path_param_names = {f.param for f in c.path_params}
+    deduped_body = [f for f in c.body_flags if f.param not in path_param_names]
+    deduped_query = [
+        f for f in c.query_flags
+        if f.param not in path_param_names
+        and f.param not in {b.param for b in deduped_body}
+    ]
     return {
         "key": c.key,
         "func_name": _func_name(c),
@@ -68,10 +80,11 @@ def _command_view(
         "verb": c.verb,
         "variant": c.variant,
         "path_params": [_flag_view(f) for f in c.path_params],
-        "body_flags": [_flag_view(f) for f in c.body_flags],
-        "query_flags": [_flag_view(f) for f in c.query_flags],
+        "body_flags": [_flag_view(f) for f in deduped_body],
+        "query_flags": [_flag_view(f) for f in deduped_query],
         "all_flags": [
-            _flag_view(f) for f in (c.path_params + c.body_flags + c.query_flags)
+            _flag_view(f)
+            for f in (c.path_params + deduped_body + deduped_query)
         ],
     }
 
