@@ -71,11 +71,55 @@ completion (verbs/objects/flags/enum values) already ships.
 Per-field overrides of JSON-string flags (`--risk.level high`), precedence over the JSON value.
 (pydantic-settings does this; we deferred it.)
 
-### 3g — Full phantasos-grade scaffold parity
-The generated CLI is currently a lean project. Reuse `src/phantasos/scaffold/` + per-product
-`overrides/` to emit CI/CD workflows, the mkdocs site + publish, release/audit/secrets/codeql,
-pre-commit, dotfiles, LICENSE/CHANGELOG — matching the SDK. (This is the deferred "consistency"
-enhancement.)
+### 3g — Full phantasos-grade scaffold parity — by REUSING `render_scaffold` (PROMOTE: do early, alongside 3a)
+**User feedback (2026-06-09):** the generated CLI is missing the whole project shell (no README,
+no `.env.example`, no noxfile/uv/CI, etc.) that the SDK gets, AND the emitted `pyproject.toml`
+lists the SDK dep as `prisma_browser` (the import package) instead of the **distribution**
+`prisma-browser-sdk` → `pip install` can't resolve it. Both are fixed by the same change:
+**have `phantasos cli build` reuse the existing SDK scaffold system** (`src/phantasos/scaffold.py`
+`render_scaffold` + `src/phantasos/scaffold/` templates), which is already context-driven.
+
+Concrete design (combines the SDK-scaffold design `…specs/2026-06-08-sdk-project-scaffold-design.md`
+with the CLI generator):
+
+`phantasos cli build` emits into the out dir in two layers:
+1. `render_cli(...)` → `prisma_browser_cli/_generated/` (overwrite) + hand-owned `main.py`/
+   `custom/`/`hooks.py` (emit-once). **Remove pyproject emission from `render_cli`** (scaffold owns it).
+2. `scaffold.render_scaffold(scaffold.builtin_dir(), cli_overrides, out_dir, cli_context)` → the
+   project shell (pyproject, README, noxfile, CI workflows, `.pre-commit-config.yaml`, `.gitignore`,
+   `.editorconfig`, mkdocs, LICENSE, CHANGELOG, CONTRIBUTING, SECURITY, `.env.example`) — overwrite,
+   like the SDK. `render_scaffold` only writes its template set and leaves `_generated/`,
+   `main.py`, `custom/`, `hooks.py` untouched (no conflict).
+
+`cli_context` (built in `cli build`, analogous to `loaded.context` for the SDK):
+- `distribution = "<sdk-distribution>-cli"` (e.g. `prisma-browser-cli`), `package = "prisma_browser_cli"`
+- `dependencies = ["typer>=0.12", "rich>=13", "pyyaml>=6", "<sdk-distribution>"]`
+  — **`<sdk-distribution>` is the SDK's `project.distribution` (`prisma-browser-sdk`), NOT
+  `ir.sdk_package`** — this is the dep-name fix.
+- `scripts = {"<distribution>": "<package>.main:app"}` (new — see scaffold change below)
+- `description`/`author`/`author_email`/`repo_url`/`license`/`python_versions` from a **`cli.yml`
+  `project:` block** (mirror `sdk.yml`'s `ProjectConfig`), or inherited from the SDK product's
+  `project` with a `-cli` distribution suffix.
+
+Two small scaffold-template changes (in `src/phantasos/scaffold/`):
+- `pyproject.toml.jinja`: add a conditional `[project.scripts]` block rendered only when `scripts`
+  is in context (SDK passes none → unchanged; CLI passes the console-script entry).
+- Add `.env.example.jinja` (auth env vars: CLIENT_ID/SECRET/SCOPE/base_url). Shared SDK+CLI is fine
+  (same auth), or CLI-only via the CLI overrides.
+
+CLI-specific overrides (a `cli_overrides` dir — e.g. `products/<product>/cli-overrides/` or shipped
+defaults in the generator): a CLI `README.md.jinja` (required, like the SDK's), and the CLI's own
+`tests/` (CliRunner tests) since the SDK component tests (`test_auth/pagination/errors/facade`)
+won't render for the CLI (their `has_auth`/`has_pagination`/… gates are absent in `cli_context`).
+
+**Ownership reconciliation (the one real decision):** `pyproject.toml` MOVES from `render_cli`
+emit-once → **scaffold-owned (overwrite)**, matching the SDK's "pure artifact, never hand-edit"
+model. Custom-command extra deps are added via `cli.yml project.dependencies` (like the SDK), not by
+hand-editing pyproject. Hand-owned surface stays `main.py`/`custom/`/`hooks.py` (emit-once). Update
+the spec's "Generated CLI project" section to reflect pyproject being scaffold-owned.
+
+This replaces the old "lean pyproject emit-once" approach in Phase 2b and the standalone dep-name
+fix. **Recommend doing 3g early (with or before 3a)** since a usable CLI needs the project shell.
 
 ### 3h — SDK-side id-parameter harmonization (optional, SDK layer)
 Tracked in `docs/TODO.md`. The CLI works today by detecting the id path-param per op; a
