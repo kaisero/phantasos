@@ -25,6 +25,24 @@ Notes:
 - The framework CI already smoke-builds ADEM; once the SDK suite exists, run it where the SDK
   lives (the sibling), not in the generator repo (generated-code tests belong to the generated SDK).
 
+## Harmonize ID path-parameter naming across generated SDKs
+
+Surfaced while designing the CLI generator (`prisma-browser-cli`). The generated SDK uses
+**inconsistent names for the resource-id path parameter** across operations — e.g.
+`id` (applications, rules, sections), `device_group_id` (device groups),
+`device_status_change_request` (a body, not a path id), etc. This forces any downstream
+consumer (the CLI's create-vs-patch-vs-update classifier, in particular) to guess which
+parameter is "the id".
+
+Decision: **harmonize this in the SDK layer (phantasos), not in the CLI.** The CLI should be
+able to assume a single canonical id parameter. Likely a generic preprocess/patch transform
+(or a `sdk.yml` rename rule) that normalizes path-id parameters to a consistent name/shape.
+
+- [ ] Audit id path-param names across all operations in each product spec
+- [ ] Design a normalization transform (rename to a canonical `id`, or expose a stable accessor)
+- [ ] Apply + re-smoke; confirm the CLI generator can rely on the canonical id
+- [ ] Document the convention in `docs/AUTHORING_A_SPEC.md`
+
 ## Follow-up: consider a Typer CLI
 
 The CLI is currently argparse (`phantasos.cli:main`). The project template ships a Typer
