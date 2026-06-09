@@ -126,6 +126,17 @@ def main(argv: list[str] | None = None) -> int:
         cli_pkg = f"{loaded.config.package}_cli"
         out_dir = Path(loaded.output_dir).parent / f"{loaded.config.package}-cli"
         written = render_cli(ir, package=cli_pkg, out_dir=out_dir)
+
+        from . import scaffold
+        from .generator.cli.render_cli import cli_overrides_dir
+        from .generator.cli.scaffold_context import build_cli_scaffold_context
+
+        scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
+        scaffold_written = scaffold.render_scaffold(
+            scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx
+        )
+        written = written + scaffold_written
+
         print(
             f"emitted {len(written)} files to {out_dir} ({len(ir.commands)} commands)"
         )

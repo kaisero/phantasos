@@ -108,8 +108,6 @@ def render_cli(
     out_dir: Path,
     *,
     env_prefix: str | None = None,
-    distribution: str | None = None,
-    sdk_dependency: str | None = None,
 ) -> list[str]:
     env = _env()
     pkg = out_dir / package
@@ -120,14 +118,10 @@ def render_cli(
         shutil.rmtree(gen)
     (gen / "commands").mkdir(parents=True, exist_ok=True)
     resolved_prefix = env_prefix or package.upper().removesuffix("_CLI")
-    resolved_distribution = distribution or package.replace("_", "-")
-    resolved_sdk_dependency = sdk_dependency or ir.sdk_package
     ctx = {
         "ir": ir,
         "package": package,
         "env_prefix": resolved_prefix,
-        "distribution": resolved_distribution,
-        "sdk_dependency": resolved_sdk_dependency,
     }
     written: list[str] = []
 
@@ -177,12 +171,5 @@ def render_cli(
         dest = pkg / rel
         if not dest.exists():
             render(f"{rel}.jinja", dest)
-
-    pyproject = out_dir / "pyproject.toml"
-    if not pyproject.exists():
-        pyproject.write_text(
-            env.get_template("pyproject.toml.jinja").render(**ctx), encoding="utf-8"
-        )
-        written.append("pyproject.toml")
 
     return written

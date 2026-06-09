@@ -34,7 +34,7 @@ def real_cli(tmp_path):
     cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
     ir, _ = build_cli_ir(inv, cfg)
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path,
-               env_prefix="PRISMA", sdk_dependency="prisma-browser-sdk")
+               env_prefix="PRISMA")
     sys.path.insert(0, str(tmp_path))
     for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
         del sys.modules[n]

@@ -76,19 +76,3 @@ def test_render_cli_wipes_generated_but_preserves_handowned(tmp_path):
     assert not stale.exists()                       # _generated wiped
 
 
-def test_emits_pyproject_with_console_script(tmp_path):
-    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path,
-               distribution="fakesdk-cli", sdk_dependency="fakesdk")
-    pyproject = (tmp_path / "pyproject.toml").read_text()
-    assert "fakesdk-cli" in pyproject
-    assert "typer" in pyproject and "rich" in pyproject and "pyyaml" in pyproject
-    assert "fakesdk_cli.main:app" in pyproject
-    assert "fakesdk" in pyproject  # sdk dependency
-
-
-def test_pyproject_is_emit_once(tmp_path):
-    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path, sdk_dependency="fakesdk")
-    p = tmp_path / "pyproject.toml"
-    p.write_text("# user edits\n", encoding="utf-8")
-    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path, sdk_dependency="fakesdk")
-    assert p.read_text() == "# user edits\n"  # preserved
