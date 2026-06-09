@@ -13,6 +13,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from ruamel.yaml import YAML
 
+from ...productconfig import ProjectConfig
+
 
 class RequestMapping(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -45,6 +47,7 @@ class CustomPointer(BaseModel):
 class CliConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    project: ProjectConfig | None = None
     request: dict[str, RequestMapping] = {}
     override: dict[str, Override] = {}
     hide: list[str] = []

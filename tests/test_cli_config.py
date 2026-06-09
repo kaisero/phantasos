@@ -33,3 +33,24 @@ def test_loads_all_sections(tmp_path):
     assert v.path_param == "type"
     assert v.map["custom"] == "CustomApplicationInput"
     assert cfg.custom.commands == ["pkg.custom.doctor"]
+
+
+def test_cli_config_optional_project_block(tmp_path):
+    p = tmp_path / "cli.yml"
+    p.write_text(
+        "project:\n"
+        "  distribution: prisma-browser-cli\n"
+        "  author: Oliver Kaiser\n"
+        "  author_email: o@example.com\n"
+        "  repo_url: https://github.com/x/prisma-browser-cli\n"
+        "  description: CLI for the Prisma Browser SDK\n"
+    )
+    cfg = load_cli_config(p)
+    assert cfg.project is not None
+    assert cfg.project.distribution == "prisma-browser-cli"
+
+
+def test_cli_config_project_absent_is_none(tmp_path):
+    p = tmp_path / "cli.yml"
+    p.write_text("hide: []\n")
+    assert load_cli_config(p).project is None
