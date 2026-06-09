@@ -60,6 +60,9 @@ class GizmosApi:
     def list_gizmos(self):
         """List gizmos."""
 
+    def patch_gizmo(self, id: str, create_gizmo_input: CreateGizmoInput):
+        """Patch a gizmo."""
+
     def delete_gizmo_by_id(self, id: str):
         """Delete a gizmo."""
 

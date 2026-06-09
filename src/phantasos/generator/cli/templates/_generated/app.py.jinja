@@ -29,11 +29,19 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
         {{ resource|tojson }}: _cmd_{{ resource }},
 {%- endfor %}
     }
+    object_apps: dict[tuple[str, str], typer.Typer] = {}
     for key, verb, path, resource, func_name in _REGISTRY:
         if key in exclude or verb not in verb_apps:
             continue
         fn = getattr(resources[resource], func_name)
         if len(path) == 1:
             verb_apps[verb].command(path[0])(fn)
-        # variant commands (len(path) == 2) are registered in Task 6b
+        else:  # len 2: object sub-Typer under the verb, leaf inside it
+            obj, leaf = path
+            sub = object_apps.get((verb, obj))
+            if sub is None:
+                sub = typer.Typer(no_args_is_help=True)
+                object_apps[(verb, obj)] = sub
+                verb_apps[verb].add_typer(sub, name=obj)
+            sub.command(leaf)(fn)
     return app

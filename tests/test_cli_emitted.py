@@ -230,3 +230,37 @@ def test_cli_runner_show_set_del(emitted, monkeypatch):
     kinds = [c[0] for c in calls]
     assert "list_widgets" in kinds and "get_widget_by_id" in kinds
     assert "create_widget" in kinds and "delete_widget_by_id" in kinds
+
+
+def test_cli_runner_variant_and_nonvariant_under_object(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    import fakesdk.models as models
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+
+    r = CliRunner()
+    # variant create: set gizmo simple
+    res = r.invoke(
+        main.app, ["set", "gizmo", "simple", "--name", "g1", "--output", "json"]
+    )
+    assert res.exit_code == 0, res.output
+    # non-variant patch under the same object: set gizmo patch
+    res2 = r.invoke(
+        main.app,
+        ["set", "gizmo", "patch", "--id", "z9", "--name", "g2", "--output", "json"],
+    )
+    assert res2.exit_code == 0, res2.output
+
+    names = [c[0] for c in calls]
+    assert "create_gizmo" in names         # from `set gizmo simple`
+    assert "patch_gizmo" in names           # from `set gizmo patch`
+    create_call = next(kw for n, kw in calls if n == "create_gizmo")
+    assert create_call["type"] == "simple"
+    assert isinstance(create_call["create_gizmo_input"], models.CreateGizmoInput)

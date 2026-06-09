@@ -30,6 +30,19 @@ def _func_name(c: Command) -> str:
     return (f"{base}_{c.variant}".replace("-", "_")) if c.variant else base
 
 
+_SUBVERB_PRIORITY = {
+    "patch": 0, "create": 1, "update": 2, "delete": 3,
+    "get": 4, "list": 5, "bulk_create": 6, "bulk_delete": 7,
+}
+
+
+def _primary_sub_verb(c: Command) -> str:
+    return min(
+        (b.sub_verb for b in c.bindings),
+        key=lambda s: _SUBVERB_PRIORITY.get(s, 99),
+    )
+
+
 def _flag_view(f: Flag) -> dict[str, str]:
     return {
         "name": f.name, "param": f.param,
@@ -37,12 +50,20 @@ def _flag_view(f: Flag) -> dict[str, str]:
     }
 
 
-def _command_view(c: Command) -> dict[str, object]:
+def _command_view(
+    c: Command, variant_groups: set[tuple[str, str]]
+) -> dict[str, object]:
+    if c.variant:
+        typer_path: list[str] = [c.object, c.variant]
+    elif (c.verb, c.object) in variant_groups:
+        typer_path = [c.object, _primary_sub_verb(c)]
+    else:
+        typer_path = [c.object]
     return {
         "key": c.key,
         "func_name": _func_name(c),
         "summary": c.summary,
-        "typer_path": [c.object, c.variant] if c.variant else [c.object],
+        "typer_path": typer_path,
         "sdk_resource": c.sdk_resource,
         "verb": c.verb,
         "variant": c.variant,
@@ -97,9 +118,12 @@ def render_cli(
 
     # Emit per-resource command modules
     resources = sorted({c.sdk_resource for c in ir.commands})
+    variant_groups: set[tuple[str, str]] = {
+        (c.verb, c.object) for c in ir.commands if c.variant
+    }
     by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
     for c in ir.commands:
-        by_resource[c.sdk_resource].append(_command_view(c))
+        by_resource[c.sdk_resource].append(_command_view(c, variant_groups))
     for resource, cmds in by_resource.items():
         dest = gen / "commands" / f"{resource}.py"
         dest.write_text(
@@ -111,7 +135,7 @@ def render_cli(
     (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
     written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
     # app factory
-    all_views = [_command_view(c) for c in ir.commands]
+    all_views = [_command_view(c, variant_groups) for c in ir.commands]
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
             resources=resources, commands=all_views, **ctx),
