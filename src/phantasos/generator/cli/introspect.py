@@ -10,7 +10,7 @@ import typing
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType, UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -37,15 +37,29 @@ def _public_methods(cls: type[Any]) -> Iterator[tuple[str, object]]:
 def _enum_values(tp: object) -> list[str] | None:
     if isinstance(tp, type) and issubclass(tp, enum.Enum):
         return [str(m.value) for m in tp]
+    if get_origin(tp) is Literal:
+        return [str(a) for a in get_args(tp)]
     return None
 
 
+def _annotated_description(tp: object) -> str:
+    """Extract a description from Annotated[..., Field(description=...)] metadata."""
+    if get_origin(tp) is not None and hasattr(tp, "__metadata__"):
+        for meta in tp.__metadata__:
+            desc = getattr(meta, "description", None)
+            if desc:
+                return str(desc)
+    return ""
+
+
 def _unwrap_optional(tp: object) -> object:
-    """Return the non-None member of Optional[X], else tp."""
+    """Return the underlying type, peeling Annotated[...] and Optional[X]."""
+    if get_origin(tp) is not None and hasattr(tp, "__metadata__"):
+        tp = get_args(tp)[0]
     if get_origin(tp) in (Union, UnionType):
         non_none = [a for a in get_args(tp) if a is not type(None)]
         if len(non_none) == 1:
-            return non_none[0]
+            return _unwrap_optional(non_none[0])
     return tp
 
 
@@ -103,8 +117,17 @@ def _docstring_parts(fn: object) -> tuple[str, str]:
 
 
 def introspect(package: str, sdk_path: Path) -> OperationInventory:
-    if str(sdk_path) not in sys.path:
+    added = str(sdk_path) not in sys.path
+    if added:
         sys.path.insert(0, str(sdk_path))
+    try:
+        return _introspect(package, sdk_path)
+    finally:
+        if added and str(sdk_path) in sys.path:
+            sys.path.remove(str(sdk_path))
+
+
+def _introspect(package: str, sdk_path: Path) -> OperationInventory:
     pkg = importlib.import_module(package)
     facade: ModuleType = importlib.import_module(f"{package}.extras.facade")
     resources: dict[str, type[Any]] = facade._RESOURCES
@@ -114,7 +137,7 @@ def introspect(package: str, sdk_path: Path) -> OperationInventory:
         for method, fn in _public_methods(api_cls):
             callable_fn = typing.cast(Callable[..., Any], fn)
             try:
-                hints = typing.get_type_hints(callable_fn, include_extras=False)
+                hints = typing.get_type_hints(callable_fn, include_extras=True)
             except Exception:
                 hints = {}
             sig = inspect.signature(callable_fn)
@@ -142,6 +165,7 @@ def introspect(package: str, sdk_path: Path) -> OperationInventory:
                     location=location,  # type: ignore[arg-type]
                     required=required,
                     default=None if required else p.default,
+                    description=_annotated_description(tp),
                     enum_values=_enum_values(base),
                 )
                 if is_body and isinstance(base, type) and issubclass(base, BaseModel):

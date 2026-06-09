@@ -1,4 +1,5 @@
 # tests/test_cli_introspect.py
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,3 +63,23 @@ def test_body_fields_recursed(inv):
         "red", "blue"
     ]
     assert by_name["spec"].kind == "json"
+
+
+def test_sys_path_restored_after_introspect():
+    before = list(sys.path)
+    introspect("fakesdk", FIXTURE)
+    # introspect must not leave the SDK path lingering on sys.path
+    assert sys.path == before
+
+
+def test_literal_field_is_enum(inv):
+    op = _op(inv, "widgets", "create_widget")
+    fields = {f.name: f for f in op.body_fields["WidgetInput"]}
+    assert fields["mode"].kind == "enum"
+    assert fields["mode"].enum_values == ["fast", "slow"]
+
+
+def test_path_param_description_captured(inv):
+    op = _op(inv, "widgets", "get_widget_by_id")
+    id_param = next(p for p in op.params if p.name == "id")
+    assert id_param.description == "The widget id."
