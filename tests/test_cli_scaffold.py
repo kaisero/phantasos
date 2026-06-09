@@ -2,6 +2,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from phantasos.generator.cli.render_cli import cli_overrides_dir
 from phantasos.generator.cli.scaffold_context import build_cli_scaffold_context
 
 SCAFFOLD = Path("src/phantasos/scaffold")
@@ -157,3 +158,11 @@ def test_build_context_respects_cli_project_block():
     assert ctx["distribution"] == "custom-cli"
     assert ctx["description"] == "My CLI"
     assert ctx["scripts"] == {"custom-cli": "prisma_browser_cli.main:app"}
+
+
+def test_cli_overrides_dir_has_readme_and_tests():
+    d = cli_overrides_dir()
+    assert (d / "README.md.jinja").is_file()
+    assert "{{ distribution }}" in (d / "README.md.jinja").read_text()
+    assert (d / "tests" / "conftest.py.jinja").is_file()
+    assert (d / "tests" / "test_cli_smoke.py.jinja").is_file()

@@ -15,6 +15,10 @@ from .ir import CliIR, Command, Flag
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
 
+
+def cli_overrides_dir() -> Path:
+    return Path(__file__).parent / "cli_overrides"
+
 _RESERVED = {"output", "all_", "dry_run", "verbose", "replace", "self"}
 
 
