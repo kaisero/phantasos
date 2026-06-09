@@ -1,0 +1,54 @@
+# CLI config for prisma-browser-cli — declarative deltas over the auto-classifier.
+# Consumed by `phantasos cli build prisma-browser`. The classifier always runs over the
+# built SDK; this file only supplies what it can't infer.
+
+# --- project metadata for the generated CLI project (scaffold context) ---
+project:
+  distribution: prisma-browser-cli
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-browser-cli
+  description: Command-line interface for the Palo Alto Networks Prisma Browser Management APIs
+
+# --- oneOf (union) request bodies → variant subcommands `set application <variant>` ---
+# Applications use an undiscriminated oneOf body keyed by the path `type`. BOTH the create
+# and the patch method are unions, so each variant command aggregates a create + a patch
+# binding (dispatched at runtime by --id). `catalog` has no create/patch variant → omitted.
+variants:
+  applications.create_application:
+    path_param: type
+    map:
+      custom: CustomApplicationInput
+      private: PrivateApplicationInput
+      non-web: NonWebApplicationInput
+      localdesktopcustom: LocalDesktopApplicationInput
+  applications.patch_application_by_type_and_id:
+    path_param: type
+    map:
+      custom: CustomPatchApplicationInput
+      private: PrivatePatchApplicationInput
+      non-web: NonWebPatchApplicationInput
+      localdesktopcustom: LocalDesktopPatchApplicationInput
+
+# --- non-CRUD actions → the `request` namespace (`request <object> <action>`) ---
+# NOTE: request-namespace commands are EMITTED starting in Phase 3b. Until then these
+# entries reserve the mapping (the build skips them cleanly, no "unmapped" warning).
+request:
+  devices.suspend_devices: {object: device, action: suspend}
+  devices.resume_devices: {object: device, action: resume}
+  devices.restore_devices: {object: device, action: restore}
+  devices.archive_devices: {object: device, action: archive}
+  devices.force_reauth_devices: {object: device, action: force-reauth}
+  users.suspend_users: {object: user, action: suspend}
+  users.resume_users: {object: user, action: resume}
+  users.force_reauth_users: {object: user, action: force-reauth}
+  user_requests.action_user_request: {object: user-request, action: action}
+  user_requests.revoke_user_request: {object: user-request, action: revoke}
+  configuration_management.publish_draft_configuration: {object: configuration, action: publish}
+  access_and_data_policy.update_access_and_data_positions:
+    {object: access-and-data-section, action: reorder}
+  customization_policy.update_customization_positions:
+    {object: customization-section, action: reorder}
+  security_policy.update_security_positions: {object: security-section, action: reorder}
+  security_policy.patch_security_positions: {object: security-section, action: reorder-patch}
+  sign_in_policy.update_sign_in_positions: {object: sign-in-section, action: reorder}

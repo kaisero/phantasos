@@ -192,3 +192,49 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     assert not (root / "tests" / "test_auth.py").exists()
     # the CLI smoke test + conftest DID render (from cli_overrides)
     assert (root / "tests" / "test_cli_smoke.py").exists()
+
+
+def test_real_cli_yml_loads_project_and_variants():
+    """Phase 3a: the authored products/prisma-browser/cli.yml is valid + complete."""
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
+    assert cfg.project is not None
+    assert cfg.project.distribution == "prisma-browser-cli"
+    # both application write methods are variant-mapped (create + patch)
+    assert "applications.create_application" in cfg.variants
+    assert "applications.patch_application_by_type_and_id" in cfg.variants
+    assert set(cfg.variants["applications.create_application"].map) == {
+        "custom", "private", "non-web", "localdesktopcustom"}
+    # the 16 non-CRUD ops are reserved under request (so the build has no unmapped warnings)
+    assert len(cfg.request) == 16
+    assert cfg.request["devices.suspend_devices"].action == "suspend"
+
+
+@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
+def test_real_cli_yml_produces_variant_commands_and_no_unmapped():
+    """Phase 3a: building with the real cli.yml fans applications into variant commands
+    (each aggregating create + patch) and leaves nothing unmapped."""
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"SDK runtime deps unavailable: {exc}")
+    cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
+    ir, unmapped = build_cli_ir(inv, cfg)
+    by_key = {c.key: c for c in ir.commands}
+
+    assert unmapped == []  # all non-CRUD ops reserved in request:
+    custom = by_key["set:application:custom"]
+    sub_verbs = {b.sub_verb for b in custom.bindings}
+    assert sub_verbs == {"create", "patch"}  # variant aggregates both write methods
+    # the create binding wraps the variant in the oneOf wrapper; patch in PatchAppInput
+    create = next(b for b in custom.bindings if b.sub_verb == "create")
+    patch = next(b for b in custom.bindings if b.sub_verb == "patch")
+    assert create.body_model == "CustomApplicationInput"
+    assert create.body_wrapper == "CreateOrReplaceAppInput"
+    assert patch.body_model == "CustomPatchApplicationInput"
+    assert patch.body_wrapper == "PatchAppInput"
+    assert {"set:application:private", "set:application:non-web",
+            "set:application:localdesktopcustom"} <= set(by_key)
