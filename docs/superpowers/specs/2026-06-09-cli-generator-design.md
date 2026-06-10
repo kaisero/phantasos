@@ -361,3 +361,122 @@ Added to `phantasos.cli`:
 Deferred items are listed under "Deferred" in the scope section. None block v1. The only
 external dependency is the SDK id-harmonization TODO, which the CLI works around by always
 exposing `--id` and treating id as a single canonical path parameter per object.
+
+## Table output & columns
+
+### Build-time response introspection
+
+`OperationInfo` (in `inventory.py`) carries three response fields populated by `introspect.py`:
+
+- `return_model` — class name of the operation's return type.
+- `items_field` — list-envelope field name (e.g. `"data"`), or `None` when the operation
+  returns the item directly.
+- `response_fields` — `list[FieldInfo]` for the *item* model (envelope unwrapped).
+
+**Envelope detection rule:** a return model is a list envelope only when its `list[Model]`
+field is named `"data"` **or** the model carries a `page_info` sibling. A plain item model
+that *happens* to embed a list (e.g. `User.user_groups`) is NOT an envelope — that guard
+prevents false positives on embedded collections.
+
+### cli.yml `columns:` section
+
+`CliConfig.columns` is a `dict[str, list[str | ColumnEntry]]` keyed by object name.
+Each entry is either a bare string shorthand (`- id` → header and path both `"id"`) or a
+`{header, path}` dict. `path` is a JMESPath expression evaluated at runtime against
+**snake_case** row dicts produced by `model_dump(mode="json")` **without** `by_alias`.
+
+**Build-time validation** (in `columns.py`, called from `build_cli_ir`):
+
+- **Syntax** — every expression is compiled via `jmespath.compile`; any `JMESPathError`
+  (the base class, covering empty expressions and syntax errors) fails the build immediately.
+- **Root-field check** — best-effort: when the item model's fields are known and the
+  AST's leftmost node is a plain field reference, an unknown root field name is rejected.
+  This is intentionally lax: projected fields, function calls, and nested paths are not
+  rejected just because the root key cannot be checked.
+- **Unknown object keys** — any key in `cli.yml columns:` that doesn't match a known object
+  noun in the IR is a hard build error (typos are caught at build time, not at runtime).
+
+### Per-object resolution (never per command)
+
+Column resolution is **per object**, never per command. The rationale: write-op response
+models diverge (e.g. `create_device_group` returns `CreateDeviceGroup201Response{device_group_id}`,
+not a `DeviceGroup` item) — validating cli.yml columns against each command's own response
+model would fail the build on valid configurations.
+
+**Object row shape** = its `show` command's item model (list envelope unwrapped; if no show
+command exists, the first command with a response model is used). The resolved `columns`
+list attaches to **all** commands of that object. `items_field` stays per-command (set
+from each operation's own introspection result).
+
+### Model-derived defaults
+
+When an object has no `columns:` entry in `cli.yml`, `default_columns` generates defaults
+from the item model's `response_fields`:
+
+1. Preferred identity names first, in order: `id`, `name`, `type`, `status`, `state`
+   (only those present in the model).
+2. Remaining scalar/enum fields in declaration order.
+3. Capped at 6 columns total.
+
+`json`-kind fields (nested models, dicts, and complex arrays) are excluded from defaults.
+Because openapi-generator emits datetime fields as `str` annotations with an `"json"` kind
+after type resolution, **datetimes only appear in the table via explicit curation** in
+`cli.yml`.
+
+### Runtime `--columns` flag
+
+`--columns` is a repeatable Typer option; each value may be a comma-separated list of
+JMESPath expressions. Commas inside `[]`, `()`, `{}`, and quotes/backticks are protected
+(top-level comma split only). Naming syntax: `HEADER=expr` assigns a display header; a
+lone `=` separator (`==` comparison operators pass through unmodified).
+
+**`--columns` implies table and wins over an explicit `--output json|yaml`.** This is a
+deliberate UX decision: if the user asks for columns, they want a table — `--output` is
+demoted. Default output format remains `json`; "show defaults to table for list results" is
+a roadmap follow-up (phase-3 roadmap 3×), not part of this feature.
+
+Invalid expressions at runtime print a markup-safe error to stderr (Rich `markup=False`)
+and exit 2.
+
+### Table rendering
+
+At render time (`output.py`):
+
+1. **Unwrap envelope** — if `items_field` is set, `data[items_field]` is the row list;
+   otherwise the result is wrapped in a single-element list.
+2. **Column selection priority:** `--columns` > IR `columns` > data-driven heuristic.
+3. **Cell formatting:**
+   - `None` → empty string.
+   - `bool` → `"true"` / `"false"`.
+   - `list` → joined preview: `"a, b, c, +2 more"` (dicts labeled by `name`/`id` key, else
+     `"N items"`).
+   - `dict` → compact JSON (`separators=(",", ":")`).
+   - Scalar values → `str(value)`.
+4. **Empty rows** → `"[dim]no results[/]"`.
+5. **Data-driven heuristic (last resort)** — when neither `--columns` nor IR columns are
+   available, top-level scalar-ish keys are collected from the live data with preferred
+   names first, capped at 6. These use a plain `dict.get` lookup (`_Key` wrapper), never
+   `jmespath.compile` — raw API keys are not guaranteed to be valid JMESPath identifiers
+   and the heuristic must never exit.
+
+### discover stub pre-fill
+
+`discover.py`'s `render_stub` emits a `columns:` block (flow-style, deduplicated per
+object) populated with the model-derived defaults. The stub author can then curate or
+replace entries. Only objects whose IR already carries resolved columns appear in the stub.
+
+### oneOf union items (e.g. prisma `ApplicationItem`)
+
+For union wrapper models (detected by an `actual_instance` field), `model_dump` walks
+through the wrapper, so curated JMESPath expressions must go **through** the wrapper field:
+`actual_instance.id`, `actual_instance.name`, etc. A bare `id` path evaluates against the
+wrapper's own fields and renders empty.
+
+### Known limitations
+
+The `discover` stub does **not** round-trip through `load_cli_config` when there are no
+request mappings: a bare `request:` key in the emitted YAML is parsed as `None` rather than
+`{}`, which means reloading the stub and calling `load_cli_config` raises a pydantic
+validation error. This is a pre-existing parser quirk in the ruamel.yaml/pydantic boundary,
+not introduced by the columns feature. Tracked as tech debt; workaround: the stub is
+intended as a starting point for hand-curation, not as a round-trippable machine format.
