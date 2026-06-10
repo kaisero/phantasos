@@ -225,18 +225,7 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped():
     ir, unmapped = build_cli_ir(inv, cfg)
     by_key = {c.key: c for c in ir.commands}
 
-    # TODO(T5): hidden in cli.yml, retighten to ==[]
-    assert set(unmapped) <= {
-        "access_and_data_policy.update_access_and_data_section_by_id",
-        "applications.bulk_create_applications",
-        "applications.bulk_delete_applications",
-        "customization_policy.update_customization_section_by_id",
-        "device_groups.update_device_group",
-        "plugins.update_application_plugin",
-        "security_policy.update_security_section_by_id",
-        "sign_in_policy.update_sign_in_section_by_id",
-        "user_groups.update_user_group",
-    }
+    assert unmapped == []
     # create + patch are now distinct single-binding variant commands
     create_cmd = by_key["create:application:custom"]
     update_cmd = by_key["update:application:custom"]
@@ -273,18 +262,7 @@ def test_real_request_commands_dispatch(tmp_path, monkeypatch):
     assert "request:device:suspend" in by_key
     assert "request:user-request:revoke" in by_key
     assert "request:configuration:publish" in by_key
-    # TODO(T5): hidden in cli.yml, retighten to ==[]
-    assert set(unmapped) <= {
-        "access_and_data_policy.update_access_and_data_section_by_id",
-        "applications.bulk_create_applications",
-        "applications.bulk_delete_applications",
-        "customization_policy.update_customization_section_by_id",
-        "device_groups.update_device_group",
-        "plugins.update_application_plugin",
-        "security_policy.update_security_section_by_id",
-        "sign_in_policy.update_sign_in_section_by_id",
-        "user_groups.update_user_group",
-    }
+    assert unmapped == []
 
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
     sys.path.insert(0, str(tmp_path))

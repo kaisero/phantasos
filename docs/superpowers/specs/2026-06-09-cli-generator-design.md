@@ -13,9 +13,8 @@ sibling `../prisma-browser-sdk/`); the generator is product-agnostic and reusabl
 and future products via a per-product `cli.yml`.
 
 The reference UX is [`cdot65/pan-scm-cli`](https://github.com/cdot65/pan-scm-cli): a verb-first
-CRUD CLI (`set`/`del`/`show`). Unlike that hand-written CLI (~480 lines/resource), ours is
-generated from the SDK, so commands map 1:1 to real SDK calls with no hand-maintained
-name-mapping layer.
+CRUD CLI. Unlike that hand-written CLI (~480 lines/resource), ours is generated from the SDK, so
+commands map 1:1 to real SDK calls with no hand-maintained name-mapping layer.
 
 Research + recon backing this design: `docs/research/2026-06-09-cli-generator.md`. Key verified
 conclusions: prefer **static codegen via Jinja** over runtime/dynamic construction (also
@@ -24,8 +23,8 @@ field→flag semantics; the cdot65 verb-first pattern is the model.
 
 ### In scope (v1)
 
-The IR-centric generator and a working `prisma-browser-cli` with: verbs `set`/`del`/`show`/
-`request`/`load`/`backup`; full flag generation (scalars → typed flags, complex/union fields →
+The IR-centric generator and a working `prisma-browser-cli` with: verbs `create`/`update`/`delete`/
+`show`/`request`/`load`/`backup`; full flag generation (scalars → typed flags, complex/union fields →
 JSON-string flags); body-level union variants as subcommands; `cli.yml` overrides; config
 (`config.yaml`) + `.env` auth; Rich/JSON/YAML output; static completion; errors-only logging;
 generated command-reference markdown; a `--dry-run` flag on mutating verbs; tests.
@@ -76,8 +75,10 @@ This mirrors phantasos's existing `productconfig → render` typed-model pattern
 
 Verb-first: **`<verb> <object> [<variant>] [flags]`**
 
-- **Verbs:** `set` (create/patch/update), `del`, `show`, `request` (non-CRUD actions),
-  `load` (bulk import), `backup` (export).
+- **Verbs:** `create` (POST), `update` (PATCH), `delete` (DELETE), `show` (GET/list),
+  `request` (non-CRUD actions), `load` (bulk import), `backup` (export).
+  Deferred: full-replace `replace` verb (PUT when a PATCH also exists); `update`-fallback (PUT
+  when no PATCH exists); `load`/`backup` depend on list[Model] body introspection (not yet built).
 - **`request <object> <action>` (EMITTED — Phase 3b):** each `cli.yml` `request:` mapping
   `{object, action}` emits one command (verb `request`, a dedicated `Command.action` field — NOT
   the oneOf `variant`), bound to one SDK method, built from its id path param (if any) + body
@@ -85,7 +86,8 @@ Verb-first: **`<verb> <object> [<variant>] [flags]`**
   `action` (so the oneOf-discriminator path can't touch request commands).
 - **Object** = facade resource **+ method noun**, so one facade resource splits into its real
   object types: `access_and_data_policy` → `access-and-data-rule`, `access-and-data-section`, …
-- **Variant** = a body-level union member surfaced as a subcommand: `set application custom|private|…`.
+- **Variant** = a body-level union member surfaced as a subcommand: `create application custom|private|…`,
+  `update application custom|private|…`.
   **Important — the SDK's oneOf wrappers are *undiscriminated*** (verified: `CreateOrReplaceAppInput`
   has an empty `discriminator_value_class_map = {}` and deserializes by first-match trial). So
   variants are **not** auto-derivable from the body model. Instead, drive variant subcommands off
@@ -94,21 +96,22 @@ Verb-first: **`<verb> <object> [<variant>] [flags]`**
   mapping). Then flatten the chosen variant model's fields into flags. Note the cardinality can
   differ — applications expose **5 path values vs 4 body variants** (`catalog` has no create input),
   so the mapping is authored, not 1:1.
-- **`set` resolution:** no `--id` → create (POST); `--id` + fields → patch (PATCH, default);
-  `--id --replace` → update (PUT). If an object has only one write verb, `--id` uses it.
-- **`--dry-run`** on every mutating verb (`set`/`del`/`load`/`request`): print the resolved SDK
-  call + payload, do not execute.
+- **Single-binding writes:** each `create`/`update`/`delete` command has exactly one SDK binding.
+  `--id` is required for `update` and `delete`. `create` enforces required body fields. PATCH body
+  fields are all optional (partial update). Scalar flags carry real Python types.
+- **`--dry-run`** on every mutating verb (`create`/`update`/`delete`/`load`/`request`): print the
+  resolved SDK call + payload, do not execute.
 
 ### Classifier rules
 
 | Method prefix | CLI verb |
 |---|---|
-| `create_` | `set` (create) |
-| `patch_` | `set` (patch) |
-| `update_` | `set` (update; `--replace`) |
-| `delete_`, `bulk_delete_` | `del` |
+| `create_` | `create` |
+| `patch_` | `update` |
+| `delete_` | `delete` |
 | `get_`, `list_` | `show` |
-| `bulk_create_` | `set --bulk` |
+| `update_` | hidden (deferred: future `replace`/`update`-fallback) |
+| `bulk_create_`, `bulk_delete_` | hidden (deferred: future `load`/`backup`) |
 | anything else | unmapped → needs `cli.yml` |
 
 **Object noun:** strip the verb prefix and any trailing `_by_id` / `_by_type_and_id` /
@@ -118,7 +121,7 @@ under one object.
 **Classification precedence (authoritative order):** `cli.yml hide`/skip-list → `cli.yml`
 `override`/`request` → prefix heuristic. The skip/hide and explicit mappings are consulted
 **before** prefix matching, so e.g. `update_security_positions` is treated as a reorder action
-(`request`/skip) and never mis-classified as `set security-position`.
+(`request`/skip) and never mis-classified as `update security-position`.
 
 **ID parameter detection:** introspect must **detect** the id path-param per operation rather than
 assume the literal name `id` (the SDK uses `id`, `device_group_id`, two-key `_by_type_and_id`,
@@ -162,17 +165,15 @@ class Flag(BaseModel):
     help: str
     choices: list[str] | None       # for enum kind
 
-# A user-facing command maps to ONE-OR-MORE SDK methods, selected at runtime by which
-# args are supplied. The IR aggregates them (decided after the Phase-1 python-pro review).
+# A user-facing command maps to ONE SDK method (single-binding writes).
 class MethodBinding(BaseModel):
     sdk_method: str                 # e.g. "create_application"
-    sub_verb: Literal["create", "patch", "update", "get", "list",
-                      "delete", "bulk_create", "bulk_delete"]
+    sub_verb: Literal["create", "patch", "get", "list", "delete"]
     requires: list[str]             # param names that must be present to select this binding
                                     # (e.g. ["id"] for patch/get-one; ["type"] for by_type)
 
 class Command(BaseModel):
-    verb: Literal["set", "del", "show", "request", "load", "backup"]
+    verb: Literal["create", "update", "delete", "show", "request", "load", "backup"]
     object: str                     # kebab-case object noun
     variant: str | None             # union variant, if any
     key: str                        # canonical "verb:object[:variant]" — shared by templates,
@@ -192,10 +193,9 @@ class CliIR(BaseModel):
     commands: list[Command]
 ```
 
-`build_cli_ir` groups operations by `(verb, object, variant)` into one `Command` with multiple
-`bindings`; the generated runtime dispatches to the right `sdk_method` by which args were given
-(`--id`→patch/update/get-one, none→create/list, `--type`→by_type, `--bulk`→bulk; `--replace`
-selects update over patch). `path_params` carries **every** required path param (not just the id),
+`build_cli_ir` maps each operation to a single `Command` with one `MethodBinding`; `create`/
+`update`/`delete` commands are independent (not aggregated by `--id`). `path_params` carries
+**every** required path param (not just the id),
 so the call is always reconstructable. `Command.variant` is resolved from the method's path enum
 via `cli.yml` `variants:` (not from a body discriminator — the SDK's oneOf wrappers are
 undiscriminated). The id `Flag` (kind `"id"`) is the detected required path param, not assumed to
@@ -261,7 +261,7 @@ See **Augmentation & extensibility** below for the generated-vs-hand-owned split
   **flag > env var > config.yaml > built-in default**.
 - **Auth:** reuses the SDK's env var names → `Client.from_env()`.
 - **Output:** Rich table default; `--output json|yaml`. Table column heuristic: `id`/`name`
-  first, then scalar fields. YAML round-trips into `set --data` / `load`.
+  first, then scalar fields. YAML round-trips into `create --data` / `load`.
 - **Pagination (`show`):** single API page by default; `--all` auto-follows cursors via
   `client.paginate(...)`; `--limit`/`--cursor` manual. Default overridable via `config.yaml`.
 - **Errors:** SDK `ApiException` → friendly Rich message to stderr + nonzero exit code;

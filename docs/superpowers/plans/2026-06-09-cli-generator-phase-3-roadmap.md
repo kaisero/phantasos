@@ -41,6 +41,17 @@ Authored: `project:` block, `variants:` for `applications.create_application` **
 non-CRUD ops under `request:`. Real build is clean (0 unmapped); `set application <variant>`
 works (create+patch aggregated, dispatched by `--id`).
 
+### 3b-T5 — Decouple write verbs (`set`→`create`/`update`/`delete`) ✅ DONE (2026-06-10)
+`set` (aggregated create+patch+update, dispatched by `--id`/`--replace`) replaced with three
+independent verbs: `create` (POST), `update` (PATCH, `--id` required), `delete` (DELETE, `--id`
+required). PUT (`update_*`) and bulk (`bulk_create_*`/`bulk_delete_*`) are hidden in `cli.yml`
+and deferred:
+- **PUT support (future):** when an object has no PATCH, `update` falls back to PUT; when PATCH
+  exists, a `replace` verb provides full-replace semantics.
+- **Bulk (future):** `load`/`backup` verbs — also blocked by the `list[Model]` body introspection
+  gap in `introspect.py`.
+The real build is clean (0 unmapped); all TODO(T5) test assertions retightened to `== []`.
+
 ### 3b — `request` namespace verb (non-CRUD actions) ✅ DONE (2026-06-10)
 `build_cli_ir` emits `request <object> <action>` from `cli.yml request:` mappings (dedicated
 `Command.action` field; one SDK method per action; id+body handled; emitter `_leaf` =

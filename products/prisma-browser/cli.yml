@@ -52,3 +52,18 @@ request:
   security_policy.update_security_positions: {object: security-section, action: reorder}
   security_policy.patch_security_positions: {object: security-section, action: reorder-patch}
   sign_in_policy.update_sign_in_positions: {object: sign-in-section, action: reorder}
+
+# Deferred to roadmap:
+#   - PUT (update_*) full-replace: returns as a future `update`-fallback (when no PATCH) / `replace` verb.
+#   - bulk_create/bulk_delete: return via the future `load`/`backup` verbs (also blocked by the
+#     list[Model] body introspection gap).
+hide:
+  - access_and_data_policy.update_access_and_data_section_by_id
+  - applications.bulk_create_applications
+  - applications.bulk_delete_applications
+  - customization_policy.update_customization_section_by_id
+  - device_groups.update_device_group
+  - plugins.update_application_plugin
+  - security_policy.update_security_section_by_id
+  - sign_in_policy.update_sign_in_section_by_id
+  - user_groups.update_user_group
