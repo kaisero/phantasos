@@ -41,6 +41,16 @@ class MethodBinding(BaseModel):
     body_wrapper: str | None = None  # oneOf wrapper to construct around body_model
 
 
+class ColumnSpec(BaseModel):
+    """One table column: a header + a JMESPath evaluated against each row dict
+    (snake_case keys — rows come from model_dump(mode="json") without by_alias)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    header: str
+    path: str
+
+
 class Command(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,6 +72,11 @@ class Command(BaseModel):
     summary: str = ""
     description: str = ""
     paginated: bool = False
+    # list-envelope field holding the rows (e.g. "data"); None when the op
+    # returns the item directly
+    items_field: str | None = None
+    # resolved table columns: cli.yml columns or model-derived defaults
+    columns: list[ColumnSpec] = []
 
 
 class CliIR(BaseModel):

@@ -32,3 +32,18 @@ def test_command_with_bindings_roundtrip():
     assert ir.commands[0].key == "update:application"
     assert [b.sub_verb for b in ir.commands[0].bindings] == ["patch"]
     assert CliIR.model_validate_json(ir.model_dump_json()) == ir
+
+
+def test_command_columns_roundtrip():
+    from phantasos.generator.cli.ir import CliIR, ColumnSpec, Command
+
+    cmd = Command(
+        verb="show", object="widget", key="show:widget", sdk_resource="widgets",
+        items_field="data",
+        columns=[ColumnSpec(header="name", path="name"),
+                 ColumnSpec(header="OWNER", path="owner.name")],
+    )
+    ir = CliIR(sdk_package="x", sdk_version="1", commands=[cmd])
+    back = CliIR.model_validate_json(ir.model_dump_json())
+    assert back.commands[0].items_field == "data"
+    assert back.commands[0].columns[1].path == "owner.name"
