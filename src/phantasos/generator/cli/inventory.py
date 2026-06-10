@@ -36,6 +36,8 @@ class FieldInfo(BaseModel):
     default: Any | None = None
     description: str = ""
     enum_values: list[str] | None = None
+    # normalized scalar type for body-flag coercion: "str" | "int" | "bool" | "float"
+    scalar_type: str = "str"
 
 
 class OperationInfo(BaseModel):

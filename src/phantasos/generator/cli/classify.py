@@ -100,7 +100,15 @@ def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
     for f in fields:
         # Enum flags stay permissive: emit str + completer choices, never a
         # validating Enum (the SDK uses LenientStrEnum — unknowns must pass through).
-        py_type = "str" if f.kind == "enum" else f.annotation
+        # Scalar fields use their normalized scalar_type (int/bool/float/str) so
+        # that Typer performs type validation at the CLI layer (Task 3).
+        # json/id kinds keep str.
+        if f.kind == "enum":
+            py_type = "str"
+        elif f.kind == "scalar":
+            py_type = f.scalar_type
+        else:
+            py_type = "str"
         flags.append(
             Flag(
                 name=_flag_name(f.name),

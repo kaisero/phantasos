@@ -15,6 +15,7 @@ from typing import Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
+from .ir import FlagKind
 
 _EXCLUDE_SUFFIXES = ("_with_http_info", "_without_preload_content", "_serialize")
 _SKIP_PARAMS = {
@@ -64,12 +65,18 @@ def _unwrap_optional(tp: object) -> object:
 
 
 def _scalar_type(tp: object) -> str:
-    """Return the normalized scalar type for path/query coercion."""
+    """Return the normalized scalar type for path/query/body-field coercion.
+
+    bool must be checked before int because bool is a subclass of int in Python.
+    datetime and complex types (UUID, nested model, enum, list, …) map to "str".
+    """
     base = _unwrap_optional(tp)
     if base is bool:
         return "bool"
     if base is int:
         return "int"
+    if base is float:
+        return "float"
     return "str"
 
 
@@ -90,15 +97,19 @@ def _model_fields(model: type[BaseModel]) -> list[FieldInfo]:
     out: list[FieldInfo] = []
     for fname, field in model.model_fields.items():
         tp = field.annotation
+        kind = typing.cast(FlagKind, _field_kind(tp))
+        # Compute scalar_type only for scalar fields; enums stay "str" (Task 4).
+        st = _scalar_type(tp) if kind == "scalar" else "str"
         out.append(
             FieldInfo(
                 name=fname,
                 annotation=str(tp),
-                kind=_field_kind(tp),  # type: ignore[arg-type]
+                kind=kind,
                 required=field.is_required(),
                 default=None if field.is_required() else field.default,
                 description=field.description or "",
                 enum_values=_enum_values(_unwrap_optional(tp)),
+                scalar_type=st,
             )
         )
     return out

@@ -102,8 +102,8 @@ def test_runtime_create_vs_patch(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
 
-    rt.run("create:widget", path={}, body={"name": "foo"}, query={}, output="json",
-           paginate_all=False, dry_run=False, verbose=False)
+    rt.run("create:widget", path={}, body={"name": "foo", "priority": 1}, query={},
+           output="json", paginate_all=False, dry_run=False, verbose=False)
     rt.run(
         "update:widget", path={"id": "w9"}, body={"name": "bar"}, query={},
         output="json", paginate_all=False, dry_run=False, verbose=False,
@@ -139,8 +139,8 @@ def test_runtime_dry_run_does_not_call(emitted, monkeypatch, capsys):
     monkeypatch.setattr(
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
-    rt.run("create:widget", path={}, body={"name": "x"}, query={}, output="json",
-           paginate_all=False, dry_run=True, verbose=False)
+    rt.run("create:widget", path={}, body={"name": "x", "priority": 1}, query={},
+           output="json", paginate_all=False, dry_run=True, verbose=False)
     assert calls == []
     assert "create:widget" in capsys.readouterr().out
 
@@ -162,8 +162,8 @@ def test_runtime_friendly_error_on_sdk_exception(emitted, monkeypatch, capsys):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Boom()))
     import pytest as _pytest
     with _pytest.raises(SystemExit) as ei:
-        rt.run("create:widget", path={}, body={"name": "x"}, query={}, output="json",
-               paginate_all=False, dry_run=False, verbose=False)
+        rt.run("create:widget", path={}, body={"name": "x", "priority": 1}, query={},
+               output="json", paginate_all=False, dry_run=False, verbose=False)
     assert ei.value.code == 1
     assert "error:" in capsys.readouterr().err
 
@@ -191,7 +191,7 @@ def test_create_without_id_creates(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
     rt.run(
-        "create:widget", path={}, body={"name": "n"}, query={},
+        "create:widget", path={}, body={"name": "n", "priority": 1}, query={},
         output="json", paginate_all=False, dry_run=False, verbose=False,
     )
     assert calls[0][0] == "create_widget"
@@ -213,7 +213,10 @@ def test_cli_runner_show_create_delete(emitted, monkeypatch):
     assert res1.exit_code == 0
     res2 = r.invoke(main.app, ["show", "widget", "--id", "w1", "--output", "json"])
     assert res2.exit_code == 0
-    res3 = r.invoke(main.app, ["create", "widget", "--name", "foo", "--output", "json"])
+    res3 = r.invoke(
+        main.app,
+        ["create", "widget", "--name", "foo", "--priority", "1", "--output", "json"],
+    )
     assert res3.exit_code == 0
     res4 = r.invoke(main.app, ["delete", "widget", "--id", "w1", "--output", "json"])
     assert res4.exit_code == 0
@@ -293,13 +296,14 @@ def test_cli_runner_request_actions(emitted, monkeypatch):
     assert "request" in r.invoke(main.app, ["--help"]).output
     res = r.invoke(
         main.app,
-        ["request", "widget", "suspend", "--name", "W", "--output", "json"],
+        ["request", "widget", "suspend", "--name", "W", "--priority", "1",
+         "--output", "json"],
     )
     assert res.exit_code == 0, res.output
     res2 = r.invoke(
         main.app,
         ["request", "widget", "revoke", "--id", "W9", "--name", "X",
-         "--output", "json"],
+         "--priority", "1", "--output", "json"],
     )
     assert res2.exit_code == 0, res2.output
 
@@ -457,3 +461,33 @@ def test_delete_requires_id(emitted, monkeypatch):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
     res = CliRunner().invoke(main.app, ["delete", "widget"])   # no --id
     assert res.exit_code != 0
+
+
+def test_scalar_body_flags_use_real_types(emitted, tmp_path):
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+    from phantasos.generator.cli.render_cli import render_cli
+
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, CliConfig())
+    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
+    code = (
+        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
+    ).read_text()
+    assert ": int = typer.Option(" in code           # required int (create)
+    assert "Optional[bool] = typer.Option(None" in code  # optional bool
+
+
+def test_scalar_type_validated_by_typer(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "abc"],
+    )
+    assert res.exit_code != 0  # 'abc' is not a valid int -> Typer rejects
