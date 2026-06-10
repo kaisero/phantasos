@@ -460,3 +460,35 @@ def test_real_show_device_help_panels(tmp_path, monkeypatch):
         sys.path.remove(str(tmp_path))
         for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
             del sys.modules[n]
+
+
+def test_real_dry_run_shows_http_request(real_cli, capsys):
+    from typer.testing import CliRunner
+    main = importlib.import_module("prisma_browser_cli.main")
+    runner = CliRunner()
+
+    # GET list, no body, query in URL
+    r1 = runner.invoke(main.app, ["show", "device", "--limit", "50", "--dry-run"])
+    assert r1.exit_code == 0, r1.output
+    assert "GET" in r1.output
+    assert "/devices" in r1.output and "limit=50" in r1.output
+    assert "list_devices(" not in r1.output     # NOT the old call-reference string
+
+    # POST create, body shown as JSON
+    r2 = runner.invoke(
+        main.app,
+        ["create", "device-group", "--name", "Kiosks",
+         "--platform", "Desktop Browser", "--dry-run"],
+    )
+    assert r2.exit_code == 0, r2.output
+    assert "POST" in r2.output and "device-groups" in r2.output
+    assert "Kiosks" in r2.output                        # body payload present
+
+    # variant create: wrapped body
+    r3 = runner.invoke(
+        main.app,
+        ["create", "application", "custom", "--name", "MyApp",
+         "--urls", '[{"url": "https://example.com"}]', "--dry-run"],
+    )
+    assert r3.exit_code == 0, r3.output
+    assert "POST" in r3.output and "MyApp" in r3.output

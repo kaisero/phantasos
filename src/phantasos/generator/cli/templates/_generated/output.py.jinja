@@ -94,6 +94,28 @@ def render(result: Any, fmt: str = "json") -> None:
     _console.print_json(data=data)  # default: Rich-formatted JSON
 
 
+_VERB_COLORS = {"GET": "green", "POST": "blue", "PUT": "blue", "PATCH": "yellow", "DELETE": "red"}
+
+
+def render_dry_run(method: str, url: str, body: Any = None) -> None:
+    """Pretty-print the HTTP request a command WOULD send (no request performed)."""
+    color = _VERB_COLORS.get(str(method).upper(), "cyan")
+    _console.print("[dim]DRY RUN · no request sent[/]")
+    _console.print(f"[bold {color}]{method}[/] {url}")
+    if body in (None, "", b""):
+        return
+    data: Any = body
+    if isinstance(data, (bytes, bytearray)):
+        data = data.decode("utf-8", "replace")
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            _console.print(data)
+            return
+    _console.print_json(data=data)
+
+
 def _render_table(data: Any) -> None:
     rows = data if isinstance(data, list) else [data]
     rows = [r for r in rows if isinstance(r, dict)]

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import enum
 import functools
 import importlib
+import inspect
 import json
+import typing
 from importlib.resources import files
 from typing import Any
 
@@ -102,6 +105,52 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
     return inner
 
 
+def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> None:
+    """Print the HTTP request that would be sent, via the SDK's <method>_serialize
+    (no request performed, no credentials needed). Falls back to a call reference
+    if the SDK lacks the serialize convention."""
+    try:
+        pkg = _ir().sdk_package
+        api_client_mod = importlib.import_module(f"{pkg}.api_client")
+        config_mod = importlib.import_module(f"{pkg}.configuration")
+        facade = importlib.import_module(_ir().facade_module)
+        client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
+        api = getattr(client, cmd.sdk_resource)
+        serialize = getattr(api, f"_{binding.sdk_method}_serialize", None)
+        if serialize is None:
+            raise AttributeError(f"no _{binding.sdk_method}_serialize")
+        # Build complete kwargs: all params default to None (_host_index=0),
+        # then overlay the domain kwargs we already have.
+        sig = inspect.signature(serialize)
+        complete: dict[str, Any] = {
+            k: (0 if k == "_host_index" else None)
+            for k in sig.parameters
+        }
+        complete.update(kwargs)
+        # Coerce string values to enum types where the public method expects them.
+        # The _serialize methods have no type hints; use the public method's hints.
+        pub = getattr(api, binding.sdk_method, None)
+        if pub is not None:
+            try:
+                hints = typing.get_type_hints(pub)
+            except Exception:  # noqa: BLE001
+                hints = {}
+            for k, v in list(complete.items()):
+                hint = hints.get(k)
+                if (
+                    hint is not None
+                    and isinstance(hint, type)
+                    and issubclass(hint, enum.Enum)
+                    and isinstance(v, str)
+                ):
+                    complete[k] = hint(v)
+        method, url, _headers, body, *_rest = serialize(**complete)
+    except Exception:  # noqa: BLE001 - dry-run must never fail hard
+        print(f"DRY-RUN {cmd.key} -> {cmd.sdk_resource}.{binding.sdk_method}(...)")
+        return
+    _output.render_dry_run(method, url, body)
+
+
 def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         query: dict[str, Any], output: str, paginate_all: bool,
         dry_run: bool, verbose: bool) -> None:
@@ -125,13 +174,6 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         if v is not None:
             kwargs[k] = _coerce(query_flags[k], v)
 
-    if dry_run:
-        print(f"DRY-RUN {key} -> {cmd.sdk_resource}.{binding.sdk_method}(...)")
-        return
-
-    client = _client()
-    api = getattr(client, cmd.sdk_resource)
-    method = getattr(api, binding.sdk_method)
     hooks = _hooks()
     try:
         if binding.body_model:
@@ -147,6 +189,12 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             )
         if hooks and (pre := getattr(hooks, "before_call", None)) and callable(pre):
             kwargs = pre(binding.sdk_method, kwargs, cmd) or kwargs
+        if dry_run:
+            _dry_run(cmd, binding, kwargs)
+            return
+        client = _client()
+        api = getattr(client, cmd.sdk_resource)
+        method = getattr(api, binding.sdk_method)
         if binding.sub_verb == "list" and paginate_all:
             pg = getattr(client, "paginate", None)
             result = list(pg(method, **kwargs)) if pg else method(**kwargs)
@@ -154,9 +202,9 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             result = method(**kwargs)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
+        _output.render(result, fmt=output)
     except (_sdk_exc(), ValidationError) as exc:
         if verbose:
             raise
         _output.render_error(exc)
         raise SystemExit(1) from exc
-    _output.render(result, fmt=output)

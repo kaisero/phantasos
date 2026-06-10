@@ -675,3 +675,36 @@ def test_show_help_renders_panels(emitted, monkeypatch):
     out = CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
     assert "Filter Options" in out and "Pagination Options" in out
     assert "Options" in out   # main panel still present (--output/--help)
+
+
+def test_render_dry_run_get_no_body(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    out.render_dry_run("GET", "https://api.test/devices?limit=50", None)
+    captured = capsys.readouterr().out
+    assert "DRY RUN" in captured
+    assert "GET" in captured and "https://api.test/devices?limit=50" in captured
+
+
+def test_render_dry_run_post_with_body(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    out.render_dry_run(
+        "POST",
+        "https://api.test/device-groups",
+        {"name": "Kiosks", "platform": "Desktop Browser"},
+    )
+    captured = capsys.readouterr().out
+    assert "POST" in captured and "device-groups" in captured
+    assert '"name"' in captured and "Kiosks" in captured       # body JSON
+
+
+def test_dry_run_falls_back_without_serialize(emitted, monkeypatch, capsys):
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    # create widget --dry-run: body is built (required fields by Typer), then
+    # _dry_run tries fakesdk.api_client (absent) -> falls back to call-ref string.
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1", "--dry-run"],
+    )
+    assert res.exit_code == 0, res.output
+    assert "DRY-RUN create:widget" in res.output and "create_widget" in res.output
