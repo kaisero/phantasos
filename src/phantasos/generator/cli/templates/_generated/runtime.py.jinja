@@ -152,8 +152,11 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
 
 def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         query: dict[str, Any], output: str, paginate_all: bool,
-        dry_run: bool, verbose: bool) -> None:
+        dry_run: bool, verbose: bool,
+        columns: list[str] | None = None) -> None:
     cmd = _commands()[key]
+    if columns:
+        output = "table"  # --columns implies table rendering
     present = {k for k, v in path.items() if v is not None}
     if cmd.variant and cmd.variant_param:
         present.add(cmd.variant_param)
@@ -201,7 +204,11 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             result = method(**kwargs)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
-        _output.render(result, fmt=output)
+        _output.render(
+            result, fmt=output, columns=columns,
+            default_columns=[(c.header, c.path) for c in cmd.columns],
+            items_field=cmd.items_field,
+        )
     except (_sdk_exc(), ValidationError) as exc:
         if verbose:
             raise

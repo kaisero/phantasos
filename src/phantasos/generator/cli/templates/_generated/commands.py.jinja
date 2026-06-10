@@ -17,6 +17,14 @@ def {{ c.func_name }}(
     {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ '...' if f.required else 'None' }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
 {%- endfor %}
     output: str = typer.Option("json", "--output"),
+    columns: list[str] | None = typer.Option(
+        None,
+        "--columns",
+        help=(
+            "Table columns as comma-separated JMESPath expressions"
+            " (implies --output table). 'HEADER=expr' names a column."
+        ),
+    ),
     all_: bool = typer.Option(False, "--all", rich_help_panel="Pagination Options"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     verbose: bool = typer.Option(False, "--verbose"),
@@ -29,7 +37,7 @@ def {{ c.func_name }}(
         path={ {% for f in c.path_params %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         body={ {% for f in c.body_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         query={ {% for f in c.query_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
-        output=output, paginate_all=all_, dry_run=dry_run, verbose=verbose,
+        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose,
     )
 
 {% endfor %}

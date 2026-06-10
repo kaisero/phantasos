@@ -807,6 +807,61 @@ def test_table_invalid_runtime_columns_exits_cleanly(emitted, capsys):
     assert "invalid --columns" in capsys.readouterr().err
 
 
+def test_columns_flag_implies_table_and_renders_curated(emitted, monkeypatch, capsys):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    models = importlib.import_module("fakesdk.models")
+
+    page = models.WidgetList(
+        data=[models.Widget(id="w1", name="alpha", tags=["t1", "t2"]),
+              models.Widget(id="w2", name="beta")]
+    )
+
+    class _W:
+        def list_widgets(self, **kw):
+            return page
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    runner = CliRunner()
+    res = runner.invoke(app_mod.build_generated_app(),
+                        ["show", "widget", "--columns", "name,id"])
+    assert res.exit_code == 0, res.output
+    assert "alpha" in res.output and "w2" in res.output
+    assert "page_info" not in res.output            # envelope unwrapped
+    assert "{" not in res.output                     # table, not json
+
+
+def test_show_without_columns_uses_ir_default_columns(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    models = importlib.import_module("fakesdk.models")
+
+    page = models.WidgetList(data=[models.Widget(id="w1", name="alpha")])
+
+    class _W:
+        def list_widgets(self, **kw):
+            return page
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    runner = CliRunner()
+    res = runner.invoke(app_mod.build_generated_app(),
+                        ["show", "widget", "--output", "table"])
+    assert res.exit_code == 0, res.output
+    # ir default columns put id/name first and exclude the nested spec field
+    assert "id" in res.output and "name" in res.output
+    assert "spec" not in res.output
+
+
 def test_fakesdk_generated_lint_clean(tmp_path):
     """Non-gated capstone: the fakesdk-rendered `_generated/` passes the scaffold's
     ruff config (E,F,I,UP,W; line-length 88) with ZERO errors. render_cli runs
