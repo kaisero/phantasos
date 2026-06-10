@@ -90,6 +90,15 @@ class WidgetList(BaseModel):
 
     page_info: Optional[PageInfo] = None
     data: Optional[list[Widget]] = None
+
+
+class CreateWidget201Response(BaseModel):
+    """Divergent create response, mirroring the real SDK (e.g.
+    CreateDeviceGroup201Response carries only the new id — NOT the item shape).
+    Forces the columns pipeline to resolve per OBJECT (against the show item
+    model), never per command."""
+
+    widget_id: str
 ```
 
 - [ ] **Step 2: Annotate returns in api.py**
@@ -97,11 +106,18 @@ class WidgetList(BaseModel):
 In `tests/fixtures/fakesdk/fakesdk/api.py`, extend the import and annotate the widget methods (leave gizmos/things WITHOUT return annotations — they become the "no response model" coverage):
 
 ```python
-from .models import CreateGizmoInput, Widget, WidgetInput, WidgetList, WidgetType
+from .models import (
+    CreateGizmoInput,
+    CreateWidget201Response,
+    Widget,
+    WidgetInput,
+    WidgetList,
+    WidgetType,
+)
 ```
 
 ```python
-    def create_widget(self, widget_input: WidgetInput) -> Widget:
+    def create_widget(self, widget_input: WidgetInput) -> CreateWidget201Response:
 ```
 ```python
     def get_widget_by_id(
@@ -145,21 +161,19 @@ git commit -m "test(cli-gen): fakesdk response models + return annotations (colu
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/test_cli_introspect.py` (follow the file's existing helper for getting an op; if it has one like `_op(inv, resource, method)`, reuse it — otherwise this standalone form works):
+Append to `tests/test_cli_introspect.py` — the file's existing fixture is `inv` with helper `_op(inv, resource, method)`; use them:
 
 ```python
-def test_response_capture_list_envelope(inventory):
-    op = next(o for o in inventory.operations
-              if o.resource == "widgets" and o.method == "list_widgets")
+def test_response_capture_list_envelope(inv):
+    op = _op(inv, "widgets", "list_widgets")
     assert op.return_model == "WidgetList"
     assert op.items_field == "data"
     names = [f.name for f in op.response_fields]
     assert "id" in names and "name" in names  # item (Widget) fields, not envelope's
 
 
-def test_response_capture_get_returns_item_directly(inventory):
-    op = next(o for o in inventory.operations
-              if o.resource == "widgets" and o.method == "get_widget_by_id")
+def test_response_capture_get_returns_item_directly(inv):
+    op = _op(inv, "widgets", "get_widget_by_id")
     assert op.return_model == "Widget"
     assert op.items_field is None
     kinds = {f.name: f.kind for f in op.response_fields}
@@ -167,15 +181,38 @@ def test_response_capture_get_returns_item_directly(inventory):
     assert kinds["tags"] == "scalar"    # list[str] counts as scalar kind
 
 
-def test_response_capture_absent_when_unannotated(inventory):
-    op = next(o for o in inventory.operations
-              if o.resource == "gizmos" and o.method == "list_gizmos")
+def test_response_capture_absent_when_unannotated(inv):
+    op = _op(inv, "gizmos", "list_gizmos")
     assert op.return_model is None
     assert op.items_field is None
     assert op.response_fields == []
-```
 
-Note: `inventory` here is whatever fixture the file already uses to introspect the fakesdk (it exists — the file already tests `introspect("fakesdk", FIXTURE)`); match its name.
+
+def test_response_capture_divergent_create_model(inv):
+    op = _op(inv, "widgets", "create_widget")
+    assert op.return_model == "CreateWidget201Response"
+    assert [f.name for f in op.response_fields] == ["widget_id"]
+
+
+def test_list_field_not_named_data_is_not_an_envelope():
+    """A model containing list[Model] under any other name (e.g. a real item like
+    User.user_groups) is the ITEM, not a list envelope."""
+    from pydantic import BaseModel
+
+    from phantasos.generator.cli.introspect import _response_info
+
+    class Member(BaseModel):
+        name: str
+
+    class Team(BaseModel):  # item model that HAPPENS to contain a list[Model]
+        id: str
+        members: list[Member] = []
+
+    model, items_field, fields = _response_info(Team)
+    assert model == "Team"
+    assert items_field is None                       # NOT mistaken for an envelope
+    assert [f.name for f in fields] == ["id", "members"]
+```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -203,20 +240,26 @@ Add to `src/phantasos/generator/cli/introspect.py` (after `_union_members`):
 def _response_info(tp: object) -> tuple[str | None, str | None, list[FieldInfo]]:
     """(return_model, items_field, item_fields) from a return annotation.
 
-    A return model with a list[Model] field is a list envelope: items_field is
-    that field's name and the fields are the inner model's. Otherwise the return
-    model itself is the item.
+    A return model is a list ENVELOPE only when its list[Model] field is named
+    "data" or it carries a page_info sibling (every openapi-generator envelope
+    we ship matches; a plain item model with an embedded list[Model] — e.g.
+    User.user_groups — must NOT be mistaken for one). For an envelope,
+    items_field is the list field's name and the fields are the inner model's;
+    otherwise the return model itself is the item.
     """
     base = _unwrap_optional(tp)
     if not (isinstance(base, type) and issubclass(base, BaseModel)):
         return None, None, []
     for fname, field in base.model_fields.items():
         inner = _unwrap_optional(field.annotation)
-        if get_origin(inner) in (list, set):
-            args = get_args(inner)
-            item = _unwrap_optional(args[0]) if args else None
-            if isinstance(item, type) and issubclass(item, BaseModel):
-                return base.__name__, fname, _model_fields(item)
+        if get_origin(inner) not in (list, set):
+            continue
+        if fname != "data" and "page_info" not in base.model_fields:
+            continue  # embedded list inside an item model, not an envelope
+        args = get_args(inner)
+        item = _unwrap_optional(args[0]) if args else None
+        if isinstance(item, type) and issubclass(item, BaseModel):
+            return base.__name__, fname, _model_fields(item)
     return base.__name__, None, _model_fields(base)
 ```
 
@@ -479,6 +522,13 @@ def test_resolve_columns_rejects_bad_jmespath_syntax():
         resolve_columns(["members[].]"], FIELDS, "device-group")
 
 
+def test_resolve_columns_rejects_empty_expression():
+    # jmespath raises EmptyExpressionError here, which is NOT a ParseError
+    # subclass — the resolver must catch the JMESPathError base.
+    with pytest.raises(ValueError, match="invalid JMESPath"):
+        resolve_columns([""], FIELDS, "device-group")
+
+
 def test_resolve_columns_rejects_unknown_root_field():
     with pytest.raises(ValueError, match="unknown field 'nope'"):
         resolve_columns(["nope.deeper"], FIELDS, "device-group")
@@ -515,8 +565,12 @@ Python field names, which is also what build-time validation checks against.
 
 from __future__ import annotations
 
+from typing import Any
+
 import jmespath
-from jmespath.exceptions import ParseError
+# JMESPathError is the base: ParseError, LexerError AND EmptyExpressionError
+# (the latter is NOT a ParseError subclass — verified jmespath 1.0.1).
+from jmespath.exceptions import JMESPathError
 
 from .cliconfig import ColumnEntry
 from .inventory import FieldInfo
@@ -540,7 +594,7 @@ def default_columns(fields: list[FieldInfo]) -> list[ColumnSpec]:
     return [ColumnSpec(header=n, path=n) for n in chosen[:_MAX_DEFAULT]]
 
 
-def _root_field(node: dict) -> str | None:
+def _root_field(node: dict[str, Any]) -> str | None:
     """Leftmost plain field of a parsed JMESPath AST, or None if the root is
     not field-shaped (function, literal, projection of a literal, ...)."""
     while True:
@@ -564,7 +618,7 @@ def resolve_columns(
         header, path = (e, e) if isinstance(e, str) else (e.header, e.path)
         try:
             parsed = jmespath.compile(path).parsed
-        except ParseError as exc:
+        except JMESPathError as exc:
             raise ValueError(
                 f"cli.yml columns.{obj}: invalid JMESPath {path!r}: {exc}"
             ) from exc
@@ -637,6 +691,11 @@ def test_cli_yml_columns_override_and_validate():
     ir, _ = build_cli_ir(inv, cfg)
     show = next(c for c in ir.commands if c.key == "show:widget")
     assert [c.path for c in show.columns] == ["name", "members[].name"]
+    # curated columns validate against the SHOW item model and attach to every
+    # command of the object — even though create_widget returns the divergent
+    # CreateWidget201Response{widget_id} (no `name` field), the build must pass:
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    assert [c.path for c in create.columns] == ["name", "members[].name"]
 
     with pytest.raises(ValueError, match="unknown field 'nope'"):
         build_cli_ir(inv, CliConfig(columns={"widget": ["nope"]}))
@@ -675,36 +734,57 @@ from .columns import default_columns, resolve_columns
 At the end of `build_cli_ir`, BEFORE constructing `CliIR(...)`, add:
 
 ```python
-    # ---- Table columns: attach response shape + resolved columns per command.
-    # Representative op per command: prefer the list binding (its envelope gives
-    # items_field), else get, else any binding with a response model.
+    # ---- Table columns.
+    # CRITICAL: columns resolve per OBJECT, never per command. Real-SDK write ops
+    # return DIVERGENT response models (e.g. create_device_group ->
+    # CreateDeviceGroup201Response{device_group_id} — not the DeviceGroup item),
+    # so validating cli.yml columns against each command's own response model
+    # would fail the build on valid configs. The object's canonical row shape is
+    # its show command's item model (list envelope unwrapped, else get's model);
+    # the resolved columns attach to every command of the object (a jmespath
+    # miss renders as an empty cell). items_field stays per-command.
     ops_by_key = {f"{op.resource}.{op.method}": op for op in inv.operations}
     rank = {"list": 0, "get": 1}
-    for cmd in groups.values():
-        op = next(
-            (o for b in sorted(cmd.bindings,
-                               key=lambda b: rank.get(b.sub_verb, 9))
-             if (o := ops_by_key.get(f"{cmd.sdk_resource}.{b.sdk_method}"))
-             and o.response_fields),
-            None,
-        )
-        if op is None:
-            continue
-        cmd.items_field = op.items_field
-        entries = cfg.columns.get(cmd.object)
-        if entries is not None:
-            cmd.columns = resolve_columns(entries, op.response_fields, cmd.object)
-        else:
-            cmd.columns = default_columns(op.response_fields)
-    unknown_objects = set(cfg.columns) - {c.object for c in groups.values()}
+
+    def _rep_op(cmd: Command) -> OperationInfo | None:
+        for b in sorted(cmd.bindings, key=lambda b: rank.get(b.sub_verb, 9)):
+            op = ops_by_key.get(f"{cmd.sdk_resource}.{b.sdk_method}")
+            if op is not None and op.response_fields:
+                return op
+        return None
+
+    obj_fields: dict[str, list[FieldInfo]] = {}
+    for cmd in groups.values():  # the show command defines the object's rows
+        if cmd.verb == "show" and (op := _rep_op(cmd)) is not None:
+            obj_fields[cmd.object] = op.response_fields
+    for cmd in groups.values():  # objects without a show command: any response model
+        if cmd.object not in obj_fields and (op := _rep_op(cmd)) is not None:
+            obj_fields[cmd.object] = op.response_fields
+
+    objects = {c.object for c in groups.values()}
+    unknown_objects = set(cfg.columns) - objects
     if unknown_objects:
         raise ValueError(
             "cli.yml columns: unknown object(s): "
             + ", ".join(sorted(unknown_objects))
         )
+    resolved: dict[str, list[ColumnSpec]] = {}
+    for obj in objects:
+        entries = cfg.columns.get(obj)
+        fields = obj_fields.get(obj)
+        if entries is not None:
+            # curated: validate against the object's row shape (syntax-only
+            # when no response model was introspectable)
+            resolved[obj] = resolve_columns(entries, fields or [], obj)
+        elif fields:
+            resolved[obj] = default_columns(fields)
+    for cmd in groups.values():
+        cmd.columns = resolved.get(cmd.object, [])
+        if (op := _rep_op(cmd)) is not None:
+            cmd.items_field = op.items_field
 ```
 
-Note the walrus `(o := ...)` inside a generator — if ruff/mypy complains in this codebase's config, rewrite as an explicit loop; behavior is what matters.
+`ColumnSpec` joins the existing `ir` imports; `FieldInfo` is already imported from `.inventory`.
 
 - [ ] **Step 4: Run the full suite**
 
@@ -973,9 +1053,13 @@ def _getters(
     for header, path in specs:
         try:
             out.append((header, jmespath.compile(path)))
-        except Exception as exc:  # jmespath.exceptions.ParseError and friends
-            _err_console.print(f"[bold red]invalid --columns expression[/] "
-                               f"{path!r}: {exc}")
+        except Exception as exc:  # jmespath.exceptions.JMESPathError and friends
+            # markup=False: the user's expression may contain rich markup-like
+            # tokens (e.g. "members[/].name" would raise MarkupError mid-error)
+            _err_console.print(
+                f"invalid --columns expression {path!r}: {exc}",
+                style="bold red", markup=False,
+            )
             raise SystemExit(2) from exc
     return out
 
@@ -1285,17 +1369,34 @@ columns:
 
 - [ ] **Step 3: Extend the gated real-SDK test**
 
-Append to `tests/test_cli_emitted_real.py` (match its existing gating/skip marker and build fixture — it already builds the real IR/CLI):
+Append to `tests/test_cli_emitted_real.py`. NOTE (verified): the file has NO IR fixture — only `real_cli` (which builds the IR internally with a hardcoded `CliConfig` and never reads the product cli.yml). Build the IR inside the test, loading the REAL cli.yml so the curated `columns:` entries are validated by the suite (this is exactly what would have failed silently otherwise). Reuse the file's existing skip-gating and SDK-path constant verbatim:
 
 ```python
-def test_real_ir_carries_columns(real_ir):  # reuse the file's real-IR fixture name
-    show_dg = next(c for c in real_ir.commands if c.key == "show:device-group")
+def test_real_ir_carries_columns():
+    """The shipped cli.yml columns: resolve + validate against the real SDK."""
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    from phantasos.generator.cli.introspect import introspect
+
+    cfg = load_cli_config(
+        Path(__file__).parent.parent / "products" / "prisma-browser" / "cli.yml"
+    )
+    # use the SAME sdk package/path constants + skipif marker this file already
+    # uses for real_cli (copy its introspect(...) invocation exactly)
+    ir, _ = build_cli_ir(introspect(REAL_SDK_PACKAGE, REAL_SDK_PATH), cfg)
+
+    show_dg = next(c for c in ir.commands if c.key == "show:device-group")
     assert [c.path for c in show_dg.columns][:2] == ["id", "name"]
     assert show_dg.items_field == "data"
+    # curated columns attach to the object's write commands too (per-object rule)
+    create_dg = next(c for c in ir.commands if c.key == "create:device-group")
+    assert create_dg.columns == show_dg.columns
     # every show command with a response model got SOME columns
-    shows = [c for c in real_ir.commands if c.verb == "show"]
+    shows = [c for c in ir.commands if c.verb == "show"]
     assert any(c.columns for c in shows)
 ```
+
+(`REAL_SDK_PACKAGE`/`REAL_SDK_PATH` are placeholders for whatever names the file's existing constants use — read the file first and reuse them; do not invent new paths.)
 
 - [ ] **Step 4: Run the gated tests + a real build**
 
@@ -1325,8 +1426,15 @@ Document (concisely, matching the spec's style): build-time response introspecti
 
 - [ ] **Step 2: Run the full gate**
 
-Run: `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run nox -s gate` (or the repo's lint+type+test sessions: `uv run ruff check . && uv run mypy src/ && uv run pytest -q` per noxfile)
-Expected: clean. Fix anything it flags before committing.
+NOTE (verified): `nox -s gate` does NOT exist on the cli-generator branch, and bare `mypy` has ~227 pre-existing errors in `tests/` — `mypy src` is the real gate (clean today; keep it clean). Do NOT fix the pre-existing tests/ mypy errors in passing.
+
+Run:
+```bash
+UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run ruff check .
+UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run mypy src
+UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run pytest tests/ -q
+```
+Expected: all clean / all pass. Fix anything it flags before committing.
 
 - [ ] **Step 3: Commit**
 
@@ -1347,7 +1455,12 @@ git commit -m "docs(spec): table columns design (cli.yml columns, defaults, --co
 
 ## Known risks / notes for the implementer
 
-- **jmespath AST walking** (`_root_field`) is best-effort by design; when in doubt it skips the root-field check (syntax is always checked). Never let it raise.
-- **`cmd.columns` is per-object-shared** only by construction (every command of an object resolves the same cli.yml entry or the same item model); there is no cross-command copy step.
-- If any **byte-identity/golden test** over emitted files exists and fails (the SDK-scaffold one from Phase 3g is about the SDK pyproject — should be unaffected), update goldens deliberately and call it out in the commit message.
-- The runtime heuristic (`_heuristic_columns`) fires only when the IR carries no columns (unannotated SDK returns) — fakesdk gizmos cover this path.
+(Plan reviewed by python-pro 2026-06-10 — verdict GO-WITH-CHANGES; both blockers + all should-fixes are already folded into the tasks above.)
+
+- **Columns resolve per OBJECT, never per command** (Task 6). Real-SDK write ops return divergent response models (`CreateDeviceGroup201Response{device_group_id}` ≠ `DeviceGroup`); validating per command would fail the build on valid configs. The fakesdk `CreateWidget201Response` (Task 1) exists specifically to keep this covered.
+- **Envelope detection is guarded** (Task 2): a `list[Model]` field counts as an envelope only when named `data` or beside a `page_info` sibling — plain item models with embedded lists (`User.user_groups`, `ApplicationGroup.applications`) must not be misread as envelopes.
+- **jmespath AST walking** (`_root_field`) is best-effort by design; when in doubt it skips the root-field check (syntax is always checked). Never let it raise. Catch `JMESPathError` (the base), not `ParseError` — `compile("")` raises `EmptyExpressionError`, which is not a `ParseError`.
+- **Rich markup**: never f-string user input into `Console.print` with markup on (Task 7 `_getters` uses `markup=False`). Table headers/cells are markup-safe (verified).
+- Real-SDK `datetime` fields classify as kind `json` (no datetime case in `_field_kind`), so `created_at` etc. can never appear in *default* columns — curating them in cli.yml (Task 10) is the intended way to surface them.
+- If any **byte-identity/golden test** over emitted files fails (the Phase-3g one covers the SDK pyproject and renders with its own deps — verified unaffected by the `_CLI_DEPS` change), update goldens deliberately and call it out in the commit message.
+- The runtime heuristic (`_heuristic_columns`) fires only when the IR carries no columns (unannotated SDK returns) — fakesdk gizmos cover this path. It uses plain key lookup (`_Key`), never jmespath-compiled.
