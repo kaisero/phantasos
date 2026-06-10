@@ -8,6 +8,11 @@ import typer
 
 from .. import runtime as _rt
 
+{% for f in module_enum_flags %}
+def {{ f.completer_name }}(incomplete: str) -> list[str]:
+    return [c for c in {{ f.completion|tojson }} if c.startswith(incomplete)]
+
+{% endfor %}
 {% for c in commands %}
 def {{ c.func_name }}(
 {%- for f in c.all_flags %}

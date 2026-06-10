@@ -6,7 +6,20 @@ from typing import Literal, Optional, Union
 from pydantic import BaseModel
 
 
-class Color(str, Enum):
+class LenientStrEnum(str, Enum):
+    """Mirrors the real SDK's LenientStrEnum: unknown string values pass through."""
+
+    @classmethod
+    def _missing_(cls, value: object) -> LenientStrEnum | None:
+        if isinstance(value, str):
+            pseudo = str.__new__(cls, value)
+            pseudo._name_ = value
+            pseudo._value_ = value
+            return pseudo
+        return None
+
+
+class Color(LenientStrEnum):
     RED = "red"
     BLUE = "blue"
 

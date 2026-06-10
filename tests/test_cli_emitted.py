@@ -491,3 +491,29 @@ def test_scalar_type_validated_by_typer(emitted, monkeypatch):
         ["create", "widget", "--name", "w", "--priority", "abc"],
     )
     assert res.exit_code != 0  # 'abc' is not a valid int -> Typer rejects
+
+
+def test_enum_flag_lists_choices_in_help(emitted):
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    h = CliRunner().invoke(main.app, ["create", "widget", "--help"]).output
+    assert "values:" in h.lower()
+    assert "red" in h.lower()        # a real Color choice (red/blue in the fixture)
+
+
+def test_enum_flag_accepts_unlisted_value(emitted, monkeypatch):
+    # permissive: SDK is LenientStrEnum -> unknown enum value ACCEPTED, not rejected
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    calls = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1",
+         "--color", "chartreuse", "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output       # unlisted value passes through

@@ -6,6 +6,7 @@ import keyword
 import re
 import shutil
 from pathlib import Path
+from typing import cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
@@ -65,15 +66,27 @@ def _render_type(f: Flag) -> str:
 
 
 def _flag_view(f: Flag) -> dict[str, object]:
+    choices = f.choices
+    help_text: str | None = f.help
+    completion: list[str] | None = None
+    completer_name: str | None = None
+    if choices:
+        listed = ", ".join(choices)
+        # Escape the leading bracket so rich's markup parser renders it literally
+        # (an unescaped "[values: ...]" is treated as a markup tag and dropped).
+        values = rf"\[values: {listed}]"
+        help_text = f"{f.help}  {values}" if f.help else values
+        completion = choices
+        completer_name = f"_complete_{_py_name(f.param)}"
     return {
         "name": f.name,
         "param": f.param,
         "py_name": _py_name(f.param),
         "required": f.required,
         "render_type": _render_type(f),
-        "help_text": f.help,
-        "completion": None,
-        "completer_name": None,
+        "help_text": help_text,
+        "completion": completion,
+        "completer_name": completer_name,
     }
 
 
@@ -115,6 +128,26 @@ def _command_view(
             for f in (c.path_params + deduped_body + deduped_query)
         ],
     }
+
+
+def _module_enum_flags(
+    cmds: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Deduped enum-flag views (those with a completer) across a module's commands.
+
+    Dedup by ``completer_name`` so a flag shared by several commands in the module
+    (e.g. ``--color`` on both create and update) yields a single completer def.
+    """
+    out: list[dict[str, object]] = []
+    seen: set[object] = set()
+    for cmd in cmds:
+        flags = cast("list[dict[str, object]]", cmd["all_flags"])
+        for f in flags:
+            name = f.get("completer_name")
+            if name and name not in seen:
+                seen.add(name)
+                out.append(f)
+    return out
 
 
 def _env() -> Environment:
@@ -175,9 +208,13 @@ def render_cli(
         by_resource[c.sdk_resource].append(_command_view(c, variant_groups))
     for resource, cmds in by_resource.items():
         dest = gen / "commands" / f"{resource}.py"
+        # Dedup enum-flag completers by completer_name across the module's commands
+        # (e.g. create + update both expose --color → a single completer def).
+        module_enum_flags = _module_enum_flags(cmds)
         dest.write_text(
             env.get_template("_generated/commands.py.jinja").render(
-                resource=resource, commands=cmds, **ctx),
+                resource=resource, commands=cmds,
+                module_enum_flags=module_enum_flags, **ctx),
             encoding="utf-8")
         written.append(str(dest.relative_to(out_dir)))
     # commands package marker
