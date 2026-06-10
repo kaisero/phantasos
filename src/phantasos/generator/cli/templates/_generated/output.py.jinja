@@ -159,7 +159,7 @@ def _split_columns(value: str) -> list[str]:
             depth += 1
             buf.append(ch)
         elif ch in ")]}":
-            depth -= 1
+            depth = max(0, depth - 1)  # stray closer must not mask later commas
             buf.append(ch)
         elif ch == "," and depth == 0:
             parts.append("".join(buf).strip())
@@ -203,7 +203,7 @@ def _preview(items: list[Any]) -> str:
     if all(isinstance(i, dict) for i in items):
         labels = [i.get("name") or i.get("id") for i in items]
         if any(label is None for label in labels):
-            return f"{len(items)} items"
+            return f"{len(items)} item" + ("s" if len(items) != 1 else "")
         shown = [str(label) for label in labels[:_PREVIEW]]
     else:
         shown = [_cell(i) for i in items[:_PREVIEW]]
