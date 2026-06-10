@@ -292,6 +292,65 @@ def test_real_request_commands_dispatch(tmp_path, monkeypatch):
             del sys.modules[n]
 
 
+def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    monkeypatch.setenv("NO_COLOR", "1")
+    from unittest.mock import MagicMock
+
+    from typer.testing import CliRunner
+
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(str(exc))
+    ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
+    sys.path.insert(0, str(tmp_path))
+    for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
+        del sys.modules[n]
+    try:
+        main = importlib.import_module("prisma_browser_cli.main")
+        import prisma_browser.exceptions as pexc
+        import prisma_browser.extras.facade as facade
+        # the REAL 400 the user hit
+        real_body = ('{"errorResponse":{"error":"group name already exists",'
+                     '"message":"failed to create device group"}}')
+        try:
+            err = pexc.BadRequestException(
+                status=400, reason="Bad Request", body=real_body
+            )
+        except TypeError:
+            err = pexc.ApiException(status=400, reason="Bad Request", body=real_body)
+        client = MagicMock(name="Client")
+        client.device_groups.create_device_group.side_effect = err
+        monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
+
+        runner = CliRunner()
+        res = runner.invoke(main.app, ["create", "device-group", "--name", "dup",
+                                       "--platform", "Desktop Browser"])
+        assert res.exit_code == 1, res.output
+        assert "Error 400 Bad Request" in res.output
+        assert "group name already exists" in res.output           # headline
+        # full JSON body is present
+        assert "errorResponse" in res.output
+        assert "failed to create device group" in res.output
+        # the noise is GONE
+        assert "HTTPHeaderDict" not in res.output
+        assert "response headers" not in res.output.lower()
+        # --verbose still surfaces the full exception (re-raised)
+        res2 = runner.invoke(main.app, ["create", "device-group", "--name", "dup",
+                                        "--platform", "Desktop Browser", "--verbose"])
+        assert res2.exit_code != 0
+        # the ApiException propagated under --verbose
+        assert res2.exception is not None
+    finally:
+        sys.path.remove(str(tmp_path))
+        for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
+            del sys.modules[n]
+
+
 def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")

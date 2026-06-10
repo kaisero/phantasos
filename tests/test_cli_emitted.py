@@ -569,6 +569,36 @@ def test_render_error_non_api(emitted, capsys):
     assert "error: bad --flag value" in err
 
 
+def test_cli_runner_api_error_is_pretty(emitted, monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
+        del sys.modules[n]
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.exceptions as fexc
+    import fakesdk.extras.facade as facade
+
+    class _Client:
+        class widgets:  # noqa: N801
+            @staticmethod
+            def create_widget(**kw):
+                raise fexc.ApiException(
+                    status=400, reason="Bad Request",
+                    body='{"errorResponse":{"error":"widget name already exists",'
+                         '"message":"failed to create widget"}}')
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Client()))
+
+    res = CliRunner().invoke(
+        main.app, ["create", "widget", "--name", "dup", "--priority", "1"]
+    )
+    assert res.exit_code == 1, res.output
+    assert "Error 400 Bad Request" in res.output
+    assert "widget name already exists" in res.output          # headline
+    assert "errorResponse" in res.output                        # full JSON body
+    assert "HTTPHeaderDict" not in res.output
+    assert "response headers" not in res.output.lower()
+
+
 def test_render_error_non_json_body(emitted, monkeypatch, capsys):
     monkeypatch.setenv("NO_COLOR", "1")
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:

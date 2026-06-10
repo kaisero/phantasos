@@ -5,7 +5,6 @@ from __future__ import annotations
 import functools
 import importlib
 import json
-import sys
 from importlib.resources import files
 from typing import Any
 
@@ -158,6 +157,6 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     except (_sdk_exc(), ValidationError) as exc:
         if verbose:
             raise
-        print(f"error: {exc}", file=sys.stderr)
+        _output.render_error(exc)
         raise SystemExit(1) from exc
     _output.render(result, fmt=output)
