@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the aggregated `set <object>` command (which dispatched create/patch/update via a `--id`/`--replace` heuristic) with three **single-binding** write verbs — `create` (POST), `patch` (PATCH), `update` (PUT) — and rename `del`→`delete`. Single-binding commands make Typer integration clean: required model fields become real `[required]` options, enums become real typed choices, and scalars get real types.
+**Goal:** Replace the aggregated `set <object>` command (which dispatched create/patch/update via a `--id`/`--replace` heuristic) with three **single-binding** write verbs — `create` (POST), `patch` (PATCH), `update` (PUT) — and rename `del`→`delete`. Single-binding commands make Typer integration clean: required model fields become real `[required]` options, scalars get real types (int/bool/float), and enum fields surface their choices in `--help` + shell completion (**permissively** — see below).
 
-**Architecture:** The classifier already tags each method with a `(verb, sub_verb)`. Today create/patch/update all map to `verb="set"` and aggregate into one `Command` with N bindings, dispatched at runtime. We change the verb mapping so each write maps to its OWN verb (`create`/`patch`/`update`/`delete`), so `_command_key` produces distinct keys and every write `Command` has exactly ONE binding. That removes the runtime `--replace` flag and the `_pick_binding` write-dispatch heuristic for writes, and lets the emitter render each flag with its real type / required-ness / enum choices. `show` keeps its benign get+list aggregation (read-only, `--id` selects). `request`/`load`/`backup` unchanged.
+**Architecture:** The classifier already tags each method `(verb, sub_verb)`. Today create/patch/update all map to `verb="set"` and aggregate into one `Command` with N bindings, dispatched at runtime. We remap so each write maps to its OWN verb (`create`/`patch`/`update`/`delete`); since `_command_key` includes the verb, every write `Command` then has exactly ONE binding — no other `_emit` change needed. That removes the runtime `--replace` flag and the write-dispatch heuristic, and lets the emitter render each flag with its real type / required-ness / completion. `show` keeps its benign get+list aggregation (`--id` selects get). `request`/`load`/`backup` unchanged.
 
-**Tech Stack:** Python 3.11–3.14, Pydantic v2, Typer, Jinja2, pytest. Runner: `uv run`.
+**Permissive enums (locked decision):** enum body/query fields stay `str` options with a shell **completer** + the choices listed in `--help`. They are NOT validating Typer `Enum`s. The SDK enums are `LenientStrEnum` (unknown values pass through by design), so the CLI must not be stricter than the SDK — an unlisted value is accepted and forwarded. This matches the spec (`…design.md` "permissive enum" mandate) and `fields_to_flags`'s existing `py_type="str"` for enums.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (this plan rewrites the grammar + "aggregated command model" sections). **Builds on:** branch `cli-generator` (Phases 1/2a/2b/3g/3a/3b + the .env + JSON-default fixes).
+**Tech Stack:** Python 3.11–3.14, Pydantic v2, Typer/Click, Jinja2, pytest. Runner: `uv run`.
+
+**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (this plan rewrites the grammar + "aggregated command model" sections; the permissive-enum stance is UNCHANGED). **Builds on:** branch `cli-generator` (Phases 1/2a/2b/3g/3a/3b + the .env + JSON-default fixes).
 
 ---
 
@@ -18,21 +20,39 @@
 - TDD; imports at top of test files; run `ruff check src/phantasos tests/` + `mypy src/phantasos/generator` before each commit.
 - Fake SDK fixture `tests/fixtures/fakesdk/`; real SDK `/home/ubuntu/git/prisma-browser-sdk`.
 
-## Scope decisions (baked in — flagged for review)
+## Scope decisions (baked in)
 1. **Three write verbs, single binding each:** `create` (POST), `patch` (PATCH, `--id` + all-optional), `update` (PUT, `--id` + required like create). Emitted only where the SDK method exists per object.
-2. **`del`→`delete`** everywhere (verb name, registration, classifier, docs, tests).
-3. **`set` and `--replace` removed.** No back-compat alias (CLI unreleased).
-4. **`show` unchanged** — keeps get+list under one command, `--id` selects get. (Read-only; no required/destructive tension, so no need to split.)
-5. **`bulk_create`/`bulk_delete` DEFERRED.** They can't be single-binding alongside single create/delete on the same object, and are already broken by the `list[Model]` body gap. They're removed from the classifier and `hide:`-listed for prisma, to return under the future `load`/`backup` verbs. (Documented in T5.)
-6. **Variants carry over per-method:** `set application custom` → `create application custom` (POST binding) + `patch application custom` (PATCH binding). The `cli.yml variants:` map is keyed by method, so it needs no change.
+2. **`del`→`delete`** everywhere (verb, registration, classifier, docs, tests).
+3. **`set` and `--replace` removed.** No back-compat alias (CLI unreleased). Also remove the stale `"replace"` entry from `render_cli._RESERVED`.
+4. **`show` unchanged** — keeps get+list under one command, `--id` selects get.
+5. **`bulk_create`/`bulk_delete` DEFERRED** — removed from the classifier and `hide:`-listed for prisma (broken by the `list[Model]` gap; return under future `load`/`backup`). T5.
+6. **Permissive enums** (see Architecture) — choices shown + completed, never validated.
+7. **Variants carry over per-method:** `set application custom` → `create application custom` (POST) + `patch application custom` (PATCH). The `cli.yml variants:` map is keyed by method → no change.
+
+## Centralized option rendering (the spine of T2–T4)
+All three emission tasks funnel through ONE helper so the jinja stays a single branch and we never rewrite the option line three times. In `render_cli.py`, `_flag_view(f)` computes:
+- `render_type`: the full annotation string. `--id`/`json`/`enum` kinds → `str`; scalar → mapped Python type (`int`/`bool`/`float`/`str`); wrapped in `Optional[...]` iff not required.
+- `required`: bool (drives `typer.Option(...)` vs `typer.Option(None, …)`).
+- `help_text`: base help, with `  [values: a, b, c]` appended for enum flags (permissive listing).
+- `completion`: the choices list (or None) for the shell completer.
+
+`commands.py.jinja` then emits each flag as ONE line:
+```jinja
+    {{ f.py_name }}: {{ f.render_type }} = typer.Option(
+        {{ '...' if f.required else 'None' }}, {{ f.name|tojson }}
+        {%- if f.help_text %}, help={{ f.help_text|tojson }}{% endif %}
+        {%- if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}),
+```
+(T2 introduces `render_type`/`required`/`help_text`; T3 fills the scalar `render_type`; T4 fills `help_text`/`completion`. Build the whole `_flag_view` contract in T2 with scalar/enum branches returning `str` for now, so later tasks only enrich.)
 
 ## File structure (this plan)
-- `src/phantasos/generator/cli/ir.py` — `Verb` literal; `Command.action` stays; (no new Flag fields until T3).
-- `src/phantasos/generator/cli/classify.py` — `_VERB_PREFIXES` remap; drop bulk; `_emit` unchanged mechanics (now produces single-binding write commands); `Flag.required` (T2); enum import capture (T3).
-- `src/phantasos/generator/cli/inventory.py` + `introspect.py` — capture enum class import path (T3).
-- `src/phantasos/generator/cli/render_cli.py` + `templates/_generated/commands.py.jinja` — typed/required/enum option emission (T2–T4).
-- `src/phantasos/generator/cli/templates/_generated/runtime.py.jinja` — drop `replace`; enum `.value` coercion (T3).
-- `src/phantasos/generator/cli/templates/_generated/app.py.jinja` — `_VERBS`; drop `--replace` option.
+- `ir.py` — `Verb` literal (T1). (No new `Flag` fields — `required`/`choices`/`py_type` already exist.)
+- `classify.py` — `_VERB_PREFIXES` remap + drop bulk (T1); `--id` required for patch/update via `_emit` post-process (T2).
+- `inventory.py` + `introspect.py` — normalize body-field scalar types (T3).
+- `render_cli.py` — `_flag_view` centralization (T2); remove `replace` from `_RESERVED` (T1); per-module completer emission (T4).
+- `templates/_generated/commands.py.jinja` — centralized option line + completers (T2/T4); drop `--replace` (T1).
+- `templates/_generated/runtime.py.jinja` — drop `replace` + `if replace:` (T1).
+- `templates/_generated/app.py.jinja` — `_VERBS` (T1); drop `--replace` option (T1).
 - `products/prisma-browser/cli.yml`, spec, roadmap — T5.
 - Tests across `test_cli_classify/emitted/command/emitted_real`.
 
@@ -40,15 +60,15 @@
 
 ## Task 1: Decouple the write verbs + rename `del`→`delete` (core, atomic)
 
-This is the cohesive core: it touches the verb literal, the classifier mapping, registration, and the runtime dispatch together, plus updates all existing tests' verb expectations. After it, every write command is single-binding and the suite is green.
+Touches the verb literal, classifier mapping, registration, and runtime dispatch together, plus migrates existing tests. After it, every write command is single-binding and the suite is green.
 
-**Files:** `ir.py`, `classify.py`, `templates/_generated/runtime.py.jinja`, `templates/_generated/app.py.jinja`, and existing tests.
+**Files:** `ir.py`, `classify.py`, `render_cli.py`, `runtime.py.jinja`, `app.py.jinja`, `commands.py.jinja`, existing tests.
 
-- [ ] **Step 1: Update `Verb` in `ir.py`**
+- [ ] **Step 1: `Verb` in `ir.py`**
 ```python
 Verb = Literal["create", "patch", "update", "delete", "show", "request", "load", "backup"]
 ```
-(Remove `"set"`, `"del"`. `SubVerb` stays as-is — bindings still carry `create/patch/update/get/list/delete/action`.)
+(Remove `"set"`, `"del"`. `SubVerb` unchanged.)
 
 - [ ] **Step 2: Remap `_VERB_PREFIXES` in `classify.py` + drop bulk**
 ```python
@@ -61,63 +81,57 @@ _VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
     ("list_", "show", "list"),
 ]
 ```
-Removed the `bulk_create_`/`bulk_delete_` rows (deferred — they now return `None` from `classify_name`, i.e. "unmapped" unless hidden; T5 hides them for prisma). No other change to `classify_name` or `_emit` — because `_command_key` includes the verb, create/patch/update for one object now produce three distinct keys → three single-binding commands automatically.
+(Removed `bulk_create_`/`bulk_delete_` — they now return `None` from `classify_name` = "unmapped" until hidden in T5. No other `_emit`/`classify_name` change — distinct verb keys auto-produce single-binding write commands.)
 
-- [ ] **Step 3: Drop `--replace` from the runtime** (`runtime.py.jinja`)
-  - `run(...)`: remove the `replace: bool = False` parameter.
-  - `_pick_binding(cmd, present, replace)` → `_pick_binding(cmd, present)`; delete the `if replace:` block (lines ~84–86). It now just picks the binding whose `requires` ⊆ `present` with the most specific match (still correct for `show` get vs list via `--id`; write commands have a single binding so it returns that one).
-  - Remove `replace` from the `run(...)` call sites / the `_SUBVERB_PRIORITY` update tiebreak comment.
+- [ ] **Step 3: Drop `--replace` from the runtime** (`runtime.py.jinja`): remove the `replace: bool = False` param from `run(...)`; change `_pick_binding(cmd, present, replace)` → `_pick_binding(cmd, present)` and delete the `if replace:` block (~lines 84-86). (Single-binding writes → returns the lone binding; `show` get/list still selected by `--id` via the `requires`-subset logic.)
 
-- [ ] **Step 4: Update registration** (`app.py.jinja`)
-```jinja
-_VERBS = ["create", "patch", "update", "delete", "show", "request"]
-```
-  - Remove the injected `--replace` option line (`replace: bool = typer.Option(False, "--replace")`) and drop `replace=replace` from the `run(...)` call in the command body template (`commands.py.jinja`).
+- [ ] **Step 4: Registration** (`app.py.jinja`): `_VERBS = ["create", "patch", "update", "delete", "show", "request"]`; remove the injected `replace: bool = typer.Option(False, "--replace")` line.
 
-- [ ] **Step 5: Update `commands.py.jinja`** — remove the `--replace` option + its pass-through to `run(...)`. (Keep `--all`, `--dry-run`, `--verbose`, `--output`.)
+- [ ] **Step 5: `commands.py.jinja`**: remove the `--replace` option + `replace=replace` from the `run(...)` call. (Keep `--all`/`--dry-run`/`--verbose`/`--output`.)
 
-- [ ] **Step 6: Migrate existing tests.** Grep and update verb expectations across the suite:
-  - `grep -rn '"set"\|set:\|"del"\|del:\|--replace\|replace=' tests/` — for each:
-    - command-key assertions: `set:device-group` → `create:device-group` / `patch:device-group` / `update:device-group` (split — a former `set:X` with create+patch+update bindings becomes three single-binding commands); `del:X` → `delete:X`.
-    - CliRunner invocations: `["set", obj, ...]` (create) → `["create", obj, ...]`; `["set", obj, "--id", ...]` (patch) → `["patch", obj, "--id", ...]`; `["set", obj, "--id", "--replace", ...]` → `["update", obj, "--id", ...]`; `["del", ...]` → `["delete", ...]`.
-    - binding assertions: a former `set:application:custom` (bindings create+patch) → `create:application:custom` (1 binding, sub_verb create) and `patch:application:custom` (1 binding, sub_verb patch). Update `test_cli_emitted_real.py::test_real_cli_yml_produces_variant_commands_and_no_unmapped` accordingly (assert `create:application:custom` + `patch:application:custom`, each single-binding).
-    - Any test asserting `set` is a verb group → `create`/`patch`/`update`.
-    - bulk: tests asserting a `set <obj>` bulk leaf or `bulk_create` binding — remove/adjust (bulk deferred). If the fakesdk fixture has a `bulk_create_*`/`bulk_delete_*` method, it now classifies as unmapped; update the affected test configs to `hide` it OR assert it in `unmapped` (whichever the test intends). Confirm `tests/test_cli_emitted_real.py` `unmapped == []` still holds after T5 hides prisma's bulk ops — but T5 runs later, so in THIS task, temporarily allow prisma's bulk ops in `unmapped` (the real-SDK test may need `unmapped` to contain the 1–2 bulk ops until T5). Mark that assertion with a `# TODO(T5): hidden in cli.yml` and tighten it in T5. (State clearly in your report which tests you touched and why.)
+- [ ] **Step 6: Remove stale `"replace"` from `render_cli._RESERVED`** (~line 22).
 
-- [ ] **Step 7: Run + iterate to green**
-`UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run pytest tests/ -q` — fix until green. Then `ruff check src/phantasos tests/` + `mypy src/phantasos/generator`.
+- [ ] **Step 7: Migrate existing tests.** `grep -rn '"set"\|set:\|"del"\|del:\|--replace\|replace=' tests/ src/` and update:
+  - keys: a former `set:X` (create+patch+update bindings) → three single-binding commands `create:X`/`patch:X`/`update:X`; `del:X` → `delete:X`.
+  - CliRunner: `["set", obj, …]` (create) → `["create", obj, …]`; `["set", obj, "--id", …]` (patch) → `["patch", obj, "--id", …]`; `["set", obj, "--id", "--replace", …]` (PUT) → `["update", obj, "--id", …]`; `["del", …]` → `["delete", …]`.
+  - bindings: `set:application:custom` (create+patch) → `create:application:custom` (1 binding) + `patch:application:custom` (1 binding). Update `test_real_cli_yml_produces_variant_commands_and_no_unmapped` to assert both, single-binding each.
+  - verb-group assertions: `set`→`create`/`patch`/`update`; `del`→`delete`.
+  - **bulk:** the fakesdk fixture has NO bulk methods (verified), so the fakesdk suite is unaffected. For the real-SDK tests, prisma's bulk ops now land in `unmapped` until T5 hides them — TEMPORARILY relax any `unmapped == []` assertion to `set(unmapped) <= {<the bulk keys>}` with a `# TODO(T5): hidden in cli.yml, retighten to ==[]` and run `phantasos cli discover prisma-browser` to get the exact bulk keys.
+  - State in your report exactly which tests you touched.
 
-- [ ] **Step 8: Sanity-build the real CLI**
-`UV_PROJECT_ENVIRONMENT=/tmp/phantasos-venv uv run phantasos cli build prisma-browser 2>&1 | tail -2` — should emit; `discover` shows `create device-group`, `patch device-group`, `update device-group`, `delete <obj>`. (Bulk ops may show an `unmapped` note until T5 — OK for now.)
+- [ ] **Step 8: Green + lint** — `pytest tests/ -q` to green, then `ruff check src/phantasos tests/` + `mypy src/phantasos/generator`. Confirm `grep -rn '"set"\|set:\|"del"\|--replace' src/ src/phantasos/generator/cli/templates` returns nothing stale (incl. `app.py.jinja` `_VERBS`, `render_cli._RESERVED`).
 
-- [ ] **Step 9: Commit**
-```bash
-git add -A
-git commit -m "refactor(cli-gen): decouple set into create/patch/update single-binding verbs; del->delete; drop --replace"
-```
+- [ ] **Step 9: Sanity build** — `phantasos cli build prisma-browser 2>&1 | tail -2`; `discover` shows `create/patch/update/delete <obj>`. (Bulk may show an `unmapped` note until T5.)
+
+- [ ] **Step 10: Commit** `refactor(cli-gen): decouple set into create/patch/update single-binding verbs; del->delete; drop --replace`.
 
 ---
 
-## Task 2: Required model fields → real `[required]` Typer options
+## Task 2: Required options + centralized `_flag_view` rendering
 
-Now that write commands are single-binding, a field required by `create`/`update`'s body model can be a true required option.
+Required-ness is ALREADY in the IR (`fields_to_flags` sets `Flag.required=f.required`; verify). The gap is purely the emitter, which today drops it and hardcodes `Optional[str]`. This task builds the centralized `_flag_view` contract (used by T3/T4) and emits required options. It also makes `--id` required for `patch`/`update`.
 
-**Files:** `classify.py` (`_body_flags_for`), `render_cli.py` (`_flag_view`), `commands.py.jinja`, tests.
+**Files:** `render_cli.py` (`_flag_view`), `commands.py.jinja`, `classify.py` (`_emit` post-process for `--id`), tests.
 
-- [ ] **Step 1: Failing test** (append to `tests/test_cli_emitted.py`)
+- [ ] **Step 1: Confirm the IR already carries required** (quick check, no code):
+`… python -c "from phantasos.generator.cli.introspect import introspect; from pathlib import Path; inv=introspect('fakesdk', Path('tests/fixtures/fakesdk')); op=next(o for o in inv.operations if o.method=='create_widget'); print([(f.name,f.required) for f in op.params])"` — expect `name` required=True.
+
+- [ ] **Step 2: Failing tests** (`tests/test_cli_emitted.py`)
 ```python
-def test_create_required_fields_are_required(emitted):
-    # The fakesdk create_widget body (WidgetInput) has a required `name`.
-    code = (EMITTED_DIR / "fakesdk_cli" / "_generated" / "commands" / "widgets.py").read_text()
-    # required field → typer.Option(...) (Ellipsis), optional → typer.Option(None)
+def test_create_required_fields_render_required(emitted, tmp_path):
+    # render fakesdk CLI to tmp and read the emitted command module
+    from phantasos.generator.cli.introspect import introspect
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.render_cli import render_cli
+    from phantasos.generator.cli.cliconfig import CliConfig
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, CliConfig())
+    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
+    code = (tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py").read_text()
     import re
-    create_fn = re.search(r"def create_widget\(.*?\n\)", code, re.S).group(0)
-    assert "typer.Option(..." in create_fn        # at least one required option
-```
-(Adjust `EMITTED_DIR` to the fixture's emitted path used by the `emitted` fixture — find how other tests reference emitted files. If the fixture doesn't expose the dir, render via `render_cli` to a tmp dir in the test instead and read the file.)
+    create_fn = re.search(r"def create_widget\(.*?\n\) ->", code, re.S).group(0)
+    assert "typer.Option(\n        ...," in create_fn or "typer.Option(..." in create_fn
 
-Also a behavioral test:
-```python
 def test_create_missing_required_errors_cleanly(emitted, monkeypatch):
     from typer.testing import CliRunner
     main = importlib.import_module("fakesdk_cli.main")
@@ -126,119 +140,140 @@ def test_create_missing_required_errors_cleanly(emitted, monkeypatch):
     res = CliRunner().invoke(main.app, ["create", "widget"])   # missing required --name
     assert res.exit_code != 0
     assert "Missing option" in res.output or "required" in res.output.lower()
+
+def test_patch_requires_id(emitted, monkeypatch):
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(main.app, ["patch", "widget", "--name", "x"])  # no --id
+    assert res.exit_code != 0
 ```
 
-- [ ] **Step 2: Run → FAIL** (all flags currently emit `Optional[str] = typer.Option(None, …)`).
+- [ ] **Step 3: Run → FAIL** (everything emits `Optional[str] = typer.Option(None, …)`; `--id` optional).
 
-- [ ] **Step 3: Propagate `required` into the Flag** — in `classify.py` `_body_flags_for`, stop hardcoding `required=False`; use the field's real required-ness:
+- [ ] **Step 4: `--id` required for patch/update** — in `classify.py` `_emit`, after building `cmd`, post-process:
 ```python
-            flags.append(Flag(name=_flag_name(p.name), param=p.name, py_type=py_type,
-                              kind=kind, required=p.required, help=p.description,
-                              choices=p.enum_values))
+        if verb in ("patch", "update"):
+            for f in cmd.path_params:
+                if f.kind == "id":
+                    f.required = True
 ```
-(The `--id` path flag stays `required=False` at the Flag level — `--id` requiredness is handled separately for patch/update; see note. `p` here is a `FieldInfo` which has `.required`.)
-**Important — patch keeps everything optional:** `patch`'s body model (`*PatchRequest`) already has all-optional fields, so `p.required` is naturally `False` for patch. `create`/`update` bodies carry the real required flags. No verb-special-casing needed — it falls out of the per-binding model. **`--id` for patch/update:** mark the id path flag required for `patch`/`update` commands (you can't patch/update without an id). Set the id flag's `required=True` when the command verb is `patch` or `update` (do this in `_path_flags`/`_emit` where the verb is known, or post-process in `_emit`). Add a test that `patch widget` without `--id` errors.
+(Do NOT change `_path_flags` — it's shared with `_emit_request`. `create` has no id flag; `show` keeps its id optional.)
 
-- [ ] **Step 4: Surface `required` in the emitter** — `_flag_view` returns `required` + `py_type`; `commands.py.jinja` emits required vs optional:
+- [ ] **Step 5: Centralize in `_flag_view`** (`render_cli.py`) — build the full contract now (scalar/enum branches return `str` for this task; T3/T4 enrich):
 ```python
-# render_cli._flag_view
+_SCALAR_PY = {"int": "int", "bool": "bool", "float": "float", "str": "str"}
+
+def _render_type(f: Flag) -> str:
+    if f.kind == "scalar":
+        base = _SCALAR_PY.get(f.py_type, "str")   # T3 makes py_type carry real scalar types
+    else:
+        base = "str"                                # id / json / enum stay str (permissive)
+    return base if f.required else f"Optional[{base}]"
+
 def _flag_view(f: Flag) -> dict[str, object]:
-    return {"name": f.name, "param": f.param, "py_name": _py_name(f.param),
-            "help": f.help, "required": f.required, "py_type": f.py_type,
-            "kind": f.kind, "choices": f.choices}
+    return {
+        "name": f.name, "param": f.param, "py_name": _py_name(f.param),
+        "required": f.required, "render_type": _render_type(f),
+        "help_text": f.help, "completion": None, "completer_name": None,  # T4 fills enum
+    }
 ```
-```jinja
-{%- for f in c.all_flags %}
-{%- if f.required %}
-    {{ f.py_name }}: str = typer.Option(..., {{ f.name|tojson }}{% if f.help %}, help={{ f.help|tojson }}{% endif %}),
-{%- else %}
-    {{ f.py_name }}: Optional[str] = typer.Option(None, {{ f.name|tojson }}{% if f.help %}, help={{ f.help|tojson }}{% endif %}),
-{%- endif %}
-{%- endfor %}
-```
-(Types stay `str` here — real scalar/enum typing comes in T3/T4. This task only adds required-ness.)
 
-- [ ] **Step 5: Run → PASS**, full suite green, ruff+mypy clean.
-- [ ] **Step 6: Commit** `feat(cli-gen): required model fields render as required CLI options (create/update)`.
+- [ ] **Step 6: Centralized option line in `commands.py.jinja`** — replace the hardcoded line with:
+```jinja
+    {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ '...' if f.required else 'None' }}, {{ f.name|tojson }}{% if f.help_text %}, help={{ f.help_text|tojson }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}),
+```
+(`Optional` is already imported in the template. `completion` is always None this task.)
+
+- [ ] **Step 7: Run → PASS**, full suite green, ruff+mypy clean.
+- [ ] **Step 8: Commit** `feat(cli-gen): required model fields + --id (patch/update) render as required options`.
 
 ---
 
-## Task 3: Enum fields → real Typer enum types (shown + validated)
+## Task 3: Real scalar types (int/bool/float; datetime→str)
 
-**Files:** `inventory.py`, `introspect.py`, `ir.py` (Flag), `classify.py`, `render_cli.py`, `commands.py.jinja`, `runtime.py.jinja`, tests.
+`_render_type` already maps `f.py_type`, but introspection under-populates body-field scalar types. `introspect._scalar_type` only emits `bool`/`int`/`str` (no `float`/`datetime`), and body `FieldInfo` carries `annotation` but no normalized `scalar_type`. Normalize it so int/bool/float bodies render as real types.
 
-- [ ] **Step 1: Failing test** (`tests/test_cli_emitted_real.py`, gated; the real `device-group` create has enum `platform`)
+**Files:** `introspect.py`, `inventory.py` (`FieldInfo`), `classify.py` (`_body_flags_for`/`fields_to_flags`), tests.
+
+- [ ] **Step 1: Failing test** — the fakesdk needs a scalar body field. Check `WidgetInput`; if it lacks an `int`/`bool`, add `priority: int` (required) and `enabled: Optional[bool]` to the fixture model `tests/fixtures/fakesdk/fakesdk/models.py`. Then:
 ```python
-def test_create_device_group_platform_is_enum(tmp_path):
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
-    from phantasos.generator.cli.cliconfig import load_cli_config
-    try:
-        inv = introspect("prisma_browser", REAL_SDK)
-    except ImportError as exc:
-        pytest.skip(str(exc))
-    ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
-    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
-    code = (tmp_path / "prisma_browser_cli" / "_generated" / "commands" / "device_groups.py").read_text()
-    assert "DeviceGroupPlatform" in code           # the enum class imported + used as the option type
-    assert "from prisma_browser.models import" in code
+def test_scalar_body_flags_use_real_types(emitted, tmp_path):
+    # render fakesdk CLI, read widgets.py
+    … (render as in T2) …
+    code = (tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py").read_text()
+    assert ": int = typer.Option(..." in code            # required int
+    assert "Optional[bool]" in code                       # optional bool
+
+def test_scalar_type_validated_by_typer(emitted, monkeypatch):
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(main.app, ["create", "widget", "--name", "w", "--priority", "abc"])
+    assert res.exit_code != 0   # 'abc' is not a valid int
 ```
-And a CliRunner test that an invalid `--platform` is rejected and `--help` shows the choices:
-```python
-    # (in an emitted-fakesdk test if the fixture has an enum field; else assert via real build help)
-```
-(If the fakesdk fixture lacks an enum body field, add one: give `WidgetInput` a `mode: Literal[...]` or an enum field — check; the summary says WidgetInput has a Literal `mode`. Use that for a fast emitted CliRunner enum test: `create widget --mode bogus` → exit≠0; `--help` shows `[a|b]`.)
 
-- [ ] **Step 2: Run → FAIL** (enum emitted as `str`/TEXT, no import).
+- [ ] **Step 2: Run → FAIL** (scalars render as `str`/`Optional[str]`).
 
-- [ ] **Step 3: Capture the enum import path in introspection** — `inventory.FieldInfo` and `ParamInfo` gain:
-```python
-    enum_import: str | None = None   # e.g. "prisma_browser.models"
-    enum_class: str | None = None    # e.g. "DeviceGroupPlatform"
-```
-In `introspect.py`, when a field/param annotation is (or unwraps to) an `enum.Enum` subclass, record `enum_class = cls.__name__` and `enum_import = cls.__module__`. (Keep `enum_values` too, for help/fallback.)
+- [ ] **Step 3: Normalize body-field scalar type in introspection** — add `scalar_type: str = "str"` to `inventory.FieldInfo`; in `introspect.py` where `FieldInfo`s are built, classify the (unwrapped) annotation: `bool`→"bool", `int`→"int", `float`→"float", everything else (str, datetime, UUID, etc.)→"str". Reuse/extend the existing `_scalar_type` helper to cover `float` (and leave datetime→str). For enum fields keep `scalar_type="str"` (permissive).
 
-- [ ] **Step 4: Carry it onto `Flag`** — `ir.Flag` gains `enum_import: str | None = None`, `enum_class: str | None = None`; `classify._body_flags_for`/`_query_flags` set them from the field/param. For enum flags set `py_type = f.enum_class` (the rendered annotation is now the enum class name).
+- [ ] **Step 4: Carry it to the Flag** — in `fields_to_flags` (`classify.py`), set `py_type = f.scalar_type` for scalar kind (currently `"str"` literal / enum forced to str). Enum/json/id stay `str`. `_render_type` (T2) then maps it.
 
-- [ ] **Step 5: Emit enum imports + typed options** — in `render_cli`, collect per-command-module the set of `(enum_import, enum_class)` across its flags and pass to the template; `commands.py.jinja` emits `from <enum_import> import <enum_class>` (deduped) at the module top, and the option becomes:
-```jinja
-{%- if f.enum_class %}
-    {{ f.py_name }}: {% if not f.required %}Optional[{% endif %}{{ f.enum_class }}{% if not f.required %}]{% endif %} = typer.Option({% if f.required %}...{% else %}None{% endif %}, {{ f.name|tojson }}{% if f.help %}, help={{ f.help|tojson }}{% endif %}),
-{%- elif f.required %} … (T2 required str branch) …
-```
-(Typer renders an Enum option as `[val1|val2|…]` and validates; values with spaces are quoted by the user.)
-
-- [ ] **Step 6: Coerce enum members in the runtime** — when building `path`/`body`/`query` dicts, a Typer enum option arrives as an `Enum` member; convert to its `.value` so the SDK/body model gets the plain value. In `runtime.py.jinja` where kwargs/body are assembled, add a small helper:
-```python
-def _unwrap(v):
-    import enum
-    return v.value if isinstance(v, enum.Enum) else v
-```
-and apply `_unwrap` to each path/body/query value. (Pydantic would also accept the member, but `.value` keeps dry-run output and JSON clean.)
-
-- [ ] **Step 7: Run → PASS**, full suite, ruff+mypy. Rebuild real CLI: `… phantasos cli build prisma-browser` then `prisma_browser_cli ... create device-group --help` shows `--platform [Desktop Browser|Mobile Browser|Browser Extension|Chromebook]` and `--name`/`--platform` as required. (You can't run the binary here without sync, but assert via the emitted file + a CliRunner test on the fixture enum.)
-- [ ] **Step 8: Commit** `feat(cli-gen): enum body/query fields render as typed Typer choices`.
+- [ ] **Step 5: Run → PASS**, full suite, ruff+mypy.
+- [ ] **Step 6: Commit** `feat(cli-gen): scalar body flags render with real types (int/bool/float)`.
 
 ---
 
-## Task 4: Typed scalar flags (int/bool/float/datetime → real types)
+## Task 4: Permissive enum choices (help listing + shell completion, no validation)
 
-**Files:** `render_cli.py`, `commands.py.jinja`, tests.
+Surface enum choices so users discover valid values, WITHOUT a validating Typer `Enum` (the SDK is `LenientStrEnum`). Enum flags stay `str`; add the choices to `--help` and a shell completer.
 
-- [ ] **Step 1: Failing test** — pick a fixture scalar non-str field (e.g. an int/bool on a body model; add one to `WidgetInput` if none exists, e.g. `priority: int` / `enabled: bool`). Assert the emitted option uses the real type:
+**Files:** `render_cli.py` (`_flag_view`, per-module completer emission), `commands.py.jinja`, tests.
+
+- [ ] **Step 1: Failing test** — `WidgetInput` has a `Literal`/enum field `mode` (per the fixture); if not, add a `Color`-typed enum field to a fixture body model with choices. Then:
 ```python
-def test_scalar_flags_use_real_types(emitted):
-    code = (… widgets.py …).read_text()
-    assert "Optional[int]" in code or ": int " in code   # priority renders as int, not str
+def test_enum_flag_lists_choices_in_help_and_accepts_unknown(emitted, monkeypatch):
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    calls = []
+    _, FakeClient = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: FakeClient()))
+    h = CliRunner().invoke(main.app, ["create", "widget", "--help"]).output
+    assert "values:" in h.lower() and "red" in h.lower()        # choices listed (adjust to fixture enum)
+    # permissive: an unlisted value is ACCEPTED (SDK is LenientStrEnum), not rejected
+    res = CliRunner().invoke(main.app, ["create", "widget", "--name", "w", "--color", "chartreuse"])
+    assert res.exit_code == 0, res.output
 ```
-And a CliRunner test that `--priority abc` (non-int) is rejected by Typer.
+(Adjust the enum flag name + a real choice to the fixture's enum field.)
 
-- [ ] **Step 2: Run → FAIL** (scalars emit as `str`).
+- [ ] **Step 2: Run → FAIL** (no choices in help; no completer).
 
-- [ ] **Step 3: Emit `py_type` for scalar/id kinds** — in `commands.py.jinja`, for `f.kind in ("scalar",)` use `f.py_type` as the annotation (mapping the IR's `scalar_type` strings — `int`/`float`/`bool`/`str`/`datetime`→`str`) instead of hardcoding `str`. Keep `kind in ("json",)` (complex/list/union/nested) and `--id` as `str` (the user passes JSON / an id string). Centralize the annotation choice in `_flag_view` (compute a `render_type` field: enum→class, json→`str`, scalar→mapped py_type) so the template stays simple. Map unknown/`datetime` scalar types to `str` (safe).
+- [ ] **Step 3: Enrich `_flag_view`** for enum flags (those with `f.choices`):
+```python
+    choices = f.choices
+    help_text = f.help
+    completer_name = None
+    if choices:
+        listed = ", ".join(choices)
+        help_text = (f"{f.help}  [values: {listed}]" if f.help else f"[values: {listed}]")
+        completer_name = f"_complete_{_py_name(f.param)}"
+    return {..., "help_text": help_text, "completion": choices, "completer_name": completer_name}
+```
 
-- [ ] **Step 4: Run → PASS**, full suite, ruff+mypy.
-- [ ] **Step 5: Commit** `feat(cli-gen): scalar flags render with real types (int/bool/float)`.
+- [ ] **Step 4: Emit completers** — for each command module, render a module-level completer per enum flag (deduped by param), and reference it via `autocompletion=` (the template branch from the centralized line already does this when `f.completion`):
+```jinja
+{% for f in module_enum_flags %}
+def {{ f.completer_name }}(incomplete: str) -> list[str]:
+    return [c for c in {{ f.completion|tojson }} if c.startswith(incomplete)]
+{% endfor %}
+```
+Collect `module_enum_flags` (deduped by `completer_name`) in `render_cli` alongside the per-module command views. The option stays `str` (render_type unchanged), so unknown values pass through to the SDK.
+
+- [ ] **Step 5: Run → PASS**, full suite, ruff+mypy.
+- [ ] **Step 6: Commit** `feat(cli-gen): enum flags list choices in --help + shell completion (permissive, no validation)`.
 
 ---
 
@@ -246,7 +281,7 @@ And a CliRunner test that `--priority abc` (non-int) is rejected by Typer.
 
 **Files:** `products/prisma-browser/cli.yml`, spec, roadmap.
 
-- [ ] **Step 1: Hide bulk in prisma cli.yml** — add the bulk ops to a `hide:` block so the real build is clean (0 unmapped) and the deferred-bulk decision is explicit:
+- [ ] **Step 1: Hide bulk in prisma cli.yml** — `phantasos cli discover prisma-browser` to list the exact bulk method keys, then:
 ```yaml
 hide:
   # Deferred — bulk import/export returns via the future `load`/`backup` verbs (broken by the
@@ -254,13 +289,12 @@ hide:
   - applications.bulk_create_applications
   # (+ any other bulk_create_*/bulk_delete_* discover reports)
 ```
-Run `phantasos cli discover prisma-browser` to list the exact bulk method keys; add each. Then tighten the T1 `# TODO(T5)` test back to `unmapped == []`.
+Then retighten the T1 `# TODO(T5)` test back to `unmapped == []`.
 
-- [ ] **Step 2: Spec rewrite** — in `docs/superpowers/specs/2026-06-09-cli-generator-design.md`, replace the `set`-aggregation grammar + "Variant"/dispatch sections: document the verb table (`create`/`patch`/`update`/`delete`/`show`/`request`), single-binding writes, required+enum+typed flags, `--id` required for patch/update, `set`/`--replace` removed, bulk deferred. Update the `Verb` literal reference.
+- [ ] **Step 2: Spec rewrite** — in `…design.md`, replace the `set`-aggregation grammar + dispatch sections: verb table (`create`/`patch`/`update`/`delete`/`show`/`request`), single-binding writes, `--id` required for patch/update, required+typed scalar flags, `set`/`--replace` removed, bulk deferred. **Leave the permissive-enum section as-is** (this plan honors it). Update the `Verb` literal reference.
 
-- [ ] **Step 3: Roadmap** — note the decouple is done; bulk → `load`/`backup` phase.
-
-- [ ] **Step 4: Full suite green; commit** `docs: decoupled write-verb grammar; hide deferred bulk ops`.
+- [ ] **Step 3: Roadmap** — decouple done; bulk → `load`/`backup` phase.
+- [ ] **Step 4: Green; commit** `docs: decoupled write-verb grammar; hide deferred bulk ops`.
 
 ---
 
@@ -268,7 +302,7 @@ Run `phantasos cli discover prisma-browser` to list the exact bulk method keys; 
 
 **Files:** `tests/test_cli_emitted_real.py` (gated).
 
-- [ ] **Step 1: Gated test** proving the end state on the real SDK:
+- [ ] **Step 1: Gated test**
 ```python
 def test_real_device_group_crud_verbs(tmp_path, monkeypatch):
     if not REAL_SDK.exists():
@@ -285,9 +319,8 @@ def test_real_device_group_crud_verbs(tmp_path, monkeypatch):
     assert {"create:device-group", "patch:device-group", "update:device-group",
             "delete:device-group", "show:device-group"} <= keys
     assert unmapped == []
-    # each write command is single-binding
     for k in ("create:device-group", "patch:device-group", "update:device-group"):
-        assert len([c for c in ir.commands if c.key == k][0].bindings) == 1
+        assert len(next(c for c in ir.commands if c.key == k).bindings) == 1
 
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
     sys.path.insert(0, str(tmp_path))
@@ -296,36 +329,36 @@ def test_real_device_group_crud_verbs(tmp_path, monkeypatch):
     try:
         main = importlib.import_module("prisma_browser_cli.main")
         runner = CliRunner()
-        # required + enum surfaced in help
         h = runner.invoke(main.app, ["create", "device-group", "--help"]).output
-        assert "--platform" in h and "Desktop Browser" in h
-        # missing required → clean error
+        assert "--platform" in h and "Desktop Browser" in h          # choices listed (permissive)
         import prisma_browser.extras.facade as facade
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: MagicMock()))
-        miss = runner.invoke(main.app, ["create", "device-group", "--name", "x"])  # no --platform
-        assert miss.exit_code != 0
-        # patch requires --id
-        assert runner.invoke(main.app, ["patch", "device-group", "--name", "x"]).exit_code != 0
+        miss = runner.invoke(main.app, ["create", "device-group", "--name", "x"])  # no required --platform
+        assert miss.exit_code != 0                                    # required enforced
+        assert runner.invoke(main.app, ["patch", "device-group", "--name", "x"]).exit_code != 0  # patch needs --id
+        # permissive enum: an unlisted platform is accepted (SDK is LenientStrEnum)
+        ok = runner.invoke(main.app, ["create", "device-group", "--name", "x",
+                                      "--platform", "Holographic Browser", "--dry-run"])
+        assert ok.exit_code == 0, ok.output
     finally:
         sys.path.remove(str(tmp_path))
         for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
             del sys.modules[n]
 ```
 
-- [ ] **Step 2: Run → PASS (not skip).** If `--help` enum rendering differs (Typer version), adjust the assertion to match how Typer prints enum choices (still assert a real platform value appears).
+- [ ] **Step 2: Run → PASS (not skip).** Adjust the `--help` choice assertion if Typer prints the `[values: …]` differently; keep asserting a real platform value appears and that an unlisted one is accepted.
 - [ ] **Step 3: Full suite + ruff + mypy; commit** `test(cli-gen): real-SDK create/patch/update/delete device-group experience`.
 
 ---
 
-## Self-review (completed during authoring)
-- **Spec coverage:** decouple (T1), required (T2), enum (T3), scalar types (T4), del→delete (T1), drop set/--replace (T1), bulk deferred + spec/roadmap (T5), real-SDK validation (T6).
-- **Placeholder scan:** none — concrete code per step. T1 Step 6 + T2 Step 1 note real unknowns (exact test sites; the fixture's emitted-dir accessor) with a discover/grep-first instruction rather than a guess.
-- **Type/name consistency:** `Verb` gains create/patch/update/delete (T1); `_VERB_PREFIXES` maps to them (T1); `Flag` gains `enum_import`/`enum_class` (T3); `_flag_view` returns required/py_type/kind/choices/enum (T2–T4) consumed by `commands.py.jinja`; `_unwrap` (T3) used in runtime body/path/query assembly; `_VERBS` (T1) matches the emitted verbs; bulk hidden (T5) makes `unmapped == []` true for T6.
+## python-pro review (applied)
+GO-WITH-CHANGES. Folded in: **(must-fix 1)** enums are PERMISSIVE — choices in help + shell completer, never a validating `Enum` (honors the documented `LenientStrEnum` decision); so no enum-class import capture and no `.value` coercion. **(must-fix 3)** required-ness is ALREADY in the IR (`fields_to_flags` sets it) — T2 is emitter-only, not an introspection change. **(must-fix 4)** `--id` required for patch/update via an `_emit` post-process (NOT `_path_flags`, which `_emit_request` shares). **(must-fix 5 / ordering)** the option-type computation is centralized once in `_flag_view.render_type` (T2), so T3/T4 only enrich it — no thrice-rewritten jinja; order is T2 (required+centralize) → T3 (scalar types) → T4 (permissive enum choices). **(should-fix)** remove stale `"replace"` from `render_cli._RESERVED` (T1); introspection must normalize `float`/`datetime` body scalars (T3) since `_scalar_type` only emits bool/int/str today; fakesdk has no bulk methods so only the real-SDK `unmapped` assertion needs the temporary T1→T5 loosening.
 
 ## Risks for the review pass
-1. **Test churn volume (T1):** many `set:`/`del:`/`--replace` references. Risk of a missed site → confirm full green + `grep -rn '"set"\|set:\|"del"\|--replace' tests/ src/` returns nothing stale after T1.
-2. **`--id` required for patch/update (T2):** ensure the id flag is required for patch/update but NOT for create (create has no id) and NOT over-required for show. Verify where verb is known when building path flags.
-3. **Enum with spaces (T3):** Typer/Click choice rendering + the user quoting `"Desktop Browser"`; `_unwrap` → `.value`. Confirm a real dispatch passes the value the SDK expects.
-4. **Variants under the split (T1/T6):** `create application <variant>` + `patch application <variant>` both exist and are single-binding; the variant discriminator injection (variant_param) still fires for create (POST union body) — confirm the runtime still injects it (that logic keys on `cmd.variant`/`variant_param`, unaffected by the verb rename).
-5. **`show` still aggregates get/list** — confirm `_pick_binding` (sans `replace`) still selects get on `--id`, list otherwise.
-6. **bulk removal → unmapped during T1:** the real-SDK `unmapped==[]` assertion is temporarily loosened in T1 and retightened in T5 — don't forget T5.
+1. **Test-churn volume (T1):** confirm `grep -rn '"set"\|set:\|"del"\|--replace' tests/ src/` is clean post-T1 (incl. `app.py.jinja`, `render_cli._RESERVED`).
+2. **`--id` required scope (T2):** patch/update yes; create has no id; show stays optional. Verify the post-process only flips `kind=="id"` flags.
+3. **Variant split (T1/T6):** `create application <variant>` + `patch application <variant>` both single-binding; the runtime variant-discriminator injection (keys on `cmd.variant`/`variant_param`) still fires for the create POST union body — unaffected by the verb rename.
+4. **`show` get/list (T1):** `_pick_binding(cmd, present)` (sans `replace`) selects get on `--id`, list otherwise.
+5. **Scalar normalization (T3):** body `FieldInfo` gains a normalized `scalar_type`; datetime→str (Typer datetime parsing is brittle); confirm `runtime._coerce`'s `isinstance(v, str)` guards no-op cleanly when Typer delivers already-typed int/bool.
+6. **Permissive enum (T4):** the option stays `str` so unlisted values pass through; the completer + `[values: …]` help are discoverability only. Confirm a dry-run with an unlisted enum value exits 0.
+7. **bulk loosening (T1→T5):** the real-SDK `unmapped` assertion is relaxed in T1, retightened in T5 — don't forget.
