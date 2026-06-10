@@ -4,14 +4,21 @@ from typing import Annotated
 
 from pydantic import Field
 
-from .models import CreateGizmoInput, WidgetInput, WidgetType
+from .models import (
+    CreateGizmoInput,
+    CreateWidget201Response,
+    Widget,
+    WidgetInput,
+    WidgetList,
+    WidgetType,
+)
 
 
 class WidgetsApi:
     def __init__(self, api_client=None):
         pass
 
-    def create_widget(self, widget_input: WidgetInput):
+    def create_widget(self, widget_input: WidgetInput) -> CreateWidget201Response:
         """Create a widget.
 
         Adds a new widget to the system.
@@ -21,19 +28,19 @@ class WidgetsApi:
         self,
         id: Annotated[str, Field(description="The widget id.")],
         configuration_version: str | None = None,
-    ):
+    ) -> Widget:
         """Get a widget by id."""
 
-    def list_widgets(self, name: str | None = None, limit: int | None = None):
+    def list_widgets(self, name: str | None = None, limit: int | None = None) -> WidgetList:
         """List widgets."""
 
     def delete_widget_by_id(self, id: str):
         """Delete a widget."""
 
-    def patch_widget(self, id: str, widget_input: WidgetInput):
+    def patch_widget(self, id: str, widget_input: WidgetInput) -> Widget:
         """Patch a widget."""
 
-    def update_widget(self, id: str, widget_input: WidgetInput):
+    def update_widget(self, id: str, widget_input: WidgetInput) -> Widget:
         """Replace a widget (PUT)."""
 
     def update_widget_positions(self, body: dict):
