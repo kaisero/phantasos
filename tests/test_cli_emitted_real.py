@@ -238,3 +238,53 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped():
     assert patch.body_wrapper == "PatchAppInput"
     assert {"set:application:private", "set:application:non-web",
             "set:application:localdesktopcustom"} <= set(by_key)
+
+
+def test_real_request_commands_dispatch(tmp_path, monkeypatch):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    from unittest.mock import MagicMock
+
+    from typer.testing import CliRunner
+
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"SDK runtime deps unavailable: {exc}")
+    cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
+    ir, unmapped = build_cli_ir(inv, cfg)
+    by_key = {c.key: c for c in ir.commands}
+    # the cli.yml's request mappings are now real commands
+    assert "request:device:suspend" in by_key
+    assert "request:user-request:revoke" in by_key
+    assert "request:configuration:publish" in by_key
+    assert unmapped == []  # all 16 non-CRUD ops emitted, none unmapped
+
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
+    sys.path.insert(0, str(tmp_path))
+    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+        del sys.modules[n]
+    try:
+        main = importlib.import_module("prisma_browser_cli.main")
+        import prisma_browser.extras.facade as facade
+        mock = MagicMock(name="Client")
+        mock.user_requests.revoke_user_request.return_value = {
+            "id": "REQ-1", "status": "revoked"
+        }
+        monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: mock))
+        # request user-request revoke --id REQ-1
+        # (id + body; revoke body field is optional)
+        res = CliRunner().invoke(
+            main.app,
+            ["request", "user-request", "revoke", "--id", "REQ-1", "--output", "json"],
+        )
+        assert res.exit_code == 0, res.output
+        assert mock.user_requests.revoke_user_request.called
+        kw = mock.user_requests.revoke_user_request.call_args.kwargs
+        assert kw.get("id") == "REQ-1"
+    finally:
+        sys.path.remove(str(tmp_path))
+        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+            del sys.modules[n]
