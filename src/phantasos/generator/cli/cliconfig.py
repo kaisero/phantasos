@@ -2,7 +2,7 @@
 
 cli.yml holds: request (non-CRUD remaps), override (fix object/verb), hide (exclude),
 variants (REQUIRED path-enum -> variant-model map for union bodies), settings (per-flag
-tweaks), custom (pointer to hand-owned commands).
+tweaks), custom (pointer to hand-owned commands), columns (per-object table columns).
 """
 
 from __future__ import annotations
@@ -38,6 +38,13 @@ class VariantMap(BaseModel):
     map: dict[str, str]  # path-enum value -> variant model class name
 
 
+class ColumnEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    header: str
+    path: str  # JMESPath over the row dict (snake_case keys)
+
+
 class CustomPointer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,6 +61,8 @@ class CliConfig(BaseModel):
     variants: dict[str, VariantMap] = {}
     settings: dict[str, Any] = {}
     custom: CustomPointer = CustomPointer()
+    # object -> table columns; a bare string is shorthand for header == path
+    columns: dict[str, list[str | ColumnEntry]] = {}
 
 
 def load_cli_config(path: Path) -> CliConfig:

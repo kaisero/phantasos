@@ -54,3 +54,24 @@ def test_cli_config_project_absent_is_none(tmp_path):
     p = tmp_path / "cli.yml"
     p.write_text("hide: []\n")
     assert load_cli_config(p).project is None
+
+
+def test_columns_section_loads(tmp_path):
+    from phantasos.generator.cli.cliconfig import ColumnEntry, load_cli_config
+
+    p = tmp_path / "cli.yml"
+    p.write_text(
+        "columns:\n"
+        "  device-group:\n"
+        "    - id\n"
+        "    - name\n"
+        "    - header: MEMBERS\n"
+        "      path: \"members[].name\"\n",
+        encoding="utf-8",
+    )
+    cfg = load_cli_config(p)
+    entries = cfg.columns["device-group"]
+    assert entries[0] == "id"
+    assert isinstance(entries[2], ColumnEntry)
+    assert entries[2].header == "MEMBERS"
+    assert entries[2].path == "members[].name"
