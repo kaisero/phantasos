@@ -164,10 +164,13 @@ The hooks are code and get unit tests (in phantasos's offline suite):
 - **OS read-only perms** and **server-side git hooks** — heavier freeze layers; CODEOWNERS is the chosen backstop.
 - **Full extraction** of the harness into a shareable cross-project package (harness.toml already isolates the config seam).
 
+## Resolved (2026-06-10, user decisions)
+
+1. **Resource pick:** **device-group** — the live CRUD round-trip creates/reads/deletes device-groups on the tenant. (Note for the plan: the SDK's id param naming varies — `device_group_id` vs `id` — a known SDK wrinkle; the suite uses whatever the generated SDK exposes today.)
+2. **Branch strategy:** fresh branch off `main`, in an **isolated git worktree** — another agent works on this repo in parallel; the spec is carried onto the new branch (it currently lives on `cli-generator`).
+
 ## Open questions for the implementation plan
 
-1. **Resource pick** for the live CRUD round-trip (simplest fully-reversible; not `oneOf`-bodied).
-2. **Branch strategy:** build on a fresh branch off `main`, or alongside the in-flight `cli-generator` work?
 3. **`nox -s live` vs `smoke` reuse:** how much of the smoke session's generate-and-install machinery is factored out vs duplicated.
 4. **`settings.json` hook registration shape** for shell-command hooks (the `claude -p` form) — confirm exact JSON against the installed Claude Code version.
 5. **Loop-guard counter mechanism:** session-scoped state file location/keying (e.g. `$CLAUDE_SESSION_ID` availability in hook input) — pin during implementation.
