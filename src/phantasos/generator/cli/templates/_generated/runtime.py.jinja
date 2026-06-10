@@ -90,7 +90,14 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
     parsed = {k: _coerce(flags[k], v) for k, v in body.items() if v is not None}
     if extra:
         parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion
-    inner = getattr(models, binding.body_model)(**parsed)
+    model_cls = getattr(models, binding.body_model)
+    # PATCH semantics: use model_construct (no validation) so that only the
+    # user-supplied fields are set.  SDKs that reuse the create model have required
+    # fields, but PATCH must never enforce them — the server ignores absent fields.
+    if binding.sub_verb == "patch":
+        inner = model_cls.model_construct(**parsed)
+    else:
+        inner = model_cls(**parsed)
     if binding.body_wrapper:
         return getattr(models, binding.body_wrapper)(inner)
     return inner

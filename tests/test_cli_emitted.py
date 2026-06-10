@@ -427,6 +427,25 @@ def test_update_requires_id(emitted, monkeypatch):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
     res = CliRunner().invoke(main.app, ["update", "widget", "--name", "x"])   # no --id
     assert res.exit_code != 0
+    assert "--id" in res.output or "id" in res.output.lower()
+
+
+def test_update_body_fields_optional(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app, ["update", "widget", "--id", "w1", "--output", "json"]
+    )
+    assert res.exit_code == 0, res.output           # no required body flags
+    assert any(n == "patch_widget" for n, _ in calls)
 
 
 def test_delete_requires_id(emitted, monkeypatch):

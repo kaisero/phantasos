@@ -288,6 +288,13 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             for f in cmd.path_params:
                 if f.kind == "id":
                     f.required = True
+        # PATCH semantics: no body field should ever be mandatory for update.
+        # For SDKs with a proper all-optional patch model this is a no-op; for
+        # SDKs that reuse the create model (required fields) it corrects semantics.
+        # PUT-fallback (required body fields) is deferred and handled separately.
+        if verb == "update":
+            for f in cmd.body_flags:
+                f.required = False
 
     for op in inv.operations:
         key0 = f"{op.resource}.{op.method}"
