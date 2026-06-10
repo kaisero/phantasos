@@ -10,11 +10,17 @@ dependency groups) for fast, reproducible runs.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import nox
 
 nox.options.default_venv_backend = "uv"
 nox.options.reuse_existing_virtualenvs = True
+# sshfs quirk: some dev checkouts cannot hold symlinks, so session venvs under
+# ./.nox fail to create. NOX_ENVDIR relocates them (e.g. /tmp/phantasos-nox);
+# CI leaves it unset and uses the default ./.nox.
+if os.environ.get("NOX_ENVDIR"):
+    nox.options.envdir = os.environ["NOX_ENVDIR"]
 nox.options.sessions = [
     "lint",
     "type_check",
@@ -126,3 +132,28 @@ def smoke(session: nox.Session) -> None:
     _sync(session)
     session.run("phantasos", "build", "prisma-browser")
     session.run("phantasos", "build", "adem")
+
+
+@nox.session
+def live(session: nox.Session) -> None:
+    """Generate the prisma-browser SDK and run its live CRUD suite (real tenant).
+
+    Phase-boundary + CI gate (live.yml). Needs CLIENT_ID/CLIENT_SECRET/SCOPE
+    in the environment (a local ``.env`` is read as a convenience); the suite
+    SKIPS without them, so running this credential-less is safe and green.
+    Needs network + Java (auto-provisioned, like ``smoke``).
+    """
+    _sync(session, "test")
+    env_file = Path(".env")
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key, _, value = stripped.partition("=")
+                session.env.setdefault(key.strip(), value.strip().strip('"'))
+    session.run("phantasos", "build", "prisma-browser", "--no-smoke")
+    from phantasos.productconfig import load_product
+
+    out_dir = load_product("prisma-browser").output_dir
+    session.install(str(out_dir))
+    session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))

@@ -18,4 +18,6 @@
 
 - This repo may sit on sshfs where `.venv` cannot hold symlinks. Run uv with
   an explicit env dir: `UV_PROJECT_ENVIRONMENT=/tmp/<name> uv run ...`
-  (the Stop hook sets a per-checkout default automatically).
+  (the Stop hook sets a per-checkout default automatically). For venv-backed
+  nox sessions (e.g. `live`, `smoke`) also set `NOX_ENVDIR=/tmp/phantasos-nox`
+  to relocate the session venvs off sshfs.
