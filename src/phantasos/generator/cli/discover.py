@@ -34,5 +34,19 @@ def render_stub(ir: CliIR, unmapped: list[str]) -> str:
         obj = key.split(".")[0].rstrip("s")
         lines.append(f"  # TODO: map {key}")
         lines.append(f"  # {key}: {{object: {obj}, action: CHANGE_ME}}")
+    col_lines: list[str] = []
+    seen_objects: set[str] = set()
+    for c in sorted(ir.commands, key=lambda c: c.object):
+        if c.object in seen_objects or not c.columns:
+            continue
+        seen_objects.add(c.object)
+        col_lines.append(
+            f"  {c.object}: [{', '.join(s.path for s in c.columns)}]"
+        )
+    if col_lines:
+        lines.append("# Table columns per object (JMESPath; model-derived"
+                     " defaults shown — edit to curate).")
+        lines.append("columns:")
+        lines.extend(col_lines)
     lines.append("hide: []")
     return "\n".join(lines) + "\n"

@@ -47,6 +47,29 @@ def test_render_stub_is_valid_yaml_with_todos():
     assert "update_widget_positions" in stub  # surfaced as a TODO
 
 
+def test_stub_prefills_columns_from_defaults():
+    from phantasos.generator.cli.discover import render_stub
+    from phantasos.generator.cli.ir import CliIR, ColumnSpec, Command
+
+    ir = CliIR(sdk_package="x", sdk_version="1", commands=[
+        Command(verb="show", object="widget", key="show:widget",
+                sdk_resource="widgets",
+                columns=[ColumnSpec(header="id", path="id"),
+                         ColumnSpec(header="name", path="name")]),
+        Command(verb="create", object="widget", key="create:widget",
+                sdk_resource="widgets",
+                columns=[ColumnSpec(header="id", path="id"),
+                         ColumnSpec(header="name", path="name")]),
+        Command(verb="show", object="gizmo", key="show:gizmo",
+                sdk_resource="gizmos"),  # no columns -> omitted
+    ])
+    stub = render_stub(ir, [])
+    assert "columns:" in stub
+    assert "widget: [id, name]" in stub
+    assert stub.count("widget:") == 1          # deduped across verbs
+    assert "gizmo:" not in stub
+
+
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_real_sdk_classifies_without_error():
     try:
