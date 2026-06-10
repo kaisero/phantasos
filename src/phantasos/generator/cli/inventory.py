@@ -49,6 +49,12 @@ class OperationInfo(BaseModel):
     params: list[ParamInfo] = []
     body_fields: dict[str, list[FieldInfo]] = {}  # model/variant name -> fields
     return_type: str = ""
+    # Response capture (for table columns): the return annotation's model, the
+    # list-envelope field holding list[Model] (e.g. "data"), and the ITEM model's
+    # fields (envelope unwrapped; == the return model's own fields when not a list op).
+    return_model: str | None = None
+    items_field: str | None = None
+    response_fields: list[FieldInfo] = []
 
 
 class OperationInventory(BaseModel):

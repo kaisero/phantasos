@@ -83,3 +83,53 @@ def test_path_param_description_captured(inv):
     op = _op(inv, "widgets", "get_widget_by_id")
     id_param = next(p for p in op.params if p.name == "id")
     assert id_param.description == "The widget id."
+
+
+def test_response_capture_list_envelope(inv):
+    op = _op(inv, "widgets", "list_widgets")
+    assert op.return_model == "WidgetList"
+    assert op.items_field == "data"
+    names = [f.name for f in op.response_fields]
+    assert "id" in names and "name" in names  # item (Widget) fields, not envelope's
+
+
+def test_response_capture_get_returns_item_directly(inv):
+    op = _op(inv, "widgets", "get_widget_by_id")
+    assert op.return_model == "Widget"
+    assert op.items_field is None
+    kinds = {f.name: f.kind for f in op.response_fields}
+    assert kinds["spec"] == "json"      # nested dict
+    assert kinds["tags"] == "scalar"    # list[str] counts as scalar kind
+
+
+def test_response_capture_absent_when_unannotated(inv):
+    op = _op(inv, "gizmos", "list_gizmos")
+    assert op.return_model is None
+    assert op.items_field is None
+    assert op.response_fields == []
+
+
+def test_response_capture_divergent_create_model(inv):
+    op = _op(inv, "widgets", "create_widget")
+    assert op.return_model == "CreateWidget201Response"
+    assert [f.name for f in op.response_fields] == ["widget_id"]
+
+
+def test_list_field_not_named_data_is_not_an_envelope():
+    """A model containing list[Model] under any other name (e.g. a real item like
+    User.user_groups) is the ITEM, not a list envelope."""
+    from pydantic import BaseModel
+
+    from phantasos.generator.cli.introspect import _response_info
+
+    class Member(BaseModel):
+        name: str
+
+    class Team(BaseModel):  # item model that HAPPENS to contain a list[Model]
+        id: str
+        members: list[Member] = []
+
+    model, items_field, fields = _response_info(Team)
+    assert model == "Team"
+    assert items_field is None                       # NOT mistaken for an envelope
+    assert [f.name for f in fields] == ["id", "members"]

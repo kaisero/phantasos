@@ -31,7 +31,9 @@ class WidgetsApi:
     ) -> Widget:
         """Get a widget by id."""
 
-    def list_widgets(self, name: str | None = None, limit: int | None = None) -> WidgetList:
+    def list_widgets(
+        self, name: str | None = None, limit: int | None = None
+    ) -> WidgetList:
         """List widgets."""
 
     def delete_widget_by_id(self, id: str):

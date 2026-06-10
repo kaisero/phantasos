@@ -129,6 +129,32 @@ def _union_members(model: type[BaseModel]) -> list[str] | None:
     return None
 
 
+def _response_info(tp: object) -> tuple[str | None, str | None, list[FieldInfo]]:
+    """(return_model, items_field, item_fields) from a return annotation.
+
+    A return model is a list ENVELOPE only when its list[Model] field is named
+    "data" or it carries a page_info sibling (every openapi-generator envelope
+    we ship matches; a plain item model with an embedded list[Model] — e.g.
+    User.user_groups — must NOT be mistaken for one). For an envelope,
+    items_field is the list field's name and the fields are the inner model's;
+    otherwise the return model itself is the item.
+    """
+    base = _unwrap_optional(tp)
+    if not (isinstance(base, type) and issubclass(base, BaseModel)):
+        return None, None, []
+    for fname, field in base.model_fields.items():
+        inner = _unwrap_optional(field.annotation)
+        if get_origin(inner) not in (list, set):
+            continue
+        if fname != "data" and "page_info" not in base.model_fields:
+            continue  # embedded list inside an item model, not an envelope
+        args = get_args(inner)
+        item = _unwrap_optional(args[0]) if args else None
+        if isinstance(item, type) and issubclass(item, BaseModel):
+            return base.__name__, fname, _model_fields(item)
+    return base.__name__, None, _model_fields(base)
+
+
 def _docstring_parts(fn: object) -> tuple[str, str]:
     doc = inspect.getdoc(fn) or ""
     if not doc:
@@ -163,6 +189,9 @@ def _introspect(package: str, sdk_path: Path) -> OperationInventory:
                 hints = {}
             sig = inspect.signature(callable_fn)
             summary, description = _docstring_parts(callable_fn)
+            return_model, items_field, response_fields = _response_info(
+                hints.get("return")
+            )
             params: list[ParamInfo] = []
             body_fields: dict[str, list[FieldInfo]] = {}
             for pname, p in sig.parameters.items():
@@ -213,6 +242,9 @@ def _introspect(package: str, sdk_path: Path) -> OperationInventory:
                     description=description,
                     params=params,
                     body_fields=body_fields,
+                    return_model=return_model,
+                    items_field=items_field,
+                    response_fields=response_fields,
                 )
             )
     return OperationInventory(
