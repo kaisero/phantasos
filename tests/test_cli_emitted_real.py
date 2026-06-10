@@ -544,3 +544,36 @@ def test_long_help_text_preserved(real_cli):
     out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
     # distinctive fragments from long device filter/sort help (text not lost)
     assert "sort by" in out.lower() or "filter by" in out.lower()
+
+
+@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
+def test_real_ir_carries_columns():
+    """The shipped cli.yml columns: resolve + validate against the real SDK."""
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
+
+    cfg = load_cli_config(
+        Path(__file__).parent.parent / "products" / "prisma-browser" / "cli.yml"
+    )
+    ir, _ = build_cli_ir(inv, cfg)
+
+    show_dg = next(c for c in ir.commands if c.key == "show:device-group")
+    assert [c.path for c in show_dg.columns][:2] == ["id", "name"]
+    assert show_dg.items_field == "data"
+    # curated columns attach to the object's write commands too (per-object rule)
+    create_dg = next(c for c in ir.commands if c.key == "create:device-group")
+    assert create_dg.columns == show_dg.columns
+    # application columns: JMESPath paths through actual_instance union wrapper
+    show_app = next(c for c in ir.commands if c.key == "show:application")
+    assert [c.path for c in show_app.columns][:2] == [
+        "actual_instance.id", "actual_instance.name"
+    ]
+    assert show_app.items_field == "data"
+    # every show command with a response model got SOME columns
+    shows = [c for c in ir.commands if c.verb == "show"]
+    assert any(c.columns for c in shows)

@@ -67,3 +67,30 @@ hide:
   - security_policy.update_security_section_by_id
   - sign_in_policy.update_sign_in_section_by_id
   - user_groups.update_user_group
+
+# --- per-object curated table columns ---
+# Bare strings: header == path (snake_case field names from model_dump).
+# ColumnEntry (header/path): use when the display header should differ from the
+# JMESPath expression, or when the path is a nested JMESPath (e.g. through a
+# union's actual_instance wrapper).
+#
+# NOTE: datetime fields introspect as kind "json" so they never appear in auto
+# defaults — list them explicitly here to surface them in the table.
+# NOTE: ApplicationItem is a OneOf union whose data field holds variant objects
+# (CustomApplication, PrivateApplication, …) wrapped in actual_instance. The
+# JMESPath root "actual_instance" IS a valid root field on ApplicationItem, so
+# paths of the form actual_instance.<field> pass build validation and resolve at
+# runtime for every variant that exposes the field.
+columns:
+  device-group:
+    - id
+    - name
+    - platform
+    - created_by
+    - devices
+    - created_at
+  application:
+    - {header: id,          path: actual_instance.id}
+    - {header: name,        path: actual_instance.name}
+    - {header: type,        path: actual_instance.type}
+    - {header: description, path: actual_instance.description}
