@@ -41,9 +41,7 @@ def _git_lines(root: Path, *args: str) -> list[str]:
 def _dirty_protected(root: Path, globs: list[str]) -> list[str]:
     changed = _git_lines(root, "diff", "--name-only", "HEAD")
     untracked = _git_lines(root, "ls-files", "--others", "--exclude-standard")
-    hits = {
-        f for f in changed + untracked if any(fnmatch.fnmatch(f, g) for g in globs)
-    }
+    hits = {f for f in changed + untracked if any(fnmatch.fnmatch(f, g) for g in globs)}
     return sorted(hits)
 
 
@@ -71,7 +69,7 @@ def main() -> int:
     try:
         data = json.load(sys.stdin)
         cfg_path = _config_path()
-        with open(cfg_path, "rb") as f:
+        with cfg_path.open("rb") as f:
             cfg = tomllib.load(f)
         if not cfg.get("fast_gate_enabled", True):
             return 0
@@ -97,7 +95,9 @@ def main() -> int:
                 "UV_PROJECT_ENVIRONMENT",
                 f"{tempfile.gettempdir()}/phantasos-gate-venv-{_root_key(root)}",
             )
-            proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env)
+            proc = subprocess.run(
+                cmd, cwd=root, capture_output=True, text=True, env=env
+            )
             if proc.returncode != 0:
                 tail = "\n".join((proc.stdout + "\n" + proc.stderr).splitlines()[-50:])
                 failures.append(

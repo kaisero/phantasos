@@ -75,6 +75,20 @@ def tests(session: nox.Session) -> None:
     session.run("pytest", "--cov", "--cov-report=term-missing", *session.posargs)
 
 
+@nox.session(venv_backend="none")
+def gate(session: nox.Session) -> None:
+    """Fast offline quality gate — single environment, no venv creation.
+
+    Run by the Stop hook on every agent turn (see .claude/harness.toml), so it
+    must stay fast: ruff + mypy + the offline pytest suite, no coverage, no
+    multi-Python matrix. Runs in the invoking environment (``uv run nox``).
+    """
+    session.run("ruff", "check", ".")
+    session.run("ruff", "format", "--check", ".")
+    session.run("mypy")
+    session.run("pytest", "-q")
+
+
 @nox.session
 def audit(session: nox.Session) -> None:
     """Scan installed dependencies for known vulnerabilities (pip-audit).

@@ -25,7 +25,7 @@ def _config_path() -> Path:
 
 
 def _protected_globs() -> list[str]:
-    with open(_config_path(), "rb") as f:
+    with _config_path().open("rb") as f:
         return [str(g) for g in tomllib.load(f)["protected_globs"]]
 
 
@@ -60,7 +60,7 @@ def main() -> int:
         file_path = str(tool_input.get("file_path") or "")
         if not file_path:
             return 0  # not a file-writing call we can judge
-        rel = _repo_relative(file_path, str(data.get("cwd") or os.getcwd()))
+        rel = _repo_relative(file_path, str(data.get("cwd") or Path.cwd()))
         for glob in _protected_globs():
             if fnmatch.fnmatch(rel, glob):
                 _deny(

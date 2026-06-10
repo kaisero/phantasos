@@ -15,7 +15,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent / ".claude" / "hooks"
 
 def run_hook(
     script: str,
-    payload: dict,
+    payload: dict[str, object],
     config: Path,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -59,7 +59,9 @@ class TestFreezeOracle:
             {
                 "tool_name": "Write",
                 "tool_input": {
-                    "file_path": "products/x/overrides/tests/test_sdk_crud_live.py.jinja"
+                    "file_path": (
+                        "products/x/overrides/tests/test_sdk_crud_live.py.jinja"
+                    )
                 },
                 "cwd": "/repo",
             },
@@ -155,7 +157,7 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _stop_payload(session: str = "s1") -> dict:
+def _stop_payload(session: str = "s1") -> dict[str, object]:
     return {"session_id": session, "stop_hook_active": False}
 
 
