@@ -12,7 +12,8 @@ from pydantic import BaseModel, ConfigDict
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 Verb = Literal["set", "del", "show", "request", "load", "backup"]
 SubVerb = Literal[
-    "create", "patch", "update", "get", "list", "delete", "bulk_create", "bulk_delete"
+    "create", "patch", "update", "get", "list", "delete",
+    "bulk_create", "bulk_delete", "action",
 ]
 
 
@@ -48,6 +49,8 @@ class Command(BaseModel):
     variant: str | None = None  # union variant subcommand, if any
     # path param name carrying the variant discriminator
     variant_param: str | None = None
+    action: str | None = None  # request-namespace action segment (e.g. "suspend");
+                               # distinct from `variant` (oneOf discriminator).
     key: str                  # canonical "verb:object[:variant]"
     sdk_resource: str         # facade attribute, e.g. "applications"
     # candidate SDK methods; runtime dispatch picks one by args

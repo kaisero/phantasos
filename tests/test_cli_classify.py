@@ -279,3 +279,36 @@ def test_query_int_flag_has_int_py_type():
     assert limit.py_type == "int"
     name = next(f for f in show_widget.query_flags if f.param == "name")
     assert name.py_type == "str"
+
+
+def test_build_cli_ir_emits_request_commands():
+    from phantasos.generator.cli.cliconfig import RequestMapping
+
+    inv = introspect("fakesdk", FIXTURE)
+    cfg = CliConfig(request={
+        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+    })
+    ir, unmapped = build_cli_ir(inv, cfg)
+    by_key = {c.key: c for c in ir.commands}
+
+    assert "request:widget:suspend" in by_key
+    assert "request:widget:revoke" in by_key
+    susp = by_key["request:widget:suspend"]
+    assert susp.verb == "request" and susp.object == "widget"
+    assert susp.action == "suspend"                # dedicated action field
+    assert susp.variant is None and susp.variant_param is None  # NOT a oneOf variant
+    assert [b.sub_verb for b in susp.bindings] == ["action"]
+    assert susp.bindings[0].sdk_method == "suspend_widget"
+    # body-only action: body flags from the model, no --id
+    assert any(f.name == "--name" for f in susp.body_flags)
+    assert not any(f.kind == "id" for f in susp.path_params)
+    # id+body action: --id present
+    rev = by_key["request:widget:revoke"]
+    assert any(f.kind == "id" for f in rev.path_params)
+    assert rev.bindings[0].sdk_method == "revoke_widget"
+    assert "widgets.suspend_widget" not in unmapped
+    assert "widgets.revoke_widget" not in unmapped
+    # all command keys are distinct (no request/CRUD collision)
+    keys = [c.key for c in ir.commands]
+    assert len(keys) == len(set(keys))

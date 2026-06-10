@@ -10,7 +10,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from .cliconfig import CliConfig, VariantMap
+from .cliconfig import CliConfig, RequestMapping, VariantMap
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
 from .ir import CliIR, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
 
@@ -204,6 +204,36 @@ def _merge_flags(target: list[Flag], extra: list[Flag]) -> None:
             seen.add(f.name)
 
 
+def _emit_request(groups: dict[str, Command], op: OperationInfo,
+                  mapping: RequestMapping) -> None:
+    key = _command_key("request", mapping.object, mapping.action)
+    id_param = detect_id_param(op.params)
+    body_info = _body_param_info(op)
+    body_model = body_info.body_model if body_info else None
+    binding = MethodBinding(
+        sdk_method=op.method, sub_verb="action",
+        requires=_required_path_names(op.params),
+        body_param=body_info.name if body_info else None,
+        body_model=body_model, body_wrapper=None,
+    )
+    cmd = groups.get(key)
+    if cmd is None:
+        cmd = Command(
+            verb="request", object=mapping.object, action=mapping.action,
+            variant=None, variant_param=None, key=key, sdk_resource=op.resource,
+            path_params=_path_flags(op.params, id_param),
+            body_flags=_body_flags_for(op, body_model),
+            query_flags=_query_flags(op.params),
+            summary=op.summary, description=op.description, paginated=False,
+        )
+        groups[key] = cmd
+    else:
+        _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
+        _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
+        _merge_flags(cmd.query_flags, _query_flags(op.params))
+    cmd.bindings.append(binding)
+
+
 def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[str]]:
     groups: dict[str, Command] = {}
     unmapped: list[str] = []
@@ -259,14 +289,13 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         key0 = f"{op.resource}.{op.method}"
         if key0 in cfg.hide:
             continue
+        if key0 in cfg.request:
+            _emit_request(groups, op, cfg.request[key0])
+            continue
         ov = cfg.override.get(key0)
         cls = classify_name(op.method)
-        if cls is None and key0 not in cfg.request:
+        if cls is None:
             unmapped.append(key0)
-            continue
-        if key0 in cfg.request:
-            continue  # request-namespace handled in Phase 3
-        if cls is None:  # unreachable after guards; narrows for mypy
             continue
         verb = cast(Verb, ov.verb) if ov and ov.verb else cls.verb
         obj = ov.object if ov and ov.object else cls.object
