@@ -6,7 +6,7 @@ import importlib.metadata as _metadata
 
 import typer
 
-{% for resource in resources %}
+{%- for resource in resources %}
 from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
 
@@ -20,10 +20,11 @@ def _resolve_version() -> str:
         return "unknown"
 
 
-def _version_callback(value: bool) -> None:
+def _version_callback(value: bool | None) -> None:
     if value:
         typer.echo(f"{_DISTRIBUTION} {_resolve_version()}")
         raise typer.Exit()
+
 
 _VERBS = ["create", "update", "delete", "show", "request"]
 
