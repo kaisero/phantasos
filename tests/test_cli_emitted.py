@@ -613,3 +613,34 @@ def test_render_error_non_json_body(emitted, monkeypatch, capsys):
     out.render_error(_Exc())
     err = capsys.readouterr().err
     assert "Error 502 Bad Gateway" in err and "upstream timeout" in err
+
+
+def test_render_none_is_silent(emitted, capsys):
+    """A None result (e.g. delete / HTTP 204) prints nothing in any format."""
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    for fmt in ("json", "yaml", "table"):
+        out.render(None, fmt=fmt)
+        captured = capsys.readouterr()
+        assert captured.out == "", f"{fmt}: {captured.out!r}"
+        assert captured.err == ""
+
+
+def test_cli_runner_delete_silent_when_none(emitted, monkeypatch):
+    """A delete whose SDK method returns None succeeds with NO stdout (no 'null')."""
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    class _Rec:
+        def __getattr__(self, name):
+            return lambda **kw: None        # SDK delete returns None (204)
+
+    class _Client:
+        def __getattr__(self, name):
+            return _Rec()
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Client()))
+    res = CliRunner().invoke(main.app, ["delete", "widget", "--id", "w1"])
+    assert res.exit_code == 0, res.output
+    assert res.output.strip() == ""         # no "null", no output on success

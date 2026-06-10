@@ -82,6 +82,8 @@ def _to_data(obj: Any) -> Any:
 
 
 def render(result: Any, fmt: str = "json") -> None:
+    if result is None:
+        return  # empty success (e.g. delete / HTTP 204) — print nothing
     data = _to_data(result)
     if fmt == "yaml":
         print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
