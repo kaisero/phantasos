@@ -736,6 +736,77 @@ def test_version_resolves_from_metadata(emitted, monkeypatch):
     assert app_mod._resolve_version() == "9.9.9"
 
 
+def _row(i):
+    return {
+        "id": f"w{i}", "name": f"widget-{i}", "priority": i, "enabled": True,
+        "tags": ["a", "b", "c", "d", "e"],
+        "spec": {"x": 1},
+        "members": [{"name": "alice"}, {"name": "bob"}, {"name": "carol"},
+                    {"name": "dave"}],
+    }
+
+
+def test_table_unwraps_list_envelope_and_uses_default_columns(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    envelope = {"page_info": {"cursor": None}, "data": [_row(1), _row(2)]}
+    out.render(envelope, fmt="table",
+               default_columns=[("id", "id"), ("name", "name")],
+               items_field="data")
+    text = capsys.readouterr().out
+    assert "w1" in text and "widget-2" in text     # rows, not the envelope
+    assert "page_info" not in text
+
+
+def test_table_jmespath_columns_and_joined_preview(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    out.render([_row(1)], fmt="table",
+               columns=["name", "MEMBERS=members[].name", "tags"])
+    text = capsys.readouterr().out
+    assert "MEMBERS" in text
+    assert "alice, bob, carol, +1 more" in text    # list-of-dicts preview via path
+    assert "a, b, c, +2 more" in text              # scalar list preview
+
+
+def test_table_cell_rendering_rules(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    row = {"id": "x", "gone": None, "flag": True, "nest": {"a": 1},
+           "objs": [{"k": 1}, {"k": 2}]}
+    out.render([row], fmt="table",
+               columns=["id", "gone", "flag", "nest", "objs"])
+    text = capsys.readouterr().out
+    assert "true" in text                          # bools lowercase
+    assert '{"a":1}' in text                       # dict -> compact json
+    assert "2 items" in text                       # dicts w/o name/id -> count
+
+
+def test_table_heuristic_fallback_when_no_columns(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    rows = [{"created": "t", "name": "n1", "id": "i1", "deep": {"x": 1},
+             "a": 1, "b": 2, "c": 3, "d": 4}]
+    out.render(rows, fmt="table")                  # no columns at all
+    text = capsys.readouterr().out
+    assert "id" in text and "name" in text         # preferred first
+    assert "deep" not in text                      # nested excluded
+    # cap 6: id, name, created, a, b, c -> "d" doesn't fit
+    assert " d " not in text
+
+
+def test_columns_split_and_header_parsing(emitted):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    specs = out.parse_columns(["id,OWNER=owner.name", "F=join(', ', tags)"])
+    assert specs == [("id", "id"), ("OWNER", "owner.name"),
+                     ("F", "join(', ', tags)")]    # comma inside () not split
+
+
+def test_table_invalid_runtime_columns_exits_cleanly(emitted, capsys):
+    import pytest
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    with pytest.raises(SystemExit):
+        out.render([{"id": "x"}], fmt="table", columns=["bad[expr"])
+    assert "invalid --columns" in capsys.readouterr().err
+
+
 def test_fakesdk_generated_lint_clean(tmp_path):
     """Non-gated capstone: the fakesdk-rendered `_generated/` passes the scaffold's
     ruff config (E,F,I,UP,W; line-length 88) with ZERO errors. render_cli runs

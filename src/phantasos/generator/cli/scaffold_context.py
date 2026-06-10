@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-_CLI_DEPS = ["typer>=0.12", "rich>=13", "pyyaml>=6", "python-dotenv>=1.0"]
+_CLI_DEPS = [
+    "typer>=0.12", "rich>=13", "pyyaml>=6", "python-dotenv>=1.0", "jmespath>=1.0",
+]
 
 
 def _auth_env_vars(loaded: Any) -> list[dict[str, str]]:
