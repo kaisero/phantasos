@@ -321,3 +321,43 @@ def test_cli_runner_request_actions(emitted, monkeypatch):
     assert "revoke_widget" in names
     revoke_call = next(kw for n, kw in calls if n == "revoke_widget")
     assert revoke_call.get("id") == "W9"
+
+
+def test_env_file_is_auto_loaded(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    # a .env in the CWD the user runs from
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    (workdir / ".env").write_text("DEMO_TOKEN=from-dotenv\n", encoding="utf-8")
+    monkeypatch.chdir(workdir)
+    monkeypatch.delenv("DEMO_TOKEN", raising=False)
+
+    seen: dict = {}
+
+    class _Rec:
+        def __getattr__(self, name):
+            def _call(**kw):
+                return []
+            return _call
+
+    class _Client:
+        widgets = _Rec()
+        def paginate(self, m, **kw):
+            return iter([])
+
+    def _from_env(cls):
+        import os
+        # was .env loaded before from_env?
+        seen["DEMO_TOKEN"] = os.environ.get("DEMO_TOKEN")
+        return _Client()
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(_from_env))
+
+    res = CliRunner().invoke(main.app, ["show", "widget", "--output", "json"])
+    assert res.exit_code == 0, res.output
+    # _client() called load_dotenv() before from_env()
+    assert seen["DEMO_TOKEN"] == "from-dotenv"

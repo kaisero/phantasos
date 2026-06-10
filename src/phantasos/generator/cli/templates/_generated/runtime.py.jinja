@@ -26,6 +26,11 @@ def _commands() -> dict[str, Command]:
 
 
 def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
+    try:
+        from dotenv import find_dotenv, load_dotenv
+        load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
+    except ModuleNotFoundError:
+        pass
     facade = importlib.import_module(_ir().facade_module)
     return facade.Client.from_env()
 
