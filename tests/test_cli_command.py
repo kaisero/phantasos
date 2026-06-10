@@ -19,7 +19,7 @@ def test_cli_discover_prints_table(capsys, monkeypatch):
     rc = main(["cli", "discover", "fakesdk"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "set widget" in out
+    assert "create widget" in out
     assert "UNMAPPED" in out
 
 

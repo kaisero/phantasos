@@ -8,4 +8,4 @@ from {{ package }}.main import app
 def test_help_runs() -> None:
     result = CliRunner().invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "set" in result.output and "show" in result.output
+    assert "create" in result.output and "show" in result.output

@@ -11,7 +11,7 @@ from phantasos.generator.cli.render_cli import render_cli
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
-# Variant config so the fixture produces `set:gizmo:simple` and `set:gizmo:complex`
+# Variant config so the fixture produces `create:gizmo:simple` and `create:gizmo:complex`  # noqa: E501
 _FAKESDK_CLI_CONFIG = CliConfig(
     variants={
         "gizmos.create_gizmo": VariantMap(
@@ -102,10 +102,10 @@ def test_runtime_create_vs_patch(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
 
-    rt.run("set:widget", path={}, body={"name": "foo"}, query={}, output="json",
+    rt.run("create:widget", path={}, body={"name": "foo"}, query={}, output="json",
            paginate_all=False, dry_run=False, verbose=False)
     rt.run(
-        "set:widget", path={"id": "w9"}, body={"name": "bar"}, query={},
+        "update:widget", path={"id": "w9"}, body={"name": "bar"}, query={},
         output="json", paginate_all=False, dry_run=False, verbose=False,
     )
     assert calls[0][0] == "create_widget"
@@ -121,7 +121,7 @@ def test_runtime_variant_wraps_body_and_fills_type(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
 
-    rt.run("set:gizmo:simple", path={}, body={"name": "x"}, query={},
+    rt.run("create:gizmo:simple", path={}, body={"name": "x"}, query={},
            output="json", paginate_all=False, dry_run=False, verbose=False)
     name, kw = calls[0]
     assert name == "create_gizmo"
@@ -139,10 +139,10 @@ def test_runtime_dry_run_does_not_call(emitted, monkeypatch, capsys):
     monkeypatch.setattr(
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
-    rt.run("set:widget", path={}, body={"name": "x"}, query={}, output="json",
+    rt.run("create:widget", path={}, body={"name": "x"}, query={}, output="json",
            paginate_all=False, dry_run=True, verbose=False)
     assert calls == []
-    assert "set:widget" in capsys.readouterr().out
+    assert "create:widget" in capsys.readouterr().out
 
 
 def test_runtime_friendly_error_on_sdk_exception(emitted, monkeypatch, capsys):
@@ -162,13 +162,14 @@ def test_runtime_friendly_error_on_sdk_exception(emitted, monkeypatch, capsys):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Boom()))
     import pytest as _pytest
     with _pytest.raises(SystemExit) as ei:
-        rt.run("set:widget", path={}, body={"name": "x"}, query={}, output="json",
+        rt.run("create:widget", path={}, body={"name": "x"}, query={}, output="json",
                paginate_all=False, dry_run=False, verbose=False)
     assert ei.value.code == 1
     assert "error:" in capsys.readouterr().err
 
 
-def test_set_with_id_defaults_to_patch_not_update(emitted, monkeypatch):
+def test_update_uses_patch(emitted, monkeypatch):
+    # `update X --id` dispatches to the PATCH binding (PUT update_* is deferred).
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     calls: list = []
     facade, fake_cls = _fake_client(calls)
@@ -176,13 +177,13 @@ def test_set_with_id_defaults_to_patch_not_update(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
     rt.run(
-        "set:widget", path={"id": "w1"}, body={"name": "n"}, query={},
-        output="json", paginate_all=False, dry_run=False, verbose=False, replace=False,
+        "update:widget", path={"id": "w1"}, body={"name": "n"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False,
     )
-    assert calls[0][0] == "patch_widget"   # NOT update_widget
+    assert calls[0][0] == "patch_widget"   # NOT update_widget (PUT deferred)
 
 
-def test_set_with_replace_uses_update(emitted, monkeypatch):
+def test_create_without_id_creates(emitted, monkeypatch):
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     calls: list = []
     facade, fake_cls = _fake_client(calls)
@@ -190,27 +191,13 @@ def test_set_with_replace_uses_update(emitted, monkeypatch):
         facade.Client, "from_env", classmethod(lambda cls: fake_cls())
     )
     rt.run(
-        "set:widget", path={"id": "w1"}, body={"name": "n"}, query={},
-        output="json", paginate_all=False, dry_run=False, verbose=False, replace=True,
-    )
-    assert calls[0][0] == "update_widget"
-
-
-def test_set_without_id_creates(emitted, monkeypatch):
-    rt = importlib.import_module("fakesdk_cli._generated.runtime")
-    calls: list = []
-    facade, fake_cls = _fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_cls())
-    )
-    rt.run(
-        "set:widget", path={}, body={"name": "n"}, query={},
-        output="json", paginate_all=False, dry_run=False, verbose=False, replace=False,
+        "create:widget", path={}, body={"name": "n"}, query={},
+        output="json", paginate_all=False, dry_run=False, verbose=False,
     )
     assert calls[0][0] == "create_widget"
 
 
-def test_cli_runner_show_set_del(emitted, monkeypatch):
+def test_cli_runner_show_create_delete(emitted, monkeypatch):
     from typer.testing import CliRunner
 
     main = importlib.import_module("fakesdk_cli.main")
@@ -226,9 +213,9 @@ def test_cli_runner_show_set_del(emitted, monkeypatch):
     assert res1.exit_code == 0
     res2 = r.invoke(main.app, ["show", "widget", "--id", "w1", "--output", "json"])
     assert res2.exit_code == 0
-    res3 = r.invoke(main.app, ["set", "widget", "--name", "foo", "--output", "json"])
+    res3 = r.invoke(main.app, ["create", "widget", "--name", "foo", "--output", "json"])
     assert res3.exit_code == 0
-    res4 = r.invoke(main.app, ["del", "widget", "--id", "w1", "--output", "json"])
+    res4 = r.invoke(main.app, ["delete", "widget", "--id", "w1", "--output", "json"])
     assert res4.exit_code == 0
 
     kinds = [c[0] for c in calls]
@@ -250,21 +237,21 @@ def test_cli_runner_variant_and_nonvariant_under_object(emitted, monkeypatch):
     )
 
     r = CliRunner()
-    # variant create: set gizmo simple
+    # variant create: create gizmo simple (create_gizmo is variant-mapped)
     res = r.invoke(
-        main.app, ["set", "gizmo", "simple", "--name", "g1", "--output", "json"]
+        main.app, ["create", "gizmo", "simple", "--name", "g1", "--output", "json"]
     )
     assert res.exit_code == 0, res.output
-    # non-variant patch under the same object: set gizmo patch
+    # non-variant patch under the update verb: update gizmo (patch_gizmo, no variant)
     res2 = r.invoke(
         main.app,
-        ["set", "gizmo", "patch", "--id", "z9", "--name", "g2", "--output", "json"],
+        ["update", "gizmo", "--id", "z9", "--name", "g2", "--output", "json"],
     )
     assert res2.exit_code == 0, res2.output
 
     names = [c[0] for c in calls]
-    assert "create_gizmo" in names         # from `set gizmo simple`
-    assert "patch_gizmo" in names           # from `set gizmo patch`
+    assert "create_gizmo" in names         # from `create gizmo simple`
+    assert "patch_gizmo" in names           # from `update gizmo`
     create_call = next(kw for n, kw in calls if n == "create_gizmo")
     assert create_call["type"] == "simple"
     assert isinstance(create_call["create_gizmo_input"], models.CreateGizmoInput)

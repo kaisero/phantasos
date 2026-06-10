@@ -20,7 +20,7 @@ def _ir_and_unmapped():
 def test_render_table_lists_commands_and_unmapped():
     ir, unmapped = _ir_and_unmapped()
     table = render_table(ir, unmapped)
-    assert "set widget" in table
+    assert "create widget" in table
     assert "show widget" in table
     # bindings are shown for a merged command (get + list under one show)
     assert "get_widget_by_id" in table and "list_widgets" in table
@@ -59,6 +59,6 @@ def test_real_sdk_classifies_without_error():
     # no duplicate commands
     assert len({c.key for c in ir.commands}) == len(ir.commands)
     verbs = {c.verb for c in ir.commands}
-    assert {"set", "del", "show"} <= verbs
+    assert {"create", "update", "delete", "show"} <= verbs
     # non-CRUD ops land in unmapped (force_reauth/positions/publish/etc.)
     assert any("positions" in u or "force" in u or "publish" in u for u in unmapped)

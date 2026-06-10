@@ -16,12 +16,9 @@ from .ir import CliIR, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
 
 # (prefix, verb, sub_verb) — ORDER MATTERS: longer/compound prefixes first.
 _VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
-    ("bulk_create_", "set", "bulk_create"),
-    ("bulk_delete_", "del", "bulk_delete"),
-    ("create_", "set", "create"),
-    ("update_", "set", "update"),
-    ("patch_", "set", "patch"),
-    ("delete_", "del", "delete"),
+    ("create_", "create", "create"),
+    ("patch_", "update", "patch"),
+    ("delete_", "delete", "delete"),
     ("get_", "show", "get"),
     ("list_", "show", "list"),
 ]

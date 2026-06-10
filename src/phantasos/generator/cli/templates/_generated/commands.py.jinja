@@ -17,7 +17,6 @@ def {{ c.func_name }}(
     all_: bool = typer.Option(False, "--all"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     verbose: bool = typer.Option(False, "--verbose"),
-    replace: bool = typer.Option(False, "--replace"),
 ) -> None:
 {%- if c.summary %}
     """{{ c.summary }}"""
@@ -27,7 +26,7 @@ def {{ c.func_name }}(
         path={ {% for f in c.path_params %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         body={ {% for f in c.body_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         query={ {% for f in c.query_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
-        output=output, paginate_all=all_, dry_run=dry_run, verbose=verbose, replace=replace,
+        output=output, paginate_all=all_, dry_run=dry_run, verbose=verbose,
     )
 
 {% endfor %}

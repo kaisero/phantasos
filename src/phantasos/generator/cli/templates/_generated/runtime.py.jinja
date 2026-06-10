@@ -73,7 +73,7 @@ _SUBVERB_PRIORITY = {
 }
 
 
-def _pick_binding(cmd: Command, present: set[str], replace: bool) -> MethodBinding:
+def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
     candidates = [b for b in cmd.bindings if set(b.requires) <= present]
     if not candidates:
         raise SystemExit(
@@ -81,10 +81,6 @@ def _pick_binding(cmd: Command, present: set[str], replace: bool) -> MethodBindi
         )
     best_len = max(len(b.requires) for b in candidates)
     top = [b for b in candidates if len(b.requires) == best_len]
-    if replace:
-        updates = [b for b in top if b.sub_verb == "update"]
-        if updates:
-            return min(updates, key=lambda b: b.sdk_method)
     return min(top, key=lambda b: (_SUBVERB_PRIORITY.get(b.sub_verb, 99), b.sdk_method))
 
 
@@ -102,12 +98,12 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
 
 def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         query: dict[str, Any], output: str, paginate_all: bool,
-        dry_run: bool, verbose: bool, replace: bool = False) -> None:
+        dry_run: bool, verbose: bool) -> None:
     cmd = _commands()[key]
     present = {k for k, v in path.items() if v is not None}
     if cmd.variant and cmd.variant_param:
         present.add(cmd.variant_param)
-    binding = _pick_binding(cmd, present, replace)
+    binding = _pick_binding(cmd, present)
 
     path_flags = {f.param: f for f in cmd.path_params}
     query_flags = {f.param: f for f in cmd.query_flags}

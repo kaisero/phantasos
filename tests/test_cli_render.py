@@ -16,7 +16,6 @@ def test_py_name_sanitizes_keywords_and_reserved():
     # reserved (collide with injected Typer options) -> suffixed
     assert _py_name("output") == "output_"
     assert _py_name("verbose") == "verbose_"
-    assert _py_name("replace") == "replace_"
     # ordinary identifiers (incl. builtins, which are legal as params) -> unchanged
     assert _py_name("type") == "type"
     assert _py_name("name") == "name"
@@ -57,7 +56,7 @@ def test_emitted_spec_loads_ir_json_typed(tmp_path):
         loaded = spec.CliIR.model_validate_json(ir_json)
         assert {c.key for c in loaded.commands} == {c.key for c in _ir().commands}
         # a binding's typed fields are accessible (no raw-dict access needed at runtime)
-        setw = next(c for c in loaded.commands if c.key == "set:widget")
+        setw = next(c for c in loaded.commands if c.key == "create:widget")
         assert any(b.body_model == "WidgetInput" for b in setw.bindings)
     finally:
         sys.path.remove(str(tmp_path))

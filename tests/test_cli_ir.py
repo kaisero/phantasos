@@ -10,12 +10,9 @@ def test_flag_defaults():
 
 def test_command_with_bindings_roundtrip():
     cmd = Command(
-        verb="set", object="application", variant=None, key="set:application",
+        verb="update", object="application", variant=None, key="update:application",
         sdk_resource="applications",
         bindings=[
-            MethodBinding(
-                sdk_method="create_application", sub_verb="create", requires=[]
-            ),
             MethodBinding(
                 sdk_method="patch_application_by_type_and_id",
                 sub_verb="patch",
@@ -32,6 +29,6 @@ def test_command_with_bindings_roundtrip():
         ],
     )
     ir = CliIR(sdk_package="fakesdk", sdk_version="9.9.9", commands=[cmd])
-    assert ir.commands[0].key == "set:application"
-    assert [b.sub_verb for b in ir.commands[0].bindings] == ["create", "patch"]
+    assert ir.commands[0].key == "update:application"
+    assert [b.sub_verb for b in ir.commands[0].bindings] == ["patch"]
     assert CliIR.model_validate_json(ir.model_dump_json()) == ir

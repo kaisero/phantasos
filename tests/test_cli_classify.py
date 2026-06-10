@@ -19,16 +19,13 @@ FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 @pytest.mark.parametrize(
     "method,verb,obj",
     [
-        ("create_application", "set", "application"),
-        ("patch_application_by_type_and_id", "set", "application"),
-        ("update_device_group", "set", "device-group"),
-        ("delete_application_by_id", "del", "application"),
-        ("bulk_delete_applications", "del", "application"),
+        ("create_application", "create", "application"),
+        ("patch_application_by_type_and_id", "update", "application"),
+        ("delete_application_by_id", "delete", "application"),
         ("get_application_by_id", "show", "application"),
         ("list_applications", "show", "application"),
         ("list_device_groups", "show", "device-group"),
-        ("bulk_create_applications", "set", "application"),
-        ("create_access_and_data_rule", "set", "access-and-data-rule"),
+        ("create_access_and_data_rule", "create", "access-and-data-rule"),
     ],
 )
 def test_classify_verb_and_noun(method, verb, obj):
@@ -46,6 +43,10 @@ def test_classify_verb_and_noun(method, verb, obj):
         "revoke_user_request",
         "publish_draft_configuration",
         "action_user_request",
+        # PUT (update_*) + bulk_* are deferred — now unmapped
+        "update_device_group",
+        "bulk_create_applications",
+        "bulk_delete_applications",
     ],
 )
 def test_unmapped_returns_none(method):
@@ -149,17 +150,18 @@ def test_build_cli_ir_end_to_end():
     by_key = {c.key: c for c in ir.commands}
 
     # CRUD on widgets
-    assert "set:widget" in by_key
+    assert "create:widget" in by_key
+    assert "update:widget" in by_key
     assert "show:widget" in by_key
-    assert "del:widget" in by_key
+    assert "delete:widget" in by_key
 
-    # set widget has body flags incl. --name
-    assert any(f.name == "--name" for f in by_key["set:widget"].body_flags)
+    # create widget has body flags incl. --name
+    assert any(f.name == "--name" for f in by_key["create:widget"].body_flags)
 
     # gizmo create fans out into variant subcommands
-    assert "set:gizmo:simple" in by_key
-    assert "set:gizmo:complex" in by_key
-    assert any(f.name == "--depth" for f in by_key["set:gizmo:complex"].body_flags)
+    assert "create:gizmo:simple" in by_key
+    assert "create:gizmo:complex" in by_key
+    assert any(f.name == "--depth" for f in by_key["create:gizmo:complex"].body_flags)
 
     # things use a non-literal id param
     assert any(f.kind == "id" for f in by_key["show:thing"].path_params)
@@ -175,12 +177,9 @@ def test_build_cli_ir_end_to_end():
     [
         ("create_application", "create"),
         ("patch_application_by_type_and_id", "patch"),
-        ("update_device_group", "update"),
         ("get_application_by_id", "get"),
         ("list_applications", "list"),
         ("delete_application_by_id", "delete"),
-        ("bulk_create_applications", "bulk_create"),
-        ("bulk_delete_applications", "bulk_delete"),
     ],
 )
 def test_classify_sub_verb(method, sub_verb):
@@ -206,17 +205,22 @@ def test_build_cli_ir_aggregates_methods():
     assert {b.sub_verb for b in show_widget.bindings} == {"get", "list"}
     assert show_widget.paginated is True
 
-    set_widget = by_key["set:widget"]
-    assert {b.sub_verb for b in set_widget.bindings} == {"create", "patch", "update"}
-    assert len([c for c in ir.commands if c.key == "set:widget"]) == 1
+    # create/update are now single-binding (PUT update_widget is deferred/unmapped)
+    create_widget = by_key["create:widget"]
+    assert {b.sub_verb for b in create_widget.bindings} == {"create"}
+    assert len(create_widget.bindings) == 1
+    assert len([c for c in ir.commands if c.key == "create:widget"]) == 1
+    update_widget = by_key["update:widget"]
+    assert {b.sub_verb for b in update_widget.bindings} == {"patch"}
+    assert len(update_widget.bindings) == 1
 
     show_gizmo = by_key["show:gizmo"]
     pp = {f.param for f in show_gizmo.path_params}
     assert "id" in pp and "type" in pp
 
-    assert "set:gizmo:simple" in by_key
-    assert "set:gizmo:complex" in by_key
-    assert any(f.name == "--depth" for f in by_key["set:gizmo:complex"].body_flags)
+    assert "create:gizmo:simple" in by_key
+    assert "create:gizmo:complex" in by_key
+    assert any(f.name == "--depth" for f in by_key["create:gizmo:complex"].body_flags)
 
     get_one = next(b for b in show_widget.bindings if b.sub_verb == "get")
     assert get_one.requires == ["id"]
@@ -239,20 +243,20 @@ def test_bindings_carry_body_and_variant_metadata():
 
     # plain body: build the param's model, no wrapper
     create_widget = next(
-        b for b in by_key["set:widget"].bindings if b.sub_verb == "create"
+        b for b in by_key["create:widget"].bindings if b.sub_verb == "create"
     )
     assert create_widget.body_param == "widget_input"
     assert create_widget.body_model == "WidgetInput"
     assert create_widget.body_wrapper is None
 
     # variant body: build the VARIANT model, wrap in the param's wrapper model
-    simple = by_key["set:gizmo:simple"].bindings[0]
+    simple = by_key["create:gizmo:simple"].bindings[0]
     assert simple.body_model == "SimpleGizmoInput"
     assert simple.body_wrapper == "CreateGizmoInput"
 
     # variant_param recorded; facade_module set
-    assert by_key["set:gizmo:simple"].variant_param == "type"
-    assert by_key["set:widget"].variant_param is None
+    assert by_key["create:gizmo:simple"].variant_param == "type"
+    assert by_key["create:widget"].variant_param is None
     assert ir.facade_module == "fakesdk.extras.facade"
 
 
