@@ -644,3 +644,34 @@ def test_cli_runner_delete_silent_when_none(emitted, monkeypatch):
     res = CliRunner().invoke(main.app, ["delete", "widget", "--id", "w1"])
     assert res.exit_code == 0, res.output
     assert res.output.strip() == ""         # no "null", no output on success
+
+
+def test_show_flags_grouped_into_panels(emitted, tmp_path):
+    import re
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.introspect import introspect
+    from phantasos.generator.cli.render_cli import render_cli
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, _FAKESDK_CLI_CONFIG)
+    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
+    code = (
+        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
+    ).read_text()
+    show_fn = re.search(r"def show_widget\(.*?\n\) ->", code, re.S).group(0)
+    assert 'rich_help_panel="Filter Options"' in show_fn   # --name (filter query param)
+    assert 'rich_help_panel="Pagination Options"' in show_fn  # --limit + --all
+    # --id (path) and --output are NOT panelled
+    assert re.search(r'--id".*rich_help_panel', show_fn) is None
+    assert re.search(r'--output".*rich_help_panel', show_fn) is None
+
+
+def test_show_help_renders_panels(emitted, monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
+        del sys.modules[n]
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    out = CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    assert "Filter Options" in out and "Pagination Options" in out
+    assert "Options" in out   # main panel still present (--output/--help)

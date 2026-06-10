@@ -22,6 +22,17 @@ def cli_overrides_dir() -> Path:
 
 _RESERVED = {"output", "all_", "dry_run", "verbose", "self"}
 
+# Well-known pagination/sort query params → their own help panel (the rest of the
+# query params are filters). Matched on the SDK param name (snake_case).
+_PAGINATION_PARAMS = frozenset({
+    "limit", "offset", "cursor", "page", "page_size", "per_page",
+    "sort", "order", "sort_by", "order_by", "sort_order",
+})
+
+
+def _query_panel(f: Flag) -> str:
+    return "Pagination Options" if f.param in _PAGINATION_PARAMS else "Filter Options"
+
 
 def _py_name(param: str) -> str:
     ident = param if param.isidentifier() else "p_" + re.sub(r"\W", "_", param)
@@ -65,7 +76,7 @@ def _render_type(f: Flag) -> str:
     return base if f.required else f"Optional[{base}]"
 
 
-def _flag_view(f: Flag) -> dict[str, object]:
+def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
     choices = f.choices
     help_text: str | None = f.help
     completion: list[str] | None = None
@@ -87,6 +98,7 @@ def _flag_view(f: Flag) -> dict[str, object]:
         "help_text": help_text,
         "completion": completion,
         "completer_name": completer_name,
+        "panel": panel,
     }
 
 
@@ -124,8 +136,9 @@ def _command_view(
         "body_flags": [_flag_view(f) for f in deduped_body],
         "query_flags": [_flag_view(f) for f in deduped_query],
         "all_flags": [
-            _flag_view(f)
-            for f in (c.path_params + deduped_body + deduped_query)
+            *(_flag_view(f) for f in c.path_params),
+            *(_flag_view(f) for f in deduped_body),
+            *(_flag_view(f, _query_panel(f)) for f in deduped_query),
         ],
     }
 

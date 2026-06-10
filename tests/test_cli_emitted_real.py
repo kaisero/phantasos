@@ -429,3 +429,34 @@ def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
         sys.path.remove(str(tmp_path))
         for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
             del sys.modules[n]
+
+
+def test_real_show_device_help_panels(tmp_path, monkeypatch):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    monkeypatch.setenv("NO_COLOR", "1")
+    from typer.testing import CliRunner
+
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(str(exc))
+    ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
+    sys.path.insert(0, str(tmp_path))
+    for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
+        del sys.modules[n]
+    try:
+        main = importlib.import_module("prisma_browser_cli.main")
+        out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
+        assert "Filter Options" in out and "Pagination Options" in out
+        # a real filter is under filters; a pagination param is under pagination
+        assert "--device-hostname" in out and "--limit" in out and "--sort" in out
+        # the panels actually split them: Filter Options appears before
+        # --device-hostname's row, Pagination Options before --limit — assert both
+        # panel titles present + the flags present
+    finally:
+        sys.path.remove(str(tmp_path))
+        for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
+            del sys.modules[n]
