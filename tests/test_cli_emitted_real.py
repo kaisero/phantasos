@@ -152,9 +152,9 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
 
     # LoadedProduct is a plain (non-frozen) dataclass — redirect output_dir into
     # tmp_path so the build does NOT write the real ../prisma-browser-sdk tree.
-    # cli build computes: out_dir = Path(loaded.output_dir).parent / f"{package}-cli"
+    # cli build computes out_dir = Path(loaded.output_dir).parent / <cli distribution>,
     # so setting output_dir = tmp_path / "prisma-browser-sdk" gives
-    # out_dir = tmp_path / "prisma_browser-cli" (package name uses underscore).
+    # out_dir = tmp_path / "prisma-browser-cli" (the cli.yml distribution, hyphenated).
     real = climod.load_product("prisma-browser")
     real.output_dir = tmp_path / "prisma-browser-sdk"
     monkeypatch.setattr(climod, "load_product", lambda name: real)
@@ -166,10 +166,10 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
 
     rc = main(["cli", "build", "prisma-browser"])
     assert rc == 0
-    # out_dir = tmp_path.parent/prisma_browser-cli would be wrong;
-    # since output_dir = tmp_path/"prisma-browser-sdk", parent = tmp_path,
-    # and package = "prisma_browser", so out_dir = tmp_path/"prisma_browser-cli".
-    root = tmp_path / "prisma_browser-cli"
+    # The project dir follows the cli.yml distribution ("prisma-browser-cli"), NOT the
+    # underscore package name — mirroring how the SDK dir is "prisma-browser-sdk".
+    root = tmp_path / "prisma-browser-cli"
+    assert not (tmp_path / "prisma_browser-cli").exists()   # no underscore dir
 
     pyproject = (root / "pyproject.toml").read_text()
     assert "prisma-browser-sdk" in pyproject               # SDK distribution dep

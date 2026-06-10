@@ -132,11 +132,13 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
+        # Project dir follows the CLI distribution (e.g. "prisma-browser-cli"), like the
+        # SDK dir follows its distribution — not the underscore Python package name.
         cli_pkg = f"{loaded.config.package}_cli"
-        out_dir = Path(loaded.output_dir).parent / f"{loaded.config.package}-cli"
+        out_dir = Path(loaded.output_dir).parent / str(scaffold_ctx["distribution"])
         written = render_cli(ir, package=cli_pkg, out_dir=out_dir)
 
-        scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
         scaffold_written = scaffold.render_scaffold(
             scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx
         )
