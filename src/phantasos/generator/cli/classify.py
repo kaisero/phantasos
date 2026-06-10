@@ -11,8 +11,9 @@ from typing import cast
 from pydantic import BaseModel, ConfigDict
 
 from .cliconfig import CliConfig, RequestMapping, VariantMap
+from .columns import default_columns, resolve_columns
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
-from .ir import CliIR, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
+from .ir import CliIR, ColumnSpec, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
 
 # (prefix, verb, sub_verb) — ORDER MATTERS: longer/compound prefixes first.
 _VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
@@ -326,6 +327,55 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                       variant_param=vmap.path_param if vmap else None)
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
+
+    # ---- Table columns.
+    # CRITICAL: columns resolve per OBJECT, never per command. Real-SDK write ops
+    # return DIVERGENT response models (e.g. create_device_group ->
+    # CreateDeviceGroup201Response{device_group_id} — not the DeviceGroup item),
+    # so validating cli.yml columns against each command's own response model
+    # would fail the build on valid configs. The object's canonical row shape is
+    # its show command's item model (list envelope unwrapped, else get's model);
+    # the resolved columns attach to every command of the object (a jmespath
+    # miss renders as an empty cell). items_field stays per-command.
+    ops_by_key = {f"{op.resource}.{op.method}": op for op in inv.operations}
+    rank = {"list": 0, "get": 1}
+
+    def _rep_op(cmd: Command) -> OperationInfo | None:
+        for b in sorted(cmd.bindings, key=lambda b: rank.get(b.sub_verb, 9)):
+            op = ops_by_key.get(f"{cmd.sdk_resource}.{b.sdk_method}")
+            if op is not None and op.response_fields:
+                return op
+        return None
+
+    obj_fields: dict[str, list[FieldInfo]] = {}
+    for cmd in groups.values():  # the show command defines the object's rows
+        if cmd.verb == "show" and (rep := _rep_op(cmd)) is not None:
+            obj_fields[cmd.object] = rep.response_fields
+    for cmd in groups.values():  # objects without a show command: any response model
+        if cmd.object not in obj_fields and (rep := _rep_op(cmd)) is not None:
+            obj_fields[cmd.object] = rep.response_fields
+
+    objects = {c.object for c in groups.values()}
+    unknown_objects = set(cfg.columns) - objects
+    if unknown_objects:
+        raise ValueError(
+            "cli.yml columns: unknown object(s): "
+            + ", ".join(sorted(unknown_objects))
+        )
+    resolved: dict[str, list[ColumnSpec]] = {}
+    for obj in objects:
+        entries = cfg.columns.get(obj)
+        fields = obj_fields.get(obj)
+        if entries is not None:
+            # curated: validate against the object's row shape (syntax-only
+            # when no response model was introspectable)
+            resolved[obj] = resolve_columns(entries, fields or [], obj)
+        elif fields:
+            resolved[obj] = default_columns(fields)
+    for cmd in groups.values():
+        cmd.columns = resolved.get(cmd.object, [])
+        if (rep := _rep_op(cmd)) is not None:
+            cmd.items_field = rep.items_field
 
     ir = CliIR(
         sdk_package=inv.sdk_package,

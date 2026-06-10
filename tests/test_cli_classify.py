@@ -316,3 +316,64 @@ def test_build_cli_ir_emits_request_commands():
     # all command keys are distinct (no request/CRUD collision)
     keys = [c.key for c in ir.commands]
     assert len(keys) == len(set(keys))
+
+
+def test_show_widget_gets_default_columns_and_items_field():
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    ir, _ = build_cli_ir(introspect("fakesdk", fixture), CliConfig())
+    show = next(c for c in ir.commands if c.key == "show:widget")
+    assert show.items_field == "data"           # from list_widgets -> WidgetList
+    paths = [c.path for c in show.columns]
+    assert paths[:2] == ["id", "name"]          # preferred first
+    assert "spec" not in paths                   # nested excluded
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    assert [c.path for c in create.columns] == paths  # same object, same columns
+
+
+def test_cli_yml_columns_override_and_validate():
+    from pathlib import Path
+
+    import pytest
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = introspect("fakesdk", fixture)
+
+    cfg = CliConfig(columns={"widget": ["name", "members[].name"]})
+    ir, _ = build_cli_ir(inv, cfg)
+    show = next(c for c in ir.commands if c.key == "show:widget")
+    assert [c.path for c in show.columns] == ["name", "members[].name"]
+    # curated columns validate against the SHOW item model and attach to every
+    # command of the object — even though create_widget returns the divergent
+    # CreateWidget201Response{widget_id} (no `name` field), the build must pass:
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    assert [c.path for c in create.columns] == ["name", "members[].name"]
+
+    with pytest.raises(ValueError, match="unknown field 'nope'"):
+        build_cli_ir(inv, CliConfig(columns={"widget": ["nope"]}))
+
+    with pytest.raises(ValueError, match="unknown object"):
+        build_cli_ir(inv, CliConfig(columns={"no-such-object": ["id"]}))
+
+
+def test_no_response_model_means_no_columns():
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    ir, _ = build_cli_ir(introspect("fakesdk", fixture), CliConfig())
+    gizmo_show = next(c for c in ir.commands if c.key == "show:gizmo")
+    assert gizmo_show.columns == []             # gizmos are unannotated
+    assert gizmo_show.items_field is None
