@@ -59,6 +59,14 @@ The real build is clean (0 unmapped); all TODO(T5) test assertions retightened t
 (68 commands total); `request user-request revoke --id …` dispatches; full real-SDK gated test
 passes. Plan: `…2026-06-10-cli-generator-phase-3b-request-namespace.md`.
 
+### 3x — Default `show` output to table for list results (follow-up, decided 2026-06-10)
+Once table columns land (plan `…2026-06-10-cli-generator-table-columns.md`): `show` commands
+that actually return MULTIPLE items (the list-binding path — no `--id`, or an envelope/list
+result) should default to `--output table` instead of `json`; single-item `show --id` and all
+other verbs keep the `json` default. `--output json|yaml` stays the explicit override. Small
+runtime change (pick default fmt by resolved binding/result shape), but it changes scripted-UX
+expectations — do it as its own reviewed change, not folded into the columns plan.
+
 ### 3c — `load` / `backup` verbs (per object-type)
 `backup <object> --file f.yaml` (list → YAML) and `load <object> --file f.yaml [--dry-run]`
 (YAML → create/update each). Per-object now; design the file format to extend to whole-tenant
