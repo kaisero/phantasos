@@ -323,6 +323,61 @@ def test_cli_runner_request_actions(emitted, monkeypatch):
     assert revoke_call.get("id") == "W9"
 
 
+def test_output_defaults_to_json_not_table(emitted, monkeypatch):
+    import contextlib
+    import io
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Model:
+        def model_dump(self, mode="python"):
+            return {"id": "a1", "name": "slack"}
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        out.render(_Model())          # no fmt → default
+    text = buf.getvalue()
+    assert '"id"' in text and '"name"' in text   # JSON, not a table or repr
+    assert "_Model(" not in text                  # no python repr
+
+
+def test_to_data_never_leaks_repr(emitted):
+    import contextlib
+    import io
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Weird:  # no model_dump, not a scalar/dict/list
+        def __repr__(self):
+            return "<_Weird object at 0xdeadbeef>"
+
+    data = out._to_data(_Weird())
+    assert isinstance(data, str)  # converted, not passed through raw
+    # render(json) must not crash and must not emit the angle-bracket repr as an object
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        out.render(_Weird(), fmt="json")
+    assert buf.getvalue().strip()                 # produced some JSON string output
+
+
+def test_cli_runner_show_defaults_to_json(emitted, monkeypatch):
+    import fakesdk.extras.facade as facade
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+
+    res = CliRunner().invoke(main.app, ["show", "widget", "--id", "w1"])  # NO --output
+    assert res.exit_code == 0, res.output
+    assert '"id"' in res.output                   # default JSON output
+    assert "WidgetsApi" not in res.output and "object at 0x" not in res.output
+
+
 def test_env_file_is_auto_loaded(emitted, monkeypatch, tmp_path):
     from typer.testing import CliRunner
 

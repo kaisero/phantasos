@@ -1,4 +1,4 @@
-"""Render SDK results as a Rich table (default), JSON, or YAML."""
+"""Render SDK results as Rich JSON (default), table, or YAML."""
 
 from __future__ import annotations
 
@@ -16,18 +16,22 @@ def _to_data(obj: Any) -> Any:
         return [_to_data(o) for o in obj]
     if hasattr(obj, "model_dump"):
         return obj.model_dump(mode="json")
-    return obj
+    if isinstance(obj, dict):
+        return {k: _to_data(v) for k, v in obj.items()}
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    return str(obj)  # never leak a Python object repr to the user
 
 
-def render(result: Any, fmt: str = "table") -> None:
+def render(result: Any, fmt: str = "json") -> None:
     data = _to_data(result)
-    if fmt == "json":
-        _console.print_json(data=data)
-        return
     if fmt == "yaml":
         print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
         return
-    _render_table(data)
+    if fmt == "table":
+        _render_table(data)
+        return
+    _console.print_json(data=data)  # default: Rich-formatted JSON
 
 
 def _render_table(data: Any) -> None:
