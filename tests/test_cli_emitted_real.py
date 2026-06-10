@@ -513,3 +513,34 @@ def test_real_version_flag(real_cli):
     res = CliRunner().invoke(main.app, ["--version"])
     assert res.exit_code == 0, res.output
     assert app_mod._DISTRIBUTION in res.output            # e.g. "prisma-browser-cli"
+
+
+def test_generated_code_is_lint_clean(real_cli):
+    """Capstone: the emitted `_generated/` passes the scaffold's ruff config
+    (select E,F,I,UP,W; line-length 88) with ZERO errors — no noqa, no exclude.
+    `real_cli` renders via `render_cli`, which `ruff format`s the output."""
+    import shutil
+    import subprocess
+    ruff = shutil.which("ruff")
+    if ruff is None:
+        pytest.skip("ruff not on PATH")
+    gen = real_cli / "prisma_browser_cli" / "_generated"
+    res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
+        [ruff, "check", "--isolated", "--select", "E,F,I,UP,W",
+         "--line-length", "88", str(gen)],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr   # 0 lint errors in generated
+
+
+def test_long_help_text_preserved(real_cli):
+    """Word-wrapping long help into implicit-concat chunks must not drop text:
+    Rich reassembles the chunks at runtime, so distinctive fragments survive."""
+    import os
+
+    from typer.testing import CliRunner
+    os.environ["NO_COLOR"] = "1"
+    main = importlib.import_module("prisma_browser_cli.main")
+    out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
+    # distinctive fragments from long device filter/sort help (text not lost)
+    assert "sort by" in out.lower() or "filter by" in out.lower()

@@ -80,6 +80,8 @@ ignore = []
 "tests/fixtures/**" = ["UP042", "UP045", "UP007"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
 "src/phantasos/generate.py" = ["S603"]
+# render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
+"src/phantasos/generator/cli/render_cli.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
 "src/phantasos/provision.py" = ["S310"]
 # smoke.py shells out to the isolated venv's python/pip — trusted argv.

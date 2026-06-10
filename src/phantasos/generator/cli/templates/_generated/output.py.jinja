@@ -34,8 +34,9 @@ def _error_headline(data: Any) -> str | None:
 
 def render_error(exc: Any) -> None:
     """Pretty-print an SDK/API error to stderr. HTTP errors (with .status) get a
-    Rich status line + headline + parsed JSON body; other errors get a plain message.
-    Schema-agnostic: uses only the universal ApiException interface (.status/.reason/.body)."""
+    Rich status line + headline + parsed JSON body; other errors get a plain
+    message. Schema-agnostic: uses only the universal ApiException interface
+    (.status/.reason/.body)."""
     status = getattr(exc, "status", None)
     if status is None:
         # not an HTTP API error (e.g. pydantic ValidationError) — keep it simple

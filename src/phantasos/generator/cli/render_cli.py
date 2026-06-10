@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import keyword
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import cast
 
@@ -73,7 +75,57 @@ _SCALAR_PY: dict[str, str] = {
 
 def _render_type(f: Flag) -> str:
     base = _SCALAR_PY.get(f.py_type, "str") if f.kind == "scalar" else "str"
-    return base if f.required else f"Optional[{base}]"
+    # ``X | None`` (not ``Optional[X]``) so the emitted source already matches the
+    # modern form ``ruff`` (UP rules) would rewrite to — no dangling Optional
+    # import to trip F401. Safe pre-3.10 because of ``from __future__ import
+    # annotations`` (these are string annotations, never evaluated at runtime).
+    return base if f.required else f"{base} | None"
+
+
+# Max length of a JSON-escaped chunk (the rendered ``"..."`` literal) so that,
+# after ``ruff format`` indents it inside ``typer.Option(...)``, the line stays
+# <=88. The deepest indent ruff uses for these continuation lines is 12 spaces;
+# the single-line ``help="..."`` form carries a ``help=`` prefix (5) at 8-space
+# indent. ``88 - 13 = 75`` is the tightest budget; use 74 for a one-char margin.
+_HELP_CHUNK_BUDGET = 74
+
+
+def _help_literal(text: str | None) -> str | None:
+    """Python source for a ``help=`` value: a single string literal, or
+    implicit-concatenated word-wrapped chunks (so ``ruff format`` can keep each
+    line <=88 without truncating the help text).
+
+    Wrapping is measured against the JSON-*escaped* form of each chunk (not the
+    raw text) so non-ASCII characters — e.g. an em-dash that serializes to the
+    6-char ``\\u2014`` escape — do not inflate a line past the budget.
+    """
+    if not text:
+        return None
+    # If the whole thing fits on one escaped line, emit a single literal.
+    if len(json.dumps(text)) <= _HELP_CHUNK_BUDGET:
+        return json.dumps(text)
+
+    # Greedily pack words into chunks whose escaped form (with a trailing space,
+    # except the last) stays within budget.
+    words = text.split(" ")
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}" if current else word
+        # measure with the trailing space these non-final chunks will carry
+        if current and len(json.dumps(candidate + " ")) > _HELP_CHUNK_BUDGET:
+            chunks.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    if len(chunks) <= 1:
+        return json.dumps(text)
+    # trailing space on all but the last so concatenation reproduces the spacing
+    parts = [json.dumps(c + " ") for c in chunks[:-1]] + [json.dumps(chunks[-1])]
+    return "(" + " ".join(parts) + ")"
 
 
 def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
@@ -95,7 +147,7 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
         "py_name": _py_name(f.param),
         "required": f.required,
         "render_type": _render_type(f),
-        "help_text": help_text,
+        "help_literal": _help_literal(help_text),
         "completion": completion,
         "completer_name": completer_name,
         "panel": panel,
@@ -169,6 +221,31 @@ def _env() -> Environment:
         keep_trailing_newline=True,
         autoescape=select_autoescape(),  # renders Python source, not HTML
         undefined=StrictUndefined,
+    )
+
+
+def _format_generated(paths: list[Path]) -> None:
+    """Format the just-written .py files with ruff (idempotent, deterministic).
+
+    Skips silently if ruff is unavailable so the build never hard-fails on it.
+    Only the files passed in are touched, so a rebuild never reformats
+    hand-owned files this run did not write.
+    """
+    ruff = shutil.which("ruff")
+    pyfiles = [str(p) for p in paths if p.suffix == ".py"]
+    if not ruff or not pyfiles:
+        return
+    common = ["--isolated", "--line-length", "88"]
+    # import sorting / safe autofixes first, then format
+    subprocess.run(
+        [ruff, "check", "--fix", "--select", "I,UP", *common, *pyfiles],
+        capture_output=True,
+        check=False,
+    )
+    subprocess.run(
+        [ruff, "format", *common, *pyfiles],
+        capture_output=True,
+        check=False,
     )
 
 
@@ -247,5 +324,11 @@ def render_cli(
         dest = pkg / rel
         if not dest.exists():
             render(f"{rel}.jinja", dest)
+
+    # Format only the files this run wrote (so rebuilds never reformat
+    # hand-owned files left untouched above).
+    _format_generated([
+        (out_dir / rel) for rel in written if rel.endswith(".py")
+    ])
 
     return written

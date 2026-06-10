@@ -475,8 +475,14 @@ def test_scalar_body_flags_use_real_types(emitted, tmp_path):
     code = (
         tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
     ).read_text()
+    # Scalar body flags get their REAL Python types (not bare str). Required ->
+    # the bare scalar; optional -> the modern ``X | None`` union (matching what
+    # ruff's UP rules emit, so no dangling Optional import). Assert the type
+    # annotations appear; the exact `typer.Option(...)` layout is left to ruff
+    # format. (Behavioral validation lives in test_scalar_type_validated_by_typer.)
     assert ": int = typer.Option(" in code           # required int (create)
-    assert "Optional[bool] = typer.Option(None" in code  # optional bool
+    assert "priority: int" in code                    # priority typed as int
+    assert "bool | None = typer.Option(None" in code  # optional bool
 
 
 def test_scalar_type_validated_by_typer(emitted, monkeypatch):
@@ -728,3 +734,23 @@ def test_version_resolves_from_metadata(emitted, monkeypatch):
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
     monkeypatch.setattr(app_mod._metadata, "version", lambda dist: "9.9.9")
     assert app_mod._resolve_version() == "9.9.9"
+
+
+def test_fakesdk_generated_lint_clean(tmp_path):
+    """Non-gated capstone: the fakesdk-rendered `_generated/` passes the scaffold's
+    ruff config (E,F,I,UP,W; line-length 88) with ZERO errors. render_cli runs
+    `ruff format` post-render, so the emitted code is already clean."""
+    import shutil
+    import subprocess
+    ruff = shutil.which("ruff")
+    if ruff is None:
+        pytest.skip("ruff not on PATH")
+    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
+    gen = tmp_path / "fakesdk_cli" / "_generated"
+    res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
+        [ruff, "check", "--isolated", "--select", "E,F,I,UP,W",
+         "--line-length", "88", str(gen)],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
