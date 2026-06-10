@@ -281,6 +281,13 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
             _merge_flags(cmd.query_flags, _query_flags(op.params))
         cmd.bindings.append(binding)
+        # --id is semantically required for update and delete: the operation targets
+        # a specific resource by id.  show intentionally keeps it optional (list
+        # without --id is valid).  create has no id path param.
+        if verb in ("update", "delete"):
+            for f in cmd.path_params:
+                if f.kind == "id":
+                    f.required = True
 
     for op in inv.operations:
         key0 = f"{op.resource}.{op.method}"

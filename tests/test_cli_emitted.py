@@ -403,3 +403,38 @@ def test_env_file_is_auto_loaded(emitted, monkeypatch, tmp_path):
     assert res.exit_code == 0, res.output
     # _client() called load_dotenv() before from_env()
     assert seen["DEMO_TOKEN"] == "from-dotenv"
+
+
+def test_create_missing_required_errors_cleanly(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(main.app, ["create", "widget"])  # missing required --name
+    assert res.exit_code != 0 and (
+        "Missing option" in res.output or "required" in res.output.lower()
+    )
+
+
+def test_update_requires_id(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(main.app, ["update", "widget", "--name", "x"])   # no --id
+    assert res.exit_code != 0
+
+
+def test_delete_requires_id(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
+    res = CliRunner().invoke(main.app, ["delete", "widget"])   # no --id
+    assert res.exit_code != 0

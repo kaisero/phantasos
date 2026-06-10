@@ -54,10 +54,26 @@ def _primary_sub_verb(c: Command) -> str:
     )
 
 
-def _flag_view(f: Flag) -> dict[str, str]:
+_SCALAR_PY: dict[str, str] = {
+    "int": "int", "bool": "bool", "float": "float", "str": "str"
+}
+
+
+def _render_type(f: Flag) -> str:
+    base = _SCALAR_PY.get(f.py_type, "str") if f.kind == "scalar" else "str"
+    return base if f.required else f"Optional[{base}]"
+
+
+def _flag_view(f: Flag) -> dict[str, object]:
     return {
-        "name": f.name, "param": f.param,
-        "py_name": _py_name(f.param), "help": f.help,
+        "name": f.name,
+        "param": f.param,
+        "py_name": _py_name(f.param),
+        "required": f.required,
+        "render_type": _render_type(f),
+        "help_text": f.help,
+        "completion": None,
+        "completer_name": None,
     }
 
 
