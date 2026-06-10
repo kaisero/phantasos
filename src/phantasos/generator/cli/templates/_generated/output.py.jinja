@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from typing import Any
 
 import yaml
@@ -9,6 +11,62 @@ from rich.console import Console
 from rich.table import Table
 
 _console = Console()
+_err_console = Console(stderr=True)
+
+
+def _error_headline(data: Any) -> str | None:
+    """Best-effort one-line message from common error-body shapes (schema-agnostic)."""
+    if not isinstance(data, dict):
+        return None
+    # unwrap one level for common envelopes (e.g. PANW {"errorResponse": {...}})
+    for wrapper in ("errorResponse", "error_response"):
+        if isinstance(data.get(wrapper), dict):
+            data = data[wrapper]
+            break
+    if isinstance(data.get("error"), dict):  # {"error": {"message": ...}}
+        data = data["error"]
+    for key in ("error", "message", "detail", "title", "description"):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def render_error(exc: Any) -> None:
+    """Pretty-print an SDK/API error to stderr. HTTP errors (with .status) get a
+    Rich status line + headline + parsed JSON body; other errors get a plain message.
+    Schema-agnostic: uses only the universal ApiException interface (.status/.reason/.body)."""
+    status = getattr(exc, "status", None)
+    if status is None:
+        # not an HTTP API error (e.g. pydantic ValidationError) — keep it simple
+        print(f"error: {exc}", file=sys.stderr)
+        return
+    reason = getattr(exc, "reason", "") or ""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    parsed: Any = None
+    if isinstance(body, str) and body.strip():
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            parsed = None
+    if parsed is None:  # fall back to the typed .data model if present
+        data = getattr(exc, "data", None)
+        if data is not None and hasattr(data, "model_dump"):
+            try:
+                parsed = data.model_dump(mode="json", by_alias=True, exclude_none=True)
+            except Exception:  # noqa: BLE001 - never let error rendering crash
+                parsed = None
+    head = f"Error {status} {reason}".rstrip()
+    headline = _error_headline(parsed)
+    if headline:
+        head = f"{head} — {headline}"   # em dash
+    _err_console.print(f"[bold red]{head}[/]")
+    if parsed is not None:
+        _err_console.print_json(data=parsed)
+    elif isinstance(body, str) and body.strip():
+        _err_console.print(body.strip())
 
 
 def _to_data(obj: Any) -> Any:

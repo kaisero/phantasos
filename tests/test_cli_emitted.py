@@ -517,3 +517,69 @@ def test_enum_flag_accepts_unlisted_value(emitted, monkeypatch):
          "--color", "chartreuse", "--output", "json"],
     )
     assert res.exit_code == 0, res.output       # unlisted value passes through
+
+
+def test_error_headline_extraction(emitted):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    # prisma-style nested envelope -> the specific `error` field
+    assert out._error_headline(
+        {"errorResponse": {"error": "group name already exists",
+                           "message": "failed to create device group"}}
+    ) == "group name already exists"
+    # flat message
+    assert out._error_headline({"message": "boom"}) == "boom"
+    # RFC7807-ish: detail preferred over title
+    assert out._error_headline(
+        {"title": "Bad Request", "detail": "x out of range"}
+    ) == "x out of range"
+    # error-as-object
+    assert out._error_headline({"error": {"message": "nested"}}) == "nested"
+    # nothing usable
+    assert out._error_headline({"foo": 1}) is None
+    assert out._error_headline("not a dict") is None
+
+
+def test_render_error_api_exception_to_stderr(emitted, monkeypatch, capsys):
+    monkeypatch.setenv("NO_COLOR", "1")
+    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+        del sys.modules[name]
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Exc:                      # duck-typed ApiException
+        status = 400
+        reason = "Bad Request"
+        body = (
+            '{"errorResponse":{"error":"group name already exists",'
+            '"message":"failed to create device group"}}'
+        )
+        data = None
+    out.render_error(_Exc())
+    err = capsys.readouterr().err
+    assert "Error 400 Bad Request" in err
+    assert "group name already exists" in err           # headline
+    assert "errorResponse" in err and "failed to create device group" in err  # body
+    assert "HTTPHeaderDict" not in err  # noise gone
+    assert "response headers" not in err.lower()
+
+
+def test_render_error_non_api(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    out.render_error(ValueError("bad --flag value"))
+    err = capsys.readouterr().err
+    assert "error: bad --flag value" in err
+
+
+def test_render_error_non_json_body(emitted, monkeypatch, capsys):
+    monkeypatch.setenv("NO_COLOR", "1")
+    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+        del sys.modules[name]
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Exc:
+        status = 502
+        reason = "Bad Gateway"
+        body = "upstream timeout"
+        data = None
+    out.render_error(_Exc())
+    err = capsys.readouterr().err
+    assert "Error 502 Bad Gateway" in err and "upstream timeout" in err
