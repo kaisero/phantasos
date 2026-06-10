@@ -78,6 +78,11 @@ Verb-first: **`<verb> <object> [<variant>] [flags]`**
 
 - **Verbs:** `set` (create/patch/update), `del`, `show`, `request` (non-CRUD actions),
   `load` (bulk import), `backup` (export).
+- **`request <object> <action>` (EMITTED — Phase 3b):** each `cli.yml` `request:` mapping
+  `{object, action}` emits one command (verb `request`, a dedicated `Command.action` field — NOT
+  the oneOf `variant`), bound to one SDK method, built from its id path param (if any) + body
+  model. The emitter treats the leaf segment as `variant or action`; the runtime never inspects
+  `action` (so the oneOf-discriminator path can't touch request commands).
 - **Object** = facade resource **+ method noun**, so one facade resource splits into its real
   object types: `access_and_data_policy` → `access-and-data-rule`, `access-and-data-section`, …
 - **Variant** = a body-level union member surfaced as a subcommand: `set application custom|private|…`.

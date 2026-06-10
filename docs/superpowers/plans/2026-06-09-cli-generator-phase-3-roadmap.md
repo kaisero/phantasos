@@ -35,24 +35,18 @@ via the aggregated IR; `cli.yml` carries per-product deltas.
 
 ## Phase 3 work, in recommended order
 
-### 3a — Author `products/prisma-browser/cli.yml` (DO THIS FIRST)
-The real build currently runs **CRUD-only and warns "16 unmapped ops"**. The generator
-machinery for variants + overrides is built and tested; it just needs the per-product config.
-- `phantasos cli discover prisma-browser --write-stub` → start from the stub.
-- Add the `variants:` map for `applications.create_application`
-  (`{custom: CustomApplicationInput, private: PrivateApplicationInput, non-web:
-  NonWebApplicationInput, localdesktopcustom: LocalDesktopApplicationInput}`, `path_param: type`)
-  so `set application <variant>` works via the real binary.
-- Map (or `hide:`) the 16 non-CRUD ops (see 3b). Rebuild and exercise the real CLI end-to-end.
-- No code change expected — this is product-config authoring + a live-validation pass.
+### 3a — Author `products/prisma-browser/cli.yml` ✅ DONE (2026-06-10)
+Authored: `project:` block, `variants:` for `applications.create_application` **and**
+`patch_application_by_type_and_id` (custom/private/non-web/localdesktopcustom), and the 16
+non-CRUD ops under `request:`. Real build is clean (0 unmapped); `set application <variant>`
+works (create+patch aggregated, dispatched by `--id`).
 
-### 3b — `request` namespace verb (non-CRUD actions)
-~16 ops don't classify as CRUD: `suspend_*`, `force_reauth_*`, `revoke_*`, `publish_*`,
-`archive_*`, `restore_*`, `resume_*`, `action_*`, `*_positions`. Spec calls for
-`request <resource> <action>`. Needs: `cli.yml` `request:` mappings (already modeled in
-`CliConfig`); `build_cli_ir` to emit `request`-verb commands from those mappings (currently it
-`continue`s past `cfg.request` entries — see `classify.py`); runtime/templates to dispatch them
-(they're mostly POST actions with a body or just an id). Add `request` to the emitted verb apps.
+### 3b — `request` namespace verb (non-CRUD actions) ✅ DONE (2026-06-10)
+`build_cli_ir` emits `request <object> <action>` from `cli.yml request:` mappings (dedicated
+`Command.action` field; one SDK method per action; id+body handled; emitter `_leaf` =
+`variant or action`; `request` added to the emitted verb apps). Real build emits all 16
+(68 commands total); `request user-request revoke --id …` dispatches; full real-SDK gated test
+passes. Plan: `…2026-06-10-cli-generator-phase-3b-request-namespace.md`.
 
 ### 3c — `load` / `backup` verbs (per object-type)
 `backup <object> --file f.yaml` (list → YAML) and `load <object> --file f.yaml [--dry-run]`
