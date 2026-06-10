@@ -51,7 +51,7 @@ class Command(BaseModel):
     variant_param: str | None = None
     action: str | None = None  # request-namespace action segment (e.g. "suspend");
                                # distinct from `variant` (oneOf discriminator).
-    key: str                  # canonical "verb:object[:variant]"
+    key: str                  # canonical "verb:object[:variant_or_action]"
     sdk_resource: str         # facade attribute, e.g. "applications"
     # candidate SDK methods; runtime dispatch picks one by args
     bindings: list[MethodBinding] = []

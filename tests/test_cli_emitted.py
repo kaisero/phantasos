@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from phantasos.generator.cli.classify import build_cli_ir
-from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
+from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping, VariantMap
 from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
 
@@ -18,7 +18,11 @@ _FAKESDK_CLI_CONFIG = CliConfig(
             path_param="type",
             map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
         )
-    }
+    },
+    request={
+        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+    },
 )
 
 
@@ -283,3 +287,37 @@ def test_runtime_coerces_int_query(emitted, monkeypatch):
     assert res.exit_code == 0, res.output
     _, kw = next((n, k) for n, k in calls if n == "list_widgets")
     assert kw.get("limit") == 50 and isinstance(kw["limit"], int)  # coerced str->int
+
+
+def test_cli_runner_request_actions(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+
+    r = CliRunner()
+    # request is a verb group
+    assert "request" in r.invoke(main.app, ["--help"]).output
+    res = r.invoke(
+        main.app,
+        ["request", "widget", "suspend", "--name", "W", "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output
+    res2 = r.invoke(
+        main.app,
+        ["request", "widget", "revoke", "--id", "W9", "--name", "X",
+         "--output", "json"],
+    )
+    assert res2.exit_code == 0, res2.output
+
+    names = [c[0] for c in calls]
+    assert "suspend_widget" in names
+    assert "revoke_widget" in names
+    revoke_call = next(kw for n, kw in calls if n == "revoke_widget")
+    assert revoke_call.get("id") == "W9"

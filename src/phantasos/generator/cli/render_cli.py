@@ -29,9 +29,16 @@ def _py_name(param: str) -> str:
     return ident
 
 
+def _leaf(c: Command) -> str | None:
+    """The third command segment: a oneOf variant OR a request action (mutually
+    exclusive)."""
+    return c.variant or c.action
+
+
 def _func_name(c: Command) -> str:
     base = f"{c.verb}_{c.object}".replace("-", "_")
-    return (f"{base}_{c.variant}".replace("-", "_")) if c.variant else base
+    leaf = _leaf(c)
+    return f"{base}_{leaf}".replace("-", "_") if leaf else base
 
 
 _SUBVERB_PRIORITY = {
@@ -57,8 +64,9 @@ def _flag_view(f: Flag) -> dict[str, str]:
 def _command_view(
     c: Command, variant_groups: set[tuple[str, str]]
 ) -> dict[str, object]:
-    if c.variant:
-        typer_path: list[str] = [c.object, c.variant]
+    leaf = _leaf(c)
+    if leaf:
+        typer_path: list[str] = [c.object, leaf]
     elif (c.verb, c.object) in variant_groups:
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
@@ -144,7 +152,7 @@ def render_cli(
     # Emit per-resource command modules
     resources = sorted({c.sdk_resource for c in ir.commands})
     variant_groups: set[tuple[str, str]] = {
-        (c.verb, c.object) for c in ir.commands if c.variant
+        (c.verb, c.object) for c in ir.commands if c.variant or c.action
     }
     by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
     for c in ir.commands:

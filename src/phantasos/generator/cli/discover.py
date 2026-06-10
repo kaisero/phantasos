@@ -8,7 +8,8 @@ from .ir import CliIR
 def render_table(ir: CliIR, unmapped: list[str]) -> str:
     lines = [f"# {ir.sdk_package} {ir.sdk_version} — {len(ir.commands)} commands"]
     for c in sorted(ir.commands, key=lambda c: c.key):
-        target = f"{c.verb} {c.object}" + (f" {c.variant}" if c.variant else "")
+        leaf = c.variant or c.action
+        target = f"{c.verb} {c.object}" + (f" {leaf}" if leaf else "")
         methods = ", ".join(b.sdk_method for b in c.bindings)
         lines.append(f"  {target:<40} <- {c.sdk_resource}.[{methods}]")
     if unmapped:

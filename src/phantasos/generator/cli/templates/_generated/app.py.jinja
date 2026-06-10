@@ -8,7 +8,7 @@ import typer
 from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
 
-_VERBS = ["set", "del", "show"]
+_VERBS = ["set", "del", "show", "request"]
 
 # (key, verb, typer_path, resource, func_name)
 _REGISTRY = [
