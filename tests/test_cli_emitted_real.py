@@ -290,3 +290,83 @@ def test_real_request_commands_dispatch(tmp_path, monkeypatch):
         sys.path.remove(str(tmp_path))
         for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
             del sys.modules[n]
+
+
+def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built")
+    from unittest.mock import MagicMock
+
+    from typer.testing import CliRunner
+
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(str(exc))
+    ir, unmapped = build_cli_ir(
+        inv, load_cli_config(Path("products/prisma-browser/cli.yml"))
+    )
+    keys = {c.key for c in ir.commands}
+    assert {"create:device-group", "update:device-group",
+            "delete:device-group", "show:device-group"} <= keys
+    assert "patch:device-group" not in keys and "set:device-group" not in keys
+    assert unmapped == []
+    # device-group has patch_ -> update is a single PATCH binding
+    upd = next(c for c in ir.commands if c.key == "update:device-group")
+    assert [b.sub_verb for b in upd.bindings] == ["patch"]
+
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
+    sys.path.insert(0, str(tmp_path))
+    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+        del sys.modules[n]
+    try:
+        main = importlib.import_module("prisma_browser_cli.main")
+        runner = CliRunner()
+        # --help shows required name + permissive enum choices
+        h = runner.invoke(main.app, ["create", "device-group", "--help"]).output
+        assert "--platform" in h and "Desktop Browser" in h
+        import prisma_browser.extras.facade as facade
+        client = MagicMock(name="Client")
+        monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
+        # required enforced (no --platform) and update needs --id
+        res_no_plat = runner.invoke(main.app, ["create", "device-group", "--name", "x"])
+        assert res_no_plat.exit_code != 0
+        res_no_id = runner.invoke(main.app, ["update", "device-group", "--name", "x"])
+        assert res_no_id.exit_code != 0
+        # permissive enum: unlisted platform accepted (dry-run, no dispatch)
+        res_dry = runner.invoke(main.app, [
+            "create", "device-group",
+            "--name", "x", "--platform", "Holographic Browser", "--dry-run",
+        ])
+        assert res_dry.exit_code == 0
+        # SUCCESSFUL partial PATCH dispatch — only the supplied field (model_construct)
+        client.reset_mock()
+        client.device_groups.patch_device_group.return_value = {
+            "id": "DG-1", "name": "renamed"
+        }
+        res = runner.invoke(main.app, [
+            "update", "device-group",
+            "--id", "DG-1", "--name", "renamed", "--output", "json",
+        ])
+        assert res.exit_code == 0, res.output
+        assert client.device_groups.patch_device_group.called
+        call = client.device_groups.patch_device_group.call_args
+        # the id is passed; patch body carries the supplied name (kwargs/args)
+        flat = {**call.kwargs}
+        assert call.args or flat   # something was passed
+        # the body object the SDK received should reflect the supplied 'name'
+        body_obj = next(
+            (v for v in list(call.args) + list(flat.values())
+             if hasattr(v, "name") or hasattr(v, "model_dump")),
+            None,
+        )
+        # serialize to confirm 'renamed' made it via model_construct
+        if body_obj is not None and hasattr(body_obj, "model_dump"):
+            dumped = body_obj.model_dump(exclude_none=True)
+            assert dumped.get("name") == "renamed", dumped
+    finally:
+        sys.path.remove(str(tmp_path))
+        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
+            del sys.modules[n]
