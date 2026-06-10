@@ -492,3 +492,15 @@ def test_real_dry_run_shows_http_request(real_cli, capsys):
     )
     assert r3.exit_code == 0, r3.output
     assert "POST" in r3.output and "MyApp" in r3.output
+
+
+def test_real_dry_run_with_enum_query_flag(real_cli):
+    from typer.testing import CliRunner
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(
+        main.app, ["show", "device", "--sort", "device.hostname", "--dry-run"]
+    )
+    assert res.exit_code == 0, res.output
+    assert "GET" in res.output and "/devices" in res.output
+    assert "sort=" in res.output          # enum query param made it into the URL
+    assert "list_devices(" not in res.output  # NOT the fallback call-string
