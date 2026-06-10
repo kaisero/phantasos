@@ -178,6 +178,7 @@ def render_cli(
     out_dir: Path,
     *,
     env_prefix: str | None = None,
+    distribution: str | None = None,
 ) -> list[str]:
     env = _env()
     pkg = out_dir / package
@@ -192,6 +193,7 @@ def render_cli(
         "ir": ir,
         "package": package,
         "env_prefix": resolved_prefix,
+        "distribution": distribution or package,
     }
     written: list[str] = []
 

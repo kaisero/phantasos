@@ -34,7 +34,7 @@ def real_cli(tmp_path):
     cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
     ir, _ = build_cli_ir(inv, cfg)
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path,
-               env_prefix="PRISMA")
+               env_prefix="PRISMA", distribution="prisma-browser-cli")
     sys.path.insert(0, str(tmp_path))
     for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
         del sys.modules[n]
@@ -504,3 +504,12 @@ def test_real_dry_run_with_enum_query_flag(real_cli):
     assert "GET" in res.output and "/devices" in res.output
     assert "sort=" in res.output          # enum query param made it into the URL
     assert "list_devices(" not in res.output  # NOT the fallback call-string
+
+
+def test_real_version_flag(real_cli):
+    from typer.testing import CliRunner
+    main = importlib.import_module("prisma_browser_cli.main")
+    app_mod = importlib.import_module("prisma_browser_cli._generated.app")
+    res = CliRunner().invoke(main.app, ["--version"])
+    assert res.exit_code == 0, res.output
+    assert app_mod._DISTRIBUTION in res.output            # e.g. "prisma-browser-cli"

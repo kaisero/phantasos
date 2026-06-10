@@ -708,3 +708,23 @@ def test_dry_run_falls_back_without_serialize(emitted, monkeypatch, capsys):
     )
     assert res.exit_code == 0, res.output
     assert "DRY-RUN create:widget" in res.output and "create_widget" in res.output
+
+
+def test_version_flag_wired(emitted, monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
+        del sys.modules[n]
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["--version"])
+    assert res.exit_code == 0, res.output
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    assert app_mod._DISTRIBUTION in res.output            # distribution name printed
+    # not installed in the tmp render -> graceful "unknown", no crash
+    assert app_mod._resolve_version() in res.output
+
+
+def test_version_resolves_from_metadata(emitted, monkeypatch):
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    monkeypatch.setattr(app_mod._metadata, "version", lambda dist: "9.9.9")
+    assert app_mod._resolve_version() == "9.9.9"

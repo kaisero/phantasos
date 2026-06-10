@@ -137,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
         # SDK dir follows its distribution — not the underscore Python package name.
         cli_pkg = f"{loaded.config.package}_cli"
         out_dir = Path(loaded.output_dir).parent / str(scaffold_ctx["distribution"])
-        written = render_cli(ir, package=cli_pkg, out_dir=out_dir)
+        written = render_cli(ir, package=cli_pkg, out_dir=out_dir,
+                             distribution=str(scaffold_ctx["distribution"]))
 
         scaffold_written = scaffold.render_scaffold(
             scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx

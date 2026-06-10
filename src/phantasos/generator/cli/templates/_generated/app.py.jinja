@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import importlib.metadata as _metadata
+
 import typer
 
 {% for resource in resources %}
 from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
+
+_DISTRIBUTION = "{{ distribution }}"
+
+
+def _resolve_version() -> str:
+    try:
+        return _metadata.version(_DISTRIBUTION)
+    except _metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"{_DISTRIBUTION} {_resolve_version()}")
+        raise typer.Exit()
 
 _VERBS = ["create", "update", "delete", "show", "request"]
 
@@ -21,6 +38,16 @@ _REGISTRY = [
 def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     exclude = exclude or set()
     app = typer.Typer(no_args_is_help=True)
+
+    @app.callback()
+    def _root(
+        version: bool = typer.Option(
+            None, "--version", callback=_version_callback, is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ) -> None:
+        """{{ distribution }} — generated CLI."""
+
     verb_apps = {v: typer.Typer(no_args_is_help=True) for v in _VERBS}
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
