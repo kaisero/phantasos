@@ -1,4 +1,5 @@
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -760,9 +761,9 @@ def test_show_flags_grouped_into_panels(emitted, tmp_path):
     show_fn = re.search(r"def show_widget\(.*?\n\) ->", code, re.S).group(0)
     assert 'rich_help_panel="Filter Options"' in show_fn   # --name (filter query param)
     assert 'rich_help_panel="Pagination Options"' in show_fn  # --limit + --all
-    # --id (path) and --output are NOT panelled
+    # --id (path) is NOT panelled; --output joined "Common Options" (2026-06-11)
     assert re.search(r'--id".*rich_help_panel', show_fn) is None
-    assert re.search(r'--output".*rich_help_panel', show_fn) is None
+    assert re.search(r'--output", rich_help_panel="Common Options"', show_fn)
 
 
 def test_show_help_renders_panels(emitted, monkeypatch):
@@ -1265,3 +1266,54 @@ def test_config_group_in_its_own_help_panel(emitted, monkeypatch, tmp_path):
     assert any(
         "CLI" in line and "─" in line for line in res.output.splitlines()
     )
+
+
+_PANEL_RE = re.compile(r"╭─+\s(.+?)\s─+╮")
+
+
+def _panel_titles(help_output: str) -> list[str]:
+    """Rich panel titles in render order from a --help screen."""
+    titles = []
+    for line in help_output.splitlines():
+        m = _PANEL_RE.search(line)
+        if m:
+            titles.append(m.group(1).strip())
+    return titles
+
+
+def test_common_options_panel_renders_last(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
+    assert res.exit_code == 0
+    titles = _panel_titles(res.output)
+    assert "Common Options" in titles
+    assert titles[-1] == "Common Options"  # the lowest container
+    # the five members appear after the Common Options header...
+    idx = res.output.index("Common Options")
+    tail = res.output[idx:]
+    for flag in ("--output", "--columns", "--dry-run", "--verbose", "--pager"):
+        assert flag in tail
+    # ...and the domain flag stays in the default Options panel above it
+    assert "--id" in res.output[:idx]
+    # --help remains stock (default panel, i.e. before Common Options)
+    assert "--help" in res.output[:idx]
+
+
+def test_pagination_panel_precedes_common_on_non_list_commands(
+    emitted, monkeypatch, tmp_path
+):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    main = importlib.import_module("fakesdk_cli.main")
+    # create has NO pagination query params; --all alone must still anchor the
+    # Pagination Options panel BEFORE Common Options (the declaration-reorder fix)
+    res = CliRunner().invoke(main.app, ["create", "widget", "--help"])
+    assert res.exit_code == 0
+    titles = _panel_titles(res.output)
+    assert titles[-1] == "Common Options"
+    assert "Pagination Options" in titles
+    assert titles.index("Pagination Options") < titles.index("Common Options")

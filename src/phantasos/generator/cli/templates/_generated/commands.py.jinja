@@ -17,7 +17,10 @@ def {{ c.func_name }}(
 {%- for f in c.all_flags %}
     {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ f.default_literal or ('...' if f.required else 'None') }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
 {%- endfor %}
-    output: str = typer.Option(_cfg.default_output(), "--output"),
+    all_: bool = typer.Option(False, "--all", rich_help_panel="Pagination Options"),
+    output: str = typer.Option(
+        _cfg.default_output(), "--output", rich_help_panel="Common Options"
+    ),
     columns: list[str] | None = typer.Option(
         None,
         "--columns",
@@ -25,14 +28,19 @@ def {{ c.func_name }}(
             "Table columns as comma-separated JMESPath expressions"
             " (implies --output table). 'HEADER=expr' names a column."
         ),
+        rich_help_panel="Common Options",
     ),
-    all_: bool = typer.Option(False, "--all", rich_help_panel="Pagination Options"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    verbose: bool = typer.Option(False, "--verbose"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", rich_help_panel="Common Options"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", rich_help_panel="Common Options"
+    ),
     pager: bool | None = typer.Option(
         None,
         "--pager/--no-pager",
         help="Page output taller than the terminal (default from config).",
+        rich_help_panel="Common Options",
     ),
 ) -> None:
 {%- if c.summary %}
