@@ -6,7 +6,7 @@ prefix heuristic. classify_name implements only the prefix heuristic + skip rule
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -143,7 +143,10 @@ def resolve_variants(
     ]
 
 
-def _query_flags(params: list[ParamInfo]) -> list[Flag]:
+def _query_flags(
+    params: list[ParamInfo], defaults: dict[str, Any] | None = None
+) -> list[Flag]:
+    defaults = defaults or {}
     return [
         Flag(name=_flag_name(p.name), param=p.name,
              # Enum query params stay permissive (str + choices), like fields_to_flags.
@@ -151,7 +154,8 @@ def _query_flags(params: list[ParamInfo]) -> list[Flag]:
              py_type="str" if p.enum_values else p.scalar_type,
              kind="enum" if p.enum_values else "scalar",
              required=False, default=p.default, help=p.description,
-             choices=p.enum_values)
+             choices=p.enum_values,
+             cli_default=defaults.get(p.name))
         for p in params if p.location == "query"
     ]
 
@@ -211,7 +215,8 @@ def _merge_flags(target: list[Flag], extra: list[Flag]) -> None:
 
 
 def _emit_request(groups: dict[str, Command], op: OperationInfo,
-                  mapping: RequestMapping) -> None:
+                  mapping: RequestMapping,
+                  defaults: dict[str, Any] | None = None) -> None:
     key = _command_key("request", mapping.object, mapping.action)
     id_param = detect_id_param(op.params)
     body_info = _body_param_info(op)
@@ -229,20 +234,38 @@ def _emit_request(groups: dict[str, Command], op: OperationInfo,
             variant=None, variant_param=None, key=key, sdk_resource=op.resource,
             path_params=_path_flags(op.params, id_param),
             body_flags=_body_flags_for(op, body_model),
-            query_flags=_query_flags(op.params),
+            query_flags=_query_flags(op.params, defaults),
             summary=op.summary, description=op.description, paginated=False,
         )
         groups[key] = cmd
     else:
         _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
         _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
-        _merge_flags(cmd.query_flags, _query_flags(op.params))
+        _merge_flags(cmd.query_flags, _query_flags(op.params, defaults))
     cmd.bindings.append(binding)
 
 
 def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[str]]:
     groups: dict[str, Command] = {}
     unmapped: list[str] = []
+
+    # cli.yml defaults: validate op keys and param names up front (build fails
+    # on a typo rather than silently ignoring it).
+    ops_index = {f"{op.resource}.{op.method}": op for op in inv.operations}
+    for op_key, params_map in cfg.defaults.items():
+        op_info = ops_index.get(op_key)
+        if op_info is None:
+            raise ValueError(
+                f"cli.yml defaults: unknown operation {op_key!r}"
+            )
+        query_names = {p.name for p in op_info.params if p.location == "query"}
+        unknown = set(params_map) - query_names
+        if unknown:
+            raise ValueError(
+                f"cli.yml defaults.{op_key}: {', '.join(sorted(unknown))}"
+                f" is not a query param (available:"
+                f" {', '.join(sorted(query_names)) or 'none'})"
+            )
 
     def _emit(verb: Verb, obj: str, variant: str | None, op: OperationInfo,
               sub_verb: SubVerb, body_model: str | None,
@@ -271,6 +294,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             body_param=body_info.name if body_info else None,
             body_model=bp_model, body_wrapper=bp_wrapper,
         )
+        op_defaults = cfg.defaults.get(f"{op.resource}.{op.method}")
         cmd = groups.get(key)
         if cmd is None:
             cmd = Command(
@@ -279,7 +303,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 sdk_resource=op.resource,
                 path_params=_path_flags(op.params, id_param),
                 body_flags=_body_flags_for(op, body_model),
-                query_flags=_query_flags(op.params),
+                query_flags=_query_flags(op.params, op_defaults),
                 summary=op.summary, description=op.description,
                 paginated=(sub_verb == "list"),
             )
@@ -288,7 +312,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             cmd.paginated = cmd.paginated or sub_verb == "list"
             _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
             _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
-            _merge_flags(cmd.query_flags, _query_flags(op.params))
+            _merge_flags(cmd.query_flags, _query_flags(op.params, op_defaults))
         cmd.bindings.append(binding)
         # --id is semantically required for update and delete: the operation targets
         # a specific resource by id.  show intentionally keeps it optional (list
@@ -310,7 +334,8 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         if key0 in cfg.hide:
             continue
         if key0 in cfg.request:
-            _emit_request(groups, op, cfg.request[key0])
+            _emit_request(groups, op, cfg.request[key0],
+                          cfg.defaults.get(key0))
             continue
         ov = cfg.override.get(key0)
         cls = classify_name(op.method)
@@ -337,12 +362,11 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
     # its show command's item model (list envelope unwrapped, else get's model);
     # the resolved columns attach to every command of the object (a jmespath
     # miss renders as an empty cell). items_field stays per-command.
-    ops_by_key = {f"{op.resource}.{op.method}": op for op in inv.operations}
     rank = {"list": 0, "get": 1}
 
     def _rep_op(cmd: Command) -> OperationInfo | None:
         for b in sorted(cmd.bindings, key=lambda b: rank.get(b.sub_verb, 9)):
-            op = ops_by_key.get(f"{cmd.sdk_resource}.{b.sdk_method}")
+            op = ops_index.get(f"{cmd.sdk_resource}.{b.sdk_method}")
             if op is not None and op.response_fields:
                 return op
         return None

@@ -377,3 +377,46 @@ def test_no_response_model_means_no_columns():
     gizmo_show = next(c for c in ir.commands if c.key == "show:gizmo")
     assert gizmo_show.columns == []             # gizmos are unannotated
     assert gizmo_show.items_field is None
+
+
+def test_defaults_stamp_cli_default_on_query_flags():
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = introspect("fakesdk", fixture)
+    cfg = CliConfig(defaults={
+        "widgets.list_widgets": {"name": "gadget", "limit": 50},
+    })
+    ir, _ = build_cli_ir(inv, cfg)
+    show = next(c for c in ir.commands if c.key == "show:widget")
+    by_param = {f.param: f for f in show.query_flags}
+    assert by_param["name"].cli_default == "gadget"     # str preserved
+    assert by_param["limit"].cli_default == 50          # int preserved
+    # untouched flags stay None; body flags never gain cli_default
+    assert all(f.cli_default is None for f in show.body_flags)
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    assert all(f.cli_default is None for f in create.body_flags)
+
+
+def test_defaults_validation_errors():
+    from pathlib import Path
+
+    import pytest
+
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.introspect import introspect
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = introspect("fakesdk", fixture)
+
+    with pytest.raises(ValueError, match="unknown operation"):
+        build_cli_ir(inv, CliConfig(defaults={"widgets.no_such_op": {"limit": 1}}))
+
+    with pytest.raises(ValueError, match="not a query param"):
+        build_cli_ir(inv, CliConfig(
+            defaults={"widgets.list_widgets": {"bogus": "x"}}))
