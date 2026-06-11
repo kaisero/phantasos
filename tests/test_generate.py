@@ -49,6 +49,30 @@ def test_generate_invokes_resolved_java(
     assert str(tmp_path / "oag.jar") in captured["cmd"]
 
 
+def test_generate_passes_discriminator_lookup_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("phantasos.provision.resolve_java", lambda: Path("/fake/java"))
+    monkeypatch.setattr(generate, "ensure_jar", lambda: tmp_path / "oag.jar")
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(cmd: list[str], **kw: object) -> object:
+        captured["cmd"] = cmd
+        return None
+
+    monkeypatch.setattr("phantasos.generate.subprocess.run", fake_run)
+
+    generate.generate("spec.yaml", str(tmp_path), "pkg")
+    props = captured["cmd"][captured["cmd"].index("--additional-properties") + 1]
+    assert "useOneOfDiscriminatorLookup=true" in props
+
+    generate.generate(
+        "spec.yaml", str(tmp_path), "pkg", oneof_discriminator_lookup=False
+    )
+    props = captured["cmd"][captured["cmd"].index("--additional-properties") + 1]
+    assert "useOneOfDiscriminatorLookup=false" in props
+
+
 def test_write_ignore_lists_suppressed_files(tmp_path: Path) -> None:
     from phantasos import generate
 

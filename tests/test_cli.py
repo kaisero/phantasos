@@ -27,7 +27,11 @@ def test_cli_build_returns_zero_on_success(
     readme.write_text("# Acme SDK\n", encoding="utf-8")
 
     def fake_generate(
-        spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+        spec_path: str,
+        out_dir: str,
+        package: str,
+        library: str = "urllib3",
+        oneof_discriminator_lookup: bool = True,
     ) -> None:
         pkg = Path(out_dir) / package
         (pkg / "api").mkdir(parents=True)
@@ -136,7 +140,11 @@ def test_build_writes_ignore_and_scaffolds(
     calls: list[str] = []
 
     def fake_generate(
-        spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+        spec_path: str,
+        out_dir: str,
+        package: str,
+        library: str = "urllib3",
+        oneof_discriminator_lookup: bool = True,
     ) -> None:
         assert (Path(out_dir) / ".openapi-generator-ignore").exists()
         calls.append("generate")

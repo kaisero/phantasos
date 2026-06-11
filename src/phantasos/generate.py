@@ -60,10 +60,15 @@ def ensure_jar() -> Path:
 
 
 def generate(
-    spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+    spec_path: str,
+    out_dir: str,
+    package: str,
+    library: str = "urllib3",
+    oneof_discriminator_lookup: bool = True,
 ) -> None:
     java = provision.resolve_java()
     jar = ensure_jar()
+    lookup = "true" if oneof_discriminator_lookup else "false"
     cmd = [
         str(java),
         "-jar",
@@ -78,7 +83,8 @@ def generate(
         "--package-name",
         package,
         "--additional-properties",
-        f"library={library},disallowAdditionalPropertiesIfNotPresent=false",
+        f"library={library},disallowAdditionalPropertiesIfNotPresent=false,"
+        f"useOneOfDiscriminatorLookup={lookup}",
         "--global-property",
         "modelDocs=false,apiDocs=false,modelTests=false,apiTests=false",
         "--inline-schema-options",
