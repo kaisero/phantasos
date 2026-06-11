@@ -102,8 +102,8 @@ columns:
 # (device-groups, devices, users) paginate fine unsorted.
 defaults:
   applications.list_applications:
-    sort: application.id
+    sort: application.name
     order: asc
   applications.list_applications_by_type:
-    sort: application.id
+    sort: application.name
     order: asc
