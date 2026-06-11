@@ -577,3 +577,29 @@ def test_real_ir_carries_columns():
     # every show command with a response model got SOME columns
     shows = [c for c in ir.commands if c.verb == "show"]
     assert any(c.columns for c in shows)
+
+
+@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
+def test_real_ir_carries_query_defaults():
+    """The shipped defaults: make application --all pagination work (server
+    honors cursors only under an explicit sort)."""
+    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    from phantasos.generator.cli.introspect import introspect
+
+    try:
+        inv = introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
+
+    cfg = load_cli_config(
+        Path(__file__).parent.parent / "products" / "prisma-browser" / "cli.yml"
+    )
+    ir, _ = build_cli_ir(inv, cfg)
+    show_app = next(c for c in ir.commands if c.key == "show:application")
+    by_param = {f.param: f for f in show_app.query_flags}
+    assert by_param["sort"].cli_default == "application.id"
+    assert by_param["order"].cli_default == "asc"
+    # the defaults are surgical: no other command gains them
+    show_dg = next(c for c in ir.commands if c.key == "show:device-group")
+    assert all(f.cli_default is None for f in show_dg.query_flags)

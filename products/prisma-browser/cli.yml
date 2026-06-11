@@ -94,3 +94,16 @@ columns:
     - {header: name,        path: actual_instance.name}
     - {header: type,        path: actual_instance.type}
     - {header: description, path: actual_instance.description}
+
+# Server quirk (verified 2026-06-11): the application list endpoints only honor
+# their pagination cursor when an explicit sort+order is supplied — without one,
+# page 2 comes back empty and --all silently truncates at 100. application.id is
+# unique (no cursor ties) and ULID-ordered (~creation order). Other endpoints
+# (device-groups, devices, users) paginate fine unsorted.
+defaults:
+  applications.list_applications:
+    sort: application.id
+    order: asc
+  applications.list_applications_by_type:
+    sort: application.id
+    order: asc
