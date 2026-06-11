@@ -8,9 +8,13 @@ README is currently too verbose and not very user / developer friendly. Change R
 
 It looks like --all / --paging capabilities are not working in generated cli - always maxed at 100 entries
 
-## Pager Output
+## Pager Output — DONE (2026-06-11)
 
-CLI should have a --pager option to utilise rich pager for large outputs
+Shipped: opt-in auto-threshold pager (`configuration.pager.enabled` in the user config
+file, `--pager`/`--no-pager` per-invocation override; pages only when output is taller
+than the terminal and stdout is a TTY; program resolution `pager.command` > `$PAGER` >
+`less -RFX`, colors preserved). Spec:
+docs/superpowers/specs/2026-06-11-cli-user-config-pager-design.md
 
 ## README.md for Prisma Browser CLI
 
@@ -28,6 +32,15 @@ The --output yaml option currently dumps yaml output non-colored to stdout. This
 
 Auto-Generated CLI should be able to load a user-specific configuration file that can hold multiple environments identified by name. Each environment should be able to override
 to .env specific configuration for authentication and advanced options like logging level, logfile location, historyfile (enable/disable), historyfile location
+
+FOUNDATION SHIPPED (2026-06-11): layered YAML config (packaged defaults <-
+`~/.<distribution>/config.yml` <- env <- flags) with typed validation,
+warn-and-continue, `config init`/`config show` meta-commands; v1 keys are
+`configuration.pager.*` and `configuration.output.format`. The schema reserves a
+top-level `environments:` list + `configuration.environment` selector for the
+multi-env auth feature above — still OPEN (note: the config loader's
+ValidationError key-removal helper is dict-paths-only and must be revisited when
+the list lands). Logging/history keys also still open.
 
 ## Auto-Setup Command
 
