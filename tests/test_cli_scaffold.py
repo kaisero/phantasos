@@ -166,3 +166,4 @@ def test_cli_overrides_dir_has_readme_and_tests():
     assert "{{ distribution }}" in (d / "README.md.jinja").read_text()
     assert (d / "tests" / "conftest.py.jinja").is_file()
     assert (d / "tests" / "test_cli_smoke.py.jinja").is_file()
+    assert (d / "tests" / "test_config.py.jinja").is_file()
