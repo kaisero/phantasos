@@ -47,3 +47,13 @@ def test_command_columns_roundtrip():
     back = CliIR.model_validate_json(ir.model_dump_json())
     assert back.commands[0].items_field == "data"
     assert back.commands[0].columns[1].path == "owner.name"
+
+
+def test_flag_cli_default_roundtrip():
+    from phantasos.generator.cli.ir import Flag
+
+    f = Flag(name="--sort", param="sort", py_type="str", kind="enum",
+             required=False, cli_default="application.id")
+    back = Flag.model_validate_json(f.model_dump_json())
+    assert back.cli_default == "application.id"
+    assert back.default is None  # SDK/model default stays separate

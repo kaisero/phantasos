@@ -26,6 +26,11 @@ class Flag(BaseModel):
     kind: FlagKind
     required: bool
     default: Any | None = None
+    # cli.yml-injected flag default (rendered as the Typer option default and
+    # therefore sent to the SDK unless overridden). Distinct from `default`,
+    # which records the SDK/model default and is NEVER rendered — body flags
+    # must stay None-by-default or PATCH would silently send model defaults.
+    cli_default: Any | None = None
     help: str = ""
     choices: list[str] | None = None  # enum values; flag stays permissive
 
