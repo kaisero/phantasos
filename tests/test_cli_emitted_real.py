@@ -598,7 +598,7 @@ def test_real_ir_carries_query_defaults():
     ir, _ = build_cli_ir(inv, cfg)
     show_app = next(c for c in ir.commands if c.key == "show:application")
     by_param = {f.param: f for f in show_app.query_flags}
-    assert by_param["sort"].cli_default == "application.id"
+    assert by_param["sort"].cli_default == "application.name"
     assert by_param["order"].cli_default == "asc"
     # the defaults are surgical: no other command gains them
     show_dg = next(c for c in ir.commands if c.key == "show:device-group")

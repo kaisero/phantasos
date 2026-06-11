@@ -97,9 +97,10 @@ columns:
 
 # Server quirk (verified 2026-06-11): the application list endpoints only honor
 # their pagination cursor when an explicit sort+order is supplied — without one,
-# page 2 comes back empty and --all silently truncates at 100. application.id is
-# unique (no cursor ties) and ULID-ordered (~creation order). Other endpoints
-# (device-groups, devices, users) paginate fine unsorted.
+# page 2 comes back empty and --all silently truncates at 100. application.name
+# gives a human-meaningful listing order; note it is not guaranteed unique, so
+# cursor ties are theoretically possible (application.id would avoid them).
+# Other endpoints (device-groups, devices, users) paginate fine unsorted.
 defaults:
   applications.list_applications:
     sort: application.name
