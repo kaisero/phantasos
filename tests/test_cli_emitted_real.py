@@ -603,3 +603,16 @@ def test_real_ir_carries_query_defaults():
     # the defaults are surgical: no other command gains them
     show_dg = next(c for c in ir.commands if c.key == "show:device-group")
     assert all(f.cli_default is None for f in show_dg.query_flags)
+
+
+def test_real_config_init_and_show(real_cli, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("prisma_browser_cli.main")
+    r = CliRunner()
+    assert r.invoke(main.app, ["config", "init"]).exit_code == 0
+    assert (tmp_path / ".prisma-browser-cli" / "config.yml").exists()
+    res = r.invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "pager" in res.output and "merged from" in res.output
