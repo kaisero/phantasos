@@ -480,3 +480,87 @@ request mappings: a bare `request:` key in the emitted YAML is parsed as `None` 
 validation error. This is a pre-existing parser quirk in the ruamel.yaml/pydantic boundary,
 not introduced by the columns feature. Tracked as tech debt; workaround: the stub is
 intended as a starting point for hand-curation, not as a round-trippable machine format.
+
+## Per-op query-param defaults (`defaults:`)
+
+### Section shape
+
+`cli.yml` carries an optional `defaults:` block keyed by `<resource>.<method>` (the same
+namespace as `override:`, `hide:`, etc.) → query-param name → scalar value:
+
+```yaml
+defaults:
+  applications.list_applications:       {sort: application.id, order: asc}
+  applications.list_applications_by_type: {sort: application.id, order: asc}
+```
+
+Only **query** parameters are accepted; path parameters and body fields are rejected at build
+time (unknown op name or non-query param → hard build error, not a warning).
+
+### Semantics
+
+Defaults are **always applied** to the SDK call unless the user explicitly overrides them on
+the command line. They surface in `--help` as the displayed default value (Typer renders the
+`default=` kwarg in the option definition) so they are discoverable without reading `cli.yml`.
+They are **user-overridable**: any value the user passes for that flag wins; the injected
+default is only used when the flag is absent from the invocation.
+
+### IR representation (`Flag.cli_default`)
+
+The `Flag` model carries two distinct default fields:
+
+- `Flag.default` — the **model default** as declared in the SDK's pydantic field (e.g.
+  `Field(default=None)`). This is **never rendered** into the generated Typer option. Rendering
+  model defaults would silently inject SDK-level sentinels into every PATCH call, corrupting
+  partial-update semantics. The field is retained in the IR for introspection only.
+- `Flag.cli_default` — the **CLI default** sourced exclusively from `cli.yml defaults:`. This
+  is the value rendered as `default=` in the generated option definition. `None` means no
+  default is shown.
+
+This invariant (`cli_default` comes only from `cli.yml`, never from the model) is the PATCH
+safety guarantee: the generated CLI never unilaterally sends fields the operator didn't
+author.
+
+### Runtime binding guard
+
+A `show <object>` command may aggregate multiple SDK method bindings (e.g. `list_applications`
+and `list_applications_by_type` for the `application` object). A `defaults:` entry is authored
+for a specific method; its injected defaults may reference query params that exist in one
+binding's signature but not another's.
+
+At runtime, after the active binding is selected from the supplied flags, injected defaults
+that the **selected binding's signature does not accept** are silently dropped before the SDK
+call is made. Selection uses credential-free class inspection (`inspect.signature` on the
+bound method's class); the guard is **fail-open** — if inspection fails for any reason the
+call proceeds without the injected defaults rather than raising.
+
+This ensures that e.g. `show application --type catalog --id <ID>` (which selects
+`get_application_by_type_and_id`) never receives a `sort` kwarg, which would cause a
+validation error, even though `sort` is a listed default for the `list_applications` binding.
+
+### Motivating case: applications cursor quirk
+
+The Prisma Access Browser API honors application-list pagination cursors **only when an
+explicit `sort` parameter is present** in every page request. Without `sort`, the server
+returns at most 100 results and subsequent cursor requests return empty pages — `--all` silently
+truncated at 100.
+
+The fix ships as `cli.yml` defaults on both application list operations:
+
+```yaml
+defaults:
+  applications.list_applications:         {sort: application.id, order: asc}
+  applications.list_applications_by_type: {sort: application.id, order: asc}
+```
+
+This approach was chosen over an SDK-level or runtime-pagination fix because:
+
+1. The quirk is product-specific and belongs in the product's `cli.yml`, not in the generic
+   pagination engine.
+2. Surfacing `[default: application.id]` in `--help` makes the behaviour auditable and
+   overridable by the operator.
+3. The runtime binding guard (above) prevents these defaults from leaking into the single-item
+   `get_application_by_type_and_id` path.
+
+Live verification: `show application --all --name google` returns **108 items, 108 unique**
+(was 100 before the fix).
