@@ -111,3 +111,8 @@ succeed silently — the exact mechanism behind the ApplicationItem bug. Candida
 fixes: add discriminators via spec preprocess transforms where a suitable property
 exists, or make enum leniency strict during oneOf trial deserialization (fragile —
 analyzed 2026-06-11, see plans/2026-06-11-oneof-discriminator-lookup.md).
+
+Drift behavior with the lookup (verified + accepted 2026-06-11): unknown discriminator
+values fall back to the trial-deserialization loop (today's lenient behavior — a new
+server-side type keeps list calls working); a missing or empty `type` field raises a
+clear `ValueError` (missing was already fatal pre-flag; empty was silently mis-typed).
