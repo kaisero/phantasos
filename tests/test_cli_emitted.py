@@ -141,6 +141,22 @@ def test_config_malformed_yaml_ignores_file(emitted, monkeypatch, tmp_path, caps
     assert "invalid YAML" in capsys.readouterr().err
 
 
+def test_config_unreadable_file_warns_and_continues(
+    emitted, monkeypatch, tmp_path, capsys
+):
+    import os as _os
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  output:\n    format: table\n")
+    cfg_file = home / ".fakesdk_cli" / "config.yml"
+    cfg_file.chmod(0o000)
+    if _os.access(cfg_file, _os.R_OK):  # running as root: permission bits ineffective
+        pytest.skip("cannot make file unreadable (running as privileged user)")
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.get().output.format == "json"  # defaults survive
+    assert "unreadable" in capsys.readouterr().err
+
+
 def test_config_bad_bool_env_ignored(emitted, monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("FAKESDK_PAGER_ENABLED", "banana")
@@ -1098,7 +1114,11 @@ def test_pager_flag_present_and_run_wires_it(emitted, monkeypatch, tmp_path):
     monkeypatch.setattr(out, "maybe_paged", _spy)
     rt.run("show:widget", path={"id": "w1"}, body={}, query={}, output="json",
            paginate_all=False, dry_run=False, verbose=False, pager=True)
-    assert seen == [True]
+    rt.run("show:widget", path={"id": "w1"}, body={}, query={}, output="json",
+           paginate_all=False, dry_run=False, verbose=False, pager=False)
+    rt.run("show:widget", path={"id": "w1"}, body={}, query={}, output="json",
+           paginate_all=False, dry_run=False, verbose=False, pager=None)
+    assert seen == [True, False, None]
 
 
 def test_config_effective_dict_excludes_extras(emitted, monkeypatch, tmp_path):

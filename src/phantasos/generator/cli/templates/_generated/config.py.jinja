@@ -142,6 +142,9 @@ def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
         except yaml.YAMLError as exc:
             warnings.append(f"{path}: invalid YAML (file ignored): {exc}")
             user = None
+        except OSError as exc:
+            warnings.append(f"{path}: unreadable (file ignored): {exc}")
+            user = None
         if isinstance(user, dict):
             merged = _deep_merge(merged, user)
             sources.append(str(path))
