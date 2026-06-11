@@ -75,3 +75,23 @@ def test_columns_section_loads(tmp_path):
     assert isinstance(entries[2], ColumnEntry)
     assert entries[2].header == "MEMBERS"
     assert entries[2].path == "members[].name"
+
+
+def test_defaults_section_loads(tmp_path):
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    p = tmp_path / "cli.yml"
+    p.write_text(
+        "defaults:\n"
+        "  applications.list_applications:\n"
+        "    sort: application.id\n"
+        "    order: asc\n"
+        "  widgets.list_widgets:\n"
+        "    limit: 50\n",
+        encoding="utf-8",
+    )
+    cfg = load_cli_config(p)
+    assert cfg.defaults["applications.list_applications"] == {
+        "sort": "application.id", "order": "asc",
+    }
+    assert cfg.defaults["widgets.list_widgets"] == {"limit": 50}  # int preserved

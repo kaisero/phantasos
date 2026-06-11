@@ -2,7 +2,8 @@
 
 cli.yml holds: request (non-CRUD remaps), override (fix object/verb), hide (exclude),
 variants (REQUIRED path-enum -> variant-model map for union bodies), settings (per-flag
-tweaks), custom (pointer to hand-owned commands), columns (per-object table columns).
+tweaks), custom (pointer to hand-owned commands), columns (per-object table columns),
+defaults (per-op query-param defaults injected into emitted flags).
 """
 
 from __future__ import annotations
@@ -63,6 +64,10 @@ class CliConfig(BaseModel):
     custom: CustomPointer = CustomPointer()
     # object -> table columns; a bare string is shorthand for header == path
     columns: dict[str, list[str | ColumnEntry]] = {}
+    # op ("resource.method") -> query-param defaults injected into the emitted
+    # flags (user-overridable; e.g. a default sort that makes cursor pagination
+    # work on endpoints that require one). Query params only.
+    defaults: dict[str, dict[str, Any]] = {}
 
 
 def load_cli_config(path: Path) -> CliConfig:
