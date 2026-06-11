@@ -4,7 +4,7 @@
 
 **Goal:** A cli.yml `defaults:` section that injects default values for query-param flags per SDK operation — used to default `sort=application.id, order=asc` on the two application list ops so `--all` cursor pagination works.
 
-**Architecture:** cli.yml gains `defaults: {<resource>.<method>: {<query-param>: <value>}}`. `build_cli_ir` validates each entry (op must exist in the inventory; param must be one of that op's query params) and stamps the value into a NEW `Flag.cli_default` field — deliberately separate from the existing `Flag.default` (which carries SDK/model defaults that the emitted CLI must keep ignoring, see Critical Invariant). The commands template renders `cli_default` as the Typer option default, so it is user-overridable, appears in `--help` as `[default: …]`, and flows through the existing runtime untouched (non-None query values are already forwarded to the SDK call — no runtime change).
+**Architecture:** cli.yml gains `defaults: {<resource>.<method>: {<query-param>: <value>}}`. `build_cli_ir` validates each entry (op must exist in the inventory; param must be one of that op's query params) and stamps the value into a NEW `Flag.cli_default` field — deliberately separate from the existing `Flag.default` (which carries SDK/model defaults that the emitted CLI must keep ignoring, see Critical Invariant). The commands template renders `cli_default` as the Typer option default, so it is user-overridable and appears in `--help` as `[default: …]`. ONE runtime change is required (python-pro review, verified against the real SDK): a command can aggregate multiple bindings (`show:application` = list_applications + list_applications_by_type + get_application_by_type_and_id), and the get binding does NOT accept `sort`/`order` — its `@validate_call` would reject them. The runtime therefore drops cli_default-injected query kwargs that the selected binding's SDK method doesn't accept (signature-checked credential-free via the facade's API class).
 
 **Tech Stack:** existing pydantic/Jinja/Typer pipeline. No new dependencies.
 
@@ -40,6 +40,7 @@ Decision (user, 2026-06-11): fix via cli.yml per-op defaults ONLY — no defensi
 | `src/phantasos/generator/cli/classify.py` | validate `cfg.defaults`; thread per-op defaults into `_query_flags` |
 | `src/phantasos/generator/cli/render_cli.py` | `_py_literal()`; `_flag_view` gains `default_literal` |
 | `src/phantasos/generator/cli/templates/_generated/commands.py.jinja` | render `default_literal` as the Option default |
+| `src/phantasos/generator/cli/templates/_generated/runtime.py.jinja` | drop injected defaults the selected binding doesn't accept |
 | `products/prisma-browser/cli.yml` | `defaults:` entries for the two application list ops |
 | `docs/superpowers/specs/2026-06-09-cli-generator-design.md` | spec sync |
 | Tests | `tests/test_cli_config.py`, `tests/test_cli_ir.py`, `tests/test_cli_classify.py`, `tests/test_cli_emitted.py`, `tests/test_cli_emitted_real.py` |
@@ -245,15 +246,28 @@ def _query_flags(
 
 NOTE: the columns second pass (added 2026-06-10) builds its own `ops_by_key` map later in this function — reuse `ops_index` there and delete the duplicate comprehension while you're in the file (rename uses accordingly; behavior identical).
 
-(c) Thread defaults into both `_query_flags` call sites. In `_emit` and `_emit_request`, the op is in scope; compute the key and pass:
+(c) Thread defaults into all FOUR `_query_flags` call sites (verified: classify.py lines ~232/239 in `_emit_request`, ~282/291 in `_emit` — both the `Command(...)` constructions AND the `_merge_flags(cmd.query_flags, _query_flags(...))` merge lines).
+
+CAREFUL (review-verified blocker): `_emit` is a closure inside `build_cli_ir` (sees `cfg`), but **`_emit_request` is a module-level function — `cfg` is NOT in scope there**. Give it a parameter:
 
 ```python
-            query_flags=_query_flags(
-                op.params, cfg.defaults.get(f"{op.resource}.{op.method}")
-            ),
+def _emit_request(groups: dict[str, Command], op: OperationInfo,
+                  mapping: RequestMapping,
+                  defaults: dict[str, Any] | None = None) -> None:
 ```
 
-(both the `Command(...)` constructions AND the `_merge_flags(cmd.query_flags, _query_flags(...))` merge lines — all four places `_query_flags` is invoked).
+use `defaults` at its two internal `_query_flags(op.params, defaults)` calls, and pass it at the call site in `build_cli_ir`:
+
+```python
+        if key0 in cfg.request:
+            _emit_request(groups, op, cfg.request[key0],
+                          cfg.defaults.get(key0))
+            continue
+```
+
+Inside `_emit`, compute the key and pass `cfg.defaults.get(f"{op.resource}.{op.method}")`.
+
+(d) classify.py currently imports only `cast` from typing — **add `Any`** (`from typing import Any, cast`) or the new signatures fail the mypy gate.
 
 - [ ] **Step 4: Run the full suite** — new tests PASS, all others green (defaults absent → `cli_default=None` everywhere → no behavior change). Then `ruff check src/ tests/` + `mypy src`.
 
@@ -352,14 +366,20 @@ def test_model_body_defaults_still_not_rendered(emitted):
 ```python
 def _py_literal(value: object) -> str:
     """Python source literal for a flag default. json.dumps gives correct
-    quoting for str and is wrong for bool/None — handle those explicitly."""
+    quoting for str and is wrong for bool/None — handle those explicitly.
+    Defaults are documented as scalars; reject anything else loudly rather
+    than silently stringifying a YAML list/dict."""
     if value is None:
         return "None"
     if isinstance(value, bool):
         return "True" if value else "False"
     if isinstance(value, (int, float)):
         return repr(value)
-    return json.dumps(str(value))
+    if isinstance(value, str):
+        return json.dumps(value)
+    raise TypeError(
+        f"cli.yml defaults values must be scalars, got {type(value).__name__}"
+    )
 ```
 
 (b) `_flag_view` — add to the returned dict:
@@ -389,7 +409,113 @@ git commit -m "feat(cli-gen): render cli.yml defaults as Typer option defaults"
 
 ---
 
-### Task 5: prisma-browser cli.yml + gated real-SDK test + real build
+### Task 5: runtime — drop injected defaults the selected binding doesn't accept
+
+**Files:**
+- Modify: `src/phantasos/generator/cli/templates/_generated/runtime.py.jinja`
+- Test: `tests/test_cli_emitted.py`
+
+**Why (review-verified blocker):** `show:application` is ONE command with three bindings; the emitted function passes one `query={...}` dict regardless of which binding dispatch picks. With `sort`/`order` defaulting to non-None, `get_application_by_type_and_id` (no such params, `@validate_call`) would raise `ValidationError: Unexpected keyword argument` → every `show application --type X --id Y` exits 1. The runtime must drop **cli_default-injected** query kwargs the bound method can't take. (A user-EXPLICIT `--sort` on a get call also gets dropped — indistinguishable at runtime from the default, and it errored even before this feature, so dropping is strictly kinder.)
+
+- [ ] **Step 1: Write the failing test** (append to `tests/test_cli_emitted.py`). The fixture's `get_widget_by_id(self, id, configuration_version=None)` has a STRICT signature (no `**kw`) — mirror it in the fake so the leak actually breaks:
+
+```python
+def test_injected_defaults_not_sent_to_get_binding(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    calls = []
+
+    class _W:  # STRICT get signature, like the real SDK's @validate_call methods
+        def get_widget_by_id(self, id, configuration_version=None):
+            calls.append({"id": id, "configuration_version": configuration_version})
+            return {"id": id, "name": "x"}
+
+        def list_widgets(self, **kw):
+            calls.append(kw)
+            return []
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    runner = CliRunner()
+
+    # get binding: the injected name/limit defaults must NOT reach the call
+    res = runner.invoke(app_mod.build_generated_app(),
+                        ["show", "widget", "--id", "w1"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"id": "w1", "configuration_version": None}
+
+    # list binding still receives the defaults
+    res = runner.invoke(app_mod.build_generated_app(), ["show", "widget"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"name": "gadget", "limit": 50}
+```
+
+NOTE: the fixture FAKE in `_fake_client`-style tests is `**kw`-tolerant — that tolerance is what masked this bug; this test's strict fake is the point. (`get_widget_by_id` does accept `configuration_version`, a query param WITHOUT a cli_default — it must still flow normally, hence asserting it arrives as None.)
+
+- [ ] **Step 2: Run it, verify FAIL** — without the guard, the get call receives `name`/`limit` → `TypeError: unexpected keyword argument` surfaces as non-zero exit (or the kwargs assertion fails).
+
+- [ ] **Step 3: Implement** in `runtime.py.jinja`. Add (near `_models`/`_sdk_exc`, module level — `importlib` and `inspect` are already imported):
+
+```python
+def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
+    """Param names the bound SDK method accepts, or None if undeterminable /
+    **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
+    facade's API class, never an instantiated client."""
+    try:
+        facade = importlib.import_module(_ir().facade_module)
+        fn = getattr(facade._RESOURCES[resource], sdk_method)
+        sig = inspect.signature(fn)
+    except Exception:
+        return None
+    params = sig.parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+        return None
+    return {p.name for p in params}
+```
+
+Then in `run()`, replace the query-kwargs loop:
+
+```python
+    for k, v in query.items():
+        if v is not None:
+            kwargs[k] = _coerce(query_flags[k], v)
+```
+
+with:
+
+```python
+    accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+    for k, v in query.items():
+        if v is None:
+            continue
+        # cli.yml-injected defaults are per-OP, but a command can aggregate
+        # multiple bindings (list + get); drop an injected default the selected
+        # binding's method doesn't accept (e.g. sort/order on a get).
+        if (query_flags[k].cli_default is not None
+                and accepted is not None and k not in accepted):
+            continue
+        kwargs[k] = _coerce(query_flags[k], v)
+```
+
+(`query_flags` is the existing `{f.param: f for f in cmd.query_flags}` dict a few lines above; `binding` is already selected by `_pick_binding` before this loop — verify the order holds in the template and keep the guard AFTER binding selection.)
+
+- [ ] **Step 4: Run** the new test → PASS; FULL suite green; ruff + mypy src clean.
+
+- [ ] **Step 5: Commit:**
+
+```bash
+git add src/phantasos/generator/cli/templates/_generated/runtime.py.jinja tests/test_cli_emitted.py
+git commit -m "fix(cli-gen): runtime drops injected defaults the selected binding cannot accept"
+```
+
+---
+
+### Task 6: prisma-browser cli.yml + gated real-SDK test + real build
 
 **Files:**
 - Modify: `products/prisma-browser/cli.yml`
@@ -412,7 +538,7 @@ defaults:
     order: asc
 ```
 
-NOTE: check whether `applications.list_applications_by_type` is in the cli.yml `hide:` list. If it is hidden, KEEP the defaults entry anyway (validated, harmless, future-proof) and note it in the commit message; the visible `list_applications` is the one users hit via `show application`.
+NOTE (review-verified): `applications.list_applications_by_type` is NOT hidden — it emits as a second list binding of `show:application` (dispatch picks it when `--type` is given without `--id`). Both defaults entries are therefore live and both ops carry `sort`/`order` (verified in the real SDK), so both validate. `_merge_flags` is first-wins and both entries are identical — no conflict.
 
 - [ ] **Step 2: Extend the gated test** (append to `tests/test_cli_emitted_real.py`, reusing its existing skip-gating and SDK path/package constants — read the file first, e.g. the `test_real_ir_carries_columns` test added 2026-06-10 shows the exact idiom including `load_cli_config`):
 
@@ -437,7 +563,7 @@ def test_real_ir_carries_query_defaults():
     assert all(f.cli_default is None for f in show_dg.query_flags)
 ```
 
-(substitute the file's actual constants/skip marker for `REAL_SDK_PACKAGE`/`REAL_SDK_PATH`).
+(substitute the file's actual idiom — verified: there is no `REAL_SDK_PACKAGE`/`REAL_SDK_PATH`; the file uses `REAL_SDK = Path(...)` with `@pytest.mark.skipif(not REAL_SDK.exists(), ...)` AND an inner `try: introspect("prisma_browser", REAL_SDK) / except ImportError: pytest.skip(...)`. Copy BOTH gates from `test_real_ir_carries_columns`, the test added 2026-06-10.)
 
 - [ ] **Step 3: Run:** the gated test (must RUN and PASS here), the FULL suite, ruff, mypy src. Then rebuild the real CLI:
 
@@ -456,7 +582,7 @@ git commit -m "fix(cli-gen): default sort for application listings — --all pag
 
 ---
 
-### Task 6: LIVE verification + spec sync + gate
+### Task 7: LIVE verification + spec sync + gate
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md`
@@ -475,7 +601,16 @@ Expected: `108 items, 108 unique` (was 100 before the fix). Also confirm `--help
 UV_PROJECT_ENVIRONMENT=/tmp/pbcli-venv uv run prisma-browser-cli show application --help | grep -A1 -- "--sort"
 ```
 
-Expected: shows `application.id` as the default. Paste BOTH actual outputs in the report (evidence before assertions).
+Expected: shows `application.id` as the default.
+
+ALSO verify the get binding survives the injected defaults (the Task-5 guard, live — this is the invocation that would have broken):
+
+```bash
+# pick any id from the list output above, then:
+UV_PROJECT_ENVIRONMENT=/tmp/pbcli-venv uv run prisma-browser-cli show application --type catalog --id <ID-from-list>
+```
+
+Expected: exit 0 and the single application JSON — NOT a validation error about `sort`. Paste ALL THREE actual outputs in the report (evidence before assertions).
 
 - [ ] **Step 2: Spec sync** — append to the "Table output & columns" area of `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (or a sibling section "Per-op query-param defaults"): the `defaults:` section shape, always-applied + user-overridable semantics, `Flag.cli_default` vs `Flag.default` invariant (model defaults never rendered — PATCH safety), build-time validation, and the motivating applications-cursor server quirk with the workaround-now-default. Match the spec's concise decision-oriented style.
 
@@ -507,7 +642,9 @@ git commit -m "docs(spec): per-op query-param defaults (cli.yml defaults:, appli
 
 ## Known risks / notes for the implementer
 
-- **The invariant test (Task 4, `test_model_body_defaults_still_not_rendered`) is the load-bearing one.** If a refactor ever wires `Flag.default` into the template, PATCH commands would silently send model defaults. Keep `default` and `cli_default` separate.
+(Plan reviewed by python-pro 2026-06-11 — verdict GO-WITH-CHANGES; both blockers (binding leak → runtime guard Task 5; `_emit_request` scope → parameter) and all should-fixes are folded into the tasks above.)
+
+- **Two load-bearing tests:** Task 4's `test_model_body_defaults_still_not_rendered` (model defaults must never render — PATCH safety) and Task 5's `test_injected_defaults_not_sent_to_get_binding` (strict-signature fake — the `**kw`-tolerant fakes elsewhere in the file are exactly what masked the binding leak).
 - `_merge_flags` is first-wins across bindings: `sort`/`order` exist only on the list op, so no conflict today; if two bindings ever expose the same query param with different cli_defaults, the first emitted wins — acceptable, don't engineer around it.
 - Typer renders `[default: …]` automatically for options with non-None defaults; enum flags stay permissive `str` (choices are completer/help only), so a default like `application.id` needs no enum coercion.
 - The emitted files are ruff-formatted post-render; source-inspection assertions must be formatting-robust (substring per line, not exact layout).
