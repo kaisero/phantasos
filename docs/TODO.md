@@ -1,5 +1,57 @@
 # TODO
 
+## README.md
+
+README is currently too verbose and not very user / developer friendly. Change README to include a brief project description, quickstart guide and link to mkdocs
+
+## CLI Paging Issue
+
+It looks like --all / --paging capabilities are not working in generated cli - always maxed at 100 entries
+
+## Pager Output
+
+CLI should have a --pager option to utilise rich pager for large outputs
+
+## README.md for Prisma Browser CLI
+
+Change README to include a brief project description, quickstart guide and link to mkdoc
+
+## Mkdocs for Generated CLIs
+
+Mkdocs currently does not render meaningful docs. I want a documentation page with a quickstart guide, command reference, capability overview and supported operations per resource
+
+## Yaml Pretty Print
+
+The --output yaml option currently dumps yaml output non-colored to stdout. This needs to be adapted to rich output to be more user-friendly
+
+## User-Facing CLI Configuration File
+
+Auto-Generated CLI should be able to load a user-specific configuration file that can hold multiple environments identified by name. Each environment should be able to override
+to .env specific configuration for authentication and advanced options like logging level, logfile location, historyfile (enable/disable), historyfile location
+
+## Auto-Setup Command
+
+CLI should have an interactive command to setup the configuration file and ask through options, showcasing the defaults so user can override if necessary
+
+## History File and Show command
+
+CLI should provide a history file so command execution is documented in a organized manner. The history file should be in json format to tag metadata to commands (date, commadn, request, response, status(success, errors, warnings)
+CLI should have a `show cli history` command to view the command history (only the commands)
+CLI should have a `show cli history --verbose` to view it as a table with the various fields (date, command, status)
+
+## Status Command
+
+CLI should have a `show cli status` command that shows auth status and loglevel of the cli and also the active environment name
+
+## Request CLI Environment Change
+
+CLI should have a `request cli environment <name>` command that checks the config file and switches to another environment 
+
+## Request CLI Changelog
+
+CLI should have a `show cli changelog` command that pretty prints the CHANGELOG.md provided in the project so users can check what features were added in recent versions
+
+
 ## Write tests for the ADEM SDK
 
 The ADEM SDK is generated to the sibling `../adem-sdk/` but has **no test suite yet**

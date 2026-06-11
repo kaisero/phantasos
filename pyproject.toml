@@ -1,7 +1,7 @@
 [project]
 name = "phantasos"
 version = "0.1.0"
-description = "Generate native, self-contained Python SDKs from OpenAPI specs."
+description = "Generate native, self-contained Python SDKs and CLIs from OpenAPI specs."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
