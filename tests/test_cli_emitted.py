@@ -924,6 +924,41 @@ def test_query_default_shown_in_help(emitted):
     assert "default:" in res.output and "gadget" in res.output
 
 
+def test_injected_defaults_not_sent_to_get_binding(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    calls = []
+
+    class _W:  # STRICT get signature, like the real SDK's @validate_call methods
+        def get_widget_by_id(self, id, configuration_version=None):
+            calls.append({"id": id, "configuration_version": configuration_version})
+            return {"id": id, "name": "x"}
+
+        def list_widgets(self, **kw):
+            calls.append(kw)
+            return []
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    runner = CliRunner()
+
+    # get binding: the injected name/limit defaults must NOT reach the call
+    res = runner.invoke(app_mod.build_generated_app(),
+                        ["show", "widget", "--id", "w1"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"id": "w1", "configuration_version": None}
+
+    # list binding still receives the defaults
+    res = runner.invoke(app_mod.build_generated_app(), ["show", "widget"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"name": "gadget", "limit": 50}
+
+
 def test_model_body_defaults_still_not_rendered(emitted):
     """CRITICAL INVARIANT: pydantic model defaults (Flag.default) must never
     become CLI flag defaults — PATCH would silently send them. WidgetInput.mode

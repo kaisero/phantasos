@@ -50,6 +50,22 @@ def _sdk_exc() -> type[BaseException]:
     return base if isinstance(base, type) else Exception
 
 
+def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
+    """Param names the bound SDK method accepts, or None if undeterminable /
+    **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
+    facade's API class, never an instantiated client."""
+    try:
+        facade = importlib.import_module(_ir().facade_module)
+        fn = getattr(facade._RESOURCES[resource], sdk_method)
+        sig = inspect.signature(fn)
+    except Exception:
+        return None
+    params = sig.parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+        return None
+    return {p.name for p in params}
+
+
 def _hooks() -> Any | None:
     try:
         return importlib.import_module("{{ package }}.hooks")
@@ -172,9 +188,17 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             kwargs[k] = _coerce(path_flags[k], v)
     if cmd.variant and cmd.variant_param:
         kwargs[cmd.variant_param] = cmd.variant
+    accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
     for k, v in query.items():
-        if v is not None:
-            kwargs[k] = _coerce(query_flags[k], v)
+        if v is None:
+            continue
+        # cli.yml-injected defaults are per-OP, but a command can aggregate
+        # multiple bindings (list + get); drop an injected default the selected
+        # binding's method doesn't accept (e.g. sort/order on a get).
+        if (query_flags[k].cli_default is not None
+                and accepted is not None and k not in accepted):
+            continue
+        kwargs[k] = _coerce(query_flags[k], v)
 
     hooks = _hooks()
     try:
