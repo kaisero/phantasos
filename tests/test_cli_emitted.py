@@ -76,6 +76,8 @@ def test_config_defaults_when_no_user_file(emitted, monkeypatch, tmp_path):
     assert c.pager.command is None
     assert c.output.format == "json"
     assert cfg.load_config()[1] == ()  # no warnings
+    assert cfg.load_config()[2] == ("packaged defaults",)
+    assert cfg.default_output() == "json"
 
 
 def test_config_packaged_defaults_match_models(emitted):
@@ -95,6 +97,7 @@ def test_config_homedir_override_and_env_precedence(emitted, monkeypatch, tmp_pa
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     assert cfg.get().output.format == "table"
     assert cfg.get().pager.enabled is True
+    assert str(home / ".fakesdk_cli" / "config.yml") in cfg.load_config()[2]
     # env beats file (clear the cache after mutating the environment)
     monkeypatch.setenv("FAKESDK_OUTPUT_FORMAT", "yaml")
     monkeypatch.setenv("FAKESDK_PAGER_ENABLED", "off")
@@ -102,6 +105,10 @@ def test_config_homedir_override_and_env_precedence(emitted, monkeypatch, tmp_pa
     assert cfg.get().output.format == "yaml"
     assert cfg.get().pager.enabled is False
     assert "environment variables" in cfg.load_config()[2]
+    # env passthrough for the command field
+    monkeypatch.setenv("FAKESDK_PAGER_COMMAND", "bat -p")
+    cfg.load_config.cache_clear()
+    assert cfg.get().pager.command == "bat -p"
 
 
 def test_config_unknown_key_warns_once(emitted, monkeypatch, tmp_path, capsys):
@@ -1041,3 +1048,14 @@ def test_model_body_defaults_still_not_rendered(emitted):
     for line in mode_lines:
         assert '"fast"' not in line     # model default must NOT be rendered
         assert "None" in line           # option default stays None
+
+
+def test_config_effective_dict_excludes_extras(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    _write_user_config(
+        home, "configuration:\n  output:\n    format: table\n    extra_key: 1\n"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    eff = cfg.effective_dict()
+    assert eff["configuration"]["output"] == {"format": "table"}

@@ -23,24 +23,24 @@ _DISTRIBUTION = "{{ distribution }}"
 
 
 class PagerConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", frozen=True)
     enabled: bool = False
     command: str | None = None
 
 
 class OutputConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", frozen=True)
     format: str = "json"
 
 
 class CliConfiguration(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", frozen=True)
     pager: PagerConfig = Field(default_factory=PagerConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
 
 class ConfigFile(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", frozen=True)
     configuration: CliConfiguration = Field(default_factory=CliConfiguration)
 
 
@@ -171,6 +171,7 @@ def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
     return cfg, tuple(warnings), tuple(sources)
 
 
+# NOTE: load_config.cache_clear() does NOT reset this; only a fresh module does.
 _warned = False
 
 
