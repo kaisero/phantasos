@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from .. import runtime as _rt
+from .. import config as _cfg
 
 {% for f in module_enum_flags %}
 def {{ f.completer_name }}(incomplete: str) -> list[str]:
@@ -16,7 +17,7 @@ def {{ c.func_name }}(
 {%- for f in c.all_flags %}
     {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ f.default_literal or ('...' if f.required else 'None') }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
 {%- endfor %}
-    output: str = typer.Option("json", "--output"),
+    output: str = typer.Option(_cfg.default_output(), "--output"),
     columns: list[str] | None = typer.Option(
         None,
         "--columns",
@@ -28,6 +29,11 @@ def {{ c.func_name }}(
     all_: bool = typer.Option(False, "--all", rich_help_panel="Pagination Options"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     verbose: bool = typer.Option(False, "--verbose"),
+    pager: bool | None = typer.Option(
+        None,
+        "--pager/--no-pager",
+        help="Page output taller than the terminal (default from config).",
+    ),
 ) -> None:
 {%- if c.summary %}
     """{{ c.summary }}"""
@@ -37,7 +43,7 @@ def {{ c.func_name }}(
         path={ {% for f in c.path_params %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         body={ {% for f in c.body_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         query={ {% for f in c.query_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
-        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose,
+        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose, pager=pager,
     )
 
 {% endfor %}

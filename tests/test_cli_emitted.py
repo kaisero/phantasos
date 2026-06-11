@@ -1050,6 +1050,57 @@ def test_model_body_defaults_still_not_rendered(emitted):
         assert "None" in line           # option default stays None
 
 
+def test_output_default_comes_from_config(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  output:\n    format: yaml\n")
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    res = CliRunner().invoke(main.app, ["show", "widget", "--id", "w1"])
+    assert res.exit_code == 0
+    assert "id: w1" in res.output  # yaml rendering proves the config default applied
+
+    # and --help shows the effective default
+    res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
+    assert "yaml" in res.output
+
+
+def test_pager_flag_present_and_run_wires_it(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
+    assert "--pager" in res.output and "--no-pager" in res.output
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    seen: list = []
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _spy(flag):
+        seen.append(flag)
+        yield
+
+    monkeypatch.setattr(out, "maybe_paged", _spy)
+    rt.run("show:widget", path={"id": "w1"}, body={}, query={}, output="json",
+           paginate_all=False, dry_run=False, verbose=False, pager=True)
+    assert seen == [True]
+
+
 def test_config_effective_dict_excludes_extras(emitted, monkeypatch, tmp_path):
     home = tmp_path / "home"
     _write_user_config(
