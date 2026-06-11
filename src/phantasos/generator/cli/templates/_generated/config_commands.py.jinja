@@ -1,0 +1,47 @@
+"""`config` meta-commands: manage the {{ distribution }} user configuration file."""
+
+from __future__ import annotations
+
+import typer
+import yaml
+
+from . import config as _config
+
+config_app = typer.Typer(
+    no_args_is_help=True, help="Manage the CLI configuration file."
+)
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing config file."
+    ),
+) -> None:
+    """Write the commented default configuration to ~/.{{ distribution }}/config.yml."""
+    path = _config.config_path()
+    if path.exists() and not force:
+        typer.echo(f"error: {path} exists (use --force to overwrite)", err=True)
+        raise typer.Exit(1)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_config.packaged_default_text(), encoding="utf-8")
+    except OSError as exc:
+        typer.echo(f"error: cannot write {path}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"wrote {path}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print the effective merged configuration and where it came from."""
+    _config.load_config.cache_clear()
+    _cfg, _warnings, sources = _config.load_config()
+    _config.warn_once()
+    typer.echo("# merged from: " + ", ".join(sources))
+    typer.echo(
+        yaml.safe_dump(
+            _config.effective_dict(), sort_keys=False, default_flow_style=False
+        ),
+        nl=False,
+    )

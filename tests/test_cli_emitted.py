@@ -1222,3 +1222,40 @@ def test_maybe_paged_uses_pager_when_tty(emitted, monkeypatch, tmp_path):
         for i in range(50):
             out._console.print(f"row{i}")
     assert "row49" in sink.read_text(encoding="utf-8")
+
+
+def test_config_init_and_show_commands(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    res = r.invoke(main.app, ["config", "init"])
+    assert res.exit_code == 0
+    target = tmp_path / ".fakesdk_cli" / "config.yml"
+    assert target.exists()
+    assert "pager" in target.read_text(encoding="utf-8")  # commented defaults
+
+    res = r.invoke(main.app, ["config", "init"])
+    assert res.exit_code == 1  # refuses without --force
+
+    res = r.invoke(main.app, ["config", "init", "--force"])
+    assert res.exit_code == 0
+
+    res = r.invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "merged from" in res.output
+    assert str(target) in res.output  # homedir file listed as a source
+    assert "format: json" in res.output
+
+
+def test_config_group_in_its_own_help_panel(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["--help"])
+    assert res.exit_code == 0
+    assert "config" in res.output
+    assert "CLI" in res.output  # the dedicated panel title renders
