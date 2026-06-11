@@ -33,7 +33,7 @@ _PAGINATION_PARAMS = frozenset({
 
 
 def _query_panel(f: Flag) -> str:
-    return "Pagination Options" if f.param in _PAGINATION_PARAMS else "Filter Options"
+    return "Pagination" if f.param in _PAGINATION_PARAMS else "Filters"
 
 
 def _py_name(param: str) -> str:

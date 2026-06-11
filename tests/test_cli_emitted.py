@@ -759,11 +759,11 @@ def test_show_flags_grouped_into_panels(emitted, tmp_path):
         tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
     ).read_text()
     show_fn = re.search(r"def show_widget\(.*?\n\) ->", code, re.S).group(0)
-    assert 'rich_help_panel="Filter Options"' in show_fn   # --name (filter query param)
-    assert 'rich_help_panel="Pagination Options"' in show_fn  # --limit + --all
-    # --id (path) is NOT panelled; --output joined "Common Options" (2026-06-11)
+    assert 'rich_help_panel="Filters"' in show_fn   # --name (filter query param)
+    assert 'rich_help_panel="Pagination"' in show_fn  # --limit + --all
+    # --id (path) is NOT panelled; --output joined "Common" (2026-06-11)
     assert re.search(r'--id".*rich_help_panel', show_fn) is None
-    assert re.search(r'--output", rich_help_panel="Common Options"', show_fn)
+    assert re.search(r'--output", rich_help_panel="Common"', show_fn)
 
 
 def test_show_help_renders_panels(emitted, monkeypatch):
@@ -773,8 +773,9 @@ def test_show_help_renders_panels(emitted, monkeypatch):
     from typer.testing import CliRunner
     main = importlib.import_module("fakesdk_cli.main")
     out = CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
-    assert "Filter Options" in out and "Pagination Options" in out
-    assert "Options" in out   # main panel still present (--output/--help)
+    titles = _panel_titles(out)
+    assert "Filters" in titles and "Pagination" in titles
+    assert "Options" in titles  # default panel kept (domain flags + --help)
 
 
 def test_render_dry_run_get_no_body(emitted, capsys):
@@ -1289,16 +1290,16 @@ def test_common_options_panel_renders_last(emitted, monkeypatch, tmp_path):
     res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
     assert res.exit_code == 0
     titles = _panel_titles(res.output)
-    assert "Common Options" in titles
-    assert titles[-1] == "Common Options"  # the lowest container
-    # the five members appear after the Common Options header...
-    idx = res.output.index("Common Options")
+    assert "Common" in titles
+    assert titles[-1] == "Common"  # the lowest container
+    # the five members appear after the Common header...
+    idx = res.output.index("Common")
     tail = res.output[idx:]
     for flag in ("--output", "--columns", "--dry-run", "--verbose", "--pager"):
         assert flag in tail
     # ...and the domain flag stays in the default Options panel above it
     assert "--id" in res.output[:idx]
-    # --help remains stock (default panel, i.e. before Common Options)
+    # --help remains stock (default panel, i.e. before Common)
     assert "--help" in res.output[:idx]
 
 
@@ -1310,10 +1311,10 @@ def test_pagination_panel_precedes_common_on_non_list_commands(
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     main = importlib.import_module("fakesdk_cli.main")
     # create has NO pagination query params; --all alone must still anchor the
-    # Pagination Options panel BEFORE Common Options (the declaration-reorder fix)
+    # Pagination panel BEFORE Common (the declaration-reorder fix)
     res = CliRunner().invoke(main.app, ["create", "widget", "--help"])
     assert res.exit_code == 0
     titles = _panel_titles(res.output)
-    assert titles[-1] == "Common Options"
-    assert "Pagination Options" in titles
-    assert titles.index("Pagination Options") < titles.index("Common Options")
+    assert titles[-1] == "Common"
+    assert "Pagination" in titles
+    assert titles.index("Pagination") < titles.index("Common")

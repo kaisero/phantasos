@@ -450,12 +450,10 @@ def test_real_show_device_help_panels(tmp_path, monkeypatch):
     try:
         main = importlib.import_module("prisma_browser_cli.main")
         out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
-        assert "Filter Options" in out and "Pagination Options" in out
-        # a real filter is under filters; a pagination param is under pagination
+        # box-char-anchored: bare "Filter" appears in option help texts
+        assert "─ Filters " in out and "─ Pagination " in out
+        # a real filter is under Filters; a pagination param is under Pagination
         assert "--device-hostname" in out and "--limit" in out and "--sort" in out
-        # the panels actually split them: Filter Options appears before
-        # --device-hostname's row, Pagination Options before --limit — assert both
-        # panel titles present + the flags present
     finally:
         sys.path.remove(str(tmp_path))
         for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:

@@ -76,3 +76,16 @@ problem). Chosen: **Option C — help-only cleanup.**
 - Root-level/dual registration of cross-cutting flags (`cli --dry-run show x`) —
   consciously deferred; revisit only if leaf-position-only proves insufficient.
 - `config init/show` help layout; COMMANDS.md/docs rendering of panels.
+
+## Addendum (2026-06-11): panel de-suffixing
+
+User-confirmed follow-up after UX review: the "Options" suffix is redundant on the
+tagged panels (every panel contains options). Renames: `Filter Options → Filters`,
+`Pagination Options → Pagination`, `Common Options → Common`. The DEFAULT `Options`
+panel is deliberately KEPT: renaming it (proposal: "Command") was reviewed and
+rejected — "Commands" conventionally means subcommands (the root help has exactly
+that panel), and the default title is Typer's, so changing it requires either a
+global `typer.rich_utils.OPTIONS_PANEL_TITLE` override (leaks into root/config
+screens, version-coupled) or tagging every domain flag (orphans Click's auto
+`--help` in a one-line residual panel). Resulting leaf layout:
+`Options / Filters / Pagination / Common`.
