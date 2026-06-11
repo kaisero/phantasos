@@ -14,7 +14,7 @@ def {{ f.completer_name }}(incomplete: str) -> list[str]:
 {% for c in commands %}
 def {{ c.func_name }}(
 {%- for f in c.all_flags %}
-    {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ '...' if f.required else 'None' }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
+    {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ f.default_literal or ('...' if f.required else 'None') }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
 {%- endfor %}
     output: str = typer.Option("json", "--output"),
     columns: list[str] | None = typer.Option(

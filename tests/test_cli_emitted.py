@@ -23,6 +23,7 @@ _FAKESDK_CLI_CONFIG = CliConfig(
         "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
         "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
     },
+    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
 )
 
 
@@ -880,3 +881,59 @@ def test_fakesdk_generated_lint_clean(tmp_path):
         capture_output=True, text=True,
     )
     assert res.returncode == 0, res.stdout + res.stderr
+
+
+def test_query_default_is_injected_and_overridable(emitted, monkeypatch):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    calls = []
+
+    class _W:
+        def list_widgets(self, **kw):
+            calls.append(kw)
+            return []
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    runner = CliRunner()
+
+    # no flags -> cli.yml defaults flow into the SDK call (int correctly typed)
+    res = runner.invoke(app_mod.build_generated_app(), ["show", "widget"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"name": "gadget", "limit": 50}
+
+    # user override wins
+    res = runner.invoke(app_mod.build_generated_app(),
+                        ["show", "widget", "--name", "other", "--limit", "7"])
+    assert res.exit_code == 0, res.output
+    assert calls[-1] == {"name": "other", "limit": 7}
+
+
+def test_query_default_shown_in_help(emitted):
+    from typer.testing import CliRunner
+
+    app_mod = importlib.import_module("fakesdk_cli._generated.app")
+    res = CliRunner().invoke(app_mod.build_generated_app(),
+                             ["show", "widget", "--help"])
+    assert res.exit_code == 0
+    assert "default:" in res.output and "gadget" in res.output
+
+
+def test_model_body_defaults_still_not_rendered(emitted):
+    """CRITICAL INVARIANT: pydantic model defaults (Flag.default) must never
+    become CLI flag defaults — PATCH would silently send them. WidgetInput.mode
+    defaults to 'fast' in the model; the emitted option must stay None."""
+    import pathlib
+
+    src = (pathlib.Path(emitted) / "fakesdk_cli" / "_generated" / "commands"
+           / "widgets.py").read_text(encoding="utf-8")
+    mode_lines = [ln for ln in src.splitlines() if '"--mode"' in ln]
+    assert mode_lines, "expected a --mode option in the emitted widgets module"
+    for line in mode_lines:
+        assert '"fast"' not in line     # model default must NOT be rendered
+        assert "None" in line           # option default stays None

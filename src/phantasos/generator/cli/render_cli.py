@@ -73,6 +73,24 @@ _SCALAR_PY: dict[str, str] = {
 }
 
 
+def _py_literal(value: object) -> str:
+    """Python source literal for a flag default. json.dumps gives correct
+    quoting for str and is wrong for bool/None — handle those explicitly.
+    Defaults are documented as scalars; reject anything else loudly rather
+    than silently stringifying a YAML list/dict."""
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    raise TypeError(
+        f"cli.yml defaults values must be scalars, got {type(value).__name__}"
+    )
+
+
 def _render_type(f: Flag) -> str:
     base = _SCALAR_PY.get(f.py_type, "str") if f.kind == "scalar" else "str"
     # ``X | None`` (not ``Optional[X]``) so the emitted source already matches the
@@ -151,6 +169,9 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
         "completion": completion,
         "completer_name": completer_name,
         "panel": panel,
+        "default_literal": (
+            _py_literal(f.cli_default) if f.cli_default is not None else None
+        ),
     }
 
 
