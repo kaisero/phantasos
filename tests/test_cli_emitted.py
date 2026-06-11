@@ -1240,8 +1240,10 @@ def test_config_init_and_show_commands(emitted, monkeypatch, tmp_path):
     res = r.invoke(main.app, ["config", "init"])
     assert res.exit_code == 1  # refuses without --force
 
+    target.write_text("STALE SENTINEL\n", encoding="utf-8")
     res = r.invoke(main.app, ["config", "init", "--force"])
     assert res.exit_code == 0
+    assert "STALE SENTINEL" not in target.read_text(encoding="utf-8")
 
     res = r.invoke(main.app, ["config", "show"])
     assert res.exit_code == 0
