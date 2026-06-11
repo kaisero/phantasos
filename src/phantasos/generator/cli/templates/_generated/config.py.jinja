@@ -1,34 +1,206 @@
-"""Config resolution: flag > env ({{ env_prefix }}_<KEY>) > config.yaml > default."""
+"""User configuration: packaged defaults <- ~/.{{ distribution }}/config.yml <- env.
+
+Loaded once per process (cached) at first command-module import — Typer option
+defaults are frozen at import time, so the effective config must resolve before
+they are evaluated. Problems never abort the CLI: unknown keys and bad values
+warn on stderr and fall back (see the design spec).
+"""
 
 from __future__ import annotations
 
+import functools
 import os
+import sys
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 _ENV_PREFIX = "{{ env_prefix }}"
+_DISTRIBUTION = "{{ distribution }}"
 
 
-def _config_path() -> Path:
-    return Path.home() / ".config" / "{{ package }}" / "config.yaml"
+class PagerConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    enabled: bool = False
+    command: str | None = None
 
 
-def _load_file() -> dict[str, Any]:
-    path = _config_path()
-    if not path.exists():
-        return {}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+class OutputConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    format: str = "json"
 
 
-def resolve(key: str, *, flag: Any | None, default: Any) -> Any:
-    if flag is not None:
-        return flag
-    env = os.environ.get(f"{_ENV_PREFIX}_{key.upper()}")
-    if env is not None:
-        return env
-    file_val = _load_file().get(key)
-    if file_val is not None:
-        return file_val
-    return default
+class CliConfiguration(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    pager: PagerConfig = Field(default_factory=PagerConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
+
+
+class ConfigFile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    configuration: CliConfiguration = Field(default_factory=CliConfiguration)
+
+
+# env var -> path into the merged dict (the `configuration` level is explicit)
+_ENV_MAP: dict[str, tuple[str, ...]] = {
+    f"{_ENV_PREFIX}_PAGER_ENABLED": ("configuration", "pager", "enabled"),
+    f"{_ENV_PREFIX}_PAGER_COMMAND": ("configuration", "pager", "command"),
+    f"{_ENV_PREFIX}_OUTPUT_FORMAT": ("configuration", "output", "format"),
+}
+_BOOL_PATHS = {("configuration", "pager", "enabled")}
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def config_path() -> Path:
+    return Path.home() / f".{_DISTRIBUTION}" / "config.yml"
+
+
+def packaged_default_text() -> str:
+    return files(__package__).joinpath("default_config.yml").read_text(
+        encoding="utf-8"
+    )
+
+
+def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _set_path(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    node = data
+    for part in path[:-1]:
+        if not isinstance(node.get(part), dict):
+            node[part] = {}
+        node = node[part]
+    node[path[-1]] = value
+
+
+def _del_path(data: dict[str, Any], path: tuple[str, ...]) -> None:
+    # Dict paths only — sufficient for the whole v1 schema. Revisit when the
+    # future `environments:` LIST lands (int locs shift on deletion).
+    node: Any = data
+    for part in path[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if node is None:
+            return
+    if isinstance(node, dict):
+        node.pop(path[-1], None)
+
+
+def _validate(merged: dict[str, Any], warnings: list[str]) -> ConfigFile:
+    data = merged
+    for _ in range(16):  # bounded: each pass removes the offending keys
+        try:
+            return ConfigFile.model_validate(data)
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = tuple(str(p) for p in err["loc"])
+                warnings.append(
+                    f"config key {'.'.join(loc)}: {err['msg']} (using default)"
+                )
+                _del_path(data, loc)
+    return ConfigFile()
+
+
+def _collect_extras(
+    model: BaseModel, prefix: tuple[str, ...], warnings: list[str]
+) -> None:
+    for key in getattr(model, "__pydantic_extra__", None) or {}:
+        dotted = ".".join([*prefix, key])
+        warnings.append(f"unknown config key '{dotted}' (ignored)")
+    for name in type(model).model_fields:
+        value = getattr(model, name, None)
+        if isinstance(value, BaseModel):
+            _collect_extras(value, (*prefix, name), warnings)
+
+
+@functools.cache
+def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
+    """(config, warnings, sources). Cached; cache lives on this module, so test
+    harnesses that purge ``sys.modules`` (the established fixture pattern) get a
+    fresh load. Mutating env/HOME mid-process requires ``load_config.cache_clear()``.
+    """
+    warnings: list[str] = []
+    sources = ["packaged defaults"]
+    try:
+        merged: dict[str, Any] = yaml.safe_load(packaged_default_text()) or {}
+    except Exception:  # packaged file unreadable -> model defaults still apply
+        merged = {}
+    path = config_path()
+    if path.exists():
+        try:
+            user = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            warnings.append(f"{path}: invalid YAML (file ignored): {exc}")
+            user = None
+        if isinstance(user, dict):
+            merged = _deep_merge(merged, user)
+            sources.append(str(path))
+        elif user is not None:
+            warnings.append(f"{path}: not a mapping (file ignored)")
+    env_applied = False
+    for var, dotted in _ENV_MAP.items():
+        raw = os.environ.get(var)
+        if raw is None:
+            continue
+        value: Any = raw
+        if dotted in _BOOL_PATHS:
+            low = raw.strip().lower()
+            if low in _TRUE:
+                value = True
+            elif low in _FALSE:
+                value = False
+            else:
+                warnings.append(f"{var}={raw!r}: not a boolean (ignored)")
+                continue
+        _set_path(merged, dotted, value)
+        env_applied = True
+    if env_applied:
+        sources.append("environment variables")
+    cfg = _validate(merged, warnings)
+    _collect_extras(cfg, (), warnings)
+    return cfg, tuple(warnings), tuple(sources)
+
+
+_warned = False
+
+
+def warn_once() -> None:
+    """Print collected config warnings to stderr, once per process."""
+    global _warned
+    if _warned:
+        return
+    _warned = True
+    for w in load_config()[1]:
+        print(f"warning: {w}", file=sys.stderr)
+
+
+def get() -> CliConfiguration:
+    cfg, _warnings, _sources = load_config()
+    warn_once()
+    return cfg.configuration
+
+
+def default_output() -> str:
+    """Effective default for --output (evaluated at command-module import)."""
+    return get().output.format
+
+
+def effective_dict() -> dict[str, Any]:
+    """The effective config as a clean dict (known keys only — extras excluded)."""
+    c = get()
+    return {
+        "configuration": {
+            "pager": {"enabled": c.pager.enabled, "command": c.pager.command},
+            "output": {"format": c.output.format},
+        }
+    }

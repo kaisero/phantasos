@@ -62,15 +62,84 @@ def test_output_formats(emitted, capsys):
     assert "nested" not in table  # dict columns are dropped from the table view
 
 
-def test_config_precedence(emitted, monkeypatch):
+def _write_user_config(home, body: str) -> None:
+    d = home / ".fakesdk_cli"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "config.yml").write_text(body, encoding="utf-8")
+
+
+def test_config_defaults_when_no_user_file(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
-    assert cfg.resolve("output", flag=None, default="table") == "table"
-    (emitted / "cfg.yaml").write_text("output: json\n", encoding="utf-8")
-    monkeypatch.setattr(cfg, "_config_path", lambda: emitted / "cfg.yaml")
-    assert cfg.resolve("output", flag=None, default="table") == "json"
-    monkeypatch.setenv("FAKESDK_OUTPUT", "yaml")
-    assert cfg.resolve("output", flag=None, default="table") == "yaml"
-    assert cfg.resolve("output", flag="table", default="table") == "table"
+    c = cfg.get()
+    assert c.pager.enabled is False
+    assert c.pager.command is None
+    assert c.output.format == "json"
+    assert cfg.load_config()[1] == ()  # no warnings
+
+
+def test_config_packaged_defaults_match_models(emitted):
+    import yaml as _yaml
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    data = _yaml.safe_load(cfg.packaged_default_text())
+    assert cfg.ConfigFile.model_validate(data) == cfg.ConfigFile()
+
+
+def test_config_homedir_override_and_env_precedence(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "configuration:\n  output:\n    format: table\n  pager:\n    enabled: true\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.get().output.format == "table"
+    assert cfg.get().pager.enabled is True
+    # env beats file (clear the cache after mutating the environment)
+    monkeypatch.setenv("FAKESDK_OUTPUT_FORMAT", "yaml")
+    monkeypatch.setenv("FAKESDK_PAGER_ENABLED", "off")
+    cfg.load_config.cache_clear()
+    assert cfg.get().output.format == "yaml"
+    assert cfg.get().pager.enabled is False
+    assert "environment variables" in cfg.load_config()[2]
+
+
+def test_config_unknown_key_warns_once(emitted, monkeypatch, tmp_path, capsys):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  pagre:\n    enabled: true\n")
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.get()
+    cfg.get()  # second call must not re-warn
+    err = capsys.readouterr().err
+    assert err.count("unknown config key 'configuration.pagre'") == 1
+
+
+def test_config_wrong_type_falls_back(emitted, monkeypatch, tmp_path, capsys):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  pager:\n    enabled: maybe\n")
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.get().pager.enabled is False  # default applied
+    err = capsys.readouterr().err
+    assert "configuration.pager.enabled" in err and "default" in err
+
+
+def test_config_malformed_yaml_ignores_file(emitted, monkeypatch, tmp_path, capsys):
+    home = tmp_path / "home"
+    _write_user_config(home, ":: this is not yaml ::\n")
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.get().output.format == "json"  # defaults survive
+    assert "invalid YAML" in capsys.readouterr().err
+
+
+def test_config_bad_bool_env_ignored(emitted, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FAKESDK_PAGER_ENABLED", "banana")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.get().pager.enabled is False
+    assert "not a boolean" in capsys.readouterr().err
 
 
 def _fake_client(recorder):

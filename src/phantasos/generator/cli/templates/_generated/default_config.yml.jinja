@@ -1,0 +1,25 @@
+# {{ distribution }} configuration file.
+#
+# Written by `{{ distribution }} config init` from the packaged defaults.
+# Location: ~/.{{ distribution }}/config.yml
+# Precedence: command-line flags > environment variables > this file >
+# packaged defaults.
+#
+# Environment variable reference:
+#   {{ env_prefix }}_PAGER_ENABLED  -> configuration.pager.enabled
+#   {{ env_prefix }}_PAGER_COMMAND  -> configuration.pager.command
+#   {{ env_prefix }}_OUTPUT_FORMAT  -> configuration.output.format
+
+configuration:
+  # Pager for long output: when enabled, results taller than the terminal are
+  # shown in a pager. Never engages when output is piped or redirected.
+  # Per-invocation override: --pager / --no-pager.
+  pager:
+    enabled: false
+    # Pager program. null -> $PAGER -> 'less -RFX'.
+    command: null
+
+  output:
+    # Default output format for results: json | yaml | table.
+    # Per-invocation override: --output.
+    format: json
