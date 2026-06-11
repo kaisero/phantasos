@@ -16,6 +16,7 @@ def test_py_name_sanitizes_keywords_and_reserved():
     # reserved (collide with injected Typer options) -> suffixed
     assert _py_name("output") == "output_"
     assert _py_name("verbose") == "verbose_"
+    assert _py_name("pager") == "pager_"
     # ordinary identifiers (incl. builtins, which are legal as params) -> unchanged
     assert _py_name("type") == "type"
     assert _py_name("name") == "name"
