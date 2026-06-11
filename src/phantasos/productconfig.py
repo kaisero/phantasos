@@ -61,12 +61,20 @@ class Transforms(BaseModel):
     tag_operations: list[TagOperation] = Field(default_factory=list)
 
 
+class GeneratorConfig(BaseModel):
+    """OpenAPI Generator invocation options (sdk.yml `generator:` block)."""
+
+    model_config = ConfigDict(extra="forbid")
+    library: str = "urllib3"
+    oneof_discriminator_lookup: bool = True
+
+
 class ProductConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     package: str
     output: str
     base_url: str
-    library: str = "urllib3"
+    generator: GeneratorConfig = Field(default_factory=GeneratorConfig)
     spec: str = "./openapi.yml"
     apply_generic_patches: bool = True
     transforms: Transforms = Field(default_factory=Transforms)
@@ -185,7 +193,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
 
     context: dict[str, Any] = {
         "package": cfg.package,
-        "library": cfg.library,
+        "library": cfg.generator.library,
         "base_url": cfg.base_url,
         "spec_version": info.get("version"),
         "spec_title": info.get("title"),

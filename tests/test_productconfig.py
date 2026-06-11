@@ -18,9 +18,36 @@ from phantasos.productconfig import (
 
 def test_productconfig_minimal() -> None:
     cfg = ProductConfig(package="acme", output="../acme-sdk", base_url="https://api/")
-    assert cfg.library == "urllib3"
+    assert cfg.generator.library == "urllib3"
     assert cfg.apply_generic_patches is True
     assert cfg.transforms == Transforms()
+
+
+def test_generator_block_defaults() -> None:
+    cfg = ProductConfig(package="acme", output="../acme-sdk", base_url="https://api/")
+    assert cfg.generator.library == "urllib3"
+    assert cfg.generator.oneof_discriminator_lookup is True
+
+
+def test_generator_block_overrides() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "acme",
+            "output": "../acme-sdk",
+            "base_url": "https://api/",
+            "generator": {"library": "httpx", "oneof_discriminator_lookup": False},
+        }
+    )
+    assert cfg.generator.library == "httpx"
+    assert cfg.generator.oneof_discriminator_lookup is False
+
+
+def test_top_level_library_rejected() -> None:
+    # `library` migrated into the generator: block (2026-06-11); extra=forbid rejects it
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {"package": "a", "output": "o", "base_url": "b", "library": "httpx"}
+        )
 
 
 def test_transforms_parse() -> None:
