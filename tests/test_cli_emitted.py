@@ -1258,4 +1258,8 @@ def test_config_group_in_its_own_help_panel(emitted, monkeypatch, tmp_path):
     res = CliRunner().invoke(main.app, ["--help"])
     assert res.exit_code == 0
     assert "config" in res.output
-    assert "CLI" in res.output  # the dedicated panel title renders
+    # "CLI" must render as a dedicated panel TITLE (box header), not merely as a
+    # word in help text — this fails if rich_help_panel="CLI" is dropped.
+    assert any(
+        "CLI" in line and "─" in line for line in res.output.splitlines()
+    )
