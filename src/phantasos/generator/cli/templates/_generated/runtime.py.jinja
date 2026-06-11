@@ -59,11 +59,13 @@ def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
         fn = getattr(facade._RESOURCES[resource], sdk_method)
         sig = inspect.signature(fn)
     except Exception:
+        # fail-open: dropping nothing preserves pre-feature behavior, and the
+        # SDK's own @validate_call remains the backstop for bad kwargs
         return None
     params = sig.parameters.values()
     if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
         return None
-    return {p.name for p in params}
+    return {p.name for p in params} - {"self"}
 
 
 def _hooks() -> Any | None:
