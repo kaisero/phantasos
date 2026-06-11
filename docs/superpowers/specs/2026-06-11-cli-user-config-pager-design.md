@@ -27,7 +27,7 @@ consumers: an opt-in auto-threshold pager and the default output format.
 | Pager mechanism | Rich `Console.pager(styles=True)` with a custom `Pager` subclass; program resolution `configuration.pager.command` > `$PAGER` > `less -RFX`; colors survive |
 | Config error policy | Warn + continue, never refuse to run. Unknown keys: warn + ignore. Wrong-typed value: warn + that key falls back to default. Unparseable YAML: warn + whole file ignored |
 | Meta commands | `config init [--force]` + `config show`, in a `config` group registered under its own `rich_help_panel="CLI"` (separate from API verb panels in top-level `--help`) |
-| Implementation | Approach A: typed pydantic models in the emitted package; config loaded once at app build so Typer defaults (and `--help`) show EFFECTIVE values |
+| Implementation | Approach A: typed pydantic models in the emitted package; config loaded once (cached) at command-module import — before Typer option defaults are frozen — so defaults (and `--help`) show EFFECTIVE values |
 
 ## v1 schema
 
@@ -115,22 +115,30 @@ list of warning strings and the list of sources actually merged:
    else warns and is ignored.
 4. Validate into `ConfigFile`. On a `ValidationError`: warn per offending key (with its
    dotted path), remove those keys from the merged dict, re-validate (key-level
-   fallback). On YAML parse error in step 2: warn, ignore the homedir file entirely
-   (file-level fallback).
+   fallback). The removal helper handles DICT paths only — sufficient for the whole v1
+   schema; it must be revisited when the future `environments:` LIST lands (deleting
+   list indices in ascending order shifts later indices). On YAML parse error in
+   step 2: warn, ignore the homedir file entirely (file-level fallback).
 5. Unknown-key warnings: walk `__pydantic_extra__` on every model level and emit one
    warning per unknown key, naming the dotted path and the file.
 
-Warnings print once to stderr at first load. Config loads when `build_generated_app()`
-constructs the app — so warnings also surface during `--help`; this is intentional
-(a misspelled key is visible immediately).
+Warnings print once to stderr at first load. **Load timing (important):** Python freezes
+`typer.Option(...)` parameter defaults at module-import time, and `app.py` imports every
+command module at its own import — so config loads at **first command-module import**,
+NOT at `build_generated_app()`. The emitted option default is therefore a call into the
+cached loader (e.g. `typer.Option(_default_output(), "--output")`), and the
+`functools.cache` lives on a `<pkg>`-namespaced module so test harnesses that purge
+`sys.modules["<pkg>*"]` also reset the cache. Warnings consequently surface during
+`--help` too; this is intentional (a misspelled key is visible immediately).
 
 ### Effective defaults in `--help`
 
-Because config resolves before Typer option registration, the emitted `--output` option
-uses the resolved value as its Typer default — `--help` shows `[default: table]` when the
-user's file says `format: table`, and flag-beats-config falls out of Typer semantics
-naturally. The `--pager/--no-pager` flag is tri-state (`bool | None`, default `None`)
-and resolves against `cfg.pager.enabled` at runtime.
+Because config resolves at command-module import, before each option's default literal
+is evaluated, the emitted `--output` option uses the resolved value as its Typer
+default — `--help` shows `[default: table]` when the user's file says `format: table`,
+and flag-beats-config falls out of Typer semantics naturally. The `--pager/--no-pager`
+flag is tri-state (`bool | None`, default `None`) and resolves against
+`cfg.pager.enabled` at runtime.
 
 ## Pager (`_generated/output.py` + `runtime.py`)
 
@@ -156,16 +164,26 @@ else:
 - content line count ≤ terminal height → write directly to stdout (no process spawn);
 - taller → `shlex.split` the resolved command, `subprocess.run` with content piped to
   stdin (`shell=False`).
+- The threshold counts LOGICAL lines (`\n`), a deliberate approximation: tables are
+  width-wrapped by Rich so they count correctly, but a long unwrapped value (e.g. a
+  200-char URL in JSON) occupies one logical line while visually wrapping to several
+  rows — wide-but-short content may under-page. Accepted; `less -F` on the paged side
+  compensates when it does engage.
 - Resolution order: `cfg.pager.command` > `$PAGER` > `less -RFX`.
 - Pager binary missing (`FileNotFoundError`) → warn once, write content directly.
-- User quits the pager early (`BrokenPipeError`/SIGPIPE) → swallowed, no traceback.
+- User quitting the pager early is absorbed by `subprocess.run(input=...)` itself
+  (verified: no exception, no traceback). The separate interpreter-shutdown
+  `BrokenPipeError` (e.g. `cli | head` closing stdout) is a pre-existing, unrelated
+  concern and stays out of scope.
 
 ### Required refactor
 
-The `--output yaml` branch in `render()` currently uses bare `print()`, invisible to
-Rich's pager capture. It moves to the module Console (`_console.out(text,
-highlight=False)`) — byte-identical output, now capturable. (json/table already render
-via `_console`.)
+The `--output yaml` branch in `render()` currently uses bare `print(text, end="")`,
+invisible to Rich's pager capture. It moves to the module Console as
+`_console.out(text, highlight=False, end="")` — the explicit `end=""` is REQUIRED
+(`Console.out` appends a newline by default; `yaml.safe_dump` already ends in one);
+verified byte-identical with it. A regression test asserts no trailing-blank-line
+change. (json/table already render via `_console`.)
 
 ### Flag-name reservation
 
@@ -212,7 +230,7 @@ rich_help_panel="CLI")` so top-level `--help` shows API verbs in their usual pan
 | Wrong-typed value | stderr warning; that key falls back to default |
 | Bad bool env var | stderr warning; env var ignored |
 | Pager binary missing | warn once; output printed directly |
-| User quits pager early | SIGPIPE/BrokenPipeError swallowed |
+| User quits pager early | absorbed by `subprocess.run(input=...)`; no traceback |
 | `config init` target exists | clear error + hint `--force`; exit non-zero |
 | `config init` permission error | report path; exit non-zero |
 
@@ -227,6 +245,12 @@ The CLI never refuses to run because of a config problem.
    default (HOME monkeypatched to tmp); env beats file; unknown-key warning on stderr;
    `_AutoPager` unit tests: short content → direct write, tall content → pipes to a
    fake pager (e.g. `cat`), command resolution order, missing-binary fallback.
+   **Test-ordering constraint (load-timing consequence):** the config cache is primed
+   at command-module import, so tests MUST set HOME/env BEFORE importing the CLI
+   module, and rely on the `emitted` fixture's `sys.modules["<pkg>*"]` purge for
+   isolation — the `functools.cache` lives on a purged `<pkg>` module precisely so
+   this reset works. A test importing first and monkeypatching second would silently
+   read the developer's real homedir config.
 2. **Defaults-sync lock** — packaged YAML ≡ model defaults (emitted into the generated
    CLI's own test suite via cli-overrides, and exercised in phantasos's fake-SDK build).
 3. **Gated real-SDK test** — build the real prisma-browser CLI; CliRunner `config
