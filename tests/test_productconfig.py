@@ -157,6 +157,7 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     assert loaded.context["package"] == "acme"
     assert loaded.context["support_email"] == "sdk@example.com"
     assert loaded.context["has_auth"] is True
+    assert loaded.context["library"] == "urllib3"
 
 
 def test_load_product_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,6 +191,19 @@ def test_vars_collision_is_error(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match=r"shadow|reserved"):
         load_product(str(d / "sdk.yml"))
+
+
+def test_load_product_generator_library_httpx(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text(_OPENAPI, encoding="utf-8")
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\n"
+        "generator: {library: httpx}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.context["library"] == "httpx"
 
 
 from phantasos.productconfig import ProjectConfig  # noqa: E402
