@@ -339,10 +339,13 @@ class _AutoPager(Pager):
             sys.stdout.write(content)
             return
         argv = shlex.split(self._command)
+        if not argv:  # whitespace-only command resolves to no argv
+            sys.stdout.write(content)
+            return
         try:
             # run(input=...) absorbs the user quitting the pager early.
             subprocess.run(argv, input=content, text=True, check=False)
-        except FileNotFoundError:
+        except OSError:
             print(f"warning: pager command not found: {argv[0]}", file=sys.stderr)
             sys.stdout.write(content)
 

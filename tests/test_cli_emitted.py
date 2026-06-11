@@ -1106,6 +1106,15 @@ def test_autopager_missing_binary_falls_back(emitted, monkeypatch, capsys):
     assert "pager command not found" in captured.err
 
 
+def test_autopager_blank_command_falls_back(emitted, monkeypatch, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setenv("LINES", "5")
+    monkeypatch.setenv("COLUMNS", "80")
+    content = "".join(f"line{i}\n" for i in range(50))
+    out._AutoPager("   ").show(content)  # must not raise; content not lost
+    assert capsys.readouterr().out.endswith("line49\n")
+
+
 def test_pager_command_resolution(emitted, monkeypatch, tmp_path):
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
