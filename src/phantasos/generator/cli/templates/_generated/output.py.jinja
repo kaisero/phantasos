@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
+import subprocess
 import sys
+from contextlib import contextmanager
 from typing import Any
 
 import jmespath
 import yaml
 from rich.console import Console
+from rich.pager import Pager
 from rich.table import Table
+
+from . import config as _config
 
 _console = Console()
 _err_console = Console(stderr=True)
@@ -96,7 +103,11 @@ def render(
         return  # empty success (e.g. delete / HTTP 204) — print nothing
     data = _to_data(result)
     if fmt == "yaml":
-        print(yaml.safe_dump(data, sort_keys=False, default_flow_style=False), end="")
+        _console.out(
+            yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
+            highlight=False,
+            end="",
+        )
         return
     if fmt == "table":
         _render_table(data, columns=columns, default_columns=default_columns,
@@ -300,3 +311,52 @@ def _render_table(
     for r in rows:
         table.add_row(*[_cell(g.search(r)) for _, g in getters])
     _console.print(table)
+
+
+# ---- pager -----------------------------------------------------------------
+
+
+def _stdout_is_tty() -> bool:  # module-level for monkeypatching in tests
+    return sys.stdout.isatty()
+
+
+def pager_command() -> str:
+    """configuration.pager.command > $PAGER > 'less -RFX'."""
+    return _config.get().pager.command or os.environ.get("PAGER") or "less -RFX"
+
+
+class _AutoPager(Pager):
+    """Pages only when content is taller than the terminal; short content is
+    written directly (no process spawned). Receives the fully rendered ANSI
+    text from rich's pager context. The threshold counts logical lines — a
+    deliberate approximation (see spec)."""
+
+    def __init__(self, command: str) -> None:
+        self._command = command
+
+    def show(self, content: str) -> None:
+        if content.count("\n") <= max(_console.size.height - 1, 1):
+            sys.stdout.write(content)
+            return
+        argv = shlex.split(self._command)
+        try:
+            # run(input=...) absorbs the user quitting the pager early.
+            subprocess.run(argv, input=content, text=True, check=False)
+        except FileNotFoundError:
+            print(f"warning: pager command not found: {argv[0]}", file=sys.stderr)
+            sys.stdout.write(content)
+
+
+@contextmanager
+def maybe_paged(flag: bool | None):
+    """Wrap rendering in the auto-threshold pager when it should engage.
+
+    flag is the tri-state --pager/--no-pager value; None defers to config.
+    Never engages when stdout is not a TTY (pipes/redirects keep working).
+    """
+    enabled = flag if flag is not None else _config.get().pager.enabled
+    if not (enabled and _stdout_is_tty()):
+        yield
+        return
+    with _console.pager(pager=_AutoPager(pager_command()), styles=True):
+        yield

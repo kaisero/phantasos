@@ -1059,3 +1059,86 @@ def test_config_effective_dict_excludes_extras(emitted, monkeypatch, tmp_path):
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     eff = cfg.effective_dict()
     assert eff["configuration"]["output"] == {"format": "table"}
+
+
+def test_yaml_output_has_no_trailing_blank_line(emitted, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Model:
+        def model_dump(self, mode="python"):
+            return {"a": 1}
+
+    out.render(_Model(), fmt="yaml")
+    text = capsys.readouterr().out
+    assert text.endswith("a: 1\n")
+    assert not text.endswith("\n\n")
+
+
+def test_autopager_short_content_writes_direct(emitted, monkeypatch, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setenv("LINES", "10")
+    monkeypatch.setenv("COLUMNS", "80")
+    pager = out._AutoPager("/definitely/not/a/pager")
+    pager.show("one\ntwo\nthree\n")  # 3 lines < 10 -> no spawn attempt
+    captured = capsys.readouterr()
+    assert "one\ntwo\nthree\n" in captured.out
+    assert captured.err == ""  # no missing-binary warning -> nothing was spawned
+
+
+def test_autopager_tall_content_pipes_to_command(emitted, monkeypatch, tmp_path):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setenv("LINES", "10")
+    monkeypatch.setenv("COLUMNS", "80")
+    sink = tmp_path / "paged.txt"
+    content = "".join(f"line{i}\n" for i in range(50))
+    out._AutoPager(f"tee {sink}").show(content)
+    assert sink.read_text(encoding="utf-8") == content
+
+
+def test_autopager_missing_binary_falls_back(emitted, monkeypatch, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setenv("LINES", "5")
+    monkeypatch.setenv("COLUMNS", "80")
+    content = "".join(f"line{i}\n" for i in range(50))
+    out._AutoPager("/definitely/not/a/pager").show(content)
+    captured = capsys.readouterr()
+    assert captured.out.endswith("line49\n")  # content not lost
+    assert "pager command not found" in captured.err
+
+
+def test_pager_command_resolution(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("PAGER", raising=False)
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert out.pager_command() == "less -RFX"  # built-in fallback
+    monkeypatch.setenv("PAGER", "mypager")
+    assert out.pager_command() == "mypager"  # $PAGER beats fallback
+    _write_user_config(
+        home, "configuration:\n  pager:\n    command: bat --paging=always\n"
+    )
+    cfg.load_config.cache_clear()
+    assert out.pager_command() == "bat --paging=always"  # config beats $PAGER
+
+
+def test_maybe_paged_skips_when_not_a_tty(emitted, monkeypatch, capsys):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setattr(out, "_stdout_is_tty", lambda: False)
+    with out.maybe_paged(True):
+        out._console.print("hello")
+    assert "hello" in capsys.readouterr().out  # rendered directly, no pager
+
+
+def test_maybe_paged_uses_pager_when_tty(emitted, monkeypatch, tmp_path):
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    monkeypatch.setenv("LINES", "5")
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(out, "_stdout_is_tty", lambda: True)
+    sink = tmp_path / "paged.txt"
+    monkeypatch.setenv("PAGER", f"tee {sink}")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    with out.maybe_paged(True):
+        for i in range(50):
+            out._console.print(f"row{i}")
+    assert "row49" in sink.read_text(encoding="utf-8")
