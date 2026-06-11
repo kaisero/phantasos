@@ -100,3 +100,14 @@ able to assume a single canonical id parameter. Likely a generic preprocess/patc
 The CLI is currently argparse (`phantasos.cli:main`). The project template ships a Typer
 scaffold; porting the one `build` command to Typer would add `--help` polish and shell
 completion (and align with the template's CLI docs). Tracked as optional; argparse works.
+
+## Undiscriminated oneOf × lenient enums — wrong-variant deserialization
+
+`useOneOfDiscriminatorLookup=true` (2026-06-11) fixes oneOf variant dispatch only for
+schemas that declare a `discriminator`. Undiscriminated oneOfs (all 11 in adem, ~3 in
+prisma-browser) still use trial deserialization patched to first-match
+(`patches.patch_oneof_first_match`), and `LenientStrEnum` makes a wrong first match
+succeed silently — the exact mechanism behind the ApplicationItem bug. Candidate
+fixes: add discriminators via spec preprocess transforms where a suitable property
+exists, or make enum leniency strict during oneOf trial deserialization (fragile —
+analyzed 2026-06-11, see plans/2026-06-11-oneof-discriminator-lookup.md).
