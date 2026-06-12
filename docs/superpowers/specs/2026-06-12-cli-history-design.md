@@ -164,3 +164,10 @@ canonical checklist:
 - `show cli status` / `show cli changelog` / `request cli environment` (separate TODOs;
   the `cli` meta-object created here is their future home).
 - Recording meta commands.
+
+## Implementation note (2026-06-12, from quality review)
+
+`history.verbose: true` combined with `--all` records the FULL drained result list as
+`response_body` — a single entry can be very large and may overshoot the size cap in
+one write (the cap check runs before the append; the NEXT command is then skipped).
+Accepted: verbose is opt-in, the cap still bounds growth, one-shot CLI.
