@@ -1573,3 +1573,78 @@ def test_runtime_verbose_paginate_all_records_list_body(emitted, monkeypatch, tm
     (entry,), _ = hist.read_entries(0)
     assert entry["status"] == "success"
     assert isinstance(entry["response_body"], list)
+
+
+def _oag_fake_client(raise_exc=None):
+    """Fake with the openapi-generator shape: methods route via api_client.call_api."""
+    import fakesdk.extras.facade as facade
+
+    class _ApiClient:
+        def call_api(self, method, url, header_params=None, body=None,
+                     post_params=None, _request_timeout=None):
+            if raise_exc is not None:
+                raise raise_exc
+            return {"id": "w1"}
+
+    class _Widgets:
+        def __init__(self):
+            self.api_client = _ApiClient()
+
+        def get_widget_by_id(self, **kw):
+            return self.api_client.call_api(
+                "GET", f"https://api.example.com/v1/widgets/{kw['id']}?expand=1"
+            )
+
+    class _Client:
+        def __init__(self):
+            self.widgets = _Widgets()
+
+    return facade, _Client
+
+
+def test_history_captures_http_method_and_uri(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    facade, client_cls = _oag_fake_client()
+    client = client_cls()
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
+    _run_show_widget(rt)
+    (entry,), _ = hist.read_entries(0)
+    assert entry["http_method"] == "GET"
+    assert entry["http_uri"] == "https://api.example.com/v1/widgets/w1?expand=1"
+    # the call_api wrapper is restored after the call
+    assert client.widgets.api_client.call_api.__name__ == "call_api"
+
+
+def test_history_captures_http_fields_on_error(emitted, monkeypatch, tmp_path):
+    import fakesdk.exceptions as fx
+
+    exc = fx.ApiException("boom")
+    exc.status = 500
+    exc.body = '{"message": "kaboom"}'
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    facade, client_cls = _oag_fake_client(raise_exc=exc)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: client_cls())
+    )
+    with pytest.raises(SystemExit):
+        _run_show_widget(rt)
+    (entry,), _ = hist.read_entries(0)
+    assert entry["status"] == "error" and entry["http_status"] == 500
+    assert entry["http_method"] == "GET"
+    assert "widgets/w1" in entry["http_uri"]
+
+
+def test_history_http_fields_absent_for_plain_fakes(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    _run_show_widget(rt)
+    (entry,), _ = hist.read_entries(0)
+    assert "http_method" not in entry and "http_uri" not in entry

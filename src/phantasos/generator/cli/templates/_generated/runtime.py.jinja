@@ -196,13 +196,16 @@ def _history_entry(cmd: Command, binding: MethodBinding, status: str,
                    *, duration_ms: int | None = None,
                    exc: BaseException | None = None,
                    request_body: Any = None,
-                   response: Any = None) -> dict[str, Any]:
+                   response: Any = None,
+                   http: dict[str, str] | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "command": shlex.join(sys.argv[1:]) if len(sys.argv) > 1 else cmd.key,
         "sdk_method": f"{cmd.sdk_resource}.{binding.sdk_method}",
         "status": status,
     }
+    if http:
+        entry.update(http)  # http_method / http_uri, captured from call_api
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
     if exc is not None:
@@ -260,6 +263,8 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         kwargs[k] = _coerce(query_flags[k], v)
 
     hooks = _hooks()
+    # Filled by the call_api wrapper below; defined here so the except branch sees it.
+    http_capture: dict[str, str] = {}
     try:
         if binding.body_model:
             models_mod = _models()
@@ -280,19 +285,37 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         client = _client()
         api = getattr(client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
+        # Observe the actual outgoing request: every generated SDK method routes
+        # through api_client.call_api(method, url, ...) with the query string
+        # already appended to url. Wrap it for the duration of the call (first
+        # invocation wins under --all; restored in finally). Non-OAG clients
+        # (test fakes) lack the shape -> fields simply absent.
+        api_client = getattr(api, "api_client", None)
+        original_call = getattr(api_client, "call_api", None)
+        if callable(original_call):
+            def _capturing_call(*args: Any, **kw: Any) -> Any:
+                if len(args) >= 2 and not http_capture:
+                    http_capture["http_method"] = str(args[0])
+                    http_capture["http_uri"] = str(args[1])
+                return original_call(*args, **kw)
+            api_client.call_api = _capturing_call
         started = time.monotonic()
-        if binding.sub_verb == "list" and paginate_all:
-            pg = getattr(client, "paginate", None)
-            result = list(pg(method, **kwargs)) if pg else method(**kwargs)
-        else:
-            result = method(**kwargs)
+        try:
+            if binding.sub_verb == "list" and paginate_all:
+                pg = getattr(client, "paginate", None)
+                result = list(pg(method, **kwargs)) if pg else method(**kwargs)
+            else:
+                result = method(**kwargs)
+        finally:
+            if callable(original_call):
+                api_client.call_api = original_call
         duration_ms = int((time.monotonic() - started) * 1000)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
         _history.record(_history_entry(
             cmd, binding, "success", duration_ms=duration_ms,
             request_body=kwargs.get(binding.body_param) if binding.body_param else None,
-            response=result,
+            response=result, http=http_capture,
         ))
         with _output.maybe_paged(pager):
             _output.render(
@@ -301,7 +324,8 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 items_field=cmd.items_field,
             )
     except (_sdk_exc(), ValidationError) as exc:
-        _history.record(_history_entry(cmd, binding, "error", exc=exc))
+        _history.record(_history_entry(cmd, binding, "error", exc=exc,
+                                       http=http_capture))
         if verbose:
             raise
         _output.render_error(exc)
