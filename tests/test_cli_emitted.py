@@ -1318,3 +1318,44 @@ def test_pagination_panel_precedes_common_on_non_list_commands(
     assert titles[-1] == "Common"
     assert "Pagination" in titles
     assert titles.index("Pagination") < titles.index("Common")
+
+
+def test_history_config_defaults_and_env(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    h = cfg.get().history
+    assert h.enabled is True
+    assert h.verbose is False
+    assert h.file is None
+    assert h.max_size_mb == 50
+    assert cfg.effective_dict()["configuration"]["history"] == {
+        "enabled": True, "verbose": False, "file": None, "max_size_mb": 50,
+    }
+    # env overrides (incl. int coercion through pydantic lax validation)
+    monkeypatch.setenv("FAKESDK_HISTORY_ENABLED", "off")
+    monkeypatch.setenv("FAKESDK_HISTORY_VERBOSE", "on")
+    monkeypatch.setenv("FAKESDK_HISTORY_FILE", "/tmp/h.jsonl")  # noqa: S108
+    monkeypatch.setenv("FAKESDK_HISTORY_MAX_SIZE_MB", "5")
+    cfg.load_config.cache_clear()
+    h = cfg.get().history
+    assert h.enabled is False and h.verbose is True
+    assert h.file == "/tmp/h.jsonl" and h.max_size_mb == 5  # noqa: S108
+
+
+def test_dotenv_reaches_config_layer(emitted, monkeypatch, tmp_path):
+    import os
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "FAKESDK_HISTORY_ENABLED=false\nFAKESDK_OUTPUT_FORMAT=yaml\n",
+        encoding="utf-8",
+    )
+    try:
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        assert cfg.get().history.enabled is False   # .env -> config layer
+        assert cfg.get().output.format == "yaml"
+    finally:
+        # load_dotenv writes into os.environ for the whole process — clean up
+        os.environ.pop("FAKESDK_HISTORY_ENABLED", None)
+        os.environ.pop("FAKESDK_OUTPUT_FORMAT", None)

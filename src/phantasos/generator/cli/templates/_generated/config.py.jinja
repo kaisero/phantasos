@@ -33,10 +33,19 @@ class OutputConfig(BaseModel):
     format: str = "json"
 
 
+class HistoryConfig(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    enabled: bool = True
+    verbose: bool = False
+    file: str | None = None
+    max_size_mb: int = 50
+
+
 class CliConfiguration(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
     pager: PagerConfig = Field(default_factory=PagerConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+    history: HistoryConfig = Field(default_factory=HistoryConfig)
 
 
 class ConfigFile(BaseModel):
@@ -49,8 +58,16 @@ _ENV_MAP: dict[str, tuple[str, ...]] = {
     f"{_ENV_PREFIX}_PAGER_ENABLED": ("configuration", "pager", "enabled"),
     f"{_ENV_PREFIX}_PAGER_COMMAND": ("configuration", "pager", "command"),
     f"{_ENV_PREFIX}_OUTPUT_FORMAT": ("configuration", "output", "format"),
+    f"{_ENV_PREFIX}_HISTORY_ENABLED": ("configuration", "history", "enabled"),
+    f"{_ENV_PREFIX}_HISTORY_VERBOSE": ("configuration", "history", "verbose"),
+    f"{_ENV_PREFIX}_HISTORY_FILE": ("configuration", "history", "file"),
+    f"{_ENV_PREFIX}_HISTORY_MAX_SIZE_MB": ("configuration", "history", "max_size_mb"),
 }
-_BOOL_PATHS = {("configuration", "pager", "enabled")}
+_BOOL_PATHS = {
+    ("configuration", "pager", "enabled"),
+    ("configuration", "history", "enabled"),
+    ("configuration", "history", "verbose"),
+}
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
@@ -129,6 +146,12 @@ def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
     harnesses that purge ``sys.modules`` (the established fixture pattern) get a
     fresh load. Mutating env/HOME mid-process requires ``load_config.cache_clear()``.
     """
+    try:
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))  # .env -> os.environ (config + auth)
+    except ModuleNotFoundError:
+        pass
     warnings: list[str] = []
     sources = ["packaged defaults"]
     try:
@@ -206,5 +229,11 @@ def effective_dict() -> dict[str, Any]:
         "configuration": {
             "pager": {"enabled": c.pager.enabled, "command": c.pager.command},
             "output": {"format": c.output.format},
+            "history": {
+                "enabled": c.history.enabled,
+                "verbose": c.history.verbose,
+                "file": c.history.file,
+                "max_size_mb": c.history.max_size_mb,
+            },
         }
     }
