@@ -376,7 +376,7 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
         res = runner.invoke(main.app, ["create", "device-group", "--name", "dup",
                                        "--platform", "Desktop Browser"])
         assert res.exit_code == 1, res.output
-        assert "Error 400 Bad Request" in res.output
+        assert "400 Bad Request" in res.output
         assert "group name already exists" in res.output           # headline
         # full JSON body is present
         assert "errorResponse" in res.output

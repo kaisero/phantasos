@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
 from .spec import CliIR, Command, Flag, MethodBinding
@@ -120,7 +121,7 @@ def _coerce(flag: Flag, value: Any) -> Any:
 
 def _fail_input(exc: InputError) -> None:
     """Render a bad-input error to stderr and exit (no traceback)."""
-    _output.render_error(exc)
+    _diag.render_error(exc)
     raise SystemExit(2) from exc
 
 
@@ -207,7 +208,7 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
 
 def _error_headline_for(exc: BaseException) -> str:
     """Same best-effort headline render_error shows: parsed-body first (via
-    _output._error_headline), then str(exc), then the exception type name.
+    _diag._error_headline), then str(exc), then the exception type name.
     (python-pro review: deriving from str(exc) alone violates the spec and
     misses the actionable server message.)"""
     body = getattr(exc, "body", None)
@@ -215,7 +216,7 @@ def _error_headline_for(exc: BaseException) -> str:
         body = body.decode("utf-8", "replace")
     if isinstance(body, str) and body.strip():
         try:
-            headline = _output._error_headline(json.loads(body))
+            headline = _diag._error_headline(json.loads(body))
         except ValueError:
             headline = None
         if headline:
@@ -380,5 +381,5 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                                        http=http_capture))
         if verbose:
             raise
-        _output.render_error(exc)
+        _diag.render_error(exc)
         raise SystemExit(1) from exc
