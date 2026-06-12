@@ -1575,7 +1575,7 @@ def test_runtime_verbose_paginate_all_records_list_body(emitted, monkeypatch, tm
     assert isinstance(entry["response_body"], list)
 
 
-def _oag_fake_client(raise_exc=None):
+def _oag_fake_client(raise_exc=None, query="?expand=1&tag=a&tag=b"):
     """Fake with the openapi-generator shape: methods route via api_client.call_api."""
     import fakesdk.extras.facade as facade
 
@@ -1592,7 +1592,7 @@ def _oag_fake_client(raise_exc=None):
 
         def get_widget_by_id(self, **kw):
             return self.api_client.call_api(
-                "GET", f"https://api.example.com/v1/widgets/{kw['id']}?expand=1"
+                "GET", f"https://api.example.com/v1/widgets/{kw['id']}{query}"
             )
 
     class _Client:
@@ -1612,7 +1612,11 @@ def test_history_captures_http_method_and_uri(emitted, monkeypatch, tmp_path):
     _run_show_widget(rt)
     (entry,), _ = hist.read_entries(0)
     assert entry["http_method"] == "GET"
-    assert entry["http_uri"] == "https://api.example.com/v1/widgets/w1?expand=1"
+    assert entry["http_uri"] == (
+        "https://api.example.com/v1/widgets/w1?expand=1&tag=a&tag=b"
+    )
+    # query params also captured structured: single -> str, repeated -> list
+    assert entry["http_params"] == {"expand": "1", "tag": ["a", "b"]}
     # the call_api wrapper is restored after the call
     assert client.widgets.api_client.call_api.__name__ == "call_api"
 
@@ -1626,7 +1630,7 @@ def test_history_captures_http_fields_on_error(emitted, monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     hist = importlib.import_module("fakesdk_cli._generated.history")
-    facade, client_cls = _oag_fake_client(raise_exc=exc)
+    facade, client_cls = _oag_fake_client(raise_exc=exc, query="")
     monkeypatch.setattr(
         facade.Client, "from_env", classmethod(lambda cls: client_cls())
     )
@@ -1636,6 +1640,7 @@ def test_history_captures_http_fields_on_error(emitted, monkeypatch, tmp_path):
     assert entry["status"] == "error" and entry["http_status"] == 500
     assert entry["http_method"] == "GET"
     assert "widgets/w1" in entry["http_uri"]
+    assert "http_params" not in entry  # no query string -> field omitted
 
 
 def test_history_http_fields_absent_for_plain_fakes(emitted, monkeypatch, tmp_path):

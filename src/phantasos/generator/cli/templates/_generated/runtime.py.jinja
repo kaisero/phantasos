@@ -12,6 +12,7 @@ import sys
 import time
 import typing
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlsplit
 from importlib.resources import files
 from typing import Any
 
@@ -206,6 +207,19 @@ def _history_entry(cmd: Command, binding: MethodBinding, status: str,
     }
     if http:
         entry.update(http)  # http_method / http_uri, captured from call_api
+        query = urlsplit(http.get("http_uri", "")).query
+        if query:
+            # structured copy of the query string: single value -> str,
+            # repeated key -> list (headers are deliberately NOT captured:
+            # they carry the auth token)
+            params: dict[str, Any] = {}
+            for k, v in parse_qsl(query):
+                if k in params:
+                    prev = params[k]
+                    params[k] = [*prev, v] if isinstance(prev, list) else [prev, v]
+                else:
+                    params[k] = v
+            entry["http_params"] = params
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
     if exc is not None:

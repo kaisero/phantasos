@@ -189,3 +189,10 @@ cost. Properties:
   absent, consistent with their missing `duration_ms`.
 - Clients without the openapi-generator shape (test fakes, mocks) degrade silently:
   `getattr` guards → fields absent, never a crash.
+
+### http_params (2026-06-12 follow-up)
+
+When the captured `http_uri` carries a query string, the entry also gets `http_params`
+— the parsed query (single value → string, repeated key → list; omitted when there is
+no query). Derived from the captured URI at entry-build time; no extra capture
+machinery. Request HEADERS are deliberately never captured (they carry the auth token).
