@@ -1485,7 +1485,7 @@ def test_history_cap_warns_and_skips(emitted, monkeypatch, tmp_path, capsys):
     err = capsys.readouterr().err
     err_joined = err.replace("\n", " ")
     assert "not recorded" in err_joined
-    assert "history.jsonl" in err_joined  # path (possibly wrapped) referenced in warning
+    assert "history.jsonl" in err_joined  # path referenced in warning
     assert "new" not in p.read_text(encoding="utf-8")  # nothing appended
 
 
@@ -1745,8 +1745,9 @@ def test_history_http_fields_absent_for_plain_fakes(emitted, monkeypatch, tmp_pa
 def test_diagnostics_plain_format_no_color(emitted):
     # Inject an explicit no_color StringIO console — the plain path needs no env/reload.
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     buf = io.StringIO()
     d._err_console = Console(stderr=True, file=buf, theme=d._THEME, no_color=True)
     d.set_min_level(d.Level.INFO)
@@ -1762,8 +1763,9 @@ def test_diagnostics_plain_format_no_color(emitted):
 
 def test_diagnostics_styled_has_icon_on_terminal(emitted):
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     buf = io.StringIO()
     d._err_console = Console(stderr=True, file=buf, theme=d._THEME, force_terminal=True)
     d.set_min_level(d.Level.INFO)
@@ -1773,8 +1775,9 @@ def test_diagnostics_styled_has_icon_on_terminal(emitted):
 
 def test_diagnostics_min_level_suppresses(emitted):
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     buf = io.StringIO()
     d._err_console = Console(stderr=True, file=buf, no_color=True)
     d.set_min_level(d.Level.ERROR)       # quiet
@@ -1788,12 +1791,13 @@ def test_diagnostics_min_level_suppresses(emitted):
 
 def test_render_error_http_via_diagnostics(emitted, monkeypatch):
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     buf = io.StringIO()
     d._err_console = Console(stderr=True, file=buf, no_color=True)
 
-    class _Exc(Exception):
+    class _Exc:  # duck-typed ApiException (matches the other render_error tests)
         status = 404
         reason = "Not Found"
         body = '{"error": {"message": "nope"}}'

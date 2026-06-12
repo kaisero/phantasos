@@ -674,7 +674,8 @@ def test_private_application_invalid_urls_enriched(real_cli, monkeypatch):
     assert res.exception is None or isinstance(res.exception, SystemExit)
     err = res.stderr
     assert "error: --urls: invalid JSON" in err
-    assert "expected: a JSON array of objects (1–100 items)" in err
+    # en dash (U+2013) is intentional — the runtime renders the range with it
+    assert "expected: a JSON array of objects (1–100 items)" in err  # noqa: RUF001
     assert "example: --urls '[{\"url\": \"string\"}]'" in err
     assert "got: 'pb.example.com,pb2.example.com'" in err
 
