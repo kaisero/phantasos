@@ -32,6 +32,7 @@ def {{ c.func_name }}(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", rich_help_panel="Common"),
     verbose: bool = typer.Option(False, "--verbose", rich_help_panel="Common"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", rich_help_panel="Common"),
     pager: bool | None = typer.Option(
         None,
         "--pager/--no-pager",
@@ -47,7 +48,7 @@ def {{ c.func_name }}(
         path={ {% for f in c.path_params %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         body={ {% for f in c.body_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
         query={ {% for f in c.query_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
-        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose, pager=pager,
+        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose, quiet=quiet, pager=pager,
     )
 
 {% endfor %}

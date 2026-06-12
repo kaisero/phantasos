@@ -1831,3 +1831,35 @@ def test_invalid_json_flag_enriched(emitted, monkeypatch):
     assert "error: --spec: invalid JSON" in res.stderr
     assert "expected: a JSON object" in res.stderr     # spec is a dict field
     assert "got: 'notjson'" in res.stderr
+
+
+def test_quiet_flag_sets_diagnostics_min_level(emitted, monkeypatch):
+    # -q wires through run() to diagnostics.set_min_level(ERROR); absent -> INFO.
+    from typer.testing import CliRunner
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    calls = []
+    monkeypatch.setattr(d, "set_min_level", lambda lvl: calls.append(lvl))
+    _, cls = _fake_client([])
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda c: cls()))
+    r = CliRunner()
+    r.invoke(main.app, ["create", "widget", "--name", "w", "--priority", "1", "-q"])
+    assert d.Level.ERROR in calls
+    calls.clear()
+    r.invoke(main.app, ["create", "widget", "--name", "w", "--priority", "1"])
+    assert d.Level.INFO in calls
+
+
+def test_quiet_keeps_errors(emitted, monkeypatch):
+    # Errors are never suppressed by -q.
+    from typer.testing import CliRunner
+    monkeypatch.setenv("NO_COLOR", "1")
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    _, cls = _fake_client([])
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda c: cls()))
+    res = CliRunner().invoke(main.app, ["create", "widget", "--name", "w",
+                                        "--priority", "1", "--enabled", "maybe", "-q"])
+    assert res.exit_code == 2
+    assert "error: --enabled" in res.stderr

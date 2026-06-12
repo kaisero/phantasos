@@ -346,7 +346,9 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         query: dict[str, Any], output: str, paginate_all: bool,
         dry_run: bool, verbose: bool,
         columns: list[str] | None = None,
+        quiet: bool = False,
         pager: bool | None = None) -> None:
+    _diag.set_min_level(_diag.Level.ERROR if quiet else _diag.Level.INFO)
     cmd = _commands()[key]
     if columns:
         output = "table"  # --columns implies table rendering
