@@ -1440,3 +1440,82 @@ def test_history_write_failure_warns_and_continues(emitted, monkeypatch, tmp_pat
     hist = _hist(monkeypatch, tmp_path)
     hist.record({"ts": "t", "command": "x", "status": "success"})  # must not raise
     assert "could not write history" in capsys.readouterr().err
+
+
+def _run_show_widget(rt, **over):
+    kw = {"path": {"id": "w1"}, "body": {}, "query": {}, "output": "json",
+          "paginate_all": False, "dry_run": False, "verbose": False}
+    kw.update(over)
+    rt.run("show:widget", **kw)
+
+
+def test_runtime_records_success_and_error(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(sys, "argv", ["fakesdk-cli", "show", "widget", "--id", "w1"])
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    _run_show_widget(rt)
+
+    import fakesdk.exceptions as fx
+
+    def _boom(**kw):
+        exc = fx.ApiException("nope")
+        exc.status = 404
+        exc.body = '{"message": "widget not found"}'
+        raise exc
+
+    class _Failing:
+        widgets = type("W", (), {"get_widget_by_id": staticmethod(_boom)})()
+
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Failing()))
+    with pytest.raises(SystemExit):
+        _run_show_widget(rt)
+
+    entries, _ = hist.read_entries(0)
+    assert len(entries) == 2
+    ok, bad = entries
+    assert ok["id"] == 1 and ok["status"] == "success"
+    assert ok["command"] == "show widget --id w1"
+    assert ok["sdk_method"] == "widgets.get_widget_by_id"
+    assert "http_status" not in ok and isinstance(ok["duration_ms"], int)
+    assert "request_body" not in ok  # verbose off by default
+    assert bad["status"] == "error" and bad["http_status"] == 404
+    assert "not found" in bad["error"]
+
+
+def test_runtime_dry_run_leaves_no_trace(emitted, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    _run_show_widget(rt, dry_run=True)
+    assert not hist.history_path().exists()
+
+
+def test_meta_commands_leave_no_trace(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("fakesdk_cli.main")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    assert CliRunner().invoke(main.app, ["config", "show"]).exit_code == 0
+    assert not hist.history_path().exists()
+
+
+def test_runtime_verbose_records_bodies(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  history:\n    verbose: true\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(sys, "argv", ["fakesdk-cli", "create", "widget", "--name", "x"])
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    rt.run("create:widget", path={}, body={"name": "x", "priority": 1}, query={},
+           output="json", paginate_all=False, dry_run=False, verbose=False)
+    (entry,), _ = hist.read_entries(0)
+    assert entry["request_body"]["name"] == "x"
+    assert entry["response_body"]["id"] == "new"

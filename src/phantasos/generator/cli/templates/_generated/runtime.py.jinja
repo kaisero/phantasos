@@ -7,12 +7,17 @@ import functools
 import importlib
 import inspect
 import json
+import shlex
+import sys
+import time
 import typing
+from datetime import datetime, timezone
 from importlib.resources import files
 from typing import Any
 
 from pydantic import ValidationError
 
+from . import history as _history
 from . import output as _output
 from .spec import CliIR, Command, Flag, MethodBinding
 
@@ -168,6 +173,57 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
     _output.render_dry_run(method, url, body)
 
 
+def _error_headline_for(exc: BaseException) -> str:
+    """Same best-effort headline render_error shows: parsed-body first (via
+    _output._error_headline), then str(exc), then the exception type name.
+    (python-pro review: deriving from str(exc) alone violates the spec and
+    misses the actionable server message.)"""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    if isinstance(body, str) and body.strip():
+        try:
+            headline = _output._error_headline(json.loads(body))
+        except ValueError:
+            headline = None
+        if headline:
+            return headline[:300]
+    text = str(exc).strip()
+    return text.splitlines()[0][:300] if text else type(exc).__name__
+
+
+def _history_entry(cmd: Command, binding: MethodBinding, status: str,
+                   *, duration_ms: int | None = None,
+                   exc: BaseException | None = None,
+                   request_body: Any = None,
+                   response: Any = None) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "command": shlex.join(sys.argv[1:]) if len(sys.argv) > 1 else cmd.key,
+        "sdk_method": f"{cmd.sdk_resource}.{binding.sdk_method}",
+        "status": status,
+    }
+    if duration_ms is not None:
+        entry["duration_ms"] = duration_ms
+    if exc is not None:
+        http_status = getattr(exc, "status", None)
+        if http_status is not None:
+            entry["http_status"] = http_status
+        entry["error"] = _error_headline_for(exc)
+    if _config_verbose():
+        if request_body is not None:
+            entry["request_body"] = _output._to_data(request_body)
+        if response is not None:
+            entry["response_body"] = _output._to_data(response)
+    return entry
+
+
+def _config_verbose() -> bool:
+    from . import config as _config
+
+    return _config.get().history.verbose
+
+
 def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         query: dict[str, Any], output: str, paginate_all: bool,
         dry_run: bool, verbose: bool,
@@ -224,13 +280,20 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         client = _client()
         api = getattr(client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
+        started = time.monotonic()
         if binding.sub_verb == "list" and paginate_all:
             pg = getattr(client, "paginate", None)
             result = list(pg(method, **kwargs)) if pg else method(**kwargs)
         else:
             result = method(**kwargs)
+        duration_ms = int((time.monotonic() - started) * 1000)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
+        _history.record(_history_entry(
+            cmd, binding, "success", duration_ms=duration_ms,
+            request_body=kwargs.get(binding.body_param) if binding.body_param else None,
+            response=result,
+        ))
         with _output.maybe_paged(pager):
             _output.render(
                 result, fmt=output, columns=columns,
@@ -238,6 +301,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 items_field=cmd.items_field,
             )
     except (_sdk_exc(), ValidationError) as exc:
+        _history.record(_history_entry(cmd, binding, "error", exc=exc))
         if verbose:
             raise
         _output.render_error(exc)
