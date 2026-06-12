@@ -147,13 +147,77 @@ def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
     return min(top, key=lambda b: (_SUBVERB_PRIORITY.get(b.sub_verb, 99), b.sdk_method))
 
 
+def _strip_optional(ann: Any) -> Any:
+    if typing.get_origin(ann) is typing.Union:
+        args = [a for a in typing.get_args(ann) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return ann
+
+
+def _placeholder(ann: Any) -> Any:
+    return {str: "string", bool: False, int: 0, float: 0.0}.get(
+        _strip_optional(ann), None
+    )
+
+
+def _skeleton(model: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name, f in model.model_fields.items():
+        if name == "additional_properties" or not f.is_required():
+            continue
+        out[f.alias or name] = _placeholder(f.annotation)
+    return out
+
+
+def _describe_json_field(model_cls: Any, param: str) -> tuple[str | None, str | None]:
+    mf = getattr(model_cls, "model_fields", {}).get(param)
+    if mf is None:
+        return None, None
+    ann = _strip_optional(mf.annotation)
+    origin = typing.get_origin(ann)
+    lo = hi = None
+    for m in getattr(mf, "metadata", []):
+        lo = getattr(m, "min_length", lo)
+        hi = getattr(m, "max_length", hi)
+    if origin in (list, set):
+        inner = _strip_optional(typing.get_args(ann)[0])
+        is_obj = hasattr(inner, "model_fields")
+        shape = "array of objects" if is_obj else "array"
+        if lo and hi:
+            count = f" ({lo}–{hi} items)"
+        elif hi:
+            count = f" (max {hi} items)"
+        elif lo:
+            count = f" (min {lo} items)"
+        else:
+            count = ""
+        ex = [_skeleton(inner)] if is_obj else [_placeholder(inner)]
+        return f"a JSON {shape}{count}", json.dumps(ex)
+    if hasattr(ann, "model_fields"):
+        return "a JSON object", json.dumps(_skeleton(ann))
+    return "a JSON object", json.dumps({"key": "value"})
+
+
 def _build_body(binding: MethodBinding, body: dict[str, Any],
                 flags: dict[str, Flag], models: Any,
                 extra: dict[str, Any] | None = None) -> Any:
-    parsed = {k: _coerce(flags[k], v) for k, v in body.items() if v is not None}
+    model_cls = getattr(models, binding.body_model)
+    parsed: dict[str, Any] = {}
+    for k, v in body.items():
+        if v is None:
+            continue
+        try:
+            parsed[k] = _coerce(flags[k], v)
+        except InputError as exc:
+            if flags[k].kind == "json" and exc.expected is None:
+                exp, ex = _describe_json_field(model_cls, k)
+                exc.expected, exc.example = exp, (
+                    f"{flags[k].name} '{ex}'" if ex else None
+                )
+            raise
     if extra:
         parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion
-    model_cls = getattr(models, binding.body_model)
     # PATCH semantics: use model_construct (no validation) so that only the
     # user-supplied fields are set.  SDKs that reuse the create model have required
     # fields, but PATCH must never enforce them — the server ignores absent fields.

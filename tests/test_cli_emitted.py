@@ -1802,3 +1802,18 @@ def test_bool_error_uses_diagnostics_format(emitted, monkeypatch):
     assert res.exception is None or isinstance(res.exception, SystemExit)
     assert "error: --enabled: invalid boolean" in res.stderr
     assert "got: 'maybe'" in res.stderr
+
+
+def test_invalid_json_flag_enriched(emitted, monkeypatch):
+    from typer.testing import CliRunner
+    monkeypatch.setenv("NO_COLOR", "1")
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+    _, cls = _fake_client([])
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda c: cls()))
+    res = CliRunner().invoke(main.app, ["create", "widget", "--name", "w",
+                                        "--priority", "1", "--spec", "notjson"])
+    assert res.exit_code == 2
+    assert "error: --spec: invalid JSON" in res.stderr
+    assert "expected: a JSON object" in res.stderr     # spec is a dict field
+    assert "got: 'notjson'" in res.stderr

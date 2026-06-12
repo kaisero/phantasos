@@ -661,6 +661,24 @@ def test_real_config_init_and_show(real_cli, monkeypatch, tmp_path):
     assert "pager" in res.output and "merged from" in res.output
 
 
+def test_private_application_invalid_urls_enriched(real_cli, monkeypatch):
+    from typer.testing import CliRunner
+    monkeypatch.setenv("NO_COLOR", "1")
+    _patch_client(monkeypatch)
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(main.app, [
+        "create", "application", "private", "--name", "cli-application",
+        "--urls", "pb.example.com,pb2.example.com",
+        "--primary-url", "pb.example.com", "--route-to-prisma", "false"])
+    assert res.exit_code == 2
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    err = res.stderr
+    assert "error: --urls: invalid JSON" in err
+    assert "expected: a JSON array of objects (1–100 items)" in err
+    assert "example: --urls '[{\"url\": \"string\"}]'" in err
+    assert "got: 'pb.example.com,pb2.example.com'" in err
+
+
 def test_real_history_records_and_shows(real_cli, monkeypatch, tmp_path):
     from typer.testing import CliRunner
 
