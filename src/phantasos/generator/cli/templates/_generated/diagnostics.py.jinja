@@ -1,0 +1,147 @@
+"""Unified CLI diagnostics: icon + level + message to stderr (Rich), adaptive to
+TTY/NO_COLOR/encoding. error/warning/info + fail() + render_error(). The console sink
+is bespoke; a future stdlib-logging file sink can consume the same calls."""
+
+from __future__ import annotations
+
+import enum
+import json
+import sys
+from typing import Any, NoReturn
+
+from rich.console import Console
+from rich.theme import Theme
+
+
+class Level(enum.IntEnum):
+    INFO = 20      # values align with logging.INFO/WARNING/ERROR for a future file sink
+    WARNING = 30
+    ERROR = 40
+
+
+_SPEC: dict[Level, tuple[str, str, str]] = {
+    Level.ERROR: ("error", "✖", "diag.error"),
+    Level.WARNING: ("warning", "⚠", "diag.warning"),
+    Level.INFO: ("info", "ℹ", "diag.info"),
+}
+
+_THEME = Theme({
+    "diag.error": "bold red",
+    "diag.warning": "yellow",
+    "diag.info": "blue",
+    "diag.label": "dim",
+})
+
+_err_console = Console(stderr=True, theme=_THEME, highlight=False)
+
+_min_level = Level.INFO
+
+
+def set_min_level(level: Level) -> None:
+    global _min_level
+    _min_level = level
+
+
+def _styled() -> bool:
+    # Plain when piped/redirected (not a TTY) or NO_COLOR/no-color is set.
+    return _err_console.is_terminal and not _err_console.no_color
+
+
+def _icon(glyph: str) -> str:
+    enc = getattr(sys.stderr, "encoding", None) or "utf-8"
+    try:
+        glyph.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        return ""
+    return glyph
+
+
+def emit(level: Level, message: str, *, expected: str | None = None,
+         example: str | None = None, got: str | None = None,
+         hint: str | None = None) -> None:
+    if level < _min_level:
+        return
+    label, glyph, style = _SPEC[level]
+    if _styled():
+        icon = _icon(glyph)
+        head = f"{icon} {label}:" if icon else f"{label}:"
+        # style= (not markup) colors the token while keeping the message literal,
+        # so a bracket/brace-bearing message never trips Rich markup parsing.
+        _err_console.print(head, end=" ", style=style, markup=False, highlight=False)
+    else:
+        _err_console.print(f"{label}:", end=" ", markup=False, highlight=False)
+    _err_console.print(message, markup=False, highlight=False)
+    for lbl, val in (("expected", expected), ("example", example),
+                     ("got", got), ("hint", hint)):
+        if val is None:
+            continue
+        _err_console.print(
+            f"  {lbl}: {val}", markup=False, highlight=False,
+            style=("diag.label" if _styled() else None),
+        )
+
+
+def error(message: str, **kw: Any) -> None:
+    emit(Level.ERROR, message, **kw)
+
+
+def warning(message: str, **kw: Any) -> None:
+    emit(Level.WARNING, message, **kw)
+
+
+def info(message: str, **kw: Any) -> None:
+    emit(Level.INFO, message, **kw)
+
+
+def fail(message: str, *, code: int = 1, **kw: Any) -> NoReturn:
+    error(message, **kw)
+    raise SystemExit(code)
+
+
+def _error_headline(data: Any) -> str | None:
+    if not isinstance(data, dict):
+        return None
+    for wrapper in ("errorResponse", "error_response"):
+        if isinstance(data.get(wrapper), dict):
+            data = data[wrapper]
+            break
+    if isinstance(data.get("error"), dict):
+        data = data["error"]
+    for key in ("error", "message", "detail", "title", "description"):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def render_error(exc: Any) -> None:
+    """SDK/API error -> stderr. HTTP errors (.status) get a styled headline + JSON body;
+    everything else is a plain error line."""
+    status = getattr(exc, "status", None)
+    if status is None:
+        error(str(exc))
+        return
+    reason = getattr(exc, "reason", "") or ""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    parsed: Any = None
+    if isinstance(body, str) and body.strip():
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            parsed = None
+    if parsed is None:
+        data = getattr(exc, "data", None)
+        if data is not None and hasattr(data, "model_dump"):
+            try:
+                parsed = data.model_dump(mode="json", by_alias=True, exclude_none=True)
+            except Exception:
+                parsed = None
+    head = f"{status} {reason}".rstrip()
+    headline = _error_headline(parsed)
+    error(f"{head} — {headline}" if headline else head)
+    if parsed is not None:
+        _err_console.print_json(data=parsed)
+    elif isinstance(body, str) and body.strip():
+        _err_console.print(body.strip())

@@ -113,3 +113,6 @@ def test_render_rejects_reserved_cli_object(tmp_path):
         render_cli(ir, package="x_cli", out_dir=tmp_path)
 
 
+def test_render_cli_emits_diagnostics_module(tmp_path):
+    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
+    assert (tmp_path / "fakesdk_cli" / "_generated" / "diagnostics.py").exists()

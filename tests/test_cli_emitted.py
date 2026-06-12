@@ -1726,3 +1726,47 @@ def test_history_http_fields_absent_for_plain_fakes(emitted, monkeypatch, tmp_pa
     _run_show_widget(rt)
     (entry,), _ = hist.read_entries(0)
     assert "http_method" not in entry and "http_uri" not in entry
+
+
+def test_diagnostics_plain_format_no_color(emitted):
+    # Inject an explicit no_color StringIO console — the plain path needs no env/reload.
+    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    from rich.console import Console
+    import io
+    buf = io.StringIO()
+    d._err_console = Console(stderr=True, file=buf, theme=d._THEME, no_color=True)
+    d.set_min_level(d.Level.INFO)
+    d.error("boom [x]")
+    d.warning("careful")
+    d.info("fyi")
+    out = buf.getvalue()
+    assert "error: boom [x]" in out      # bracket survives (markup off)
+    assert "warning: careful" in out
+    assert "info: fyi" in out
+    assert "✖" not in out           # no icon when no-color
+
+
+def test_diagnostics_styled_has_icon_on_terminal(emitted):
+    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    from rich.console import Console
+    import io
+    buf = io.StringIO()
+    d._err_console = Console(stderr=True, file=buf, theme=d._THEME, force_terminal=True)
+    d.set_min_level(d.Level.INFO)
+    d.error("boom")
+    assert "✖" in buf.getvalue()    # icon present on a terminal
+
+
+def test_diagnostics_min_level_suppresses(emitted):
+    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    from rich.console import Console
+    import io
+    buf = io.StringIO()
+    d._err_console = Console(stderr=True, file=buf, no_color=True)
+    d.set_min_level(d.Level.ERROR)       # quiet
+    d.warning("hidden")
+    d.info("hidden")
+    d.error("shown")
+    out = buf.getvalue()
+    assert "shown" in out and "hidden" not in out
+    d.set_min_level(d.Level.INFO)        # reset for other tests
