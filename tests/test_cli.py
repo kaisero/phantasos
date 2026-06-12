@@ -85,7 +85,7 @@ def test_build_runs_transforms_then_hook(
 ) -> None:
     import builtins
 
-    import phantasos
+    from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
     order: list[str] = []
@@ -130,7 +130,7 @@ def test_build_runs_transforms_then_hook(
     _order_sentinel: Any = order
     builtins._ORDER = _order_sentinel  # type: ignore[attr-defined]
     loaded = load_product(str(prod / "sdk.yml"))
-    phantasos.build(loaded)
+    build(loaded)
     del builtins._ORDER  # type: ignore[attr-defined]
     assert order == ["transforms", "hook"]
 
@@ -138,7 +138,7 @@ def test_build_runs_transforms_then_hook(
 def test_build_writes_ignore_and_scaffolds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import phantasos
+    from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
     calls: list[str] = []
@@ -184,7 +184,7 @@ def test_build_writes_ignore_and_scaffolds(
     readme = prod / "overrides" / "README.md.jinja"
     readme.write_text("# Acme SDK\n", encoding="utf-8")
     loaded = load_product(str(prod / "sdk.yml"))
-    phantasos.build(loaded, run_smoke=False)
+    build(loaded, run_smoke=False)
     assert calls == ["generate", "scaffold"]
 
 

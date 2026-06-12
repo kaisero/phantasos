@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "build":
         from pydantic import ValidationError
 
-        from . import build
+        from .generator.sdk import build
 
         try:
             loaded = load_product(args.product)
