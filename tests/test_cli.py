@@ -46,7 +46,7 @@ def test_cli_build_returns_zero_on_success(
 
     monkeypatch.setattr("phantasos.generator.sdk.generate.generate", fake_generate)
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "built acme" in out
@@ -59,7 +59,7 @@ def test_cli_build_missing_product_returns_2(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert cli.main(["build", "nope"]) == 2
+    assert cli.main(["sdk", "build", "nope"]) == 2
 
 
 def test_cli_build_invalid_sdk_yml_returns_2(
@@ -75,7 +75,7 @@ def test_cli_build_invalid_sdk_yml_returns_2(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme"])
+    rc = cli.main(["sdk", "build", "acme"])
     assert rc == 2
     assert "ERROR" in capsys.readouterr().err
 
@@ -204,7 +204,7 @@ def test_build_requires_project_block(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])
     assert rc == 2
 
 
@@ -226,5 +226,13 @@ def test_build_requires_readme_override(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])  # no overrides/README.md.jinja
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])  # no overrides/README
     assert rc == 2
+
+
+def test_removed_top_level_build_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `phantasos build` no longer exists -> usage error, exit 2
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["build", "acme"]) == 2
