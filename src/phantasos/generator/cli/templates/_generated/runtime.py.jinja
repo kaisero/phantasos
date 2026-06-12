@@ -139,9 +139,7 @@ _SUBVERB_PRIORITY = {
 def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
     candidates = [b for b in cmd.bindings if set(b.requires) <= present]
     if not candidates:
-        raise SystemExit(
-            f"error: no operation for '{cmd.key}' matches the given arguments"
-        )
+        _diag.fail(f"no operation for '{cmd.key}' matches the given arguments", code=2)
     best_len = max(len(b.requires) for b in candidates)
     top = [b for b in candidates if len(b.requires) == best_len]
     return min(top, key=lambda b: (_SUBVERB_PRIORITY.get(b.sub_verb, 99), b.sdk_method))

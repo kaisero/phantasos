@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 from . import config as _config
+from . import diagnostics as _diag
 
 
 def history_path() -> Path:
@@ -48,11 +48,10 @@ def record(entry: dict[str, Any]) -> None:
     path = history_path()
     try:
         if path.exists() and path.stat().st_size >= cfg.max_size_mb * 1024 * 1024:
-            print(
-                f"warning: history file full ({cfg.max_size_mb} MB cap) — command "
+            _diag.warning(
+                f"history file full ({cfg.max_size_mb} MB cap) — command "
                 f"not recorded; delete {path} or raise "
-                "configuration.history.max_size_mb",
-                file=sys.stderr,
+                "configuration.history.max_size_mb"
             )
             return
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +59,7 @@ def record(entry: dict[str, Any]) -> None:
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(numbered, default=str) + "\n")
     except OSError as exc:
-        print(f"warning: could not write history: {exc}", file=sys.stderr)
+        _diag.warning(f"could not write history: {exc}")
 
 
 def read_entries(limit: int = 0) -> tuple[list[dict[str, Any]], int]:
@@ -71,7 +70,7 @@ def read_entries(limit: int = 0) -> tuple[list[dict[str, Any]], int]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"warning: could not read history: {exc}", file=sys.stderr)
+        _diag.warning(f"could not read history: {exc}")
         return [], 0
     entries: list[dict[str, Any]] = []
     corrupt = 0

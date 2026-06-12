@@ -283,7 +283,7 @@ class _AutoPager(Pager):
             # run(input=...) absorbs the user quitting the pager early.
             subprocess.run(argv, input=content, text=True, check=False)
         except OSError:
-            print(f"warning: pager command not found: {argv[0]}", file=sys.stderr)
+            _diag.warning(f"pager command not found: {argv[0]}")
             sys.stdout.write(content)
 
 

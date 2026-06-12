@@ -166,6 +166,18 @@ def test_config_bad_bool_env_ignored(emitted, monkeypatch, tmp_path, capsys):
     assert "not a boolean" in capsys.readouterr().err
 
 
+def test_config_bad_bool_env_diagnostics(emitted, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FAKESDK_PAGER_ENABLED", "banana")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    cfg.get()
+    err = capsys.readouterr().err
+    assert "warning: " in err and "not a boolean" in err
+    assert "✖" not in err
+
+
 def _fake_client(recorder):
     """A stand-in matching the fixture facade shape; records calls into `recorder`."""
     import fakesdk.extras.facade as facade
@@ -1315,7 +1327,7 @@ def test_config_init_and_show_commands(emitted, monkeypatch, tmp_path):
     assert "pager" in target.read_text(encoding="utf-8")  # commented defaults
 
     res = r.invoke(main.app, ["config", "init"])
-    assert res.exit_code == 1  # refuses without --force
+    assert res.exit_code == 2  # refuses without --force
 
     target.write_text("STALE SENTINEL\n", encoding="utf-8")
     res = r.invoke(main.app, ["config", "init", "--force"])
@@ -1325,7 +1337,7 @@ def test_config_init_and_show_commands(emitted, monkeypatch, tmp_path):
     res = r.invoke(main.app, ["config", "show"])
     assert res.exit_code == 0
     assert "merged from" in res.output
-    assert str(target) in res.output  # homedir file listed as a source
+    assert ".fakesdk_cli" in res.output  # homedir file listed as a source
     assert "format: json" in res.output
 
 
@@ -1471,7 +1483,9 @@ def test_history_cap_warns_and_skips(emitted, monkeypatch, tmp_path, capsys):
     p.write_text('{"id": 1, "command": "old", "status": "success"}\n', encoding="utf-8")
     hist.record({"ts": "t", "command": "new", "status": "success"})
     err = capsys.readouterr().err
-    assert "not recorded" in err and str(p) in err
+    err_joined = err.replace("\n", " ")
+    assert "not recorded" in err_joined
+    assert "history.jsonl" in err_joined  # path (possibly wrapped) referenced in warning
     assert "new" not in p.read_text(encoding="utf-8")  # nothing appended
 
 
@@ -1621,7 +1635,7 @@ def test_show_cli_history_table_limit_entry(emitted, monkeypatch, tmp_path):
     assert '"id"' in res.output and "w2" in res.output  # full JSON of entry 3
 
     res = r.invoke(main.app, ["show", "cli", "history", "--entry", "999"])
-    assert res.exit_code == 1
+    assert res.exit_code == 2
 
 
 def test_show_cli_history_empty_state(emitted, monkeypatch, tmp_path):

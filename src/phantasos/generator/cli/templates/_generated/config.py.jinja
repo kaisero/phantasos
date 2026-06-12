@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import functools
 import os
-import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from . import diagnostics as _diag
 
 _ENV_PREFIX = "{{ env_prefix }}"
 _DISTRIBUTION = "{{ distribution }}"
@@ -208,7 +209,7 @@ def warn_once() -> None:
         return
     _warned = True
     for w in load_config()[1]:
-        print(f"warning: {w}", file=sys.stderr)
+        _diag.warning(w)
 
 
 def get() -> CliConfiguration:

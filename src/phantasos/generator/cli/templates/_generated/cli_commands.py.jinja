@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 from rich.table import Table
 
+from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
 
@@ -27,15 +28,14 @@ def show_history(
     if entry is not None:
         e = _history.read_entry(entry)
         if e is None:
-            typer.echo(f"error: no history entry with id {entry}", err=True)
-            raise typer.Exit(1)
+            _diag.fail(f"no history entry with id {entry}", code=2)
         _output._console.print_json(data=e)
         return
     entries, corrupt = _history.read_entries(limit)
     if corrupt:
-        typer.echo(f"warning: skipped {corrupt} corrupt history line(s)", err=True)
+        _diag.warning(f"skipped {corrupt} corrupt history line(s)")
     if not entries:
-        typer.echo("history is empty")
+        _diag.info("history is empty")
         return
     table = Table("id", "date", "command", "status")
     for e in entries:
