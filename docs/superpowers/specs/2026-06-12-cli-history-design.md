@@ -175,7 +175,9 @@ Accepted: verbose is opt-in, the cap still bounds growth, one-shot CLI.
 ## Addendum (2026-06-12): http_method / http_uri captured by default
 
 User-requested reversal of the v1 trim. Every entry that reaches the SDK call now also
-carries `http_method` and `http_uri` (full URI incl. query string) BY DEFAULT.
+carries `http_method` and `http_uri` BY DEFAULT. `http_uri` is logged WITHOUT the
+query string (user decision 2026-06-12: no redundancy — the query lives only in the
+structured `http_params` field).
 
 Mechanism — observe, don't re-serialize: every generated SDK method routes through
 `api_client.call_api(method, url, …)`, and the serialize step has already appended the
