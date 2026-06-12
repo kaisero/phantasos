@@ -14,7 +14,7 @@ import typing
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlsplit
 from importlib.resources import files
-from typing import Any
+from typing import Any, NoReturn
 
 from pydantic import ValidationError
 
@@ -83,8 +83,18 @@ def _hooks() -> Any | None:
 
 
 class InputError(Exception):
-    """A user-supplied flag value could not be parsed (bad JSON, bad bool, ...).
-    Surfaced as a clean CLI error naming the flag — never a raw traceback."""
+    """A user-supplied flag value could not be parsed. Carries optional structured
+    fields rendered by the diagnostics facade; never a raw traceback."""
+
+    def __init__(self, message: str, *, expected: str | None = None,
+                 example: str | None = None, got: Any | None = None,
+                 code: int = 2) -> None:
+        super().__init__(message)
+        self.message = message
+        self.expected = expected
+        self.example = example
+        self.got = got
+        self.code = code
 
 
 _BOOL_TRUE = {"1", "true", "yes", "y", "on"}
@@ -98,31 +108,26 @@ def _coerce(flag: Flag, value: Any) -> Any:
         try:
             return json.loads(value)
         except json.JSONDecodeError as exc:
-            raise InputError(
-                f"{flag.name}: invalid JSON value ({exc}). Provide a valid JSON "
-                f"document."
-            ) from exc
+            raise InputError(f"{flag.name}: invalid JSON ({exc})", got=value) from exc
     if flag.py_type == "int" and isinstance(value, str):
         try:
             return int(value)
         except ValueError as exc:
-            raise InputError(f"{flag.name}: invalid integer {value!r}.") from exc
+            raise InputError(f"{flag.name}: invalid integer", got=value) from exc
     if flag.py_type == "bool" and isinstance(value, str):
         v = value.strip().lower()
         if v in _BOOL_TRUE:
             return True
         if v in _BOOL_FALSE:
             return False
-        raise InputError(
-            f"{flag.name}: invalid boolean {value!r} (use true or false)."
-        )
+        raise InputError(f"{flag.name}: invalid boolean (use true or false)", got=value)
     return value
 
 
-def _fail_input(exc: InputError) -> None:
-    """Render a bad-input error to stderr and exit (no traceback)."""
-    _diag.render_error(exc)
-    raise SystemExit(2) from exc
+def _fail_input(exc: InputError) -> NoReturn:
+    _diag.fail(exc.message, code=exc.code,
+               expected=exc.expected, example=exc.example,
+               got=(repr(exc.got) if exc.got is not None else None))
 
 
 _SUBVERB_PRIORITY = {
