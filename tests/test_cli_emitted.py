@@ -1359,3 +1359,84 @@ def test_dotenv_reaches_config_layer(emitted, monkeypatch, tmp_path):
         # load_dotenv writes into os.environ for the whole process — clean up
         os.environ.pop("FAKESDK_HISTORY_ENABLED", None)
         os.environ.pop("FAKESDK_OUTPUT_FORMAT", None)
+
+
+def _hist(monkeypatch, tmp_path):
+    """Import the emitted history module against an isolated HOME."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    return importlib.import_module("fakesdk_cli._generated.history")
+
+
+def test_history_record_appends_with_incrementing_ids(emitted, monkeypatch, tmp_path):
+    hist = _hist(monkeypatch, tmp_path)
+    hist.record({"ts": "t1", "command": "show widget", "status": "success"})
+    hist.record({"ts": "t2", "command": "create widget", "status": "error"})
+    entries, corrupt = hist.read_entries(0)
+    assert corrupt == 0
+    assert [e["id"] for e in entries] == [1, 2]
+    assert entries[0]["command"] == "show widget"
+    path = hist.history_path()
+    assert path.name == "history.jsonl" and path.parent.name == ".fakesdk_cli"
+
+
+def test_history_disabled_writes_nothing(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  history:\n    enabled: false\n")
+    hist = _hist(monkeypatch, tmp_path)
+    hist.record({"ts": "t", "command": "x", "status": "success"})
+    assert not hist.history_path().exists()
+
+
+def test_history_cap_warns_and_skips(emitted, monkeypatch, tmp_path, capsys):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  history:\n    max_size_mb: 0\n")
+    hist = _hist(monkeypatch, tmp_path)
+    p = hist.history_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text('{"id": 1, "command": "old", "status": "success"}\n', encoding="utf-8")
+    hist.record({"ts": "t", "command": "new", "status": "success"})
+    err = capsys.readouterr().err
+    assert "not recorded" in err and str(p) in err
+    assert "new" not in p.read_text(encoding="utf-8")  # nothing appended
+
+
+def test_history_read_skips_corrupt_lines_and_limits(emitted, monkeypatch, tmp_path):
+    hist = _hist(monkeypatch, tmp_path)
+    p = hist.history_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        '{"id": 1, "command": "a", "status": "success"}\n'
+        "NOT JSON AT ALL\n"
+        '{"id": 2, "command": "b", "status": "success"}\n'
+        '{"id": 3, "command": "c", "status": "error"}\n',
+        encoding="utf-8",
+    )
+    entries, corrupt = hist.read_entries(0)
+    assert corrupt == 1 and [e["id"] for e in entries] == [1, 2, 3]
+    last_two, _ = hist.read_entries(2)
+    assert [e["id"] for e in last_two] == [2, 3]
+    assert hist.read_entry(2)["command"] == "b"
+    assert hist.read_entry(99) is None
+    # id assignment continues past a corrupt trailing line
+    p.write_text(p.read_text(encoding="utf-8") + "garbage\n", encoding="utf-8")
+    hist.record({"ts": "t", "command": "d", "status": "success"})
+    assert hist.read_entry(4)["command"] == "d"
+
+
+def test_history_write_failure_warns_and_continues(emitted, monkeypatch, tmp_path, capsys):  # noqa: E501
+    # Scoped failure injection: a read-only parent dir (NOT a global Path.mkdir
+    # patch — hist.Path IS pathlib.Path; patching the class mutates the world).
+    import os as _os
+
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    if _os.access(locked, _os.W_OK):  # running as root: permission bits ineffective
+        pytest.skip("cannot make dir read-only (running as privileged user)")
+    home = tmp_path / "home"
+    _write_user_config(
+        home, f"configuration:\n  history:\n    file: {locked / 'sub' / 'h.jsonl'}\n"
+    )
+    hist = _hist(monkeypatch, tmp_path)
+    hist.record({"ts": "t", "command": "x", "status": "success"})  # must not raise
+    assert "could not write history" in capsys.readouterr().err
