@@ -285,14 +285,20 @@ def test_history_read_skips_corrupt_lines_and_limits(emitted, monkeypatch, tmp_p
 
 
 def test_history_write_failure_warns_and_continues(emitted, monkeypatch, tmp_path, capsys):
+    # Scoped failure injection: a read-only parent dir (NOT a global Path.mkdir
+    # patch — hist.Path IS pathlib.Path; patching the class mutates the world).
+    import os as _os
+
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    if _os.access(locked, _os.W_OK):  # running as root: permission bits ineffective
+        pytest.skip("cannot make dir read-only (running as privileged user)")
     home = tmp_path / "home"
     _write_user_config(
-        home, f"configuration:\n  history:\n    file: {tmp_path / 'no' / 'dir' / 'h.jsonl'}\n"
+        home, f"configuration:\n  history:\n    file: {locked / 'sub' / 'h.jsonl'}\n"
     )
     hist = _hist(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        hist.Path, "mkdir", lambda *a, **k: (_ for _ in ()).throw(OSError("denied"))
-    )
     hist.record({"ts": "t", "command": "x", "status": "success"})  # must not raise
     assert "could not write history" in capsys.readouterr().err
 ```
@@ -508,7 +514,7 @@ def test_runtime_verbose_records_bodies(emitted, monkeypatch, tmp_path):
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
     rt.run("create:widget", path={}, body={"name": "x", "priority": 1}, query={},
            output="json", paginate_all=False, dry_run=False, verbose=False)
-    (entry,), _ = (lambda t: (t[0], t[1]))(hist.read_entries(0))
+    (entry,), _ = hist.read_entries(0)
     assert entry["request_body"]["name"] == "x"
     assert entry["response_body"]["id"] == "new"
 ```
@@ -534,6 +540,25 @@ from . import history as _history
 (b) Add a module-level helper (near `_dry_run`):
 
 ```python
+def _error_headline_for(exc: BaseException) -> str:
+    """Same best-effort headline render_error shows: parsed-body first (via
+    _output._error_headline), then str(exc), then the exception type name.
+    (python-pro review: deriving from str(exc) alone violates the spec and
+    misses the actionable server message.)"""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    if isinstance(body, str) and body.strip():
+        try:
+            headline = _output._error_headline(json.loads(body))
+        except ValueError:
+            headline = None
+        if headline:
+            return headline[:300]
+    text = str(exc).strip()
+    return text.splitlines()[0][:300] if text else type(exc).__name__
+
+
 def _history_entry(cmd: Command, binding: MethodBinding, status: str,
                    *, duration_ms: int | None = None,
                    exc: BaseException | None = None,
@@ -551,7 +576,7 @@ def _history_entry(cmd: Command, binding: MethodBinding, status: str,
         http_status = getattr(exc, "status", None)
         if http_status is not None:
             entry["http_status"] = http_status
-        entry["error"] = str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__
+        entry["error"] = _error_headline_for(exc)
     if _config_verbose():
         if request_body is not None:
             entry["request_body"] = _output._to_data(request_body)
@@ -669,14 +694,19 @@ In `tests/test_cli_render.py` (imports of `CliIR`/`render_cli` exist; follow the
 
 ```python
 def test_render_rejects_reserved_cli_object(tmp_path):
-    ir = _minimal_ir_with_object("cli")  # build per the file's existing pattern
+    from phantasos.generator.cli.ir import CliIR, Command, MethodBinding
+
+    ir = CliIR(commands=[Command(
+        verb="show", object="cli", key="show:cli", sdk_resource="clis",
+        bindings=[MethodBinding(sdk_method="list_clis", sub_verb="list")],
+    )])
     with pytest.raises(ValueError, match="reserved"):
         render_cli(ir, package="x_cli", out_dir=tmp_path)
 ```
 
-(If no reusable minimal-IR helper exists in that file, construct the smallest valid
-`CliIR` inline exactly as the file's other tests do — the implementer adapts the
-constructor call, NOT the assertion.)
+(python-pro verified this minimal construction triggers the guard; if `CliIR`/`Command`
+require additional mandatory fields at implementation time, satisfy the constructor —
+never weaken the `match="reserved"` assertion.)
 
 - [ ] **Step 2: Run to verify red** (`No such command 'cli'`; guard test fails with DID NOT RAISE).
 
@@ -724,8 +754,10 @@ def show_history(
         return
     table = Table("id", "date", "command", "status")
     for e in entries:
+        # display timestamps to the minute (full ISO ts stays in the file/--entry)
+        ts = str(e.get("ts", ""))[:16].replace("T", " ")
         table.add_row(
-            str(e.get("id", "")), str(e.get("ts", "")),
+            str(e.get("id", "")), ts,
             str(e.get("command", "")), str(e.get("status", "")),
         )
     with _output.maybe_paged(pager):
