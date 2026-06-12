@@ -373,6 +373,79 @@ def test_runtime_coerces_int_query(emitted, monkeypatch):
     assert kw.get("limit") == 50 and isinstance(kw["limit"], int)  # coerced str->int
 
 
+def test_bool_body_flag_accepts_value_and_coerces(emitted, monkeypatch):
+    # A settable bool field takes a VALUE (--enabled true|false), like every other
+    # field — NOT a Typer on/off flag. The string is coerced to a real bool before
+    # the model is built. (Regression: native `bool` made Typer reject the value as
+    # an unexpected extra argument.)
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    calls: list = []
+    _, fake_client_cls = _fake_client(calls)
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    r = CliRunner()
+    for raw, expected in [("true", True), ("false", False)]:
+        calls.clear()
+        res = r.invoke(
+            main.app,
+            ["create", "widget", "--name", "w", "--priority", "1",
+             "--enabled", raw, "--output", "json"],
+        )
+        assert res.exit_code == 0, res.output
+        _, kw = next((n, k) for n, k in calls if n == "create_widget")
+        body = kw["widget_input"]
+        assert body.enabled is expected  # coerced str -> real bool
+
+
+def test_bool_body_flag_rejects_non_bool_value(emitted, monkeypatch):
+    # An unparseable bool errors cleanly (named flag, nonzero exit) — it must NOT be
+    # silently coerced to False, nor escape as a raw traceback.
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1", "--enabled", "maybe"],
+    )
+    assert res.exit_code != 0
+    # no traceback
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    assert "enabled" in res.stderr
+
+
+def test_invalid_json_flag_reports_clean_error(emitted, monkeypatch):
+    # Invalid JSON to a JSON-string flag (e.g. --spec / --urls) reports a clean,
+    # flag-named error instead of dumping a raw JSONDecodeError traceback.
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1", "--spec", "notjson"],
+    )
+    assert res.exit_code != 0
+    # no traceback
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    assert "spec" in res.stderr
+
+
 def test_cli_runner_request_actions(emitted, monkeypatch):
     from typer.testing import CliRunner
 
@@ -576,7 +649,9 @@ def test_scalar_body_flags_use_real_types(emitted, tmp_path):
     # format. (Behavioral validation lives in test_scalar_type_validated_by_typer.)
     assert ": int = typer.Option(" in code           # required int (create)
     assert "priority: int" in code                    # priority typed as int
-    assert "bool | None = typer.Option(None" in code  # optional bool
+    # bool fields render value-style (str), NOT a native bool (which Typer would
+    # turn into a valueless on/off flag); coerced to bool at runtime by _coerce.
+    assert "enabled: str | None = typer.Option(None" in code
 
 
 def test_scalar_type_validated_by_typer(emitted, monkeypatch):
@@ -1612,10 +1687,8 @@ def test_history_captures_http_method_and_uri(emitted, monkeypatch, tmp_path):
     _run_show_widget(rt)
     (entry,), _ = hist.read_entries(0)
     assert entry["http_method"] == "GET"
-    assert entry["http_uri"] == (
-        "https://api.example.com/v1/widgets/w1?expand=1&tag=a&tag=b"
-    )
-    # query params also captured structured: single -> str, repeated -> list
+    # the URI is logged WITHOUT the query string — params live in http_params only
+    assert entry["http_uri"] == "https://api.example.com/v1/widgets/w1"
     assert entry["http_params"] == {"expand": "1", "tag": ["a", "b"]}
     # the call_api wrapper is restored after the call
     assert client.widgets.api_client.call_api.__name__ == "call_api"

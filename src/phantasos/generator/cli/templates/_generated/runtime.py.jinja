@@ -81,16 +81,47 @@ def _hooks() -> Any | None:
         return None
 
 
+class InputError(Exception):
+    """A user-supplied flag value could not be parsed (bad JSON, bad bool, ...).
+    Surfaced as a clean CLI error naming the flag — never a raw traceback."""
+
+
+_BOOL_TRUE = {"1", "true", "yes", "y", "on"}
+_BOOL_FALSE = {"0", "false", "no", "n", "off"}
+
+
 def _coerce(flag: Flag, value: Any) -> Any:
     if value is None:
         return None
     if flag.kind == "json" and isinstance(value, str):
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise InputError(
+                f"{flag.name}: invalid JSON value ({exc}). Provide a valid JSON "
+                f"document."
+            ) from exc
     if flag.py_type == "int" and isinstance(value, str):
-        return int(value)
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise InputError(f"{flag.name}: invalid integer {value!r}.") from exc
     if flag.py_type == "bool" and isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes")
+        v = value.strip().lower()
+        if v in _BOOL_TRUE:
+            return True
+        if v in _BOOL_FALSE:
+            return False
+        raise InputError(
+            f"{flag.name}: invalid boolean {value!r} (use true or false)."
+        )
     return value
+
+
+def _fail_input(exc: InputError) -> None:
+    """Render a bad-input error to stderr and exit (no traceback)."""
+    _output.render_error(exc)
+    raise SystemExit(2) from exc
 
 
 _SUBVERB_PRIORITY = {
@@ -206,12 +237,14 @@ def _history_entry(cmd: Command, binding: MethodBinding, status: str,
         "status": status,
     }
     if http:
-        entry.update(http)  # http_method / http_uri, captured from call_api
-        query = urlsplit(http.get("http_uri", "")).query
+        uri = http.get("http_uri", "")
+        entry["http_method"] = http.get("http_method", "")
+        # the query string lives ONLY in http_params (no redundancy in the URI)
+        entry["http_uri"] = uri.split("?", 1)[0]
+        query = urlsplit(uri).query
         if query:
-            # structured copy of the query string: single value -> str,
-            # repeated key -> list (headers are deliberately NOT captured:
-            # they carry the auth token)
+            # structured query params: single value -> str, repeated key -> list
+            # (headers are deliberately NOT captured: they carry the auth token)
             params: dict[str, Any] = {}
             for k, v in parse_qsl(query):
                 if k in params:
@@ -259,22 +292,25 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     body_flags = {f.param: f for f in cmd.body_flags}
 
     kwargs: dict[str, Any] = {}
-    for k, v in path.items():
-        if v is not None:
-            kwargs[k] = _coerce(path_flags[k], v)
-    if cmd.variant and cmd.variant_param:
-        kwargs[cmd.variant_param] = cmd.variant
-    accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
-    for k, v in query.items():
-        if v is None:
-            continue
-        # cli.yml-injected defaults are per-OP, but a command can aggregate
-        # multiple bindings (list + get); drop an injected default the selected
-        # binding's method doesn't accept (e.g. sort/order on a get).
-        if (query_flags[k].cli_default is not None
-                and accepted is not None and k not in accepted):
-            continue
-        kwargs[k] = _coerce(query_flags[k], v)
+    try:
+        for k, v in path.items():
+            if v is not None:
+                kwargs[k] = _coerce(path_flags[k], v)
+        if cmd.variant and cmd.variant_param:
+            kwargs[cmd.variant_param] = cmd.variant
+        accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+        for k, v in query.items():
+            if v is None:
+                continue
+            # cli.yml-injected defaults are per-OP, but a command can aggregate
+            # multiple bindings (list + get); drop an injected default the selected
+            # binding's method doesn't accept (e.g. sort/order on a get).
+            if (query_flags[k].cli_default is not None
+                    and accepted is not None and k not in accepted):
+                continue
+            kwargs[k] = _coerce(query_flags[k], v)
+    except InputError as exc:
+        _fail_input(exc)
 
     hooks = _hooks()
     # Filled by the call_api wrapper below; defined here so the except branch sees it.
@@ -337,6 +373,8 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 default_columns=[(c.header, c.path) for c in cmd.columns],
                 items_field=cmd.items_field,
             )
+    except InputError as exc:
+        _fail_input(exc)
     except (_sdk_exc(), ValidationError) as exc:
         _history.record(_history_entry(cmd, binding, "error", exc=exc,
                                        http=http_capture))
