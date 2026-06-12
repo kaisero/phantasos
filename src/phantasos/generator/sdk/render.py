@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .productconfig import LoadedProduct
+from ...productconfig import LoadedProduct
 
 if TYPE_CHECKING:
     from jinja2 import Environment

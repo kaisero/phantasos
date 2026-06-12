@@ -33,7 +33,7 @@ OPENAPI_GENERATOR_VERSION = {oag_version!r}
 
 
 def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
-    from . import generate, preprocess, render, smoke
+    from .generator.sdk import generate, preprocess, render, smoke
 
     cfg = loaded.config
     project_dir = loaded.output_dir
@@ -83,7 +83,7 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     # 3. patches: generic -> linked hook
     patch_stats: dict[str, int] = {}
     if cfg.apply_generic_patches:
-        from . import patches
+        from .generator.sdk import patches
 
         patch_stats = patches.apply_generic_patches(pkg_dir)
     if hook_mod and hasattr(hook_mod, "patch"):

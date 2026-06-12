@@ -44,7 +44,7 @@ def test_cli_build_returns_zero_on_success(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr("phantasos.generate.generate", fake_generate)
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", fake_generate)
     monkeypatch.chdir(tmp_path)
     rc = cli.main(["build", "acme", "--no-smoke"])
     assert rc == 0
@@ -89,15 +89,19 @@ def test_build_runs_transforms_then_hook(
     from phantasos.productconfig import load_product
 
     order: list[str] = []
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
-    monkeypatch.setattr("phantasos.render.vendor", lambda *a: [])
-    monkeypatch.setattr("phantasos.patches.apply_generic_patches", lambda d: {})
     monkeypatch.setattr(
-        "phantasos.smoke.smoke",
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
+    monkeypatch.setattr("phantasos.generator.sdk.render.vendor", lambda *a: [])
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.patches.apply_generic_patches", lambda d: {}
+    )
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},
     )
     monkeypatch.setattr(
-        "phantasos.preprocess.tag_operations",
+        "phantasos.generator.sdk.preprocess.tag_operations",
         lambda spec, ops, stats=None: order.append("transforms"),
     )
 
@@ -156,9 +160,11 @@ def test_build_writes_ignore_and_scaffolds(
         calls.append("scaffold")
         return []
 
-    monkeypatch.setattr("phantasos.generate.generate", fake_generate)
     monkeypatch.setattr(
-        "phantasos.smoke.smoke",
+        "phantasos.generator.sdk.generate.generate", fake_generate
+    )
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},
     )
     monkeypatch.setattr("phantasos.scaffold.render_scaffold", fake_scaffold)
@@ -185,7 +191,9 @@ def test_build_writes_ignore_and_scaffolds(
 def test_build_requires_project_block(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
     (prod / "openapi.yml").write_text(
@@ -203,7 +211,9 @@ def test_build_requires_project_block(
 def test_build_requires_readme_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
     (prod / "openapi.yml").write_text(
