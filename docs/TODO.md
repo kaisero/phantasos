@@ -74,7 +74,7 @@ The ADEM SDK is generated to the sibling `../adem-sdk/` but has **no test suite 
 `adem-sdk/tests/`, mirroring the prisma-browser-sdk layout but scoped to ADEM's component
 set (`auth` + `facade` only — `pagination=None`, `errors=None`).
 
-Build first: `phantasos build transformations/adem.py` (writes the SDK to `../adem-sdk/`).
+Build first: `phantasos sdk build transformations/adem.py` (writes the SDK to `../adem-sdk/`).
 
 - [ ] `tests/conftest.py` — put the SDK on `sys.path` (copy from `prisma-browser-sdk/tests/conftest.py`)
 - [ ] `test_auth.py` — `AdemConfiguration` / `TokenManager` / `api_client_from_env`: bearer-JWT

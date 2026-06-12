@@ -9,9 +9,9 @@ declarative product directory. Create `products/<product>/` with at minimum:
 Then run:
 
 ```bash
-phantasos build <product>           # resolves products/<product>/sdk.yml
+phantasos sdk build <product>       # resolves products/<product>/sdk.yml
 # or pass a direct path:
-phantasos build path/to/sdk.yml
+phantasos sdk build path/to/sdk.yml
 ```
 
 The build pipeline: **preprocess** (generic transforms → declarative transforms →

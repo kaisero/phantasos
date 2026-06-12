@@ -34,7 +34,7 @@ git clone https://github.com/kaisero/phantasos && cd phantasos
 pip install -e .
 
 # generate an SDK from products/prisma-browser
-phantasos build prisma-browser
+phantasos sdk build prisma-browser
 
 # generate a CLI from the built SDK
 phantasos cli build prisma-browser

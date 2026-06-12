@@ -14,7 +14,7 @@ pip install -e .
 ## Build an SDK and CLI
 
 ```bash
-phantasos build prisma-browser        # SDK from products/prisma-browser/
+phantasos sdk build prisma-browser    # SDK from products/prisma-browser/
 phantasos cli build prisma-browser    # CLI from the built SDK
 ```
 
