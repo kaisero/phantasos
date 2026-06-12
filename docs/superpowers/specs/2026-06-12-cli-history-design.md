@@ -50,9 +50,9 @@ extension recipe this WP also documents in CLAUDE.md.
 - With `history.verbose: true`, two additional fields: `request_body` (the built body
   model, dumped) and `response_body` (the result, dumped via the output module's
   `_to_data`-style conversion). Bodies count toward the 50 MB cap naturally.
-- Conscious v1 trim: NO request method/URL field — capturing it would require running
-  the SDK's `_serialize` machinery on every call (today only `--dry-run` pays that
-  cost). Revisit if demand appears.
+- ~~Conscious v1 trim: NO request method/URL field~~ — SUPERSEDED same-day (see the
+  "http_method / http_uri" addendum below): the trim's `_serialize`-cost rationale
+  turned out to be avoidable, and the user requested the fields by default.
 
 ### id assignment & concurrency
 
@@ -171,3 +171,21 @@ canonical checklist:
 `response_body` — a single entry can be very large and may overshoot the size cap in
 one write (the cap check runs before the append; the NEXT command is then skipped).
 Accepted: verbose is opt-in, the cap still bounds growth, one-shot CLI.
+
+## Addendum (2026-06-12): http_method / http_uri captured by default
+
+User-requested reversal of the v1 trim. Every entry that reaches the SDK call now also
+carries `http_method` and `http_uri` (full URI incl. query string) BY DEFAULT.
+
+Mechanism — observe, don't re-serialize: every generated SDK method routes through
+`api_client.call_api(method, url, …)`, and the serialize step has already appended the
+query string to `url` by then. The runtime wraps `api_client.call_api` for the duration
+of the real call (restored in `finally`), capturing the first invocation's
+`(method, url)` — truthful (the actual outgoing request), zero added serialization
+cost. Properties:
+- `--all` pagination: the FIRST page's URI is recorded (later pages differ only by cursor).
+- Errors raised inside `call_api` propagate AFTER capture → error entries carry the
+  fields too. Pre-call failures (body validation) never reach `call_api` → fields
+  absent, consistent with their missing `duration_ms`.
+- Clients without the openapi-generator shape (test fakes, mocks) degrade silently:
+  `getattr` guards → fields absent, never a crash.

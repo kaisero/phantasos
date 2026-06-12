@@ -922,3 +922,15 @@ to the user's working directory, unchanged from the auth flow).
 - **Spec coverage:** config schema/env/.env fix → T1; JSONL module incl. cap/corruption/id → T2; recording scope + entry schema + verbose bodies → T3; read side + reserved guard → T4; CLAUDE.md + real validation + TODO/memory → T5. Out-of-scope items have no tasks (correct).
 - **Type consistency:** `record(entry: dict)`, `read_entries(limit) -> (list, int)`, `read_entry(id) -> dict|None` used identically in T2 (def), T3 (record calls), T4 (read calls). `_history_entry` signature matches both call sites.
 - **Known judgment points for the implementer:** the runtime template must already import `sys` (verify; add if missing); `binding` is bound before `try:` (verified in plan); `test_meta_commands_leave_no_trace` is a regression lock that may pass immediately.
+
+---
+
+### Task 6 (2026-06-12 follow-up, user-requested): http_method/http_uri by default
+
+Per the spec addendum: wrap `api_client.call_api` around the real SDK call in
+`runtime.py.jinja` (capture first `(method, url)` into a dict defined BEFORE the outer
+try so the except branch sees it; restore in finally); `_history_entry` gains an
+`http: dict[str, str] | None` param merged into the entry after `sdk_method`. Tests:
+capture on success (fake api whose method calls its own `api_client.call_api`),
+capture on error (call_api raises ApiException after capture), fields absent for
+plain fakes (no api_client). Then full gate + real rebuild + live verification.
