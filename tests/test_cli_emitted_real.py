@@ -614,3 +614,21 @@ def test_real_config_init_and_show(real_cli, monkeypatch, tmp_path):
     res = r.invoke(main.app, ["config", "show"])
     assert res.exit_code == 0
     assert "pager" in res.output and "merged from" in res.output
+
+
+def test_real_history_records_and_shows(real_cli, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(
+        sys, "argv", ["prisma-browser-cli", "show", "device-group", "--id", "DG1"]
+    )
+    mock = _patch_client(monkeypatch)
+    mock.device_groups.get_device_group_by_id.return_value = {"id": "DG1", "name": "x"}
+    main = importlib.import_module("prisma_browser_cli.main")
+    r = CliRunner()
+    assert r.invoke(main.app, ["show", "device-group", "--id", "DG1"]).exit_code == 0
+    assert (tmp_path / ".prisma-browser-cli" / "history.jsonl").exists()
+    res = r.invoke(main.app, ["show", "cli", "history"])
+    assert res.exit_code == 0
+    assert "device-group" in res.output and "success" in res.output

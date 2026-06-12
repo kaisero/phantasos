@@ -4,10 +4,6 @@
 
 README is currently too verbose and not very user / developer friendly. Change README to include a brief project description, quickstart guide and link to mkdocs
 
-## CLI Paging Issue
-
-It looks like --all / --paging capabilities are not working in generated cli - always maxed at 100 entries
-
 ## Pager Output — DONE (2026-06-11)
 
 Shipped: opt-in auto-threshold pager (`configuration.pager.enabled` in the user config
@@ -46,11 +42,17 @@ the list lands). Logging/history keys also still open.
 
 CLI should have an interactive command to setup the configuration file and ask through options, showcasing the defaults so user can override if necessary
 
-## History File and Show command
+## History File and Show command — DONE (2026-06-12)
 
-CLI should provide a history file so command execution is documented in a organized manner. The history file should be in json format to tag metadata to commands (date, commadn, request, response, status(success, errors, warnings)
-CLI should have a `show cli history` command to view the command history (only the commands)
-CLI should have a `show cli history --verbose` to view it as a table with the various fields (date, command, status)
+Shipped (WP1 of the config-file roadmap): JSONL history at
+`~/.<distribution>/history.jsonl` (`configuration.history.*`: enabled by default,
+`verbose` opt-in records request/response bodies, 50MB cap warns-and-skips), recorded
+for real API calls only; `show cli history` (table: id/date/command/status, --limit)
+and `show cli history --entry <id>` (full JSON). NOTE: the originally-sketched
+`--verbose` LIST flag was superseded — the table is the default view and full detail
+lives behind `--entry`. Also shipped: `.env` now reaches the config layer for all
+`{PREFIX}_*` options, and CLAUDE.md documents the config-extension recipe. Spec:
+docs/superpowers/specs/2026-06-12-cli-history-design.md
 
 ## Status Command
 
