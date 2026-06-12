@@ -92,7 +92,16 @@ def _py_literal(value: object) -> str:
 
 
 def _render_type(f: Flag) -> str:
-    base = _SCALAR_PY.get(f.py_type, "str") if f.kind == "scalar" else "str"
+    if f.kind == "scalar" and f.py_type == "bool":
+        # Typer maps a ``bool`` annotation to an on/off flag that takes NO value
+        # (``--x`` / ``--no-x``). A settable bool field must accept a value like
+        # every other flag (``--x true|false``), so render it as a value-taking
+        # option (``str``) and coerce it to bool at runtime (see runtime._coerce).
+        base = "str"
+    elif f.kind == "scalar":
+        base = _SCALAR_PY.get(f.py_type, "str")
+    else:
+        base = "str"
     # ``X | None`` (not ``Optional[X]``) so the emitted source already matches the
     # modern form ``ruff`` (UP rules) would rewrite to — no dangling Optional
     # import to trip F401. Safe pre-3.10 because of ``from __future__ import

@@ -6,9 +6,31 @@ import pytest
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.introspect import introspect
-from phantasos.generator.cli.render_cli import _py_name, render_cli
+from phantasos.generator.cli.ir import Flag
+from phantasos.generator.cli.render_cli import _py_name, _render_type, render_cli
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
+
+
+def test_bool_scalar_renders_as_value_taking_option():
+    # Typer treats a `bool` annotation as an on/off flag that takes NO value, so a
+    # settable bool field (e.g. --route-to-prisma) must render as a value-taking
+    # option and be coerced to bool at runtime. Required -> bare `str`; optional ->
+    # the `str | None` union. (See test_bool_body_flag_* for the runtime coercion.)
+    req = Flag(name="--route-to-prisma", param="route_to_prisma",
+               py_type="bool", kind="scalar", required=True)
+    opt = Flag(name="--enabled", param="enabled",
+               py_type="bool", kind="scalar", required=False)
+    assert _render_type(req) == "str"
+    assert _render_type(opt) == "str | None"
+
+
+def test_int_scalar_still_renders_native_type():
+    # Regression guard: non-bool scalars keep their REAL Python type so Typer
+    # validates them itself (only bool needs the str-then-coerce treatment).
+    f = Flag(name="--priority", param="priority", py_type="int", kind="scalar",
+             required=True)
+    assert _render_type(f) == "int"
 
 
 def test_py_name_sanitizes_keywords_and_reserved():

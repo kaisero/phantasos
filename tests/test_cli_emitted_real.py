@@ -144,6 +144,51 @@ def test_set_application_variant_constructs_wrapped_body(real_cli, monkeypatch):
     assert inner.name == "MyApp"
 
 
+def test_set_private_application_bool_flag_takes_value(real_cli, monkeypatch):
+    # Regression (user report): a required StrictBool field (route_to_prisma) is a
+    # VALUE flag — `--route-to-prisma true|false`, like every other field — NOT a
+    # Typer on/off flag (which rejected the value as an unexpected extra argument).
+    # The string is coerced to a real bool in the constructed model.
+    import prisma_browser.models as models
+    from typer.testing import CliRunner
+
+    mock = _patch_client(monkeypatch)
+    mock.applications.create_application.return_value = {"id": "APP-2"}
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "application", "private", "--name", "cli-application",
+         "--urls", '[{"url": "pb.example.com"}, {"url": "pb2.example.com"}]',
+         "--primary-url", "pb.example.com", "--route-to-prisma", "false",
+         "--output", "json"],
+    )
+    assert res.exit_code == 0, res.output
+    body = mock.applications.create_application.call_args.kwargs[
+        "create_or_replace_app_input"]
+    inner = body.actual_instance
+    assert isinstance(inner, models.PrivateApplicationInput)
+    assert inner.route_to_prisma is False  # coerced str -> real bool
+
+
+def test_set_application_invalid_json_flag_clean_error(real_cli, monkeypatch):
+    # Regression (user report): a non-JSON value for a JSON-string flag (--urls)
+    # reports a clean, flag-named error — not a raw JSONDecodeError traceback.
+    from typer.testing import CliRunner
+
+    _patch_client(monkeypatch)
+    main = importlib.import_module("prisma_browser_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "application", "private", "--name", "cli-application",
+         "--urls", "pb.example.com,pb2.example.com",
+         "--primary-url", "pb.example.com", "--route-to-prisma", "false"],
+    )
+    assert res.exit_code != 0
+    # clean exit, never a raw traceback
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    assert "--urls" in res.stderr
+
+
 def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
