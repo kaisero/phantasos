@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.introspect import introspect
@@ -74,5 +76,18 @@ def test_render_cli_wipes_generated_but_preserves_handowned(tmp_path):
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
     assert main.read_text() == "# user edits\n"   # hand-owned preserved
     assert not stale.exists()                       # _generated wiped
+
+
+def test_render_rejects_reserved_cli_object(tmp_path):
+    from phantasos.generator.cli.ir import CliIR, Command, MethodBinding
+
+    ir = CliIR(
+        sdk_package="x", sdk_version="0.0.0",
+        commands=[Command(
+            verb="show", object="cli", key="show:cli", sdk_resource="clis",
+            bindings=[MethodBinding(sdk_method="list_clis", sub_verb="list")],
+        )])
+    with pytest.raises(ValueError, match="reserved"):
+        render_cli(ir, package="x_cli", out_dir=tmp_path)
 
 

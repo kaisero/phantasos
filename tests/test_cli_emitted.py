@@ -1519,3 +1519,57 @@ def test_runtime_verbose_records_bodies(emitted, monkeypatch, tmp_path):
     (entry,), _ = hist.read_entries(0)
     assert entry["request_body"]["name"] == "x"
     assert entry["response_body"]["id"] == "new"
+
+
+def test_show_cli_history_table_limit_entry(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    for i in range(25):
+        hist.record({"ts": f"2026-06-12T0{i % 10}:00:00+00:00",
+                     "command": f"show widget --id w{i}", "status": "success"})
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    res = r.invoke(main.app, ["show", "cli", "history"])
+    assert res.exit_code == 0
+    assert "w24" in res.output           # newest included
+    assert "w4" not in res.output        # default --limit 20 cuts the oldest 5
+    assert "w5" in res.output
+
+    res = r.invoke(main.app, ["show", "cli", "history", "--limit", "0"])
+    assert "w0" in res.output            # everything
+
+    res = r.invoke(main.app, ["show", "cli", "history", "--entry", "3"])
+    assert res.exit_code == 0
+    assert '"id"' in res.output and "w2" in res.output  # full JSON of entry 3
+
+    res = r.invoke(main.app, ["show", "cli", "history", "--entry", "999"])
+    assert res.exit_code == 1
+
+
+def test_show_cli_history_empty_state(emitted, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["show", "cli", "history"])
+    assert res.exit_code == 0
+    assert "empty" in res.output
+
+
+def test_runtime_verbose_paginate_all_records_list_body(emitted, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    _write_user_config(home, "configuration:\n  history:\n    verbose: true\n")
+    monkeypatch.setenv("HOME", str(home))
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    hist = importlib.import_module("fakesdk_cli._generated.history")
+    calls: list = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    rt.run("show:widget", path={}, body={}, query={}, output="json",
+           paginate_all=True, dry_run=False, verbose=False)
+    (entry,), _ = hist.read_entries(0)
+    assert entry["status"] == "success"
+    assert isinstance(entry["response_body"], list)

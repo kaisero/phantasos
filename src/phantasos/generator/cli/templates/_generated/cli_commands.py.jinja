@@ -1,0 +1,49 @@
+"""`show cli` meta-object: CLI introspection (history; future: status, changelog)."""
+
+from __future__ import annotations
+
+import typer
+from rich.table import Table
+
+from . import history as _history
+from . import output as _output
+
+cli_show_app = typer.Typer(no_args_is_help=True, help="CLI meta information.")
+
+
+@cli_show_app.command("history")
+def show_history(
+    limit: int = typer.Option(20, "--limit", help="Entries to show (0 = all)."),
+    entry: int | None = typer.Option(
+        None, "--entry", help="Show ONE entry as full JSON (includes bodies if recorded)."
+    ),
+    pager: bool | None = typer.Option(
+        None, "--pager/--no-pager",
+        help="Page output taller than the terminal (default from config).",
+        rich_help_panel="Common",
+    ),
+) -> None:
+    """Show the command history (newest entries last)."""
+    if entry is not None:
+        e = _history.read_entry(entry)
+        if e is None:
+            typer.echo(f"error: no history entry with id {entry}", err=True)
+            raise typer.Exit(1)
+        _output._console.print_json(data=e)
+        return
+    entries, corrupt = _history.read_entries(limit)
+    if corrupt:
+        typer.echo(f"warning: skipped {corrupt} corrupt history line(s)", err=True)
+    if not entries:
+        typer.echo("history is empty")
+        return
+    table = Table("id", "date", "command", "status")
+    for e in entries:
+        # display timestamps to the minute (full ISO ts stays in the file/--entry)
+        ts = str(e.get("ts", ""))[:16].replace("T", " ")
+        table.add_row(
+            str(e.get("id", "")), ts,
+            str(e.get("command", "")), str(e.get("status", "")),
+        )
+    with _output.maybe_paged(pager):
+        _output._console.print(table)

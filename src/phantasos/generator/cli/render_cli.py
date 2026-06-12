@@ -278,6 +278,12 @@ def render_cli(
     env_prefix: str | None = None,
     distribution: str | None = None,
 ) -> list[str]:
+    reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
+    if reserved:
+        raise ValueError(
+            "object name 'cli' is reserved for CLI meta-commands "
+            "(show cli history); rename the API object via a cli.yml override"
+        )
     env = _env()
     pkg = out_dir / package
     gen = pkg / "_generated"
@@ -305,6 +311,7 @@ def render_cli(
     render("_generated/default_config.yml.jinja", gen / "default_config.yml")
     render("_generated/config_commands.py.jinja", gen / "config_commands.py")
     render("_generated/history.py.jinja", gen / "history.py")
+    render("_generated/cli_commands.py.jinja", gen / "cli_commands.py")
     render("_generated/output.py.jinja", gen / "output.py")
     render("_generated/runtime.py.jinja", gen / "runtime.py")
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed

@@ -9,6 +9,7 @@ import typer
 {%- for resource in resources %}
 from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
+from . import cli_commands as _cli_commands
 from . import config_commands as _config_commands
 
 _DISTRIBUTION = "{{ distribution }}"
@@ -54,6 +55,7 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
     app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
+    verb_apps["show"].add_typer(_cli_commands.cli_show_app, name="cli")
     resources = {
 {%- for resource in resources %}
         {{ resource|tojson }}: _cmd_{{ resource }},
