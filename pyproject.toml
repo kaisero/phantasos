@@ -2,7 +2,7 @@
 name = "phantasos"
 version = "0.1.0"
 description = "Generate native, self-contained Python SDKs and CLIs from OpenAPI specs."
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -35,8 +35,20 @@ Changelog = "https://github.com/kaisero/phantasos/blob/main/CHANGELOG.md"
 phantasos = "phantasos.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
+
+# PyPI readme: README.md with the HTML logo block (which PyPI's renderer strips)
+# replaced by a plain "# Phantasos" header. Single source of truth: README.md.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+text = "# Phantasos\n"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+start-after = "<!-- pypi-readme-start -->\n"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/phantasos"]
