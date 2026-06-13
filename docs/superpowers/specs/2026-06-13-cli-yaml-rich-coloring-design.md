@@ -39,10 +39,20 @@ def print_yaml(text: str) -> None:
             background_color="default",
             word_wrap=False,
             line_numbers=False,
-        )
+        ),
+        soft_wrap=True,
     )
 ```
 
+- **`soft_wrap=True` is mandatory.** Off-TTY, `Console` falls back to width 80 and
+  `Syntax` renders fixed-width segments that **crop** lines longer than the width
+  (even with `word_wrap=False`) — silently truncating long YAML values (URLs,
+  tokens, base64) and breaking the round-trip invariant. `soft_wrap=True` disables
+  both wrapping and cropping while keeping colors on a TTY. (Verified against rich
+  15.0.0 in all TTY/pipe × short/long-line cases.) NOTE: this is the one place the
+  YAML path is NOT symmetric with JSON — `print_json` does not crop off-TTY, so
+  the parity is "highlight-on-TTY / plain-off-TTY," achieved via different rich
+  primitives; `soft_wrap` is what restores behavioral parity.
 - `theme="ansi_dark"` → maps tokens to the 16 ANSI colors, respecting the
   terminal palette (consistent with how `print_json` uses console colors);
   `background_color="default"` → transparent, matching `print_json`'s
@@ -76,6 +86,14 @@ def print_yaml(text: str) -> None:
 `config` imports only `diagnostics`; neither imports `config_commands`. Adding
 `from . import output` to `config_commands` introduces no cycle.
 
+### Dependency
+
+`Syntax` needs `pygments` (the `"yaml"` lexer). It resolves only transitively
+today (rich depends on pygments), but the emitted CLI now imports a lexer
+directly — make it explicit: add `"pygments>=2"` to `_CLI_DEPS` in
+`src/phantasos/generator/cli/scaffold_context.py`. (Third file changed, alongside
+`output.py.jinja` and `config_commands.py.jinja`.)
+
 ## Behavior / invariants
 
 - **TTY:** both `--output yaml` and `config show` are syntax-highlighted.
@@ -93,17 +111,26 @@ def print_yaml(text: str) -> None:
 
 ## Testing (behavioral, through the emitted package — `tests/test_cli_emitted.py` `emitted` fixture)
 
-1. Keep `test_yaml_output_has_no_trailing_blank_line`.
-2. `--output yaml` colored on a terminal: render with a forced-terminal console
-   (so `is_terminal` is true) → output contains ANSI SGR escapes (`\x1b[`).
-3. `--output yaml` piped (default `CliRunner`, non-TTY): **no** ANSI, ends with
-   exactly one newline, `yaml.safe_load(output)` equals the source data.
-4. `config show` piped: no ANSI, content byte-identical to the pre-change plain
-   dump, `yaml.safe_load` round-trips.
-5. `config show` colored on a forced terminal: contains ANSI.
+**Forcing color deterministically:** `_console` is built at import, so tests must
+inject a terminal console rather than rely on ambient color (CI sets
+`FORCE_COLOR`, local doesn't — relying on it fake-greens). Use the established
+pattern (the diagnostics styled-icon test in `test_cli_emitted.py`):
+`monkeypatch.setattr(<emitted>.output, "_console", Console(force_terminal=True, file=buf))`
+— `print_yaml` reads the module global at call time, so this takes effect.
 
-Force the terminal explicitly in the colored cases (don't rely on ambient color —
-CI sets `FORCE_COLOR`, local doesn't; tests must be deterministic either way).
+1. Keep `test_yaml_output_has_no_trailing_blank_line`.
+2. **Colored on a terminal:** with a forced-terminal `_console`, `--output yaml`
+   output contains ANSI SGR escapes (`\x1b[`).
+3. **Piped (default `CliRunner`, non-TTY):** no ANSI, exactly one trailing
+   newline, `yaml.safe_load(output)` equals the source data.
+4. **Long-line round-trip (regression guard for the crop blocker):** a payload
+   with a value far longer than 80 columns, piped → `yaml.safe_load(output)`
+   equals the source (no truncation). Also exercise a list/nested payload.
+5. **`config show` piped:** no ANSI; content byte-identical to the pre-change
+   plain dump; `yaml.safe_load` round-trips. (`merged from: …` stays on stderr via
+   `_diag.info`; the YAML goes to stdout — `CliRunner` mixes both into `.output`.)
+6. **`config show` colored** on a forced terminal: contains ANSI.
+
 Run the offline gate (`uv run nox`) — lint/type/tests/docs green.
 
 ## Plan / review
