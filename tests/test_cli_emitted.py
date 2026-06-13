@@ -2667,14 +2667,6 @@ def test_env_option_in_help_and_threads_selection(
     assert captured["client_id"] == "STAGING"  # -e selected staging's fields
 
 
-def test_env_redact_masks_only_secrets(emitted_auth: Path) -> None:
-    cfg = importlib.import_module("fakesdk_cli._generated.config")
-    assert cfg._redact("client_secret", "s3cr3t") == "***"  # secret field masked
-    assert cfg._redact("client_id", "abc123") == "abc123"  # non-secret unchanged
-    assert cfg._redact("client_secret", None) is None  # unset stays None
-    assert cfg._redact("client_secret", "") == ""  # empty stays empty
-
-
 # --- PR3: gating (no-auth CLI must be unaffected) -----------------------------
 
 
@@ -2708,3 +2700,362 @@ def test_no_auth_help_has_no_environment_flag(emitted: Path) -> None:
     assert not hasattr(rt, "select_environment")
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     assert not hasattr(cfg, "resolve_environment")
+
+
+# --- PR4: `config environment` command group ----------------------------------
+
+
+def _read_config_yml(home: Path) -> dict[str, Any]:
+    import yaml as _yaml
+
+    text = (home / ".fakesdk_cli" / "config.yml").read_text(encoding="utf-8")
+    data: dict[str, Any] = _yaml.safe_load(text)
+    return data
+
+
+def test_env_create_writes_fields_and_auto_activates(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # secret supplied via the hidden prompt; the rest on the command line
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "config",
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--scope",
+            "tsg_id:1",
+            "--base-url",
+            "https://api",
+        ],
+        input="s3cr3t\n",
+    )
+    assert res.exit_code == 0, res.output
+
+    data = _read_config_yml(home)
+    assert data["environments"]["prod"] == {
+        "client_id": "abc",
+        "client_secret": "s3cr3t",  # captured from the hidden prompt, stored as-is
+        "scope": "tsg_id:1",
+        "base_url": "https://api",
+    }
+    # no default existed -> the first environment is auto-activated
+    assert data["default_environment"] == "prod"
+
+
+def test_env_create_stores_ref_verbatim(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "config",
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "${PROD_SECRET}",  # a ${VAR} reference, not a literal
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    data = _read_config_yml(home)
+    # stored VERBATIM — NOT resolved at write time
+    assert data["environments"]["prod"]["client_secret"] == "${PROD_SECRET}"
+
+
+def test_env_create_duplicate_requires_force(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    args = [
+        "config",
+        "environment",
+        "create",
+        "prod",
+        "--client-id",
+        "abc",
+        "--client-secret",
+        "s",
+        "--scope",
+        "s",
+        "--base-url",
+        "u",
+    ]
+    assert r.invoke(main.app, args).exit_code == 0
+    # re-create the same name -> refused with exit code 2
+    res_dup = r.invoke(main.app, args)
+    assert res_dup.exit_code == 2, res_dup.output
+    assert "already exists" in (res_dup.stderr or res_dup.output)
+    # --force overwrites
+    res_force = r.invoke(
+        main.app,
+        [
+            "config",
+            "environment",
+            "create",
+            "prod",
+            "--force",
+            "--client-id",
+            "xyz",
+            "--client-secret",
+            "s",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res_force.exit_code == 0, res_force.output
+    assert _read_config_yml(home)["environments"]["prod"]["client_id"] == "xyz"
+
+
+def test_env_activate_undefined_errors_and_existing_updates_default(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod: {client_id: PROD}\n"
+        "  staging: {client_id: STAGING}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    # activating an undefined environment -> exit code 2
+    res_bad = r.invoke(main.app, ["config", "environment", "activate", "nope"])
+    assert res_bad.exit_code == 2, res_bad.output
+    assert "no such environment" in (res_bad.stderr or res_bad.output)
+    # the default is unchanged after the failed activate
+    assert _read_config_yml(home)["default_environment"] == "prod"
+
+    # activating an existing one updates default_environment
+    res_ok = r.invoke(main.app, ["config", "environment", "activate", "staging"])
+    assert res_ok.exit_code == 0, res_ok.output
+    assert _read_config_yml(home)["default_environment"] == "staging"
+
+
+def test_env_list_marks_active_and_hides_secrets(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: staging\n"
+        "environments:\n"
+        "  prod: {client_id: PROD, client_secret: prodsecret}\n"
+        "  staging: {client_id: STAGING, client_secret: stagesecret}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["config", "environment", "list"])
+    assert res.exit_code == 0, res.output
+    out = res.output
+    assert "prod" in out and "staging" in out
+    # the active environment is marked
+    active_line = next(ln for ln in out.splitlines() if ln.startswith("staging"))
+    assert "active" in active_line
+    prod_line = next(ln for ln in out.splitlines() if ln.startswith("prod"))
+    assert "active" not in prod_line
+    # NEVER print field values / secrets
+    assert "prodsecret" not in out and "stagesecret" not in out
+    assert "PROD" not in out and "STAGING" not in out
+
+
+def test_env_list_empty_says_so(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["config", "environment", "list"])
+    assert res.exit_code == 0, res.output
+    assert "no environments" in (res.output + (res.stderr or "")).lower()
+
+
+def test_env_current_prints_active(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["config", "environment", "current"])
+    assert res.exit_code == 0, res.output
+    assert res.output.strip() == "prod"
+
+
+def test_env_current_no_active_errors(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["config", "environment", "current"])
+    assert res.exit_code == 2, res.output
+
+
+def test_env_create_preserves_other_top_level_keys(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "configuration:\n  output:\n    format: table\n"
+        "default_environment: existing\n"
+        "environments:\n  existing: {client_id: OLD}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "config",
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "s",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    data = _read_config_yml(home)
+    # existing configuration tree + prior environment survive
+    assert data["configuration"]["output"]["format"] == "table"
+    assert data["environments"]["existing"] == {"client_id": "OLD"}
+    assert "prod" in data["environments"]
+    # a default already existed -> NOT overwritten by the new env
+    assert data["default_environment"] == "existing"
+
+
+def test_env_create_secret_never_written_to_history(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Secret-leak guard: a config-group command records NO history, so a secret
+    (whether on the command line or prompted) never lands in the history file."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # secret on the command line
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "config",
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "s3cr3t",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    history = home / ".fakesdk_cli" / "history.jsonl"
+    # config-group commands do not go through runtime.run() -> no history at all
+    assert not history.exists()
+
+
+def test_env_group_emitted_and_visible_in_help(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # the hand-written module is emitted verbatim for an auth CLI
+    assert (
+        emitted_auth / "fakesdk_cli" / "_generated" / "environment_commands.py"
+    ).exists()
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    cfg_help = _strip_ansi(r.invoke(main.app, ["config", "--help"]).output)
+    assert "environment" in cfg_help
+    env_help = _strip_ansi(
+        r.invoke(main.app, ["config", "environment", "--help"]).output
+    )
+    for verb in ("create", "activate", "list", "current"):
+        assert verb in env_help
+    # the dynamic per-field create options are present, by kebab name
+    create_help = _strip_ansi(
+        r.invoke(main.app, ["config", "environment", "create", "--help"]).output
+    )
+    assert "--client-id" in create_help
+    assert "--client-secret" in create_help
+    assert "--scope" in create_help
+    assert "--base-url" in create_help
+
+
+def test_no_auth_has_no_environment_group(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # the hand-written module is NOT emitted for a no-auth CLI
+    assert not (
+        emitted / "fakesdk_cli" / "_generated" / "environment_commands.py"
+    ).exists()
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    cfg_help = _strip_ansi(r.invoke(main.app, ["config", "--help"]).output)
+    assert "environment" not in cfg_help
+    # invoking the subcommand fails (the group is absent)
+    res = r.invoke(main.app, ["config", "environment", "--help"])
+    assert res.exit_code != 0

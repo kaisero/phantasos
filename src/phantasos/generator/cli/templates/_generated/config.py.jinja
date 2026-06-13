@@ -304,17 +304,8 @@ def resolve_environment(name: str) -> dict[str, Any]:
 
     Maps each known credential field to its resolved value (``${VAR}`` expanded);
     fields absent from the environment block resolve to ``None``."""
-    env = _raw_environments().get(name) or {}
+    env = _raw_environments().get(name)
+    if not isinstance(env, dict):
+        env = {}
     return {f["name"]: _resolve_value(env.get(f["name"])) for f in _ENV_FIELDS}
-
-
-def _redact(name: str, value: Any) -> Any:
-    """Mask a secret field's value for display.
-
-    Returns ``"***"`` when the named field is secret and has a value; otherwise
-    the value unchanged. The SINGLE place secrets get masked for display."""
-    if value is None or value == "":
-        return value
-    secret = any(f["name"] == name and f["secret"] for f in _ENV_FIELDS)
-    return "***" if secret else value
 {% endif %}

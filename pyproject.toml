@@ -122,7 +122,14 @@ show_error_codes = true
 files = ["src", "tests"]
 # Fixtures deliberately mirror OpenAPI-Generator output (untyped); they are not
 # code-under-test, so keep them out of strict analysis (ruff special-cases them too).
-exclude = ['^tests/fixtures/']
+# environment_commands.py is hand-written but EMITTED verbatim into a generated CLI
+# package: its `from . import config/runtime/...` resolve against the .jinja-only
+# templates dir here (not real modules), so it can only be type-checked in the
+# emitted context. It is behaviorally validated through the emitted-CLI test suite.
+exclude = [
+    '^tests/fixtures/',
+    'templates/_generated/environment_commands\.py$',
+]
 
 [[tool.mypy.overrides]]
 module = ["ruamel", "ruamel.*"]

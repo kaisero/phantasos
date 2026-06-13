@@ -367,6 +367,15 @@ def render_cli(
     spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
     (gen / "spec.py").write_text(spec_src, encoding="utf-8")
     written.append(str((gen / "spec.py").relative_to(out_dir)))
+    # Hand-written `config environment` commands: copied verbatim (same mechanism
+    # as spec.py) so the security-relevant prompting/secret/file-write logic stays
+    # normal, testable Python. Emitted ONLY for auth CLIs; a no-auth CLI never
+    # references it (and app.py does not register it — see the gated block there).
+    if ir.credential_fields:
+        env_cmds_path = _TEMPLATES / "_generated" / "environment_commands.py"
+        env_cmds_src = env_cmds_path.read_text(encoding="utf-8")
+        (gen / "environment_commands.py").write_text(env_cmds_src, encoding="utf-8")
+        written.append(str((gen / "environment_commands.py").relative_to(out_dir)))
     (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
     written.append(str((gen / "ir.json").relative_to(out_dir)))
 
