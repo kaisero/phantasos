@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 
@@ -27,6 +27,19 @@ class CredentialField(BaseModel):
     secret: bool = False
     required: bool = True
     client_kwarg: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_reserved(cls, v: str) -> str:
+        # The generated `config environment create` command exposes a `name`
+        # argument and a `--force` flag; a credential field of the same name
+        # would collide with them. Caught at codegen, not CLI invocation.
+        if v in {"name", "force"}:
+            raise ValueError(
+                f"credential field name {v!r} is reserved "
+                "(collides with `create`'s name argument / --force flag)"
+            )
+        return v
 
 
 Verb = Literal["create", "update", "delete", "show", "request", "load", "backup"]

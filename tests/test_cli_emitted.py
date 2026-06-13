@@ -2740,6 +2740,7 @@ def test_env_create_writes_fields_and_auto_activates(
         input="s3cr3t\n",
     )
     assert res.exit_code == 0, res.output
+    assert "s3cr3t" not in res.output  # hidden prompt must not echo the secret
 
     data = _read_config_yml(home)
     assert data["environments"]["prod"] == {
@@ -2748,6 +2749,11 @@ def test_env_create_writes_fields_and_auto_activates(
         "scope": "tsg_id:1",
         "base_url": "https://api",
     }
+    # the credentials file must be private (it holds client_secret)
+    import stat
+
+    mode = stat.S_IMODE((home / ".fakesdk_cli" / "config.yml").stat().st_mode)
+    assert mode == 0o600, oct(mode)
     # no default existed -> the first environment is auto-activated
     assert data["default_environment"] == "prod"
 

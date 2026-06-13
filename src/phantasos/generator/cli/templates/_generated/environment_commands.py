@@ -13,6 +13,7 @@ literal OR a ``${VAR}`` reference string — and resolved only at client-build t
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import click
@@ -36,18 +37,24 @@ def _credential_fields() -> list[Any]:
 
 
 def _write_raw_config(data: dict[str, Any]) -> None:
-    """Dump the full raw config dict back to disk, creating parent dirs.
+    """Atomically dump the full raw config dict back to disk at 0o600.
 
     Preserves every other top-level key — we only ever mutate the caller's
-    in-memory copy of the raw config before handing it here."""
+    in-memory copy of the raw config before handing it here. The file may hold
+    secret credentials, so it is created private (0o600) and written via a temp
+    file + atomic rename so a crash mid-write can't corrupt an existing config."""
     path = _config.config_path()
+    content = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    tmp = path.with_name(path.name + ".tmp")
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        tmp.replace(path)
+        path.chmod(0o600)  # tighten even if the file pre-existed
     except OSError as exc:
+        tmp.unlink(missing_ok=True)
         _diag.fail(f"cannot write {path}: {exc}", code=1)
 
 
@@ -78,7 +85,7 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
 
     environments[name] = values
     raw["environments"] = environments
-    first_environment = not _config.default_environment()
+    first_environment = not isinstance(raw.get("default_environment"), str)
     if first_environment:
         raw["default_environment"] = name
     _write_raw_config(raw)
