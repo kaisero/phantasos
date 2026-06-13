@@ -1556,6 +1556,61 @@ def test_yaml_output_has_no_trailing_blank_line(
     assert not text.endswith("\n\n")
 
 
+def test_yaml_output_colored_on_terminal(emitted: Path) -> None:
+    import io
+
+    from rich.console import Console
+
+    out: Any = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return {"name": "widget-1", "enabled": True}
+
+    buf = io.StringIO()
+    # force a TTY-like console; no_color=False ensures NO_COLOR env var is ignored
+    out._console = Console(file=buf, force_terminal=True, no_color=False)
+    out.render(_Model(), fmt="yaml")
+    assert "\x1b[" in buf.getvalue()  # ANSI styling present on a terminal
+
+
+def test_yaml_output_plain_and_round_trips_when_piped(
+    emitted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import yaml
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    payload = {"name": "widget-1", "enabled": True, "tags": ["a", "b"]}
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return payload
+
+    out.render(_Model(), fmt="yaml")
+    text = capsys.readouterr().out
+    assert "\x1b[" not in text  # no ANSI off a terminal
+    assert text.endswith("\n") and not text.endswith("\n\n")  # exactly one newline
+    assert yaml.safe_load(text) == payload
+
+
+def test_yaml_output_long_line_not_truncated_when_piped(
+    emitted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression guard: rich Syntax crops to width 80 off-TTY unless soft_wrap=True.
+    import yaml
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    payload = {"url": "https://example.com/" + "x" * 300}
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return payload
+
+    out.render(_Model(), fmt="yaml")
+    text = capsys.readouterr().out
+    assert yaml.safe_load(text) == payload  # full value, no truncation
+
+
 def test_autopager_short_content_writes_direct(
     emitted: Path,
     monkeypatch: pytest.MonkeyPatch,

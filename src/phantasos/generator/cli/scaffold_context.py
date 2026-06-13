@@ -8,6 +8,7 @@ from typing import Any
 _CLI_DEPS = [
     "typer>=0.12",
     "rich>=13",
+    "pygments>=2",
     "pyyaml>=6",
     "python-dotenv>=1.0",
     "jmespath>=1.0",
