@@ -60,6 +60,7 @@ artifacts = [
     "src/phantasos/generator/cli/templates/**",
     "src/phantasos/generator/cli/cli_overrides/**",
     "src/phantasos/scaffold/**",
+    "src/phantasos/generator/sdk/oag_templates/**",
 ]
 
 [tool.hatch.build.targets.sdist]

@@ -10,6 +10,7 @@ from ..exceptions import (  # noqa: F401  (re-exported)
     BadRequestException,
     ForbiddenException,
     NotFoundException,
+    RateLimitException,
     ServiceException,
     UnauthorizedException,
 )
@@ -20,14 +21,10 @@ __all__ = [
     "UnauthorizedException",
     "ForbiddenException",
     "NotFoundException",
+    "RateLimitException",
     "ServiceException",
-    "is_rate_limited",
     "error_message",
 ]
-
-
-def is_rate_limited(exc: ApiException) -> bool:
-    return getattr(exc, "status", None) == 429
 
 
 def error_message(exc: ApiException) -> str:

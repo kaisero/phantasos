@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Layered user config + auto-pager + JSONL command history for generated CLIs
 - Diagnostics/error UX overhaul (stderr facade, `--quiet`, help panels)
 - SDK generator: oneOf discriminator lookup
+- SDK generator: retry-with-jitter (Tier-1 component) + typed `RateLimitException` (Tier-2 `exceptions.mustache`)
 
 ### Changed
 

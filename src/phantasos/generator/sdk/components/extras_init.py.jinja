@@ -15,15 +15,17 @@ from .errors import (
     BadRequestException,
     ForbiddenException,
     NotFoundException,
+    RateLimitException,
     ServiceException,
     UnauthorizedException,
     error_message,
-    is_rate_limited,
 )
 {% endif %}{% if has_facade %}
 from .facade import Client
 {% endif %}{% if has_pagination %}
 from .pagination import paginate
+{% endif %}{% if has_retry %}
+from .retry import JitteredRetry, default_retry
 {% endif %}
 __all__ = [
 {% if has_facade %}    "Client",
@@ -31,6 +33,7 @@ __all__ = [
     "{{ config_class_name }}", "TokenManager", "DEFAULT_BASE_URL", "DEFAULT_TOKEN_URL",
 {% endif %}{% if has_pagination %}    "paginate",
 {% endif %}{% if has_errors %}    "ApiException", "BadRequestException", "UnauthorizedException",
-    "ForbiddenException", "NotFoundException", "ServiceException",
-    "is_rate_limited", "error_message",
+    "ForbiddenException", "NotFoundException", "RateLimitException", "ServiceException",
+    "error_message",
+{% endif %}{% if has_retry %}    "JitteredRetry", "default_retry",
 {% endif %}]

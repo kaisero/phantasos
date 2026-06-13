@@ -67,6 +67,7 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
         has_pagination=False,
         has_errors=False,
         has_facade=False,
+        has_retry=False,
         auth_env_vars=_auth_env_vars(loaded),
     )
     if project is not None:

@@ -14,6 +14,7 @@ from .config import (
     BUILTIN_ERRORS,
     BUILTIN_FACADE,
     BUILTIN_PAGINATION,
+    BUILTIN_RETRY,
 )
 
 _BASE_DEPS = [
@@ -85,6 +86,7 @@ class ProductConfig(BaseModel):
     pagination: dict[str, Any] | None = None
     errors: dict[str, Any] | None = None
     facade: bool | dict[str, Any] = True
+    retry: bool | dict[str, Any] = True
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
@@ -132,6 +134,7 @@ class LoadedProduct:
     pagination: Any | None
     errors: Any | None
     facade: Any | None
+    retry: Any | None
     context: dict[str, Any]
 
 
@@ -188,6 +191,12 @@ def load_product(name_or_path: str) -> LoadedProduct:
         block.setdefault("type", "default")
         facade = resolve_component(block, BUILTIN_FACADE, base_dir)
 
+    retry = None
+    if cfg.retry:
+        block = {"type": "default"} if cfg.retry is True else dict(cfg.retry)
+        block.setdefault("type", "default")
+        retry = resolve_component(block, BUILTIN_RETRY, base_dir)
+
     spec_path = (base_dir / cfg.spec).resolve()
     info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
 
@@ -201,6 +210,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_pagination": pagination is not None,
         "has_errors": errors is not None,
         "has_facade": facade is not None,
+        "has_retry": retry is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
     }
     if cfg.project is not None:
@@ -241,5 +251,6 @@ def load_product(name_or_path: str) -> LoadedProduct:
         pagination=pagination,
         errors=errors,
         facade=facade,
+        retry=retry,
         context=context,
     )

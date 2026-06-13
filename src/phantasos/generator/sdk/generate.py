@@ -17,6 +17,8 @@ _JAR_URL = (
 JAR_SHA256 = "3f1e6ce5c6ad4f15242c6170ab43aad4bad771622617eeece4a7d4f72ffaf329"
 
 
+_OAG_TEMPLATES = Path(__file__).parent / "oag_templates" / "python"
+
 _OAG_IGNORE = [
     "setup.py",
     "setup.cfg",
@@ -59,23 +61,23 @@ def ensure_jar() -> Path:
     return jar
 
 
-def generate(
+def _oag_cmd(
     spec_path: str,
     out_dir: str,
     package: str,
-    library: str = "urllib3",
-    oneof_discriminator_lookup: bool = True,
-) -> None:
-    java = provision.resolve_java()
-    jar = ensure_jar()
+    library: str,
+    oneof_discriminator_lookup: bool,
+) -> list[str]:
     lookup = "true" if oneof_discriminator_lookup else "false"
-    cmd = [
-        str(java),
+    return [
+        str(provision.resolve_java()),
         "-jar",
-        str(jar),
+        str(ensure_jar()),
         "generate",
         "-g",
         "python",
+        "-t",
+        str(_OAG_TEMPLATES),
         "-i",
         spec_path,
         "-o",
@@ -90,4 +92,17 @@ def generate(
         "--inline-schema-options",
         "RESOLVE_INLINE_ENUMS=true",
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+
+def generate(
+    spec_path: str,
+    out_dir: str,
+    package: str,
+    library: str = "urllib3",
+    oneof_discriminator_lookup: bool = True,
+) -> None:
+    subprocess.run(
+        _oag_cmd(spec_path, out_dir, package, library, oneof_discriminator_lookup),
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
