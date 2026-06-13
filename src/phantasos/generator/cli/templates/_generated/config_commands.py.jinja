@@ -7,6 +7,7 @@ import yaml
 
 from . import config as _config
 from . import diagnostics as _diag
+from . import output as _output
 
 config_app = typer.Typer(
     no_args_is_help=True, help="Manage the CLI configuration file."
@@ -41,9 +42,8 @@ def config_show() -> None:
     _cfg, _warnings, sources = _config.load_config()
     _config.warn_once()
     _diag.info(f"merged from: {', '.join(sources)}")
-    typer.echo(
+    _output.print_yaml(
         yaml.safe_dump(
             _config.effective_dict(), sort_keys=False, default_flow_style=False
-        ),
-        nl=False,
+        )
     )

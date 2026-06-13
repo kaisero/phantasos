@@ -1712,6 +1712,31 @@ def test_maybe_paged_uses_pager_when_tty(
     assert "row49" in sink.read_text(encoding="utf-8")
 
 
+def test_config_show_yaml_routes_through_shared_console(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import io
+
+    from rich.console import Console
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # piped (non-TTY): plain YAML, no ANSI, content intact
+    res = CliRunner().invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "\x1b[" not in res.output and "format: json" in res.output
+
+    # forced terminal: config show YAML is colored via the shared _console
+    out: Any = importlib.import_module("fakesdk_cli._generated.output")
+    buf = io.StringIO()
+    out._console = Console(file=buf, force_terminal=True, no_color=False)
+    res2 = CliRunner().invoke(main.app, ["config", "show"])
+    assert res2.exit_code == 0
+    assert "\x1b[" in buf.getvalue()  # YAML went through print_yaml -> _console
+
+
 def test_config_init_and_show_commands(
     emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
