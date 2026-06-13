@@ -1472,7 +1472,8 @@ def test_pager_flag_present_and_run_wires_it(
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     main = importlib.import_module("fakesdk_cli.main")
     res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
-    assert "--pager" in res.output and "--no-pager" in res.output
+    help_out = _strip_ansi(res.output)
+    assert "--pager" in help_out and "--no-pager" in help_out
 
     out = importlib.import_module("fakesdk_cli._generated.output")
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -1702,12 +1703,20 @@ def test_config_group_in_its_own_help_panel(
 
 
 _PANEL_RE = re.compile(r"╭─+\s(.+?)\s─+╮")
+# CI (e.g. GitHub Actions) renders the emitted CLI's Rich help in color, so the
+# output carries ANSI escapes that split tokens and box borders; strip them before
+# parsing so help-output assertions are deterministic across local and CI runs.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
 
 
 def _panel_titles(help_output: str) -> list[str]:
     """Rich panel titles in render order from a --help screen."""
     titles: list[str] = []
-    for line in help_output.splitlines():
+    for line in _strip_ansi(help_output).splitlines():
         m = _PANEL_RE.search(line)
         if m:
             titles.append(m.group(1).strip())
@@ -1723,18 +1732,19 @@ def test_common_options_panel_renders_last(
     main = importlib.import_module("fakesdk_cli.main")
     res = CliRunner().invoke(main.app, ["show", "widget", "--help"])
     assert res.exit_code == 0
-    titles = _panel_titles(res.output)
+    out = _strip_ansi(res.output)
+    titles = _panel_titles(out)
     assert "Common" in titles
     assert titles[-1] == "Common"  # the lowest container
     # the five members appear after the Common header...
-    idx = res.output.index("Common")
-    tail = res.output[idx:]
+    idx = out.index("Common")
+    tail = out[idx:]
     for flag in ("--output", "--columns", "--dry-run", "--verbose", "--pager"):
         assert flag in tail
     # ...and the domain flag stays in the default Options panel above it
-    assert "--id" in res.output[:idx]
+    assert "--id" in out[:idx]
     # --help remains stock (default panel, i.e. before Common)
-    assert "--help" in res.output[:idx]
+    assert "--help" in out[:idx]
 
 
 def test_pagination_panel_precedes_common_on_non_list_commands(
