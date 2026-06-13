@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from phantasos.config import ScmOAuth
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping, VariantMap
 from phantasos.generator.cli.introspect import introspect
@@ -35,6 +36,30 @@ def emitted(tmp_path: Path) -> Iterator[Path]:
     """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
     ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
+    sys.path.insert(0, str(tmp_path))
+    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+        del sys.modules[name]
+    try:
+        yield tmp_path
+    finally:
+        sys.path.remove(str(tmp_path))
+        for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+            del sys.modules[name]
+
+
+@pytest.fixture
+def emitted_auth(tmp_path: Path) -> Iterator[Path]:
+    """Like `emitted`, but rendered WITH an auth component so the IR carries
+    credential_fields (client_id/client_secret/scope/base_url). Importable as
+    `fakesdk_cli` (env_prefix FAKESDK)."""
+    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    render_cli(
+        ir,
+        package="fakesdk_cli",
+        out_dir=tmp_path,
+        env_prefix="FAKESDK",
+        auth=ScmOAuth(type="scm_oauth"),
+    )
     sys.path.insert(0, str(tmp_path))
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
         del sys.modules[name]
@@ -2425,3 +2450,261 @@ def test_quiet_keeps_errors(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert res.exit_code == 2
     assert "error: --enabled" in res.stderr
+
+
+# --- PR3: named environments ---------------------------------------------------
+
+
+def test_env_resolve_environment_expands_refs(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "configuration:\n  output:\n    format: json\n"
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: abc123\n"
+        "    client_secret: ${PROD_SECRET}\n"
+        "    scope: tsg_id:1234\n"
+        "    base_url: https://api.example.com\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PROD_SECRET", "s3cr3t")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.default_environment() == "prod"
+    resolved = cfg.resolve_environment("prod")
+    assert resolved == {
+        "client_id": "abc123",
+        "client_secret": "s3cr3t",  # ${PROD_SECRET} expanded from the process env
+        "scope": "tsg_id:1234",
+        "base_url": "https://api.example.com",
+    }
+    # an unset ${VAR} resolves to None, not the literal
+    monkeypatch.delenv("PROD_SECRET", raising=False)
+    assert cfg.resolve_environment("prod")["client_secret"] is None
+
+
+def test_env_no_spurious_unknown_key_warning(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "configuration:\n  output:\n    format: json\n"
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: abc123\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    warnings = cfg.load_config()[1]
+    assert warnings == (), warnings  # environments/default_environment NOT flagged
+    assert all("environments" not in w for w in warnings)
+    assert all("default_environment" not in w for w in warnings)
+
+
+def _capture_facade_kwargs(rt: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Monkeypatch the thin _facade_from_env seam to capture threaded kwargs."""
+    captured: dict[str, Any] = {}
+
+    def _fake(**kw: Any) -> Any:
+        captured.update(kw)
+        return object()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    return captured
+
+
+def test_env_vars_override_active_environment(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: ENVID\n"
+        "    client_secret: ${PROD_SECRET}\n"
+        "    base_url: https://api.example.com\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    # chdir off the source tree so find_dotenv(usecwd=True) can't discover a
+    # developer .env above the repo and pollute the credential env vars.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PROD_SECRET", "envfile-secret")
+    monkeypatch.setenv("CLIENT_ID", "SHELLID")  # exported -> beats the config value
+    monkeypatch.delenv("CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("SCOPE", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["client_id"] == "SHELLID"  # env var wins
+    assert captured["client_secret"] == "envfile-secret"  # from the env file
+    assert captured["host"] == "https://api.example.com"  # base_url -> host kwarg
+    assert "scope" not in captured  # unset everywhere -> not threaded
+
+
+def test_env_empty_exported_var_still_wins(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: prod\nenvironments:\n  prod:\n    client_id: ENVID\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    monkeypatch.setenv("CLIENT_ID", "")  # exported but empty -> presence wins
+    monkeypatch.delenv("CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("SCOPE", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["client_id"] == ""  # empty string threaded, NOT "ENVID"
+
+
+def test_env_selection_precedence(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod: {client_id: PROD}\n"
+        "  staging: {client_id: STAGING}\n"
+        "  adhoc: {client_id: ADHOC}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    # ensure no per-field env vars interfere with the field assertions
+    for var in ("CLIENT_ID", "CLIENT_SECRET", "BASE_URL", "SCOPE"):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    # default_environment alone
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+    rt.select_environment(None)
+    assert rt._selected_environment() == "prod"
+
+    # {PREFIX}_ENVIRONMENT beats default_environment
+    monkeypatch.setenv("FAKESDK_ENVIRONMENT", "staging")
+    assert rt._selected_environment() == "staging"
+
+    # the -e contextvar beats both
+    rt.select_environment("adhoc")
+    assert rt._selected_environment() == "adhoc"
+
+    # and the selected env's fields are what _client threads
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["client_id"] == "ADHOC"
+    rt.select_environment(None)  # reset module contextvar for other tests
+
+
+def test_env_option_in_help_and_threads_selection(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "environments:\n  staging: {client_id: STAGING}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "BASE_URL",
+        "SCOPE",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    main = importlib.import_module("fakesdk_cli.main")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    help_out = _strip_ansi(
+        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    )
+    assert "--environment" in help_out
+    # the short flag is advertised alongside the long flag
+    env_line = next(ln for ln in help_out.splitlines() if "--environment" in ln)
+    assert "-e" in env_line
+
+    captured: dict[str, Any] = {}
+
+    class _W:
+        def list_widgets(self, **kw: Any) -> list[Any]:
+            return []
+
+    class _Client:
+        widgets = _W()
+
+        def paginate(self, m: Any, **kw: Any) -> Iterator[Any]:
+            return iter([])
+
+    def _fake(**kw: Any) -> Any:
+        captured.update(kw)
+        return _Client()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    res = CliRunner().invoke(
+        main.app, ["show", "widget", "-e", "staging", "--output", "json"]
+    )
+    assert res.exit_code == 0, res.output
+    assert captured["client_id"] == "STAGING"  # -e selected staging's fields
+
+
+def test_env_redact_masks_only_secrets(emitted_auth: Path) -> None:
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg._redact("client_secret", "s3cr3t") == "***"  # secret field masked
+    assert cfg._redact("client_id", "abc123") == "abc123"  # non-secret unchanged
+    assert cfg._redact("client_secret", None) is None  # unset stays None
+    assert cfg._redact("client_secret", "") == ""  # empty stays empty
+
+
+# --- PR3: gating (no-auth CLI must be unaffected) -----------------------------
+
+
+def test_no_auth_client_calls_facade_with_no_args(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured: dict[str, Any] = {"called": False, "kwargs": None}
+
+    def _fake(**kw: Any) -> Any:
+        captured["called"] = True
+        captured["kwargs"] = kw
+        return object()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    rt._client()
+    assert captured["called"] is True
+    assert captured["kwargs"] == {}  # no credential threading for a no-auth CLI
+
+
+def test_no_auth_help_has_no_environment_flag(emitted: Path) -> None:
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    help_out = _strip_ansi(
+        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    )
+    assert "--environment" not in help_out
+    # a no-auth CLI also has no environment helpers / contextvar on the runtime
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    assert not hasattr(rt, "select_environment")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert not hasattr(cfg, "resolve_environment")

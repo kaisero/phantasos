@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import functools
 import os
+{%- if ir.credential_fields %}
+import re
+{%- endif %}
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -193,6 +196,13 @@ def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
         env_applied = True
     if env_applied:
         sources.append("environment variables")
+    # Named environments live in ISOLATED top-level keys, deliberately outside the
+    # validated `configuration` tree. Drop them before validation so _validate /
+    # _collect_extras never see them (otherwise a spurious "unknown config key
+    # 'environments'" warning would fire). They are read separately via the
+    # `_raw_*` helpers below, straight from the on-disk file.
+    merged.pop("environments", None)
+    merged.pop("default_environment", None)
     cfg = _validate(merged, warnings)
     _collect_extras(cfg, (), warnings)
     return cfg, tuple(warnings), tuple(sources)
@@ -238,3 +248,73 @@ def effective_dict() -> dict[str, Any]:
             },
         }
     }
+{% if ir.credential_fields %}
+
+# --- Named environments (isolated top-level keys; NOT in ConfigFile) -----------
+# The credential field surface, baked in at template time from the resolved auth
+# component, so this early-loaded module never imports the (heavier) IR loader.
+_ENV_FIELDS: list[dict[str, Any]] = [
+{%- for f in ir.credential_fields %}
+    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+{%- endfor %}
+]
+
+_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _raw_config() -> dict[str, Any]:
+    """The RAW config file as a dict, independent of the cached ConfigFile.
+
+    Returns ``{}`` when the file is missing, unreadable, invalid, or not a
+    mapping — never raises (environment reads must not abort the CLI)."""
+    path = config_path()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _raw_environments() -> dict[str, Any]:
+    """The ``environments:`` mapping (name -> field dict), or ``{}``."""
+    envs = _raw_config().get("environments")
+    return envs if isinstance(envs, dict) else {}
+
+
+def default_environment() -> str | None:
+    """The configured ``default_environment``, or ``None``."""
+    value = _raw_config().get("default_environment")
+    return value if isinstance(value, str) else None
+
+
+def _resolve_value(v: Any) -> Any:
+    """Resolve a ``${VAR}`` reference against the process environment.
+
+    A string that fully matches ``${VAR}`` is replaced by ``os.environ[VAR]``
+    (or ``None`` if unset). Any other value is returned unchanged."""
+    if isinstance(v, str):
+        m = _ENV_REF_RE.match(v)
+        if m:
+            return os.environ.get(m.group(1))
+    return v
+
+
+def resolve_environment(name: str) -> dict[str, Any]:
+    """Resolved credential fields for the named environment.
+
+    Maps each known credential field to its resolved value (``${VAR}`` expanded);
+    fields absent from the environment block resolve to ``None``."""
+    env = _raw_environments().get(name) or {}
+    return {f["name"]: _resolve_value(env.get(f["name"])) for f in _ENV_FIELDS}
+
+
+def _redact(name: str, value: Any) -> Any:
+    """Mask a secret field's value for display.
+
+    Returns ``"***"`` when the named field is secret and has a value; otherwise
+    the value unchanged. The SINGLE place secrets get masked for display."""
+    if value is None or value == "":
+        return value
+    secret = any(f["name"] == name and f["secret"] for f in _ENV_FIELDS)
+    return "***" if secret else value
+{% endif %}

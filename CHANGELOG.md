@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generated CLIs with an auth component now support named environments: a top-level `environments:` / `default_environment:` block in `config.yml` (with `${VAR}` references resolved at read time), an `--environment/-e` flag, and a `{PREFIX}_ENVIRONMENT` selector. Per-field credential env vars override the active environment.
+
 ## [0.1.0a1] - 2026-06-13
 
 ### Added
