@@ -68,7 +68,7 @@ Expected: exits 0 (lock in sync); `uv.lock` now shows `version = "0.1.0a1"` for 
 Run:
 ```bash
 uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; print(v, str(Version(v).is_prerelease).lower())"
-awk -v ver="0.1.0a1" '/^## \[/ { if (found) exit; if ($0 ~ "\\[" ver "\\]") { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' | head -3
+awk -v ver="0.1.0a1" '/^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' | head -3
 ```
 Expected: first line prints `0.1.0a1 true`; the awk prints the `### Added` block (non-empty).
 
@@ -126,9 +126,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          OUT=$(uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; print(v); print(str(Version(v).is_prerelease).lower())")
+          OUT=$(uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; nv=str(Version(v)); assert nv==v, 'pyproject version '+v+' not PEP440-canonical; use '+nv; print(v); print(str(Version(v).is_prerelease).lower())")
           VERSION=$(printf '%s\n' "$OUT" | sed -n 1p)
           PRERELEASE=$(printf '%s\n' "$OUT" | sed -n 2p)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -139,7 +140,7 @@ jobs:
             echo "release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          awk -v ver="$VERSION" '/^## \[/ { if (found) exit; if ($0 ~ "\\[" ver "\\]") { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          awk -v ver="$VERSION" '/^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then
             echo "::error::Missing CHANGELOG.md section '## [$VERSION]'. Add release notes before bumping the version."
             exit 1
@@ -289,9 +290,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          OUT=$(uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; print(v); print(str(Version(v).is_prerelease).lower())")
+          OUT=$(uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; nv=str(Version(v)); assert nv==v, 'pyproject version '+v+' not PEP440-canonical; use '+nv; print(v); print(str(Version(v).is_prerelease).lower())")
           VERSION=$(printf '%s\n' "$OUT" | sed -n 1p)
           PRERELEASE=$(printf '%s\n' "$OUT" | sed -n 2p)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -302,7 +304,7 @@ jobs:
             echo "release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          awk -v ver="$VERSION" '/^## \[/ { if (found) exit; if ($0 ~ "\\[" ver "\\]") { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          awk -v ver="$VERSION" '/^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then
             echo "::error::Missing CHANGELOG.md section '## [$VERSION]'. Add release notes before bumping the version."
             exit 1
