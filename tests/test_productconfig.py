@@ -151,7 +151,10 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.config.package == "acme"
     assert isinstance(loaded.auth, ScmOAuth)
-    assert loaded.auth.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
+    assert (
+        loaded.auth.token_url
+        == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
+    )
     assert loaded.context["spec_version"] == "9.9.9"
     assert loaded.context["spec_title"] == "Acme"
     assert loaded.context["package"] == "acme"

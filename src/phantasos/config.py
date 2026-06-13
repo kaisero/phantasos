@@ -29,9 +29,7 @@ class AuthComponent(_Component):
         # Every direct or indirect subclass must override credential_fields().
         # Intermediate abstract bases are not supported without also overriding it.
         if cls.credential_fields is AuthComponent.credential_fields:
-            raise TypeError(
-                f"{cls.__name__} must override credential_fields()"
-            )
+            raise TypeError(f"{cls.__name__} must override credential_fields()")
 
     def credential_fields(self) -> list[CredentialField]:
         raise NotImplementedError
@@ -40,7 +38,7 @@ class AuthComponent(_Component):
 class ScmOAuth(AuthComponent):
     """Strata Cloud (SCM/SASE) OAuth2 client-credentials provider."""
 
-    token_url: str = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
+    token_url: str = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"  # noqa: S105
     scope_env: str = "SCOPE"
     client_id_env: str = "CLIENT_ID"
     client_secret_env: str = "CLIENT_SECRET"  # noqa: S105  env-var name, not a secret
@@ -51,9 +49,17 @@ class ScmOAuth(AuthComponent):
     def credential_fields(self) -> list[CredentialField]:
         return [
             CredentialField(name="client_id", env_var=self.client_id_env),
-            CredentialField(name="client_secret", env_var=self.client_secret_env, secret=True),
+            CredentialField(
+                name="client_secret",
+                env_var=self.client_secret_env,
+                secret=True,
+            ),
             CredentialField(name="scope", env_var=self.scope_env),
-            CredentialField(name="base_url", env_var=self.base_url_env, client_kwarg="host"),
+            CredentialField(
+                name="base_url",
+                env_var=self.base_url_env,
+                client_kwarg="host",
+            ),
         ]
 
 

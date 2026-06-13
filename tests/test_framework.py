@@ -125,7 +125,7 @@ def test_render_auth_template_inlines_params() -> None:
     )
     assert 'DEFAULT_TOKEN_URL = "https://auth.example.com/token"' in out
     assert "class ExampleConfiguration(Configuration):" in out
-    assert '_pick(overrides, "client_id", "CID")' in out  # client_id_env inlined by Jinja
+    assert '_pick(overrides, "client_id", "CID")' in out  # jinja-rendered
     assert "{{" not in out  # no unrendered jinja
 
 
