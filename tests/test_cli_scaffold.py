@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from phantasos.generator.cli.render_cli import cli_overrides_dir
@@ -73,12 +74,18 @@ def test_sdk_pyproject_byte_identical_to_pre_task1() -> None:
     from jinja2 import BaseLoader, Environment, StrictUndefined, select_autoescape
 
     git = shutil.which("git") or "git"
-    base_src = subprocess.run(  # noqa: S603
+    proc = subprocess.run(  # noqa: S603
         [git, "show", "4de2aa4:src/phantasos/scaffold/pyproject.toml.jinja"],
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout
+        check=False,
+    )
+    if proc.returncode != 0:
+        pytest.skip(
+            "baseline commit 4de2aa4 not in history (shallow clone / CI) — "
+            "this whitespace-regression guard runs only with full git history"
+        )
+    base_src = proc.stdout
 
     def _r(src: str) -> str:
         env = Environment(
