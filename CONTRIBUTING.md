@@ -17,6 +17,20 @@ uv run pre-commit install
 Commit changes to `uv.lock` alongside any dependency changes — it keeps builds
 reproducible and drives Dependabot updates.
 
+## Branching
+
+- **`main`** holds released code and is protected — it publishes to PyPI on every
+  release, so don't target it for routine work.
+- **`develop`** is the integration branch. Branch your work from `develop` and
+  open PRs **back into `develop`** (set the PR base to `develop` — `main` is the
+  repo default, so double-check the base):
+  - `feature/<short-name>` — new functionality
+  - `bugfix/<short-name>` — non-urgent fixes
+- Add a `CHANGELOG.md` entry under `## [Unreleased]`, and **do not bump the
+  version** in a feature/bugfix PR (versioning happens only at release time).
+- `hotfix/<short-name>` (branched off `main`) is reserved for urgent fixes to an
+  already-released version; maintainers own the patch release and the back-merge.
+
 ## Before opening a pull request
 
 Run the full suite of checks — the same ones CI runs:
@@ -41,7 +55,31 @@ Please:
 - Keep public APIs typed and documented (Google-style docstrings).
 - Add an entry under `## [Unreleased]` in `CHANGELOG.md`.
 
-## Releasing
+## Releasing (maintainers)
 
-Releases are automated. Tagging a commit `vX.Y.Z` and pushing the tag triggers
-the release workflow, which builds and publishes to PyPI via Trusted Publishing.
+Releases are automated and **version-driven** — a version bump landing on `main`
+publishes. To cut release `X.Y.Z`:
+
+1. On `develop`, make a `release: X.Y.Z` commit: set `version = "X.Y.Z"` in
+   `pyproject.toml`, move the `## [Unreleased]` notes into a new
+   `## [X.Y.Z] - <date>` section (leave a fresh empty `## [Unreleased]` above) and
+   update the link-ref ladder, then run `uv lock`.
+2. Open a `develop → main` PR and **merge it with a merge commit** (not squash —
+   that would diverge `develop` from `main`).
+
+Merging the bump to `main` triggers the `Release` workflow, which builds the sdist
++ wheel, publishes to PyPI via Trusted Publishing, and creates a GitHub Release
+`vX.Y.Z` with the matching `CHANGELOG.md` section. PEP 440 pre-releases
+(e.g. `0.2.0a1`) publish as pre-releases. The workflow is idempotent: if
+`vX.Y.Z` is already released it no-ops, and it fails fast if the `## [X.Y.Z]`
+CHANGELOG section is missing.
+
+> The CHANGELOG check runs *after* the merge to `main`, so a forgotten
+> `## [X.Y.Z]` section fails the publish with the bump already on `main`. Recover
+> by adding the section on `main` (via a quick PR) and re-running the `Release`
+> workflow — it is idempotent on the tag.
+
+**Branch protection (maintainers).** Keep `main` PR-only and set it to **allow
+merge commits only** — that makes a `develop → main` PR impossible to squash by
+habit (which would diverge the branches), and require the CI checks. `develop`
+requires the CI checks but permits the occasional trivial direct push.
