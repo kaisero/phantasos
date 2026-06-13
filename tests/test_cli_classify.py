@@ -11,7 +11,12 @@ from phantasos.generator.cli.classify import (
 )
 from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
 from phantasos.generator.cli.introspect import introspect
-from phantasos.generator.cli.inventory import FieldInfo, OperationInfo, ParamInfo
+from phantasos.generator.cli.inventory import (
+    FieldInfo,
+    Location,
+    OperationInfo,
+    ParamInfo,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
@@ -28,7 +33,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
         ("create_access_and_data_rule", "create", "access-and-data-rule"),
     ],
 )
-def test_classify_verb_and_noun(method, verb, obj):
+def test_classify_verb_and_noun(method: str, verb: str, obj: str) -> None:
     c = classify_name(method)
     assert c is not None
     assert (c.verb, c.object) == (verb, obj)
@@ -49,41 +54,62 @@ def test_classify_verb_and_noun(method, verb, obj):
         "bulk_delete_applications",
     ],
 )
-def test_unmapped_returns_none(method):
+def test_unmapped_returns_none(method: str) -> None:
     assert classify_name(method) is None
 
 
-def _p(name, location, required=True, enum_values=None):
-    return ParamInfo(name=name, annotation="str", location=location,
-                     required=required, enum_values=enum_values)
+def _p(
+    name: str,
+    location: Location,
+    required: bool = True,
+    enum_values: list[str] | None = None,
+) -> ParamInfo:
+    return ParamInfo(
+        name=name,
+        annotation="str",
+        location=location,
+        required=required,
+        enum_values=enum_values,
+    )
 
 
-def test_detect_id_literal():
+def test_detect_id_literal() -> None:
     params = [_p("id", "path")]
-    assert detect_id_param(params).name == "id"
+    result = detect_id_param(params)
+    assert result is not None
+    assert result.name == "id"
 
 
-def test_detect_id_nonliteral_name():
+def test_detect_id_nonliteral_name() -> None:
     params = [_p("thing_id", "path")]
-    assert detect_id_param(params).name == "thing_id"
+    result = detect_id_param(params)
+    assert result is not None
+    assert result.name == "thing_id"
 
 
-def test_detect_id_ignores_discriminator_enum():
+def test_detect_id_ignores_discriminator_enum() -> None:
     # type is a path enum (discriminator), id is the real id
     params = [_p("type", "path", enum_values=["simple", "complex"]), _p("id", "path")]
-    assert detect_id_param(params).name == "id"
+    result = detect_id_param(params)
+    assert result is not None
+    assert result.name == "id"
 
 
-def test_detect_id_none_when_no_path_id():
+def test_detect_id_none_when_no_path_id() -> None:
     params = [_p("name", "query", required=False)]
     assert detect_id_param(params) is None
 
 
-def test_fields_to_flags_kinds():
+def test_fields_to_flags_kinds() -> None:
     fields = [
         FieldInfo(name="name", annotation="str", kind="scalar", required=True),
-        FieldInfo(name="color", annotation="Color", kind="enum", required=False,
-                  enum_values=["red", "blue"]),
+        FieldInfo(
+            name="color",
+            annotation="Color",
+            kind="enum",
+            required=False,
+            enum_values=["red", "blue"],
+        ),
         FieldInfo(name="spec", annotation="dict", kind="json", required=False),
     ]
     flags = {f.param: f for f in fields_to_flags(fields)}
@@ -95,22 +121,33 @@ def test_fields_to_flags_kinds():
     assert flags["spec"].kind == "json"
 
 
-def test_snake_case_field_becomes_kebab_flag():
+def test_snake_case_field_becomes_kebab_flag() -> None:
     fields = [
         FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)
     ]
     assert fields_to_flags(fields)[0].name == "--ip-netmask"
 
 
-def test_resolve_variants_from_config():
+def test_resolve_variants_from_config() -> None:
     op = OperationInfo(
-        resource="gizmos", method="create_gizmo",
+        resource="gizmos",
+        method="create_gizmo",
         params=[
-            ParamInfo(name="type", annotation="WidgetType", location="path",
-                      required=True, enum_values=["simple", "complex"]),
-            ParamInfo(name="create_gizmo_input", annotation="CreateGizmoInput",
-                      location="body", required=True, body_model="CreateGizmoInput",
-                      union_members=["SimpleGizmoInput", "ComplexGizmoInput"]),
+            ParamInfo(
+                name="type",
+                annotation="WidgetType",
+                location="path",
+                required=True,
+                enum_values=["simple", "complex"],
+            ),
+            ParamInfo(
+                name="create_gizmo_input",
+                annotation="CreateGizmoInput",
+                location="body",
+                required=True,
+                body_model="CreateGizmoInput",
+                union_members=["SimpleGizmoInput", "ComplexGizmoInput"],
+            ),
         ],
         body_fields={
             "SimpleGizmoInput": [
@@ -131,12 +168,12 @@ def test_resolve_variants_from_config():
     assert variants[1].model == "ComplexGizmoInput"
 
 
-def test_resolve_variants_none_without_config():
+def test_resolve_variants_none_without_config() -> None:
     op = OperationInfo(resource="widgets", method="create_widget")
     assert resolve_variants(op, None) == []
 
 
-def test_build_cli_ir_end_to_end():
+def test_build_cli_ir_end_to_end() -> None:
     inv = introspect("fakesdk", FIXTURE)
     cfg = CliConfig(
         variants={
@@ -182,13 +219,13 @@ def test_build_cli_ir_end_to_end():
         ("delete_application_by_id", "delete"),
     ],
 )
-def test_classify_sub_verb(method, sub_verb):
+def test_classify_sub_verb(method: str, sub_verb: str) -> None:
     c = classify_name(method)
     assert c is not None
     assert c.sub_verb == sub_verb
 
 
-def test_build_cli_ir_aggregates_methods():
+def test_build_cli_ir_aggregates_methods() -> None:
     inv = introspect("fakesdk", FIXTURE)
     cfg = CliConfig(
         variants={
@@ -228,7 +265,7 @@ def test_build_cli_ir_aggregates_methods():
     assert list_all.requires == []
 
 
-def test_bindings_carry_body_and_variant_metadata():
+def test_bindings_carry_body_and_variant_metadata() -> None:
     inv = introspect("fakesdk", FIXTURE)
     cfg = CliConfig(
         variants={
@@ -260,13 +297,15 @@ def test_bindings_carry_body_and_variant_metadata():
     assert ir.facade_module == "fakesdk.extras.facade"
 
 
-def test_fixture_client_from_env_and_wrapper():
+def test_fixture_client_from_env_and_wrapper() -> None:
     # the fixture mirrors the real facade Client + positional-wrapper construction
     import sys
+
     sys.path.insert(0, str(FIXTURE))
     try:
         from fakesdk.extras.facade import Client
         from fakesdk.models import CreateGizmoInput, SimpleGizmoInput
+
         c = Client.from_env()
         assert hasattr(c, "widgets") and hasattr(c, "paginate")
         wrapped = CreateGizmoInput(SimpleGizmoInput(name="x"))
@@ -275,7 +314,7 @@ def test_fixture_client_from_env_and_wrapper():
         sys.path.remove(str(FIXTURE))
 
 
-def test_query_int_flag_has_int_py_type():
+def test_query_int_flag_has_int_py_type() -> None:
     inv = introspect("fakesdk", FIXTURE)
     ir, _ = build_cli_ir(inv, CliConfig())
     show_widget = next(c for c in ir.commands if c.key == "show:widget")
@@ -285,14 +324,16 @@ def test_query_int_flag_has_int_py_type():
     assert name.py_type == "str"
 
 
-def test_build_cli_ir_emits_request_commands():
+def test_build_cli_ir_emits_request_commands() -> None:
     from phantasos.generator.cli.cliconfig import RequestMapping
 
     inv = introspect("fakesdk", FIXTURE)
-    cfg = CliConfig(request={
-        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-    })
+    cfg = CliConfig(
+        request={
+            "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+            "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+        }
+    )
     ir, unmapped = build_cli_ir(inv, cfg)
     by_key = {c.key: c for c in ir.commands}
 
@@ -300,7 +341,7 @@ def test_build_cli_ir_emits_request_commands():
     assert "request:widget:revoke" in by_key
     susp = by_key["request:widget:suspend"]
     assert susp.verb == "request" and susp.object == "widget"
-    assert susp.action == "suspend"                # dedicated action field
+    assert susp.action == "suspend"  # dedicated action field
     assert susp.variant is None and susp.variant_param is None  # NOT a oneOf variant
     assert [b.sub_verb for b in susp.bindings] == ["action"]
     assert susp.bindings[0].sdk_method == "suspend_widget"
@@ -318,7 +359,7 @@ def test_build_cli_ir_emits_request_commands():
     assert len(keys) == len(set(keys))
 
 
-def test_show_widget_gets_default_columns_and_items_field():
+def test_show_widget_gets_default_columns_and_items_field() -> None:
     from pathlib import Path
 
     from phantasos.generator.cli.classify import build_cli_ir
@@ -328,15 +369,15 @@ def test_show_widget_gets_default_columns_and_items_field():
     fixture = Path(__file__).parent / "fixtures" / "fakesdk"
     ir, _ = build_cli_ir(introspect("fakesdk", fixture), CliConfig())
     show = next(c for c in ir.commands if c.key == "show:widget")
-    assert show.items_field == "data"           # from list_widgets -> WidgetList
+    assert show.items_field == "data"  # from list_widgets -> WidgetList
     paths = [c.path for c in show.columns]
-    assert paths[:2] == ["id", "name"]          # preferred first
-    assert "spec" not in paths                   # nested excluded
+    assert paths[:2] == ["id", "name"]  # preferred first
+    assert "spec" not in paths  # nested excluded
     create = next(c for c in ir.commands if c.key == "create:widget")
     assert [c.path for c in create.columns] == paths  # same object, same columns
 
 
-def test_cli_yml_columns_override_and_validate():
+def test_cli_yml_columns_override_and_validate() -> None:
     from pathlib import Path
 
     import pytest
@@ -365,7 +406,7 @@ def test_cli_yml_columns_override_and_validate():
         build_cli_ir(inv, CliConfig(columns={"no-such-object": ["id"]}))
 
 
-def test_no_response_model_means_no_columns():
+def test_no_response_model_means_no_columns() -> None:
     from pathlib import Path
 
     from phantasos.generator.cli.classify import build_cli_ir
@@ -375,11 +416,11 @@ def test_no_response_model_means_no_columns():
     fixture = Path(__file__).parent / "fixtures" / "fakesdk"
     ir, _ = build_cli_ir(introspect("fakesdk", fixture), CliConfig())
     gizmo_show = next(c for c in ir.commands if c.key == "show:gizmo")
-    assert gizmo_show.columns == []             # gizmos are unannotated
+    assert gizmo_show.columns == []  # gizmos are unannotated
     assert gizmo_show.items_field is None
 
 
-def test_defaults_stamp_cli_default_on_query_flags():
+def test_defaults_stamp_cli_default_on_query_flags() -> None:
     from pathlib import Path
 
     from phantasos.generator.cli.classify import build_cli_ir
@@ -388,21 +429,23 @@ def test_defaults_stamp_cli_default_on_query_flags():
 
     fixture = Path(__file__).parent / "fixtures" / "fakesdk"
     inv = introspect("fakesdk", fixture)
-    cfg = CliConfig(defaults={
-        "widgets.list_widgets": {"name": "gadget", "limit": 50},
-    })
+    cfg = CliConfig(
+        defaults={
+            "widgets.list_widgets": {"name": "gadget", "limit": 50},
+        }
+    )
     ir, _ = build_cli_ir(inv, cfg)
     show = next(c for c in ir.commands if c.key == "show:widget")
     by_param = {f.param: f for f in show.query_flags}
-    assert by_param["name"].cli_default == "gadget"     # str preserved
-    assert by_param["limit"].cli_default == 50          # int preserved
+    assert by_param["name"].cli_default == "gadget"  # str preserved
+    assert by_param["limit"].cli_default == 50  # int preserved
     # untouched flags stay None; body flags never gain cli_default
     assert all(f.cli_default is None for f in show.body_flags)
     create = next(c for c in ir.commands if c.key == "create:widget")
     assert all(f.cli_default is None for f in create.body_flags)
 
 
-def test_defaults_validation_errors():
+def test_defaults_validation_errors() -> None:
     from pathlib import Path
 
     import pytest
@@ -418,5 +461,4 @@ def test_defaults_validation_errors():
         build_cli_ir(inv, CliConfig(defaults={"widgets.no_such_op": {"limit": 1}}))
 
     with pytest.raises(ValueError, match="not a query param"):
-        build_cli_ir(inv, CliConfig(
-            defaults={"widgets.list_widgets": {"bogus": "x"}}))
+        build_cli_ir(inv, CliConfig(defaults={"widgets.list_widgets": {"bogus": "x"}}))

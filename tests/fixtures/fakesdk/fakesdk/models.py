@@ -31,8 +31,8 @@ class WidgetType(str, Enum):
 
 class WidgetInput(BaseModel):
     name: str
-    priority: int                        # required int
-    enabled: Optional[bool] = None       # optional bool
+    priority: int  # required int
+    enabled: Optional[bool] = None  # optional bool
     color: Optional[Color] = None
     tags: list[str] = []
     spec: Optional[dict] = None  # nested -> json flag
@@ -70,8 +70,8 @@ class Widget(BaseModel):
     priority: int = 0
     enabled: Optional[bool] = None
     tags: list[str] = []
-    spec: Optional[dict] = None          # nested -> excluded from default columns
-    members: list[dict] = []             # list-of-objects -> joined preview
+    spec: Optional[dict] = None  # nested -> excluded from default columns
+    members: list[dict] = []  # list-of-objects -> joined preview
 
 
 class PageInfo(BaseModel):

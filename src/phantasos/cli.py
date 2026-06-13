@@ -21,7 +21,8 @@ def sdk_build(
         ..., help="product name (products/<name>/sdk.yml) or a path to sdk.yml"
     ),
     no_smoke: bool = typer.Option(
-        False, "--no-smoke",
+        False,
+        "--no-smoke",
         help="skip the isolated import-check (offline/locked-down builds)",
     ),
 ) -> None:
@@ -129,7 +130,9 @@ def cli_build(
     cli_pkg = f"{loaded.config.package}_cli"
     out_dir = Path(loaded.output_dir).parent / str(scaffold_ctx["distribution"])
     written = render_cli(
-        ir, package=cli_pkg, out_dir=out_dir,
+        ir,
+        package=cli_pkg,
+        out_dir=out_dir,
         distribution=str(scaffold_ctx["distribution"]),
     )
     written = written + scaffold.render_scaffold(

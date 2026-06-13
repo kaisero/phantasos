@@ -160,9 +160,7 @@ def test_build_writes_ignore_and_scaffolds(
         calls.append("scaffold")
         return []
 
-    monkeypatch.setattr(
-        "phantasos.generator.sdk.generate.generate", fake_generate
-    )
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", fake_generate)
     monkeypatch.setattr(
         "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},

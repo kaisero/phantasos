@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from phantasos.generator.cli.cliconfig import CliConfig, load_cli_config
 
 
-def test_empty_config_when_file_missing(tmp_path):
+def test_empty_config_when_file_missing(tmp_path: Path) -> None:
     cfg = load_cli_config(tmp_path / "nope.yml")
     assert cfg == CliConfig()
     assert cfg.hide == []
@@ -9,7 +11,7 @@ def test_empty_config_when_file_missing(tmp_path):
     assert cfg.variants == {}
 
 
-def test_loads_all_sections(tmp_path):
+def test_loads_all_sections(tmp_path: Path) -> None:
     p = tmp_path / "cli.yml"
     p.write_text(
         "request:\n"
@@ -35,7 +37,7 @@ def test_loads_all_sections(tmp_path):
     assert cfg.custom.commands == ["pkg.custom.doctor"]
 
 
-def test_cli_config_optional_project_block(tmp_path):
+def test_cli_config_optional_project_block(tmp_path: Path) -> None:
     p = tmp_path / "cli.yml"
     p.write_text(
         "project:\n"
@@ -50,13 +52,13 @@ def test_cli_config_optional_project_block(tmp_path):
     assert cfg.project.distribution == "prisma-browser-cli"
 
 
-def test_cli_config_project_absent_is_none(tmp_path):
+def test_cli_config_project_absent_is_none(tmp_path: Path) -> None:
     p = tmp_path / "cli.yml"
     p.write_text("hide: []\n")
     assert load_cli_config(p).project is None
 
 
-def test_columns_section_loads(tmp_path):
+def test_columns_section_loads(tmp_path: Path) -> None:
     from phantasos.generator.cli.cliconfig import ColumnEntry, load_cli_config
 
     p = tmp_path / "cli.yml"
@@ -66,7 +68,7 @@ def test_columns_section_loads(tmp_path):
         "    - id\n"
         "    - name\n"
         "    - header: MEMBERS\n"
-        "      path: \"members[].name\"\n",
+        '      path: "members[].name"\n',
         encoding="utf-8",
     )
     cfg = load_cli_config(p)
@@ -77,7 +79,7 @@ def test_columns_section_loads(tmp_path):
     assert entries[2].path == "members[].name"
 
 
-def test_defaults_section_loads(tmp_path):
+def test_defaults_section_loads(tmp_path: Path) -> None:
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     p = tmp_path / "cli.yml"
@@ -92,6 +94,7 @@ def test_defaults_section_loads(tmp_path):
     )
     cfg = load_cli_config(p)
     assert cfg.defaults["applications.list_applications"] == {
-        "sort": "application.id", "order": "asc",
+        "sort": "application.id",
+        "order": "asc",
     }
     assert cfg.defaults["widgets.list_widgets"] == {"limit": 50}  # int preserved

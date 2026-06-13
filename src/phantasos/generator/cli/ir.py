@@ -12,8 +12,15 @@ from pydantic import BaseModel, ConfigDict
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 Verb = Literal["create", "update", "delete", "show", "request", "load", "backup"]
 SubVerb = Literal[
-    "create", "patch", "update", "get", "list", "delete",
-    "bulk_create", "bulk_delete", "action",
+    "create",
+    "patch",
+    "update",
+    "get",
+    "list",
+    "delete",
+    "bulk_create",
+    "bulk_delete",
+    "action",
 ]
 
 
@@ -38,11 +45,11 @@ class Flag(BaseModel):
 class MethodBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sdk_method: str          # e.g. "create_application"
+    sdk_method: str  # e.g. "create_application"
     sub_verb: SubVerb
     requires: list[str] = []  # path-param names that select this binding at runtime
-    body_param: str | None = None   # SDK parameter name carrying the request body
-    body_model: str | None = None   # model class to instantiate (variant or direct)
+    body_param: str | None = None  # SDK parameter name carrying the request body
+    body_model: str | None = None  # model class to instantiate (variant or direct)
     body_wrapper: str | None = None  # oneOf wrapper to construct around body_model
 
 
@@ -60,14 +67,14 @@ class Command(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verb: Verb
-    object: str               # kebab-case noun, e.g. "application"
+    object: str  # kebab-case noun, e.g. "application"
     variant: str | None = None  # union variant subcommand, if any
     # path param name carrying the variant discriminator
     variant_param: str | None = None
     action: str | None = None  # request-namespace action segment (e.g. "suspend");
-                               # distinct from `variant` (oneOf discriminator).
-    key: str                  # canonical "verb:object[:variant_or_action]"
-    sdk_resource: str         # facade attribute, e.g. "applications"
+    # distinct from `variant` (oneOf discriminator).
+    key: str  # canonical "verb:object[:variant_or_action]"
+    sdk_resource: str  # facade attribute, e.g. "applications"
     # candidate SDK methods; runtime dispatch picks one by args
     bindings: list[MethodBinding] = []
     # ALL required path params (id + discriminators like --type)

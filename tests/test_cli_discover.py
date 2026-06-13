@@ -6,18 +6,19 @@ from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.discover import render_stub, render_table
 from phantasos.generator.cli.introspect import introspect
+from phantasos.generator.cli.ir import CliIR
 
 REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
-def _ir_and_unmapped():
+def _ir_and_unmapped() -> tuple[CliIR, list[str]]:
     inv = introspect("fakesdk", FIXTURE)
     return build_cli_ir(inv, CliConfig())
 
 
-def test_render_table_lists_commands_and_unmapped():
+def test_render_table_lists_commands_and_unmapped() -> None:
     ir, unmapped = _ir_and_unmapped()
     table = render_table(ir, unmapped)
     assert "create widget" in table
@@ -28,13 +29,13 @@ def test_render_table_lists_commands_and_unmapped():
     assert "widgets.update_widget_positions" in table
 
 
-def test_command_keys_are_unique():
+def test_command_keys_are_unique() -> None:
     ir, _ = _ir_and_unmapped()
     keys = [c.key for c in ir.commands]
     assert len(keys) == len(set(keys))  # aggregation produced no duplicate commands
 
 
-def test_render_stub_is_valid_yaml_with_todos():
+def test_render_stub_is_valid_yaml_with_todos() -> None:
     import io
 
     from ruamel.yaml import YAML
@@ -47,31 +48,48 @@ def test_render_stub_is_valid_yaml_with_todos():
     assert "update_widget_positions" in stub  # surfaced as a TODO
 
 
-def test_stub_prefills_columns_from_defaults():
+def test_stub_prefills_columns_from_defaults() -> None:
     from phantasos.generator.cli.discover import render_stub
     from phantasos.generator.cli.ir import CliIR, ColumnSpec, Command
 
-    ir = CliIR(sdk_package="x", sdk_version="1", commands=[
-        Command(verb="show", object="widget", key="show:widget",
+    ir = CliIR(
+        sdk_package="x",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="show",
+                object="widget",
+                key="show:widget",
                 sdk_resource="widgets",
-                columns=[ColumnSpec(header="id", path="id"),
-                         ColumnSpec(header="name", path="name")]),
-        Command(verb="create", object="widget", key="create:widget",
+                columns=[
+                    ColumnSpec(header="id", path="id"),
+                    ColumnSpec(header="name", path="name"),
+                ],
+            ),
+            Command(
+                verb="create",
+                object="widget",
+                key="create:widget",
                 sdk_resource="widgets",
-                columns=[ColumnSpec(header="id", path="id"),
-                         ColumnSpec(header="name", path="name")]),
-        Command(verb="show", object="gizmo", key="show:gizmo",
-                sdk_resource="gizmos"),  # no columns -> omitted
-    ])
+                columns=[
+                    ColumnSpec(header="id", path="id"),
+                    ColumnSpec(header="name", path="name"),
+                ],
+            ),
+            Command(
+                verb="show", object="gizmo", key="show:gizmo", sdk_resource="gizmos"
+            ),  # no columns -> omitted
+        ],
+    )
     stub = render_stub(ir, [])
     assert "columns:" in stub
     assert "widget: [id, name]" in stub
-    assert stub.count("widget:") == 1          # deduped across verbs
+    assert stub.count("widget:") == 1  # deduped across verbs
     assert "gizmo:" not in stub
 
 
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_sdk_classifies_without_error():
+def test_real_sdk_classifies_without_error() -> None:
     try:
         inv = introspect("prisma_browser", REAL_SDK)
     except ImportError as exc:

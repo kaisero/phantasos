@@ -1,5 +1,6 @@
 import importlib
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -9,6 +10,7 @@ from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
 from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
+from phantasos.productconfig import load_product
 
 REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
@@ -24,7 +26,7 @@ _APP_VARIANTS = VariantMap(
 
 
 @pytest.fixture
-def real_cli(tmp_path):
+def real_cli(tmp_path: Path) -> Iterator[Path]:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     try:
@@ -33,8 +35,13 @@ def real_cli(tmp_path):
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
     ir, _ = build_cli_ir(inv, cfg)
-    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path,
-               env_prefix="PRISMA", distribution="prisma-browser-cli")
+    render_cli(
+        ir,
+        package="prisma_browser_cli",
+        out_dir=tmp_path,
+        env_prefix="PRISMA",
+        distribution="prisma-browser-cli",
+    )
     sys.path.insert(0, str(tmp_path))
     for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
         del sys.modules[n]
@@ -46,15 +53,17 @@ def real_cli(tmp_path):
             del sys.modules[n]
 
 
-def _patch_client(monkeypatch):
+def _patch_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     import prisma_browser.extras.facade as facade
+
     mock = MagicMock(name="Client")
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: mock))
     return mock
 
 
-def test_help_lists_verbs_and_objects(real_cli):
+def test_help_lists_verbs_and_objects(real_cli: Path) -> None:
     from typer.testing import CliRunner
+
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(main.app, ["--help"])
     assert res.exit_code == 0
@@ -63,18 +72,31 @@ def test_help_lists_verbs_and_objects(real_cli):
     assert "application" in res2.output
 
 
-def test_show_by_type_and_id_dispatch(real_cli, monkeypatch):
+def test_show_by_type_and_id_dispatch(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from typer.testing import CliRunner
+
     mock = _patch_client(monkeypatch)
     # Give the mock a JSON-serializable return so the output renderer doesn't error.
     mock.applications.get_application_by_type_and_id.return_value = {
-        "id": "APP-123", "type": "custom", "name": "Test App"
+        "id": "APP-123",
+        "type": "custom",
+        "name": "Test App",
     }
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app,
-        ["show", "application", "--type", "custom", "--id", "APP-123",
-         "--output", "json"],
+        [
+            "show",
+            "application",
+            "--type",
+            "custom",
+            "--id",
+            "APP-123",
+            "--output",
+            "json",
+        ],
     )
     assert res.exit_code == 0, res.output
     # real facade: get_application_by_type_and_id(type="custom", id="APP-123")
@@ -84,7 +106,9 @@ def test_show_by_type_and_id_dispatch(real_cli, monkeypatch):
     assert kwargs.get("type") == "custom" and kwargs.get("id") == "APP-123"
 
 
-def test_set_constructs_real_model(real_cli, monkeypatch):
+def test_set_constructs_real_model(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Build a `set device-group` with the two required flat scalar fields: name (str)
     # and platform (DeviceGroupPlatform enum with value "Desktop Browser").
     # Asserts that the REAL DeviceGroupRequest model is constructed and passed to
@@ -94,14 +118,24 @@ def test_set_constructs_real_model(real_cli, monkeypatch):
 
     mock = _patch_client(monkeypatch)
     mock.device_groups.create_device_group.return_value = {
-        "id": "DG-1", "name": "Kiosks", "platform": "Desktop Browser"
+        "id": "DG-1",
+        "name": "Kiosks",
+        "platform": "Desktop Browser",
     }
     main = importlib.import_module("prisma_browser_cli.main")
 
     res = CliRunner().invoke(
         main.app,
-        ["create", "device-group", "--name", "Kiosks",
-         "--platform", "Desktop Browser", "--output", "json"],
+        [
+            "create",
+            "device-group",
+            "--name",
+            "Kiosks",
+            "--platform",
+            "Desktop Browser",
+            "--output",
+            "json",
+        ],
     )
     assert res.exit_code == 0, res.output
 
@@ -117,34 +151,49 @@ def test_set_constructs_real_model(real_cli, monkeypatch):
     assert body.name == "Kiosks"
 
 
-def test_set_application_variant_constructs_wrapped_body(real_cli, monkeypatch):
+def test_set_application_variant_constructs_wrapped_body(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import prisma_browser.models as models
     from typer.testing import CliRunner
 
     mock = _patch_client(monkeypatch)
     mock.applications.create_application.return_value = {
-        "id": "APP-1", "type": "custom", "name": "MyApp"
+        "id": "APP-1",
+        "type": "custom",
+        "name": "MyApp",
     }
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app,
-        ["create", "application", "custom", "--name", "MyApp",
-         "--urls", '[{"url": "https://example.com"}]', "--output", "json"],
+        [
+            "create",
+            "application",
+            "custom",
+            "--name",
+            "MyApp",
+            "--urls",
+            '[{"url": "https://example.com"}]',
+            "--output",
+            "json",
+        ],
     )
     assert res.exit_code == 0, res.output
     call = mock.applications.create_application
     assert call.called
     kwargs = call.call_args.kwargs
-    assert kwargs.get("type") == "custom"                       # top-level path param
+    assert kwargs.get("type") == "custom"  # top-level path param
     body = kwargs.get("create_or_replace_app_input")
-    assert isinstance(body, models.CreateOrReplaceAppInput)      # wrapped (H3)
+    assert isinstance(body, models.CreateOrReplaceAppInput)  # wrapped (H3)
     inner = body.actual_instance
     assert isinstance(inner, models.CustomApplicationInput)
     assert inner.type == "custom"  # discriminator injected into body
     assert inner.name == "MyApp"
 
 
-def test_set_private_application_bool_flag_takes_value(real_cli, monkeypatch):
+def test_set_private_application_bool_flag_takes_value(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Regression (user report): a required StrictBool field (route_to_prisma) is a
     # VALUE flag — `--route-to-prisma true|false`, like every other field — NOT a
     # Typer on/off flag (which rejected the value as an unexpected extra argument).
@@ -157,20 +206,34 @@ def test_set_private_application_bool_flag_takes_value(real_cli, monkeypatch):
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app,
-        ["create", "application", "private", "--name", "cli-application",
-         "--urls", '[{"url": "pb.example.com"}, {"url": "pb2.example.com"}]',
-         "--primary-url", "pb.example.com", "--route-to-prisma", "false",
-         "--output", "json"],
+        [
+            "create",
+            "application",
+            "private",
+            "--name",
+            "cli-application",
+            "--urls",
+            '[{"url": "pb.example.com"}, {"url": "pb2.example.com"}]',
+            "--primary-url",
+            "pb.example.com",
+            "--route-to-prisma",
+            "false",
+            "--output",
+            "json",
+        ],
     )
     assert res.exit_code == 0, res.output
     body = mock.applications.create_application.call_args.kwargs[
-        "create_or_replace_app_input"]
+        "create_or_replace_app_input"
+    ]
     inner = body.actual_instance
     assert isinstance(inner, models.PrivateApplicationInput)
     assert inner.route_to_prisma is False  # coerced str -> real bool
 
 
-def test_set_application_invalid_json_flag_clean_error(real_cli, monkeypatch):
+def test_set_application_invalid_json_flag_clean_error(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Regression (user report): a non-JSON value for a JSON-string flag (--urls)
     # reports a clean, flag-named error — not a raw JSONDecodeError traceback.
     from typer.testing import CliRunner
@@ -179,9 +242,19 @@ def test_set_application_invalid_json_flag_clean_error(real_cli, monkeypatch):
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app,
-        ["create", "application", "private", "--name", "cli-application",
-         "--urls", "pb.example.com,pb2.example.com",
-         "--primary-url", "pb.example.com", "--route-to-prisma", "false"],
+        [
+            "create",
+            "application",
+            "private",
+            "--name",
+            "cli-application",
+            "--urls",
+            "pb.example.com,pb2.example.com",
+            "--primary-url",
+            "pb.example.com",
+            "--route-to-prisma",
+            "false",
+        ],
     )
     assert res.exit_code != 0
     # clean exit, never a raw traceback
@@ -189,9 +262,17 @@ def test_set_application_invalid_json_flag_clean_error(real_cli, monkeypatch):
     assert "--urls" in res.stderr
 
 
-def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
+def test_real_cli_build_emits_full_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
+    # cli build introspects (imports) the real SDK; skip when its runtime deps
+    # (e.g. python-dateutil) are absent, matching the other real-SDK tests.
+    try:
+        introspect("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     import phantasos.cli as climod
     from phantasos.cli import main
 
@@ -200,7 +281,7 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     # cli build computes out_dir = Path(loaded.output_dir).parent / <cli distribution>,
     # so setting output_dir = tmp_path / "prisma-browser-sdk" gives
     # out_dir = tmp_path / "prisma-browser-cli" (the cli.yml distribution, hyphenated).
-    real = climod.load_product("prisma-browser")
+    real = load_product("prisma-browser")
     real.output_dir = tmp_path / "prisma-browser-sdk"
     monkeypatch.setattr(climod, "load_product", lambda name: real)
 
@@ -214,11 +295,11 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     # The project dir follows the cli.yml distribution ("prisma-browser-cli"), NOT the
     # underscore package name — mirroring how the SDK dir is "prisma-browser-sdk".
     root = tmp_path / "prisma-browser-cli"
-    assert not (tmp_path / "prisma_browser-cli").exists()   # no underscore dir
+    assert not (tmp_path / "prisma_browser-cli").exists()  # no underscore dir
 
     pyproject = (root / "pyproject.toml").read_text()
-    assert "prisma-browser-sdk" in pyproject               # SDK distribution dep
-    assert "prisma-browser-cli = " in pyproject             # console-script
+    assert "prisma-browser-sdk" in pyproject  # SDK distribution dep
+    assert "prisma-browser-cli = " in pyproject  # console-script
     assert "[tool.uv.sources]" in pyproject
     assert 'path = "../prisma-browser-sdk", editable = true' in pyproject
 
@@ -239,7 +320,7 @@ def test_real_cli_build_emits_full_project(tmp_path, monkeypatch):
     assert (root / "tests" / "test_cli_smoke.py").exists()
 
 
-def test_real_cli_yml_loads_project_and_variants():
+def test_real_cli_yml_loads_project_and_variants() -> None:
     """Phase 3a: the authored products/prisma-browser/cli.yml is valid + complete."""
     from phantasos.generator.cli.cliconfig import load_cli_config
 
@@ -250,14 +331,18 @@ def test_real_cli_yml_loads_project_and_variants():
     assert "applications.create_application" in cfg.variants
     assert "applications.patch_application_by_type_and_id" in cfg.variants
     assert set(cfg.variants["applications.create_application"].map) == {
-        "custom", "private", "non-web", "localdesktopcustom"}
+        "custom",
+        "private",
+        "non-web",
+        "localdesktopcustom",
+    }
     # the 16 non-CRUD ops are reserved under request (so the build warns about none)
     assert len(cfg.request) == 16
     assert cfg.request["devices.suspend_devices"].action == "suspend"
 
 
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_cli_yml_produces_variant_commands_and_no_unmapped():
+def test_real_cli_yml_produces_variant_commands_and_no_unmapped() -> None:
     """Phase 3a: building with the real cli.yml fans applications into variant commands
     (each aggregating create + patch) and leaves nothing unmapped."""
     from phantasos.generator.cli.cliconfig import load_cli_config
@@ -283,11 +368,16 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped():
     assert create.body_wrapper == "CreateOrReplaceAppInput"
     assert patch.body_model == "CustomPatchApplicationInput"
     assert patch.body_wrapper == "PatchAppInput"
-    assert {"create:application:private", "create:application:non-web",
-            "create:application:localdesktopcustom"} <= set(by_key)
+    assert {
+        "create:application:private",
+        "create:application:non-web",
+        "create:application:localdesktopcustom",
+    } <= set(by_key)
 
 
-def test_real_request_commands_dispatch(tmp_path, monkeypatch):
+def test_real_request_commands_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     from unittest.mock import MagicMock
@@ -316,9 +406,11 @@ def test_real_request_commands_dispatch(tmp_path, monkeypatch):
     try:
         main = importlib.import_module("prisma_browser_cli.main")
         import prisma_browser.extras.facade as facade
+
         mock = MagicMock(name="Client")
         mock.user_requests.revoke_user_request.return_value = {
-            "id": "REQ-1", "status": "revoked"
+            "id": "REQ-1",
+            "status": "revoked",
         }
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: mock))
         # request user-request revoke --id REQ-1
@@ -337,7 +429,9 @@ def test_real_request_commands_dispatch(tmp_path, monkeypatch):
             del sys.modules[n]
 
 
-def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
+def test_real_create_api_error_is_pretty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     monkeypatch.setenv("NO_COLOR", "1")
@@ -346,6 +440,7 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from phantasos.generator.cli.cliconfig import load_cli_config
+
     try:
         inv = introspect("prisma_browser", REAL_SDK)
     except ImportError as exc:
@@ -359,9 +454,12 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
         main = importlib.import_module("prisma_browser_cli.main")
         import prisma_browser.exceptions as pexc
         import prisma_browser.extras.facade as facade
+
         # the REAL 400 the user hit
-        real_body = ('{"errorResponse":{"error":"group name already exists",'
-                     '"message":"failed to create device group"}}')
+        real_body = (
+            '{"errorResponse":{"error":"group name already exists",'
+            '"message":"failed to create device group"}}'
+        )
         try:
             err = pexc.BadRequestException(
                 status=400, reason="Bad Request", body=real_body
@@ -373,11 +471,20 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
 
         runner = CliRunner()
-        res = runner.invoke(main.app, ["create", "device-group", "--name", "dup",
-                                       "--platform", "Desktop Browser"])
+        res = runner.invoke(
+            main.app,
+            [
+                "create",
+                "device-group",
+                "--name",
+                "dup",
+                "--platform",
+                "Desktop Browser",
+            ],
+        )
         assert res.exit_code == 1, res.output
         assert "400 Bad Request" in res.output
-        assert "group name already exists" in res.output           # headline
+        assert "group name already exists" in res.output  # headline
         # full JSON body is present
         assert "errorResponse" in res.output
         assert "failed to create device group" in res.output
@@ -385,8 +492,18 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
         assert "HTTPHeaderDict" not in res.output
         assert "response headers" not in res.output.lower()
         # --verbose still surfaces the full exception (re-raised)
-        res2 = runner.invoke(main.app, ["create", "device-group", "--name", "dup",
-                                        "--platform", "Desktop Browser", "--verbose"])
+        res2 = runner.invoke(
+            main.app,
+            [
+                "create",
+                "device-group",
+                "--name",
+                "dup",
+                "--platform",
+                "Desktop Browser",
+                "--verbose",
+            ],
+        )
         assert res2.exit_code != 0
         # the ApiException propagated under --verbose
         assert res2.exception is not None
@@ -396,7 +513,9 @@ def test_real_create_api_error_is_pretty(tmp_path, monkeypatch):
             del sys.modules[n]
 
 
-def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
+def test_real_create_update_delete_device_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     from unittest.mock import MagicMock
@@ -413,8 +532,12 @@ def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
         inv, load_cli_config(Path("products/prisma-browser/cli.yml"))
     )
     keys = {c.key for c in ir.commands}
-    assert {"create:device-group", "update:device-group",
-            "delete:device-group", "show:device-group"} <= keys
+    assert {
+        "create:device-group",
+        "update:device-group",
+        "delete:device-group",
+        "show:device-group",
+    } <= keys
     assert "patch:device-group" not in keys and "set:device-group" not in keys
     assert unmapped == []
     # device-group has patch_ -> update is a single PATCH binding
@@ -432,6 +555,7 @@ def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
         h = runner.invoke(main.app, ["create", "device-group", "--help"]).output
         assert "--platform" in h and "Desktop Browser" in h
         import prisma_browser.extras.facade as facade
+
         client = MagicMock(name="Client")
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
         # required enforced (no --platform) and update needs --id
@@ -440,30 +564,51 @@ def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
         res_no_id = runner.invoke(main.app, ["update", "device-group", "--name", "x"])
         assert res_no_id.exit_code != 0
         # permissive enum: unlisted platform accepted (dry-run, no dispatch)
-        res_dry = runner.invoke(main.app, [
-            "create", "device-group",
-            "--name", "x", "--platform", "Holographic Browser", "--dry-run",
-        ])
+        res_dry = runner.invoke(
+            main.app,
+            [
+                "create",
+                "device-group",
+                "--name",
+                "x",
+                "--platform",
+                "Holographic Browser",
+                "--dry-run",
+            ],
+        )
         assert res_dry.exit_code == 0
         # SUCCESSFUL partial PATCH dispatch — only the supplied field (model_construct)
         client.reset_mock()
         client.device_groups.patch_device_group.return_value = {
-            "id": "DG-1", "name": "renamed"
+            "id": "DG-1",
+            "name": "renamed",
         }
-        res = runner.invoke(main.app, [
-            "update", "device-group",
-            "--id", "DG-1", "--name", "renamed", "--output", "json",
-        ])
+        res = runner.invoke(
+            main.app,
+            [
+                "update",
+                "device-group",
+                "--id",
+                "DG-1",
+                "--name",
+                "renamed",
+                "--output",
+                "json",
+            ],
+        )
         assert res.exit_code == 0, res.output
         assert client.device_groups.patch_device_group.called
         call = client.device_groups.patch_device_group.call_args
         # the id is passed; patch body carries the supplied name (kwargs/args)
         flat = {**call.kwargs}
-        assert call.args or flat   # something was passed
+        assert call.args or flat  # something was passed
         # the body object the SDK received should reflect the supplied 'name'
         body_obj = next(
-            (v for v in list(call.args) + list(flat.values())
-             if hasattr(v, "name") or hasattr(v, "model_dump")),
+            (
+                v
+                for v in list(call.args) + list(flat.values())
+                if hasattr(v, "name") or hasattr(v, "model_dump")
+            ),
             None,
         )
         # serialize to confirm 'renamed' made it via model_construct
@@ -476,13 +621,16 @@ def test_real_create_update_delete_device_group(tmp_path, monkeypatch):
             del sys.modules[n]
 
 
-def test_real_show_device_help_panels(tmp_path, monkeypatch):
+def test_real_show_device_help_panels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     monkeypatch.setenv("NO_COLOR", "1")
     from typer.testing import CliRunner
 
     from phantasos.generator.cli.cliconfig import load_cli_config
+
     try:
         inv = introspect("prisma_browser", REAL_SDK)
     except ImportError as exc:
@@ -505,8 +653,11 @@ def test_real_show_device_help_panels(tmp_path, monkeypatch):
             del sys.modules[n]
 
 
-def test_real_dry_run_shows_http_request(real_cli, capsys):
+def test_real_dry_run_shows_http_request(
+    real_cli: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     from typer.testing import CliRunner
+
     main = importlib.import_module("prisma_browser_cli.main")
     runner = CliRunner()
 
@@ -515,73 +666,101 @@ def test_real_dry_run_shows_http_request(real_cli, capsys):
     assert r1.exit_code == 0, r1.output
     assert "GET" in r1.output
     assert "/devices" in r1.output and "limit=50" in r1.output
-    assert "list_devices(" not in r1.output     # NOT the old call-reference string
+    assert "list_devices(" not in r1.output  # NOT the old call-reference string
 
     # POST create, body shown as JSON
     r2 = runner.invoke(
         main.app,
-        ["create", "device-group", "--name", "Kiosks",
-         "--platform", "Desktop Browser", "--dry-run"],
+        [
+            "create",
+            "device-group",
+            "--name",
+            "Kiosks",
+            "--platform",
+            "Desktop Browser",
+            "--dry-run",
+        ],
     )
     assert r2.exit_code == 0, r2.output
     assert "POST" in r2.output and "device-groups" in r2.output
-    assert "Kiosks" in r2.output                        # body payload present
+    assert "Kiosks" in r2.output  # body payload present
 
     # variant create: wrapped body
     r3 = runner.invoke(
         main.app,
-        ["create", "application", "custom", "--name", "MyApp",
-         "--urls", '[{"url": "https://example.com"}]', "--dry-run"],
+        [
+            "create",
+            "application",
+            "custom",
+            "--name",
+            "MyApp",
+            "--urls",
+            '[{"url": "https://example.com"}]',
+            "--dry-run",
+        ],
     )
     assert r3.exit_code == 0, r3.output
     assert "POST" in r3.output and "MyApp" in r3.output
 
 
-def test_real_dry_run_with_enum_query_flag(real_cli):
+def test_real_dry_run_with_enum_query_flag(real_cli: Path) -> None:
     from typer.testing import CliRunner
+
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app, ["show", "device", "--sort", "device.hostname", "--dry-run"]
     )
     assert res.exit_code == 0, res.output
     assert "GET" in res.output and "/devices" in res.output
-    assert "sort=" in res.output          # enum query param made it into the URL
+    assert "sort=" in res.output  # enum query param made it into the URL
     assert "list_devices(" not in res.output  # NOT the fallback call-string
 
 
-def test_real_version_flag(real_cli):
+def test_real_version_flag(real_cli: Path) -> None:
     from typer.testing import CliRunner
+
     main = importlib.import_module("prisma_browser_cli.main")
     app_mod = importlib.import_module("prisma_browser_cli._generated.app")
     res = CliRunner().invoke(main.app, ["--version"])
     assert res.exit_code == 0, res.output
-    assert app_mod._DISTRIBUTION in res.output            # e.g. "prisma-browser-cli"
+    assert app_mod._DISTRIBUTION in res.output  # e.g. "prisma-browser-cli"
 
 
-def test_generated_code_is_lint_clean(real_cli):
+def test_generated_code_is_lint_clean(real_cli: Path) -> None:
     """Capstone: the emitted `_generated/` passes the scaffold's ruff config
     (select E,F,I,UP,W; line-length 88) with ZERO errors — no noqa, no exclude.
     `real_cli` renders via `render_cli`, which `ruff format`s the output."""
     import shutil
     import subprocess
+
     ruff = shutil.which("ruff")
     if ruff is None:
         pytest.skip("ruff not on PATH")
     gen = real_cli / "prisma_browser_cli" / "_generated"
     res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
-        [ruff, "check", "--isolated", "--select", "E,F,I,UP,W",
-         "--line-length", "88", str(gen)],
-        capture_output=True, text=True,
+        [
+            ruff,
+            "check",
+            "--isolated",
+            "--select",
+            "E,F,I,UP,W",
+            "--line-length",
+            "88",
+            str(gen),
+        ],
+        capture_output=True,
+        text=True,
     )
-    assert res.returncode == 0, res.stdout + res.stderr   # 0 lint errors in generated
+    assert res.returncode == 0, res.stdout + res.stderr  # 0 lint errors in generated
 
 
-def test_long_help_text_preserved(real_cli):
+def test_long_help_text_preserved(real_cli: Path) -> None:
     """Word-wrapping long help into implicit-concat chunks must not drop text:
     Rich reassembles the chunks at runtime, so distinctive fragments survive."""
     import os
 
     from typer.testing import CliRunner
+
     os.environ["NO_COLOR"] = "1"
     main = importlib.import_module("prisma_browser_cli.main")
     out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
@@ -590,7 +769,7 @@ def test_long_help_text_preserved(real_cli):
 
 
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_ir_carries_columns():
+def test_real_ir_carries_columns() -> None:
     """The shipped cli.yml columns: resolve + validate against the real SDK."""
     from phantasos.generator.cli.classify import build_cli_ir
     from phantasos.generator.cli.cliconfig import load_cli_config
@@ -614,7 +793,8 @@ def test_real_ir_carries_columns():
     # application columns: JMESPath paths through actual_instance union wrapper
     show_app = next(c for c in ir.commands if c.key == "show:application")
     assert [c.path for c in show_app.columns][:2] == [
-        "actual_instance.id", "actual_instance.name"
+        "actual_instance.id",
+        "actual_instance.name",
     ]
     assert show_app.items_field == "data"
     # every show command with a response model got SOME columns
@@ -623,7 +803,7 @@ def test_real_ir_carries_columns():
 
 
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_ir_carries_query_defaults():
+def test_real_ir_carries_query_defaults() -> None:
     """The shipped defaults: make application --all pagination work (server
     honors cursors only under an explicit sort)."""
     from phantasos.generator.cli.classify import build_cli_ir
@@ -648,7 +828,9 @@ def test_real_ir_carries_query_defaults():
     assert all(f.cli_default is None for f in show_dg.query_flags)
 
 
-def test_real_config_init_and_show(real_cli, monkeypatch, tmp_path):
+def test_real_config_init_and_show(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -661,26 +843,43 @@ def test_real_config_init_and_show(real_cli, monkeypatch, tmp_path):
     assert "pager" in res.output and "merged from" in res.output
 
 
-def test_private_application_invalid_urls_enriched(real_cli, monkeypatch):
+def test_private_application_invalid_urls_enriched(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from typer.testing import CliRunner
+
     monkeypatch.setenv("NO_COLOR", "1")
     _patch_client(monkeypatch)
     main = importlib.import_module("prisma_browser_cli.main")
-    res = CliRunner().invoke(main.app, [
-        "create", "application", "private", "--name", "cli-application",
-        "--urls", "pb.example.com,pb2.example.com",
-        "--primary-url", "pb.example.com", "--route-to-prisma", "false"])
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "create",
+            "application",
+            "private",
+            "--name",
+            "cli-application",
+            "--urls",
+            "pb.example.com,pb2.example.com",
+            "--primary-url",
+            "pb.example.com",
+            "--route-to-prisma",
+            "false",
+        ],
+    )
     assert res.exit_code == 2
     assert res.exception is None or isinstance(res.exception, SystemExit)
     err = res.stderr
     assert "error: --urls: invalid JSON" in err
     # en dash (U+2013) is intentional — the runtime renders the range with it
     assert "expected: a JSON array of objects (1–100 items)" in err  # noqa: RUF001
-    assert "example: --urls '[{\"url\": \"string\"}]'" in err
+    assert 'example: --urls \'[{"url": "string"}]\'' in err
     assert "got: 'pb.example.com,pb2.example.com'" in err
 
 
-def test_real_history_records_and_shows(real_cli, monkeypatch, tmp_path):
+def test_real_history_records_and_shows(
+    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))

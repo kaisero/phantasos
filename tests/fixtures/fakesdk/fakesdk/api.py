@@ -55,11 +55,9 @@ class WidgetsApi:
         """Revoke a widget grant (id + body action)."""
 
     # excluded by introspection:
-    def create_widget_with_http_info(self, widget_input: WidgetInput):
-        ...
+    def create_widget_with_http_info(self, widget_input: WidgetInput): ...
 
-    def _create_widget_serialize(self, widget_input):
-        ...
+    def _create_widget_serialize(self, widget_input): ...
 
 
 class GizmosApi:

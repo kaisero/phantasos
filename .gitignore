@@ -45,3 +45,6 @@ site/
 
 # Research artifacts — not part of the committed repo
 docs/research/
+
+# Local Claude Code harness state (settings, worktrees) — not part of the repo
+.claude/

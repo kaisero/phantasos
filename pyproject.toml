@@ -22,6 +22,7 @@ dependencies = [
     "jinja2>=3.1",
     "pydantic>=2",
     "jmespath>=1.0",
+    "typer>=0.26.7",
 ]
 
 [project.urls]
@@ -52,9 +53,12 @@ start-after = "<!-- pypi-readme-start -->\n"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/phantasos"]
-# Ship the Jinja component templates as package data (vendored at build time).
+# Ship the Jinja component + CLI templates as package data (read at runtime via
+# importlib/Path from the installed package; the wheel omits non-.py files otherwise).
 artifacts = [
     "src/phantasos/generator/sdk/components/**/*.jinja",
+    "src/phantasos/generator/cli/templates/**",
+    "src/phantasos/generator/cli/cli_overrides/**",
     "src/phantasos/scaffold/**",
 ]
 
@@ -62,7 +66,9 @@ artifacts = [
 include = ["src/phantasos", "README.md"]
 
 [dependency-groups]
-test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0"]
+# python-dotenv + pyyaml: the emitted-CLI tests import a generated CLI in-process,
+# which imports yaml/dotenv at module load — both must be present in the test env.
+test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6"]
 typecheck = ["mypy>=1.11", { include-group = "test" }]
 lint = ["ruff>=0.6", "codespell>=2.3"]
 audit = ["pip-audit>=2.7"]
@@ -70,7 +76,6 @@ docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
 dev = [
     "nox>=2024.4",
     "pre-commit>=3.7",
-    "typer>=0.26.7",
     { include-group = "test" },
     { include-group = "typecheck" },
     { include-group = "lint" },
@@ -114,6 +119,9 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 files = ["src", "tests"]
+# Fixtures deliberately mirror OpenAPI-Generator output (untyped); they are not
+# code-under-test, so keep them out of strict analysis (ruff special-cases them too).
+exclude = ['^tests/fixtures/']
 
 [[tool.mypy.overrides]]
 module = ["ruamel", "ruamel.*"]
@@ -121,6 +129,23 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["jmespath", "jmespath.*"]
+ignore_missing_imports = true
+
+# The fakesdk fixture is excluded from analysis (above); its symbols are imported
+# by a couple of tests, so resolve those import sites to Any.
+[[tool.mypy.overrides]]
+module = ["fakesdk", "fakesdk.*"]
+ignore_missing_imports = true
+
+# PyYAML ships no type stubs; the emitted-CLI tests use it trivially (safe_load).
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+# prisma_browser is a GENERATED SDK, absent at type-check time (built by `nox -s smoke`);
+# the real-SDK tests import it inside skip-guarded bodies.
+[[tool.mypy.overrides]]
+module = ["prisma_browser", "prisma_browser.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -133,7 +158,7 @@ branch = true
 source = ["phantasos"]
 # generate.py is a thin subprocess wrapper around the OpenAPI Generator jar; it is
 # exercised by `nox -s smoke` (which needs Java), not the unit suite.
-omit = ["src/phantasos/generate.py"]
+omit = ["src/phantasos/generator/sdk/generate.py"]
 
 [tool.coverage.report]
 show_missing = true

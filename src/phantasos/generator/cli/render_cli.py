@@ -22,16 +22,35 @@ _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
 def cli_overrides_dir() -> Path:
     return Path(__file__).parent / "cli_overrides"
 
+
 _RESERVED = {
-    "output", "all_", "dry_run", "verbose", "self", "columns", "pager", "quiet"
+    "output",
+    "all_",
+    "dry_run",
+    "verbose",
+    "self",
+    "columns",
+    "pager",
+    "quiet",
 }
 
 # Well-known pagination/sort query params → their own help panel (the rest of the
 # query params are filters). Matched on the SDK param name (snake_case).
-_PAGINATION_PARAMS = frozenset({
-    "limit", "offset", "cursor", "page", "page_size", "per_page",
-    "sort", "order", "sort_by", "order_by", "sort_order",
-})
+_PAGINATION_PARAMS = frozenset(
+    {
+        "limit",
+        "offset",
+        "cursor",
+        "page",
+        "page_size",
+        "per_page",
+        "sort",
+        "order",
+        "sort_by",
+        "order_by",
+        "sort_order",
+    }
+)
 
 
 def _query_panel(f: Flag) -> str:
@@ -58,8 +77,14 @@ def _func_name(c: Command) -> str:
 
 
 _SUBVERB_PRIORITY = {
-    "patch": 0, "create": 1, "update": 2, "delete": 3,
-    "get": 4, "list": 5, "bulk_create": 6, "bulk_delete": 7,
+    "patch": 0,
+    "create": 1,
+    "update": 2,
+    "delete": 3,
+    "get": 4,
+    "list": 5,
+    "bulk_create": 6,
+    "bulk_delete": 7,
 }
 
 
@@ -71,7 +96,10 @@ def _primary_sub_verb(c: Command) -> str:
 
 
 _SCALAR_PY: dict[str, str] = {
-    "int": "int", "bool": "bool", "float": "float", "str": "str"
+    "int": "int",
+    "bool": "bool",
+    "float": "float",
+    "str": "str",
 }
 
 
@@ -204,7 +232,8 @@ def _command_view(
     path_param_names = {f.param for f in c.path_params}
     deduped_body = [f for f in c.body_flags if f.param not in path_param_names]
     deduped_query = [
-        f for f in c.query_flags
+        f
+        for f in c.query_flags
         if f.param not in path_param_names
         and f.param not in {b.param for b in deduped_body}
     ]
@@ -348,9 +377,13 @@ def render_cli(
         module_enum_flags = _module_enum_flags(cmds)
         dest.write_text(
             env.get_template("_generated/commands.py.jinja").render(
-                resource=resource, commands=cmds,
-                module_enum_flags=module_enum_flags, **ctx),
-            encoding="utf-8")
+                resource=resource,
+                commands=cmds,
+                module_enum_flags=module_enum_flags,
+                **ctx,
+            ),
+            encoding="utf-8",
+        )
         written.append(str(dest.relative_to(out_dir)))
     # commands package marker
     (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
@@ -359,8 +392,10 @@ def render_cli(
     all_views = [_command_view(c, variant_groups) for c in ir.commands]
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, **ctx),
-        encoding="utf-8")
+            resources=resources, commands=all_views, **ctx
+        ),
+        encoding="utf-8",
+    )
     written.append(str((gen / "app.py").relative_to(out_dir)))
 
     for rel in _HANDOWNED:
@@ -370,8 +405,6 @@ def render_cli(
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).
-    _format_generated([
-        (out_dir / rel) for rel in written if rel.endswith(".py")
-    ])
+    _format_generated([(out_dir / rel) for rel in written if rel.endswith(".py")])
 
     return written

@@ -1019,6 +1019,7 @@ dependencies = [
     { name = "jmespath" },
     { name = "pydantic" },
     { name = "ruamel-yaml" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -1036,8 +1037,8 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "ruff" },
-    { name = "typer" },
 ]
 docs = [
     { name = "mkdocs-material" },
@@ -1051,12 +1052,14 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 typecheck = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -1065,6 +1068,7 @@ requires-dist = [
     { name = "jmespath", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
+    { name = "typer", specifier = ">=0.26.7" },
 ]
 
 [package.metadata.requires-dev]
@@ -1080,8 +1084,8 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.6" },
-    { name = "typer", specifier = ">=0.26.7" },
 ]
 docs = [
     { name = "mkdocs-material", specifier = ">=9.5" },
@@ -1095,12 +1099,14 @@ test = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 typecheck = [
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 
 [[package]]

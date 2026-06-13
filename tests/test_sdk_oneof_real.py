@@ -7,7 +7,9 @@ ApplicationItem deserializing as CustomApplication (trial-deser first-match
 """
 
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,7 +27,7 @@ _BASE = {
 
 
 @pytest.fixture
-def application_item():
+def application_item() -> Iterator[Any]:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     sys.path.insert(0, str(REAL_SDK))
@@ -49,13 +51,13 @@ def application_item():
     ],
 )
 def test_discriminator_picks_correct_variant(
-    application_item, type_value, expected_class
-):
+    application_item: Any, type_value: str, expected_class: str
+) -> None:
     item = application_item.from_dict({**_BASE, "type": type_value})
     assert type(item.actual_instance).__name__ == expected_class
 
 
-def test_catalog_fields_are_typed_not_demoted(application_item):
+def test_catalog_fields_are_typed_not_demoted(application_item: Any) -> None:
     item = application_item.from_dict(
         {**_BASE, "type": "catalog", "catalog_name": "ssl"}
     )

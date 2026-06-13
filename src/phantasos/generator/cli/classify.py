@@ -59,7 +59,7 @@ def classify_name(method: str) -> Classification | None:
         return None
     for prefix, verb, sub_verb in _VERB_PREFIXES:
         if method.startswith(prefix):
-            noun = _strip_id_suffix(method[len(prefix):])
+            noun = _strip_id_suffix(method[len(prefix) :])
             noun = _singularize(noun)
             return Classification(
                 verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
@@ -148,15 +148,21 @@ def _query_flags(
 ) -> list[Flag]:
     defaults = defaults or {}
     return [
-        Flag(name=_flag_name(p.name), param=p.name,
-             # Enum query params stay permissive (str + choices), like fields_to_flags.
-             # Plain int/bool scalars get their real type for _coerce to work correctly.
-             py_type="str" if p.enum_values else p.scalar_type,
-             kind="enum" if p.enum_values else "scalar",
-             required=False, default=p.default, help=p.description,
-             choices=p.enum_values,
-             cli_default=defaults.get(p.name))
-        for p in params if p.location == "query"
+        Flag(
+            name=_flag_name(p.name),
+            param=p.name,
+            # Enum query params stay permissive (str + choices), like fields_to_flags.
+            # Plain int/bool scalars get their real type for _coerce to work correctly.
+            py_type="str" if p.enum_values else p.scalar_type,
+            kind="enum" if p.enum_values else "scalar",
+            required=False,
+            default=p.default,
+            help=p.description,
+            choices=p.enum_values,
+            cli_default=defaults.get(p.name),
+        )
+        for p in params
+        if p.location == "query"
     ]
 
 
@@ -178,15 +184,31 @@ def _path_flags(params: list[ParamInfo], id_param: ParamInfo | None) -> list[Fla
         if p.location != "path":
             continue
         if id_param is not None and p.name == id_param.name:
-            flags.append(Flag(name="--id", param=p.name, py_type="str", kind="id",
-                              required=False, help=p.description))
+            flags.append(
+                Flag(
+                    name="--id",
+                    param=p.name,
+                    py_type="str",
+                    kind="id",
+                    required=False,
+                    help=p.description,
+                )
+            )
         else:
             kind: FlagKind = "enum" if p.enum_values else "scalar"
             # Enums stay permissive (str + choices); plain int/bool scalars get typed.
             py_type = "str" if p.enum_values else p.scalar_type
-            flags.append(Flag(name=_flag_name(p.name), param=p.name, py_type=py_type,
-                              kind=kind, required=False, help=p.description,
-                              choices=p.enum_values))
+            flags.append(
+                Flag(
+                    name=_flag_name(p.name),
+                    param=p.name,
+                    py_type=py_type,
+                    kind=kind,
+                    required=False,
+                    help=p.description,
+                    choices=p.enum_values,
+                )
+            )
     return flags
 
 
@@ -214,28 +236,40 @@ def _merge_flags(target: list[Flag], extra: list[Flag]) -> None:
             seen.add(f.name)
 
 
-def _emit_request(groups: dict[str, Command], op: OperationInfo,
-                  mapping: RequestMapping,
-                  defaults: dict[str, Any] | None = None) -> None:
+def _emit_request(
+    groups: dict[str, Command],
+    op: OperationInfo,
+    mapping: RequestMapping,
+    defaults: dict[str, Any] | None = None,
+) -> None:
     key = _command_key("request", mapping.object, mapping.action)
     id_param = detect_id_param(op.params)
     body_info = _body_param_info(op)
     body_model = body_info.body_model if body_info else None
     binding = MethodBinding(
-        sdk_method=op.method, sub_verb="action",
+        sdk_method=op.method,
+        sub_verb="action",
         requires=_required_path_names(op.params),
         body_param=body_info.name if body_info else None,
-        body_model=body_model, body_wrapper=None,
+        body_model=body_model,
+        body_wrapper=None,
     )
     cmd = groups.get(key)
     if cmd is None:
         cmd = Command(
-            verb="request", object=mapping.object, action=mapping.action,
-            variant=None, variant_param=None, key=key, sdk_resource=op.resource,
+            verb="request",
+            object=mapping.object,
+            action=mapping.action,
+            variant=None,
+            variant_param=None,
+            key=key,
+            sdk_resource=op.resource,
             path_params=_path_flags(op.params, id_param),
             body_flags=_body_flags_for(op, body_model),
             query_flags=_query_flags(op.params, defaults),
-            summary=op.summary, description=op.description, paginated=False,
+            summary=op.summary,
+            description=op.description,
+            paginated=False,
         )
         groups[key] = cmd
     else:
@@ -255,9 +289,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
     for op_key, params_map in cfg.defaults.items():
         op_info = ops_index.get(op_key)
         if op_info is None:
-            raise ValueError(
-                f"cli.yml defaults: unknown operation {op_key!r}"
-            )
+            raise ValueError(f"cli.yml defaults: unknown operation {op_key!r}")
         query_names = {p.name for p in op_info.params if p.location == "query"}
         unknown = set(params_map) - query_names
         if unknown:
@@ -267,9 +299,15 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 f" {', '.join(sorted(query_names)) or 'none'})"
             )
 
-    def _emit(verb: Verb, obj: str, variant: str | None, op: OperationInfo,
-              sub_verb: SubVerb, body_model: str | None,
-              variant_param: str | None = None) -> None:
+    def _emit(
+        verb: Verb,
+        obj: str,
+        variant: str | None,
+        op: OperationInfo,
+        sub_verb: SubVerb,
+        body_model: str | None,
+        variant_param: str | None = None,
+    ) -> None:
         key = _command_key(verb, obj, variant)
         id_param = detect_id_param(op.params)
         body_info = _body_param_info(op)
@@ -289,22 +327,28 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             bp_model = None
             bp_wrapper = None
         binding = MethodBinding(
-            sdk_method=op.method, sub_verb=sub_verb,
+            sdk_method=op.method,
+            sub_verb=sub_verb,
             requires=_required_path_names(op.params),
             body_param=body_info.name if body_info else None,
-            body_model=bp_model, body_wrapper=bp_wrapper,
+            body_model=bp_model,
+            body_wrapper=bp_wrapper,
         )
         op_defaults = cfg.defaults.get(f"{op.resource}.{op.method}")
         cmd = groups.get(key)
         if cmd is None:
             cmd = Command(
-                verb=verb, object=obj, variant=variant,
-                variant_param=variant_param, key=key,
+                verb=verb,
+                object=obj,
+                variant=variant,
+                variant_param=variant_param,
+                key=key,
                 sdk_resource=op.resource,
                 path_params=_path_flags(op.params, id_param),
                 body_flags=_body_flags_for(op, body_model),
                 query_flags=_query_flags(op.params, op_defaults),
-                summary=op.summary, description=op.description,
+                summary=op.summary,
+                description=op.description,
                 paginated=(sub_verb == "list"),
             )
             groups[key] = cmd
@@ -334,8 +378,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         if key0 in cfg.hide:
             continue
         if key0 in cfg.request:
-            _emit_request(groups, op, cfg.request[key0],
-                          cfg.defaults.get(key0))
+            _emit_request(groups, op, cfg.request[key0], cfg.defaults.get(key0))
             continue
         ov = cfg.override.get(key0)
         cls = classify_name(op.method)
@@ -348,8 +391,15 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         variants = resolve_variants(op, vmap)
         if variants:
             for v in variants:
-                _emit(verb, obj, v.name, op, cls.sub_verb, v.model,
-                      variant_param=vmap.path_param if vmap else None)
+                _emit(
+                    verb,
+                    obj,
+                    v.name,
+                    op,
+                    cls.sub_verb,
+                    v.model,
+                    variant_param=vmap.path_param if vmap else None,
+                )
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
 
@@ -383,8 +433,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
     unknown_objects = set(cfg.columns) - objects
     if unknown_objects:
         raise ValueError(
-            "cli.yml columns: unknown object(s): "
-            + ", ".join(sorted(unknown_objects))
+            "cli.yml columns: unknown object(s): " + ", ".join(sorted(unknown_objects))
         )
     resolved: dict[str, list[ColumnSpec]] = {}
     for obj in objects:

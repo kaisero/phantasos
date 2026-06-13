@@ -40,12 +40,12 @@ def render_stub(ir: CliIR, unmapped: list[str]) -> str:
         if c.object in seen_objects or not c.columns:
             continue
         seen_objects.add(c.object)
-        col_lines.append(
-            f"  {c.object}: [{', '.join(s.path for s in c.columns)}]"
-        )
+        col_lines.append(f"  {c.object}: [{', '.join(s.path for s in c.columns)}]")
     if col_lines:
-        lines.append("# Table columns per object (JMESPath; model-derived"
-                     " defaults shown — edit to curate).")
+        lines.append(
+            "# Table columns per object (JMESPath; model-derived"
+            " defaults shown — edit to curate)."
+        )
         lines.append("columns:")
         lines.extend(col_lines)
     lines.append("hide: []")
