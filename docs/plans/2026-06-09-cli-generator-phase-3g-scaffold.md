@@ -1,6 +1,6 @@
 # CLI Generator — Phase 3g: Full project scaffolding via `render_scaffold` reuse — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `phantasos cli build` emit a full phantasos-grade project (README, pyproject with the **correct SDK distribution dependency** + console-script, noxfile, CI/CD, pre-commit, `.env.example`, mkdocs, …) by **reusing the existing SDK scaffold system** (`src/phantasos/scaffold.py` + `src/phantasos/scaffold/`), instead of the lean ad-hoc pyproject Phase 2b emitted.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11–3.14, Jinja2 (`StrictUndefined`), Pydantic v2, pytest. Test runner: `uv run`.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` + the SDK scaffold design `docs/superpowers/specs/2026-06-08-sdk-project-scaffold-design.md`. **Roadmap:** `…phase-3-roadmap.md` §3g. **Builds on:** Phases 1/2a/2b on branch `cli-generator`.
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md` + the SDK scaffold design `docs/specs/2026-06-08-sdk-project-scaffold-design.md`. **Roadmap:** `…phase-3-roadmap.md` §3g. **Builds on:** Phases 1/2a/2b on branch `cli-generator`.
 
 ---
 
@@ -34,7 +34,7 @@
 - Create: `src/phantasos/generator/cli/cli_overrides/README.md.jinja` — generic CLI README (the required README override).
 - Modify: `src/phantasos/generator/cli/render_cli.py` — **remove** pyproject emission (scaffold owns it now).
 - Modify: `src/phantasos/cli.py` — `cli build` calls `render_scaffold` with the CLI context + overrides.
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md` — note pyproject is scaffold-owned.
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md` — note pyproject is scaffold-owned.
 - Tests: `tests/test_cli_scaffold.py` (context builder + scaffold integration), extend `tests/test_cli_command.py` (real wiring), `tests/test_scaffold.py` if it exists for the pyproject change.
 
 ---
@@ -662,13 +662,13 @@ git commit -m "test(cli-gen): real-SDK cli build emits a full phantasos-grade pr
 ## Task 8: Spec update — pyproject is scaffold-owned
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md`
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md`
 
 - [ ] **Step 1:** In the "Generated CLI project (runtime behavior)" and "Augmentation & extensibility" sections, change the ownership table so `pyproject.toml` (and README, noxfile, CI, `.env.example`, mkdocs, dotfiles) are **scaffold-owned (overwrite every build)** rather than hand-owned emit-once. State that the CLI reuses `render_scaffold` with a CLI context, and that custom-command deps are added via `cli.yml project.dependencies`. Keep `main.py`/`custom/`/`hooks.py` as hand-owned emit-once.
 
 - [ ] **Step 2: Commit**
 ```bash
-git add docs/superpowers/specs/2026-06-09-cli-generator-design.md
+git add docs/specs/2026-06-09-cli-generator-design.md
 git commit -m "docs: CLI pyproject/project shell is scaffold-owned (Phase 3g)"
 ```
 

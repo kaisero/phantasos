@@ -1,6 +1,6 @@
 # CLI Generator — Phase 2b: Emission (set/del/show) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Emit a standalone, installable Typer+Rich CLI project from the aggregated `CliIR`, with working `set`/`del`/`show` commands that call the built SDK, plus config/auth/output, the generated-vs-hand-owned split, and the `phantasos cli build` command.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11–3.14, Jinja2 (already a dep), Typer + Rich + PyYAML (new deps of the *generated* CLI), Pydantic v2, pytest + Typer's `CliRunner`. Test runner: `uv run pytest`.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (Augmentation & extensibility; Generated CLI project; the aggregated `CliIR`). **Builds on:** Phase 2a (aggregated IR), committed on branch `cli-generator`.
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md` (Augmentation & extensibility; Generated CLI project; the aggregated `CliIR`). **Builds on:** Phase 2a (aggregated IR), committed on branch `cli-generator`.
 
 > **⚠️ READ THE HARDENING SECTION FIRST.** This plan was reviewed by a python-pro pass and a python-anti-patterns pass, which found correctness bugs the fake-SDK fixture hides. The **"Hardening (review pass) — AUTHORITATIVE"** section below corrects the task bodies; where it conflicts with a task's inline code, the Hardening section wins. The original task code is kept for structure/TDD flow but several snippets are superseded.
 

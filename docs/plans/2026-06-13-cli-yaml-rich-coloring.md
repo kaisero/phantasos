@@ -1,12 +1,12 @@
 # Rich Coloring for YAML Output (CLI) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** In a generated CLI, render `--output yaml` (and `config show`) through `rich` so it is syntax-colored on a terminal — consistent with `--output json` — while staying byte-clean, round-tripping plain YAML when piped/redirected/`NO_COLOR`. Implements #13.
 
 **Architecture:** One shared `output.print_yaml(text)` helper (`rich.syntax.Syntax` + `_console.print(..., soft_wrap=True)`) is the single "YAML → terminal" path; both `output.render()`'s YAML branch and `config_commands.config_show()` call it. `soft_wrap=True` is mandatory — off-TTY, `Syntax` otherwise crops lines to width 80 and truncates long values.
 
-**Tech Stack:** Python 3.11+, `rich` (`Syntax`), `pygments` (yaml lexer, via rich), Jinja2 templates, pytest. Spec: `docs/superpowers/specs/2026-06-13-cli-yaml-rich-coloring-design.md`.
+**Tech Stack:** Python 3.11+, `rich` (`Syntax`), `pygments` (yaml lexer, via rich), Jinja2 templates, pytest. Spec: `docs/specs/2026-06-13-cli-yaml-rich-coloring-design.md`.
 
 **Branch:** `feature/yaml-rich-coloring` (already created off `develop`). PR `--base develop`; do NOT bump the version.
 
@@ -286,7 +286,7 @@ git push "https://x-access-token:$(gh auth token)@github.com/kaisero/phantasos.g
 ```bash
 GH_TOKEN="$(gh auth token)" gh pr create --base develop --head feature/yaml-rich-coloring \
   --title "feat(cli): rich coloring for YAML output (#13)" \
-  --body "Closes #13. Single output.print_yaml() helper (rich Syntax, ansi_dark, transparent bg, word_wrap=False, soft_wrap=True) used by both \`--output yaml\` and \`config show\`. Colored on a terminal; byte-clean, round-tripping plain YAML when piped/NO_COLOR (long lines included). Spec: docs/superpowers/specs/2026-06-13-cli-yaml-rich-coloring-design.md."
+  --body "Closes #13. Single output.print_yaml() helper (rich Syntax, ansi_dark, transparent bg, word_wrap=False, soft_wrap=True) used by both \`--output yaml\` and \`config show\`. Colored on a terminal; byte-clean, round-tripping plain YAML when piped/NO_COLOR (long lines included). Spec: docs/specs/2026-06-13-cli-yaml-rich-coloring-design.md."
 ```
 
 - [ ] **Step 4: Confirm PR CI is green**

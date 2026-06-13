@@ -1,12 +1,12 @@
 # Isolated Smoke Check Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Run the smoke check's import-walk in an isolated, cached venv built from the generated SDK's *own* declared dependencies, so phantasos no longer needs the artifact's runtime deps (`pydantic`, `urllib3`, …) in its own environment.
 
 **Architecture:** Split `smoke()` into two parts — the **operations count** (pure regex over `api/*_api.py`, stays in-process) and the **import-walk** (now run in a throwaway, requirements-hashed venv via a sanitized subprocess). The venv is provisioned with stdlib `venv` + the venv's own `pip`, cached under `~/.cache/phantasos/smoke-envs/<hash>`. A `--no-smoke` / `PHANTASOS_SKIP_SMOKE` opt-out skips the isolated check. The `generated` optional-dependency extra and the `smoke` dependency group are dropped.
 
-**Tech Stack:** Python 3.11+ (stdlib: `venv`, `subprocess`, `hashlib`, `json`, `tempfile`, `shutil`, `os`, `re`, `pathlib`), pytest, nox, ruff, mypy. No new runtime deps. Design + rationale: `docs/superpowers/specs/2026-06-07-isolated-smoke-check-design.md`.
+**Tech Stack:** Python 3.11+ (stdlib: `venv`, `subprocess`, `hashlib`, `json`, `tempfile`, `shutil`, `os`, `re`, `pathlib`), pytest, nox, ruff, mypy. No new runtime deps. Design + rationale: `docs/specs/2026-06-07-isolated-smoke-check-design.md`.
 
 ---
 

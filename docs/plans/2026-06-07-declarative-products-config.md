@@ -1,12 +1,12 @@
 # Declarative per-product config (Phase 1: A+B) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Python `transformations/<product>.py` config modules with a declarative, pydantic-validated `products/<product>/sdk.yml` that drives the build, the vendored components, a `vars` substitution store, and an `include` template map.
 
 **Architecture:** A new `productconfig.py` defines pydantic models for `sdk.yml` and a `load_product(name_or_path)` loader (validate + resolve paths + build the unified template context). `config.py`'s dataclasses become pydantic component models. `render.py` builds ONE unified context (auto-exposed build-config + spec-derived + `vars`) and renders components + the `include` map with it. `build()`/`cli.py` are refactored to consume the loaded config; the Python-module loader is removed. Both example products are migrated.
 
-**Tech Stack:** Python 3.11+, pydantic v2 (new dep), ruamel.yaml, jinja2, pytest, nox, ruff, mypy. Builds on the `isolated-smoke-venv` branch. Design: `docs/superpowers/specs/2026-06-07-declarative-products-config-design.md`.
+**Tech Stack:** Python 3.11+, pydantic v2 (new dep), ruamel.yaml, jinja2, pytest, nox, ruff, mypy. Builds on the `isolated-smoke-venv` branch. Design: `docs/specs/2026-06-07-declarative-products-config-design.md`.
 
 ---
 
@@ -1237,7 +1237,7 @@ Expected: `removed` and `no module-loader / SdkConfig refs`.
 
 - [ ] **Step 5: Final review against the design**
 
-Re-read `docs/superpowers/specs/2026-06-07-declarative-products-config-design.md` and confirm each section maps to merged work. If all green, Phase 1 (A+B) is complete.
+Re-read `docs/specs/2026-06-07-declarative-products-config-design.md` and confirm each section maps to merged work. If all green, Phase 1 (A+B) is complete.
 
 ---
 

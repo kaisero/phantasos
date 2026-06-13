@@ -35,7 +35,8 @@ nav:
 # Internal/historical markdown kept in the repo but excluded from the published site:
 # the prototype phase write-ups, the migration index/plan, and planning docs.
 exclude_docs: |
-  superpowers/
+  specs/
+  plans/
 
 plugins:
   - search

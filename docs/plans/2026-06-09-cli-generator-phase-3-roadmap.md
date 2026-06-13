@@ -5,7 +5,7 @@
 **Branch:** `cli-generator` (HEAD at Phase 2b completion)
 
 This document lets a future session resume the phantasos CLI-generator feature. Read it
-alongside the **spec** (`docs/superpowers/specs/2026-06-09-cli-generator-design.md`) and the
+alongside the **spec** (`docs/specs/2026-06-09-cli-generator-design.md`) and the
 project **memory** (`prisma-browser-cli-generator-design`).
 
 ## Where things stand (done)
@@ -182,6 +182,6 @@ canonical `--id` in the SDK would simplify the classifier. Independent of the CL
 
 ## Branch / finishing
 The work is on `cli-generator` (not merged). When ready, use
-`superpowers:finishing-a-development-branch`. Pre-existing unrelated working-tree changes
+`finishing-a-development-branch`. Pre-existing unrelated working-tree changes
 (deleted `docs/*.md`, modified `.gitignore`) were present at session start and are NOT part of
 this feature — don't sweep them into a merge.

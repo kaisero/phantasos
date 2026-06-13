@@ -1,6 +1,6 @@
 # Rename `sdkgen` → `phantasos` Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rename the project from `sdkgen` to `phantasos` across the entire tracked source tree — package, imports, CLI, env vars, cache path, URLs, docs, tests, and templates.
 
@@ -69,12 +69,12 @@ The historical plan references the no-longer-existing path `git/sdk-gen`. Step 2
 Run:
 ```bash
 sed -i 's#git/sdk-gen#git/pan-sdk-generator#g; s/sdk-gen/phantasos/g' \
-  docs/superpowers/plans/2026-06-07-productionize-sdkgen.md
+  docs/plans/2026-06-07-productionize-sdkgen.md
 ```
 
 - [ ] **Step 4: Rename the old plan doc file**
 
-Run: `git mv docs/superpowers/plans/2026-06-07-productionize-sdkgen.md docs/superpowers/plans/2026-06-07-productionize-phantasos.md`
+Run: `git mv docs/plans/2026-06-07-productionize-sdkgen.md docs/plans/2026-06-07-productionize-phantasos.md`
 
 - [ ] **Step 5: Verify zero remaining old-name hits (excluding uv.lock)**
 
@@ -150,7 +150,7 @@ Expected: `ALL CLEAR`.
 
 - [ ] **Step 4: Final review of the spec vs. result**
 
-Re-open `docs/superpowers/specs/2026-06-07-rename-sdkgen-to-phantasos-design.md` and confirm every row of the name-mapping table is satisfied. If all green, the rename is complete.
+Re-open `docs/specs/2026-06-07-rename-sdkgen-to-phantasos-design.md` and confirm every row of the name-mapping table is satisfied. If all green, the rename is complete.
 
 ---
 

@@ -1,6 +1,6 @@
 # SDK Generator Package + Host-CLI Restructure — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Relocate SDK-generation logic into `src/phantasos/generator/sdk/` (sibling to `generator/cli/`) and move the command to `phantasos sdk build` (host CLI migrated argparse→Typer), with zero SDK-build behavior change.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+, Typer/click, pytest, git mv, ruff, mypy.
 
-**Design doc:** `docs/superpowers/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`
+**Design doc:** `docs/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`
 
 **Test runner note:** `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-repro uv run python -m pytest …` (the `.nox` venv path fails on this sshfs checkout). `ruff check`/`mypy` likewise via `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-repro uv run …`. NOTE: `ruff format --check` has KNOWN pre-existing repo-wide drift (ruff 0.15.16 bump); ignore format-only diffs, only act on `ruff check` lint failures.
 
@@ -418,7 +418,7 @@ In each doc file, replace the literal command `phantasos build <x>` → `phantas
 ```bash
 grep -rn "phantasos build" README.md docs/
 ```
-Edit each hit (skip historical plan/spec files under `docs/superpowers/` — those are point-in-time records; only update user-facing docs: README, ARCHITECTURE, ONBOARDING, index, AUTHORING_A_SPEC, TODO).
+Edit each hit (skip historical plan/spec files under `docs/plans`/`docs/specs` — those are point-in-time records; only update user-facing docs: README, ARCHITECTURE, ONBOARDING, index, AUTHORING_A_SPEC, TODO).
 
 - [ ] **Step 3: Verify docs build (if applicable) + no stale refs**
 

@@ -1,12 +1,12 @@
 # Modern retry (jitter) + RateLimitException Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every generated SDK on-by-default retry with jitter (`JitteredRetry`, Tier 1) and a typed `RateLimitException` dispatched in generated `exceptions.py` via an OAG template override (Tier 2), removing `is_rate_limited()`.
 
 **Architecture:** Per `CLAUDE.md`'s 3-tier model — retry is Tier 1 (`extras/retry.py` over urllib3's `configuration.retries` seam); 429→`RateLimitException` is Tier 2 (a `exceptions.mustache` override passed to OAG via `-t`, so it's on every path). This also introduces phantasos's reusable **OAG custom-template** capability.
 
-**Tech Stack:** Python 3.11+, pydantic v2, jinja2, urllib3, OpenAPI Generator 7.22.0 (`-t` templates), pytest, nox. Design: `docs/superpowers/specs/2026-06-08-retry-jitter-ratelimit-design.md`.
+**Tech Stack:** Python 3.11+, pydantic v2, jinja2, urllib3, OpenAPI Generator 7.22.0 (`-t` templates), pytest, nox. Design: `docs/specs/2026-06-08-retry-jitter-ratelimit-design.md`.
 
 ---
 

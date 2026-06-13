@@ -1,6 +1,6 @@
 # CLI Generator — Phase 1: Generator Core + Discover — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the introspection → classification → `CliIR` core of the phantasos CLI generator, plus the `phantasos cli discover <product>` command that prints a classification table and writes a `cli.yml` stub. No code emission yet (Phase 2).
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+, Pydantic v2 (already a dependency), `inspect` + `typing.get_type_hints`, pytest. Test runner: `uv run pytest` (recreates the venv from `uv.lock`).
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md`. **Reference for types:** `src/phantasos/productconfig.py`.
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md`. **Reference for types:** `src/phantasos/productconfig.py`.
 
 ---
 

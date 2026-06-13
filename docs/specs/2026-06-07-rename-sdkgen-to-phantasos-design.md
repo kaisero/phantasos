@@ -20,7 +20,7 @@ remains in the tracked source tree (excluding `uv.lock`, which is regenerated).
 | `SDKGEN_CACHE`, `SDKGEN_VERSION` | `PHANTASOS_CACHE`, `PHANTASOS_VERSION` | `src/sdkgen/generate.py`, `src/sdkgen/__init__.py` (generated `_about.py` template), `README.md`, `docs/AUTHORING_A_SPEC.md` |
 | `~/.cache/sdkgen` | `~/.cache/phantasos` | `src/sdkgen/generate.py` runtime default |
 | `kaisero/sdkgen` (URLs) | `kaisero/phantasos` | `pyproject.toml` `[project.urls]`, `mkdocs.yml`, docs |
-| `sdk-gen` / `git/sdk-gen` (prose + paths) | `phantasos` / `git/pan-sdk-generator` | `docs/superpowers/plans/2026-06-07-productionize-sdkgen.md` |
+| `sdk-gen` / `git/sdk-gen` (prose + paths) | `phantasos` / `git/pan-sdk-generator` | `docs/plans/2026-06-07-productionize-sdkgen.md` |
 
 Casing is handled with two case-sensitive passes: `sdkgen` → `phantasos` and
 `SDKGEN` → `PHANTASOS`. No mixed-case variants (`SdkGen`, `Sdkgen`, etc.) exist

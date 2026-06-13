@@ -1,6 +1,6 @@
 # Productionize phantasos (merge python-project-template) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring the `phantasos` repo up to a production-grade Python setup by merging the `~/git/python-project-template` (Copier) template into it — gaining uv/nox/ruff/mypy/pytest, MkDocs docs, and full GitHub Actions CI/CD — without breaking the working phantasos generator or its two example specs.
 

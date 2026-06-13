@@ -1,6 +1,6 @@
 # CLI Generator: Table Columns (curated table output) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** User-friendly `--output table` for the generated CLI: build-time curated columns per object (cli.yml `columns:` with JMESPath, validated against the response models), a model-derived default heuristic, and a runtime `--columns` override flag.
 
@@ -51,7 +51,7 @@
 | `src/phantasos/generator/cli/discover.py` | Stub pre-fills `columns:` |
 | `pyproject.toml` | phantasos deps += `jmespath>=1.0`; mypy override for untyped `jmespath` |
 | `products/prisma-browser/cli.yml` | Author curated `columns:` for key objects |
-| `docs/superpowers/specs/2026-06-09-cli-generator-design.md` | Spec sync: table-columns section |
+| `docs/specs/2026-06-09-cli-generator-design.md` | Spec sync: table-columns section |
 
 ---
 
@@ -1418,7 +1418,7 @@ git commit -m "feat(cli-gen): curated table columns for prisma-browser + real-SD
 ### Task 11: spec sync + lint/type gate
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md`
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md`
 
 - [ ] **Step 1: Append a "Table output & columns" section to the spec**
 
@@ -1439,7 +1439,7 @@ Expected: all clean / all pass. Fix anything it flags before committing.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-06-09-cli-generator-design.md
+git add docs/specs/2026-06-09-cli-generator-design.md
 git commit -m "docs(spec): table columns design (cli.yml columns, defaults, --columns)"
 ```
 

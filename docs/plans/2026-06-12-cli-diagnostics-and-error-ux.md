@@ -1,6 +1,6 @@
 # Generated CLI: Unified Diagnostics + Enriched Input Errors — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every generated CLI one diagnostics facade (icons + uniform `✖ error:` / `⚠ warning:` / `ℹ info:` format, correct stream/exit discipline) and use it to deliver enriched, example-rich input errors; migrate all existing ad-hoc `print`/`typer.echo`/`_err_console` error & warning sites onto it.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+, Jinja2 templates, Rich, Typer, pydantic v2, pytest + Typer `CliRunner`.
 
-**Design doc:** `docs/superpowers/specs/2026-06-12-cli-diagnostics-and-error-ux-design.md`
+**Design doc:** `docs/specs/2026-06-12-cli-diagnostics-and-error-ux-design.md`
 **Discovery:** `docs/research/2026-06-12-json-flag-error-ux.md`
 
 **Test runner note:** the suite runs with `uv run python -m pytest …`. On this sshfs checkout, `.nox` venv creation fails, so prefix env to relocate: `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-repro uv run python -m pytest …`. The `emitted` fixture (fakesdk) and `real_cli` fixture (prisma-browser-sdk) already exist in `tests/test_cli_emitted.py` / `tests/test_cli_emitted_real.py`.
