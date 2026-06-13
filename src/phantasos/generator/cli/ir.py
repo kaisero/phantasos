@@ -1,0 +1,101 @@
+"""The CLI intermediate representation: the fully-resolved command tree.
+
+Rendered by templates, reported by discovery, and serialized to _generated/ir.json.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+FlagKind = Literal["scalar", "enum", "json", "file", "id"]
+Verb = Literal["create", "update", "delete", "show", "request", "load", "backup"]
+SubVerb = Literal[
+    "create",
+    "patch",
+    "update",
+    "get",
+    "list",
+    "delete",
+    "bulk_create",
+    "bulk_delete",
+    "action",
+]
+
+
+class Flag(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str  # CLI flag, e.g. "--name"
+    param: str  # SDK parameter name, e.g. "name"
+    py_type: str  # rendered annotation, e.g. "str"
+    kind: FlagKind
+    required: bool
+    default: Any | None = None
+    # cli.yml-injected flag default (rendered as the Typer option default and
+    # therefore sent to the SDK unless overridden). Distinct from `default`,
+    # which records the SDK/model default and is NEVER rendered — body flags
+    # must stay None-by-default or PATCH would silently send model defaults.
+    cli_default: Any | None = None
+    help: str = ""
+    choices: list[str] | None = None  # enum values; flag stays permissive
+
+
+class MethodBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sdk_method: str  # e.g. "create_application"
+    sub_verb: SubVerb
+    requires: list[str] = []  # path-param names that select this binding at runtime
+    body_param: str | None = None  # SDK parameter name carrying the request body
+    body_model: str | None = None  # model class to instantiate (variant or direct)
+    body_wrapper: str | None = None  # oneOf wrapper to construct around body_model
+
+
+class ColumnSpec(BaseModel):
+    """One table column: a header + a JMESPath evaluated against each row dict
+    (snake_case keys — rows come from model_dump(mode="json") without by_alias)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    header: str
+    path: str
+
+
+class Command(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verb: Verb
+    object: str  # kebab-case noun, e.g. "application"
+    variant: str | None = None  # union variant subcommand, if any
+    # path param name carrying the variant discriminator
+    variant_param: str | None = None
+    action: str | None = None  # request-namespace action segment (e.g. "suspend");
+    # distinct from `variant` (oneOf discriminator).
+    key: str  # canonical "verb:object[:variant_or_action]"
+    sdk_resource: str  # facade attribute, e.g. "applications"
+    # candidate SDK methods; runtime dispatch picks one by args
+    bindings: list[MethodBinding] = []
+    # ALL required path params (id + discriminators like --type)
+    path_params: list[Flag] = []
+    body_flags: list[Flag] = []
+    query_flags: list[Flag] = []
+    summary: str = ""
+    description: str = ""
+    paginated: bool = False
+    # list-envelope field holding the rows (e.g. "data"); None when the op
+    # returns the item directly
+    items_field: str | None = None
+    # resolved table columns: cli.yml columns or model-derived defaults
+    columns: list[ColumnSpec] = []
+
+
+class CliIR(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sdk_package: str
+    sdk_version: str
+    # module exposing Client.from_env, e.g. "prisma_browser.extras.facade"
+    facade_module: str = ""
+    commands: list[Command] = []

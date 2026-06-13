@@ -115,7 +115,7 @@ pip install {{ project.distribution }}
 ## 4. Build
 
 ```bash
-phantasos build <name>
+phantasos sdk build <name>
 ```
 
 phantasos will:
@@ -146,7 +146,7 @@ placed under `overrides/tests/` are rendered alongside the gated scaffold tests.
 ## 6. Never hand-edit the generated SDK
 
 **The generated SDK is a pure build artifact.** Every file in it — including tests,
-`pyproject.toml`, workflows, and `README.md` — is regenerated on every `phantasos build`.
+`pyproject.toml`, workflows, and `README.md` — is regenerated on every `phantasos sdk build`.
 All customisation must live in one of two places that are version-controlled:
 
 - `products/<name>/` — spec, build config, README template, per-product tests, hooks

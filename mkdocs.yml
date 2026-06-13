@@ -1,5 +1,5 @@
 site_name: phantasos
-site_description: Generate native, self-contained Python SDKs from OpenAPI specs.
+site_description: Generate native, self-contained Python SDKs and CLIs from OpenAPI specs.
 site_url: https://kaisero.github.io/phantasos/
 repo_url: https://github.com/kaisero/phantasos
 repo_name: kaisero/phantasos
@@ -31,15 +31,10 @@ nav:
   - Authoring a spec: AUTHORING_A_SPEC.md
   - Architecture: ARCHITECTURE.md
   - API Reference: reference.md
-  - Project history:
-      - Re-architecture plan: REARCH_PLAN.md
 
 # Internal/historical markdown kept in the repo but excluded from the published site:
 # the prototype phase write-ups, the migration index/plan, and planning docs.
 exclude_docs: |
-  README.md
-  TODO.md
-  phase-*.md
   superpowers/
 
 plugins:

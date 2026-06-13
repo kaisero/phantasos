@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from phantasos import smoke
-from phantasos.smoke import SmokeError
+from phantasos.generator.sdk import smoke
+from phantasos.generator.sdk.smoke import SmokeError
 
 
 def _make_generated_pkg(

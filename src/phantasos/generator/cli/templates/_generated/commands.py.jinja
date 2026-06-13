@@ -1,0 +1,54 @@
+"""Generated commands for resource '{{ resource }}'. Do not edit."""
+
+from __future__ import annotations
+
+import typer
+
+from .. import runtime as _rt
+from .. import config as _cfg
+
+{% for f in module_enum_flags %}
+def {{ f.completer_name }}(incomplete: str) -> list[str]:
+    return [c for c in {{ f.completion|tojson }} if c.startswith(incomplete)]
+
+{% endfor %}
+{% for c in commands %}
+def {{ c.func_name }}(
+{%- for f in c.all_flags %}
+    {{ f.py_name }}: {{ f.render_type }} = typer.Option({{ f.default_literal or ('...' if f.required else 'None') }}, {{ f.name|tojson }}{% if f.help_literal %}, help={{ f.help_literal }}{% endif %}{% if f.completion %}, autocompletion={{ f.completer_name }}{% endif %}{% if f.panel %}, rich_help_panel={{ f.panel|tojson }}{% endif %}),
+{%- endfor %}
+    all_: bool = typer.Option(False, "--all", rich_help_panel="Pagination"),
+    output: str = typer.Option(
+        _cfg.default_output(), "--output", rich_help_panel="Common"
+    ),
+    columns: list[str] | None = typer.Option(
+        None,
+        "--columns",
+        help=(
+            "Table columns as comma-separated JMESPath expressions"
+            " (implies --output table). 'HEADER=expr' names a column."
+        ),
+        rich_help_panel="Common",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", rich_help_panel="Common"),
+    verbose: bool = typer.Option(False, "--verbose", rich_help_panel="Common"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", rich_help_panel="Common"),
+    pager: bool | None = typer.Option(
+        None,
+        "--pager/--no-pager",
+        help="Page output taller than the terminal (default from config).",
+        rich_help_panel="Common",
+    ),
+) -> None:
+{%- if c.summary %}
+    """{{ c.summary }}"""
+{%- endif %}
+    _rt.run(
+        "{{ c.key }}",
+        path={ {% for f in c.path_params %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
+        body={ {% for f in c.body_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
+        query={ {% for f in c.query_flags %}{{ f.param|tojson }}: {{ f.py_name }}, {% endfor %} },
+        output=output, columns=columns, paginate_all=all_, dry_run=dry_run, verbose=verbose, quiet=quiet, pager=pager,
+    )
+
+{% endfor %}

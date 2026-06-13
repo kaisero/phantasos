@@ -1,8 +1,8 @@
 [project]
 name = "phantasos"
 version = "0.1.0"
-description = "Generate native, self-contained Python SDKs from OpenAPI specs."
-readme = "README.md"
+description = "Generate native, self-contained Python SDKs and CLIs from OpenAPI specs."
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -21,6 +21,8 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "jinja2>=3.1",
     "pydantic>=2",
+    "jmespath>=1.0",
+    "typer>=0.26.7",
 ]
 
 [project.urls]
@@ -34,23 +36,40 @@ Changelog = "https://github.com/kaisero/phantasos/blob/main/CHANGELOG.md"
 phantasos = "phantasos.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
+
+# PyPI readme: README.md with the HTML logo block (which PyPI's renderer strips)
+# replaced by a plain "# Phantasos" header. Single source of truth: README.md.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+text = "# Phantasos\n"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+start-after = "<!-- pypi-readme-start -->\n"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/phantasos"]
-# Ship the Jinja component templates as package data (vendored at build time).
+# Ship the Jinja component + CLI templates as package data (read at runtime via
+# importlib/Path from the installed package; the wheel omits non-.py files otherwise).
 artifacts = [
-    "src/phantasos/components/**/*.jinja",
+    "src/phantasos/generator/sdk/components/**/*.jinja",
+    "src/phantasos/generator/cli/templates/**",
+    "src/phantasos/generator/cli/cli_overrides/**",
     "src/phantasos/scaffold/**",
-    "src/phantasos/oag_templates/**",
+    "src/phantasos/generator/sdk/oag_templates/**",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/phantasos", "README.md"]
 
 [dependency-groups]
-test = ["pytest>=8", "pytest-cov>=5"]
+# python-dotenv + pyyaml: the emitted-CLI tests import a generated CLI in-process,
+# which imports yaml/dotenv at module load — both must be present in the test env.
+test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6"]
 typecheck = ["mypy>=1.11", { include-group = "test" }]
 lint = ["ruff>=0.6", "codespell>=2.3"]
 audit = ["pip-audit>=2.7"]
@@ -76,12 +95,16 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]
+# fixture intentionally mirrors OpenAPI-Generator output (old-style annotations)
+"tests/fixtures/**" = ["UP042", "UP045", "UP007"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
-"src/phantasos/generate.py" = ["S603"]
+"src/phantasos/generator/sdk/generate.py" = ["S603"]
+# render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
+"src/phantasos/generator/cli/render_cli.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
-"src/phantasos/provision.py" = ["S310"]
+"src/phantasos/generator/sdk/provision.py" = ["S310"]
 # smoke.py shells out to the isolated venv's python/pip — trusted argv.
-"src/phantasos/smoke.py" = ["S603"]
+"src/phantasos/generator/sdk/smoke.py" = ["S603"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]
@@ -97,9 +120,33 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 files = ["src", "tests"]
+# Fixtures deliberately mirror OpenAPI-Generator output (untyped); they are not
+# code-under-test, so keep them out of strict analysis (ruff special-cases them too).
+exclude = ['^tests/fixtures/']
 
 [[tool.mypy.overrides]]
 module = ["ruamel", "ruamel.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jmespath", "jmespath.*"]
+ignore_missing_imports = true
+
+# The fakesdk fixture is excluded from analysis (above); its symbols are imported
+# by a couple of tests, so resolve those import sites to Any.
+[[tool.mypy.overrides]]
+module = ["fakesdk", "fakesdk.*"]
+ignore_missing_imports = true
+
+# PyYAML ships no type stubs; the emitted-CLI tests use it trivially (safe_load).
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+# prisma_browser is a GENERATED SDK, absent at type-check time (built by `nox -s smoke`);
+# the real-SDK tests import it inside skip-guarded bodies.
+[[tool.mypy.overrides]]
+module = ["prisma_browser", "prisma_browser.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -112,7 +159,7 @@ branch = true
 source = ["phantasos"]
 # generate.py is a thin subprocess wrapper around the OpenAPI Generator jar; it is
 # exercised by `nox -s smoke` (which needs Java), not the unit suite.
-omit = ["src/phantasos/generate.py"]
+omit = ["src/phantasos/generator/sdk/generate.py"]
 
 [tool.coverage.report]
 show_missing = true

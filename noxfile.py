@@ -110,5 +110,5 @@ def smoke(session: nox.Session) -> None:
     the default session list. Each SDK is written to a sibling dir of its product dir.
     """
     _sync(session)
-    session.run("phantasos", "build", "prisma-browser")
-    session.run("phantasos", "build", "adem")
+    session.run("phantasos", "sdk", "build", "prisma-browser")
+    session.run("phantasos", "sdk", "build", "adem")

@@ -27,7 +27,11 @@ def test_cli_build_returns_zero_on_success(
     readme.write_text("# Acme SDK\n", encoding="utf-8")
 
     def fake_generate(
-        spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+        spec_path: str,
+        out_dir: str,
+        package: str,
+        library: str = "urllib3",
+        oneof_discriminator_lookup: bool = True,
     ) -> None:
         pkg = Path(out_dir) / package
         (pkg / "api").mkdir(parents=True)
@@ -40,9 +44,9 @@ def test_cli_build_returns_zero_on_success(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr("phantasos.generate.generate", fake_generate)
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", fake_generate)
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "built acme" in out
@@ -55,7 +59,7 @@ def test_cli_build_missing_product_returns_2(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert cli.main(["build", "nope"]) == 2
+    assert cli.main(["sdk", "build", "nope"]) == 2
 
 
 def test_cli_build_invalid_sdk_yml_returns_2(
@@ -71,7 +75,7 @@ def test_cli_build_invalid_sdk_yml_returns_2(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme"])
+    rc = cli.main(["sdk", "build", "acme"])
     assert rc == 2
     assert "ERROR" in capsys.readouterr().err
 
@@ -81,19 +85,23 @@ def test_build_runs_transforms_then_hook(
 ) -> None:
     import builtins
 
-    import phantasos
+    from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
     order: list[str] = []
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
-    monkeypatch.setattr("phantasos.render.vendor", lambda *a: [])
-    monkeypatch.setattr("phantasos.patches.apply_generic_patches", lambda d: {})
     monkeypatch.setattr(
-        "phantasos.smoke.smoke",
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
+    monkeypatch.setattr("phantasos.generator.sdk.render.vendor", lambda *a: [])
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.patches.apply_generic_patches", lambda d: {}
+    )
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},
     )
     monkeypatch.setattr(
-        "phantasos.preprocess.tag_operations",
+        "phantasos.generator.sdk.preprocess.tag_operations",
         lambda spec, ops, stats=None: order.append("transforms"),
     )
 
@@ -122,7 +130,7 @@ def test_build_runs_transforms_then_hook(
     _order_sentinel: Any = order
     builtins._ORDER = _order_sentinel  # type: ignore[attr-defined]
     loaded = load_product(str(prod / "sdk.yml"))
-    phantasos.build(loaded)
+    build(loaded)
     del builtins._ORDER  # type: ignore[attr-defined]
     assert order == ["transforms", "hook"]
 
@@ -130,13 +138,17 @@ def test_build_runs_transforms_then_hook(
 def test_build_writes_ignore_and_scaffolds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import phantasos
+    from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
     calls: list[str] = []
 
     def fake_generate(
-        spec_path: str, out_dir: str, package: str, library: str = "urllib3"
+        spec_path: str,
+        out_dir: str,
+        package: str,
+        library: str = "urllib3",
+        oneof_discriminator_lookup: bool = True,
     ) -> None:
         assert (Path(out_dir) / ".openapi-generator-ignore").exists()
         calls.append("generate")
@@ -148,9 +160,9 @@ def test_build_writes_ignore_and_scaffolds(
         calls.append("scaffold")
         return []
 
-    monkeypatch.setattr("phantasos.generate.generate", fake_generate)
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", fake_generate)
     monkeypatch.setattr(
-        "phantasos.smoke.smoke",
+        "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},
     )
     monkeypatch.setattr("phantasos.scaffold.render_scaffold", fake_scaffold)
@@ -170,14 +182,16 @@ def test_build_writes_ignore_and_scaffolds(
     readme = prod / "overrides" / "README.md.jinja"
     readme.write_text("# Acme SDK\n", encoding="utf-8")
     loaded = load_product(str(prod / "sdk.yml"))
-    phantasos.build(loaded, run_smoke=False)
+    build(loaded, run_smoke=False)
     assert calls == ["generate", "scaffold"]
 
 
 def test_build_requires_project_block(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
     (prod / "openapi.yml").write_text(
@@ -188,14 +202,16 @@ def test_build_requires_project_block(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])
     assert rc == 2
 
 
 def test_build_requires_readme_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("phantasos.generate.generate", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
+    )
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
     (prod / "openapi.yml").write_text(
@@ -208,5 +224,13 @@ def test_build_requires_readme_override(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    rc = cli.main(["build", "acme", "--no-smoke"])  # no overrides/README.md.jinja
+    rc = cli.main(["sdk", "build", "acme", "--no-smoke"])  # no overrides/README
     assert rc == 2
+
+
+def test_removed_top_level_build_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `phantasos build` no longer exists -> usage error, exit 2
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["build", "acme"]) == 2

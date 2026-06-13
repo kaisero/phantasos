@@ -1,0 +1,101 @@
+"""Command history: JSONL append + read. Best-effort — never breaks a command."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from . import config as _config
+from . import diagnostics as _diag
+
+
+def history_path() -> Path:
+    cfg = _config.get().history
+    if cfg.file:
+        return Path(cfg.file).expanduser()
+    return Path.home() / ".{{ distribution }}" / "history.jsonl"
+
+
+def _last_id(path: Path) -> int:
+    """id of the last parseable entry (tail scan; 0 if none)."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 65536))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return 0
+    for line in reversed(tail.strip().splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("id"), int):
+            return obj["id"]
+    return 0
+
+
+def record(entry: dict[str, Any]) -> None:
+    """Append `entry` (id auto-assigned). Warns on any problem, never raises."""
+    cfg = _config.get().history
+    if not cfg.enabled:
+        return
+    path = history_path()
+    try:
+        if path.exists() and path.stat().st_size >= cfg.max_size_mb * 1024 * 1024:
+            _diag.warning(
+                f"history file full ({cfg.max_size_mb} MB cap) — command "
+                f"not recorded; delete {path} or raise "
+                "configuration.history.max_size_mb"
+            )
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        numbered = {"id": _last_id(path) + 1, **entry}
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(numbered, default=str) + "\n")
+    except OSError as exc:
+        _diag.warning(f"could not write history: {exc}")
+
+
+def read_entries(limit: int = 0) -> tuple[list[dict[str, Any]], int]:
+    """(entries oldest->newest, corrupt_line_count). limit=0 -> all, else last N."""
+    path = history_path()
+    if not path.exists():
+        return [], 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _diag.warning(f"could not read history: {exc}")
+        return [], 0
+    entries: list[dict[str, Any]] = []
+    corrupt = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            corrupt += 1
+            continue
+        if isinstance(obj, dict):
+            entries.append(obj)
+        else:
+            corrupt += 1
+    if limit > 0:
+        entries = entries[-limit:]
+    return entries, corrupt
+
+
+def read_entry(entry_id: int) -> dict[str, Any] | None:
+    """First entry with the given id (concurrent-append races keep first match)."""
+    entries, _ = read_entries(0)
+    for e in entries:
+        if e.get("id") == entry_id:
+            return e
+    return None

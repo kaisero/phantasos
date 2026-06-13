@@ -9,9 +9,9 @@ declarative product directory. Create `products/<product>/` with at minimum:
 Then run:
 
 ```bash
-phantasos build <product>           # resolves products/<product>/sdk.yml
+phantasos sdk build <product>       # resolves products/<product>/sdk.yml
 # or pass a direct path:
-phantasos build path/to/sdk.yml
+phantasos sdk build path/to/sdk.yml
 ```
 
 The build pipeline: **preprocess** (generic transforms → declarative transforms →
@@ -28,9 +28,29 @@ write `_about.py` provenance) → **smoke** (import every module + count operati
 | `package` | string | — (required) | Python package name for the generated SDK |
 | `output` | string | — (required) | Path to write the SDK to (relative to `sdk.yml`) |
 | `base_url` | string | — (required) | Default API host injected into component templates |
-| `library` | string | `"urllib3"` | OpenAPI Generator HTTP library (`urllib3` or `httpx`) |
+| `generator` | block | see below | OpenAPI Generator invocation options (`generator:` section) |
 | `spec` | string | `"./openapi.yml"` | Path to the OpenAPI document (relative to `sdk.yml`) |
 | `apply_generic_patches` | bool | `true` | Apply apostrophe-enum, lenient-enum, and oneOf first-match patches |
+
+---
+
+## `generator:`
+
+Options passed to the OpenAPI Generator invocation.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `library` | string | `"urllib3"` | OpenAPI Generator HTTP library (`urllib3` or `httpx`) |
+| `oneof_discriminator_lookup` | bool | `true` | Dispatch oneOf deserialization via the spec's `discriminator` mapping (OAG `useOneOfDiscriminatorLookup`). Without it, oneOf payloads resolve by trial deserialization, which mis-types variants once enums are lenient. Disable only for a spec whose discriminator mapping is wrong. |
+
+```yaml
+generator:
+  library: urllib3
+  oneof_discriminator_lookup: true
+```
+
+No-op for specs without `discriminator` blocks (e.g. adem) — those keep trial
+deserialization.
 
 ---
 
@@ -222,7 +242,7 @@ project:
 ```
 
 **`dependencies`** — the defaults match what OpenAPI Generator itself would emit for
-`library: urllib3`, so you almost never need to override this field. Only set it when
+`generator.library: urllib3`, so you almost never need to override this field. Only set it when
 the SDK genuinely needs additional or different runtime deps.
 
 ---

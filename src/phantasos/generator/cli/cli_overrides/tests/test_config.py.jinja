@@ -1,0 +1,27 @@
+"""Config-file behavior of the generated CLI (defaults sync + config commands)."""
+
+import yaml
+from typer.testing import CliRunner
+
+from {{ package }}._generated import config as _config
+from {{ package }}.main import app
+
+
+def test_packaged_defaults_match_models() -> None:
+    data = yaml.safe_load(_config.packaged_default_text())
+    assert _config.ConfigFile.model_validate(data) == _config.ConfigFile()
+
+
+def test_config_init_and_show(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # config was cached at import (possibly from the developer's real homedir);
+    # reset so this test sees the isolated HOME.
+    _config.load_config.cache_clear()
+    runner = CliRunner()
+    assert runner.invoke(app, ["config", "init"]).exit_code == 0
+    assert (tmp_path / ".{{ distribution }}" / "config.yml").exists()
+    assert runner.invoke(app, ["config", "init"]).exit_code == 1
+    assert runner.invoke(app, ["config", "init", "--force"]).exit_code == 0
+    res = runner.invoke(app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "merged from" in res.output

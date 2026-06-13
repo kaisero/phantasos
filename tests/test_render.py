@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from phantasos import render
+from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
 
 

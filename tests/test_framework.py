@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from phantasos import patches, preprocess, render
+from phantasos.generator.sdk import patches, preprocess, render
 
 
 def test_collapse_allof_over_array_ref() -> None:

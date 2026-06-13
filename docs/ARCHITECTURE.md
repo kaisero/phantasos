@@ -8,12 +8,12 @@ is the first SDK; the framework must serve **arbitrary** OpenAPI specs.
 | # | Decision | Choice |
 |---|----------|--------|
 | Breadth | What specs? | **Arbitrary** OpenAPI specs; auth/pagination/errors are **pluggable components** |
-| Distribution | Where does code live? | Framework = **pip-installable CLI**; each SDK in its **own repo**, built via `phantasos build ./sdk.py` |
+| Distribution | Where does code live? | Framework = **pip-installable CLI**; each SDK in its **own repo**, built via `phantasos sdk build ./sdk.py` |
 | Coupling | How do components reach an SDK? | **Vendored** — copied into the SDK's `extras/`; SDK is self-contained (deps: httpx/pydantic/urllib3 only) |
 | Config | How is a spec described? | **Per-spec Python module** (`CONFIG = SdkConfig(...)` + optional `preprocess`/`patch` hooks) |
 | Params | How do per-spec params reach components? | **Templated** (Jinja) — constants inlined at vendor time; framework keeps the templates |
 | Versioning | SDK version? | **Independent semver** per SDK (hand-bumped); spec/framework/jar versions recorded in metadata |
-| CLI | Surface? | **Minimal**: `phantasos build [config]`; jar auto-fetched/pinned to `~/.cache/phantasos`; Java checked |
+| CLI | Surface? | **Minimal**: `phantasos sdk build [config]`; jar auto-fetched/pinned to `~/.cache/phantasos`; Java checked |
 
 ## 2. The three specificity layers (what drives the split)
 Today everything lives in one repo. The re-arch separates code by **how reusable it is**:
@@ -47,7 +47,7 @@ Today everything lives in one repo. The re-arch separates code by **how reusable
 ```
 phantasos/
   __init__.py            # build(config) public API
-  cli.py                 # `phantasos build [config]`
+  cli.py                 # `phantasos sdk build [config]`
   config.py              # SdkConfig + component param dataclasses
   generate.py            # jar fetch/pin + OAG invocation
   preprocess.py          # generic transforms (collapse/mojibake/dedupe) as helpers
@@ -105,7 +105,7 @@ def preprocess(spec):       # spec-specific quirks, via framework helpers
                            "User Requests"), ...])
 ```
 
-## 6. `phantasos build` pipeline
+## 6. `phantasos sdk build` pipeline
 load `sdk.py` → fetch/pin jar → **preprocess** (generic helpers + `CONFIG.preprocess`)
 → **generate** (OAG, package/flags from CONFIG) → **patch** (generic + `CONFIG.patch`)
 → **vendor** (render selected component templates with params → `extras/`; write `_about.py`
