@@ -44,3 +44,36 @@ flags (where applicable). To add an option:
    mutating the environment mid-test.
 6. **Consumers** read via `_config.get().<section>.<key>` — never re-read files or
    env directly.
+
+## Branching & release workflow
+
+Two long-lived branches: **`main`** (released code; protected; the GitHub default;
+the ONLY branch that publishes — a version bump merged here auto-fires the
+`Release` workflow to PyPI + a GitHub Release) and **`develop`** (integration;
+never publishes). Because `main` is the default, **explicitly target `develop`**
+on feature PRs (`gh pr create --base develop`) — never rely on the default base.
+
+- **Never commit or push directly to `main`.** Direct pushes to `develop` are
+  allowed for trivial changes, but prefer a branch + PR.
+- **`feature/<kebab-slug>` / `bugfix/<kebab-slug>`** — branch off `develop`; PR
+  back into `develop` (`--base develop`); **squash-merge**. Such a PR MUST NOT bump
+  the version (a version bump is a release act, and mis-targeting `main` would
+  auto-publish). Record changes under `## [Unreleased]` in `CHANGELOG.md`.
+- **`hotfix/<kebab-slug>`** — for an urgent fix to *released* code: branch off
+  `main`; fix + **patch bump** + move `## [Unreleased]` notes into `## [X.Y.Z]`;
+  PR → `main` (**merge commit** → auto-publishes); then **back-merge `main` into
+  `develop`** (merge commit) so `develop` stays converged.
+
+**Cutting a release** (the version is bumped ONLY here):
+1. On `develop`, a `release: X.Y.Z` commit — bump `version` in `pyproject.toml`,
+   rename `## [Unreleased]` → `## [X.Y.Z] - <date>` (add a fresh empty
+   `## [Unreleased]` above) and fix the link-ref ladder, then `uv lock`.
+2. Open a **`develop → main` PR** and **merge-commit** it — never squash/rebase
+   `develop → main` (that diverges `develop` from `main` and breaks the next
+   release PR). The merge to `main` auto-publishes `X.Y.Z`.
+
+**Merge-strategy rule:** into `develop` (feature/bugfix) = **squash**; into `main`
+(release / hotfix) = **merge commit**; back-merge `main → develop` = **merge
+commit**. `pyproject.toml`'s `version` is the source of truth; `release.yml` keys
+the published version and the `## [<version>]` release notes off it. PEP 440
+pre-releases (e.g. `0.2.0a1`) publish as pre-releases.
