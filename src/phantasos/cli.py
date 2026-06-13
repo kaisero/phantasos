@@ -134,6 +134,7 @@ def cli_build(
         package=cli_pkg,
         out_dir=out_dir,
         distribution=str(scaffold_ctx["distribution"]),
+        auth=loaded.auth,
     )
     written = written + scaffold.render_scaffold(
         scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx

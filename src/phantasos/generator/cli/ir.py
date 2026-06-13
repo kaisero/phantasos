@@ -118,3 +118,6 @@ class CliIR(BaseModel):
     # module exposing Client.from_env, e.g. "prisma_browser.extras.facade"
     facade_module: str = ""
     commands: list[Command] = []
+    # Credential descriptors contributed by the resolved auth component.
+    # Empty list when no auth component is configured (backward-compatible default).
+    credential_fields: list[CredentialField] = []
