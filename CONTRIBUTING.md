@@ -73,3 +73,13 @@ Merging the bump to `main` triggers the `Release` workflow, which builds the sdi
 (e.g. `0.2.0a1`) publish as pre-releases. The workflow is idempotent: if
 `vX.Y.Z` is already released it no-ops, and it fails fast if the `## [X.Y.Z]`
 CHANGELOG section is missing.
+
+> The CHANGELOG check runs *after* the merge to `main`, so a forgotten
+> `## [X.Y.Z]` section fails the publish with the bump already on `main`. Recover
+> by adding the section on `main` (via a quick PR) and re-running the `Release`
+> workflow — it is idempotent on the tag.
+
+**Branch protection (maintainers).** Keep `main` PR-only and set it to **allow
+merge commits only** — that makes a `develop → main` PR impossible to squash by
+habit (which would diverge the branches), and require the CI checks. `develop`
+requires the CI checks but permits the occasional trivial direct push.

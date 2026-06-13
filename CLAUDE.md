@@ -48,21 +48,24 @@ flags (where applicable). To add an option:
 ## Branching & release workflow
 
 Two long-lived branches: **`main`** (released code; protected; the GitHub default;
-the ONLY branch that publishes — a version bump merged here auto-fires the
-`Release` workflow to PyPI + a GitHub Release) and **`develop`** (integration;
+the ONLY branch that publishes — landing a changed `version` here, by ANY merge
+method, auto-fires the `Release` workflow to PyPI + a GitHub Release) and
+**`develop`** (integration;
 never publishes). Because `main` is the default, **explicitly target `develop`**
 on feature PRs (`gh pr create --base develop`) — never rely on the default base.
 
 - **Never commit or push directly to `main`.** Direct pushes to `develop` are
-  allowed for trivial changes, but prefer a branch + PR.
+  allowed for trivial NON-code changes (typos, comments); anything user-facing
+  goes through a PR so it's recorded under `## [Unreleased]`.
 - **`feature/<kebab-slug>` / `bugfix/<kebab-slug>`** — branch off `develop`; PR
   back into `develop` (`--base develop`); **squash-merge**. Such a PR MUST NOT bump
   the version (a version bump is a release act, and mis-targeting `main` would
   auto-publish). Record changes under `## [Unreleased]` in `CHANGELOG.md`.
 - **`hotfix/<kebab-slug>`** — for an urgent fix to *released* code: branch off
-  `main`; fix + **patch bump** + move `## [Unreleased]` notes into `## [X.Y.Z]`;
-  PR → `main` (**merge commit** → auto-publishes); then **back-merge `main` into
-  `develop`** (merge commit) so `develop` stays converged.
+  `main`; fix + **patch bump** + add a **new `## [X.Y.Z] - <date>` section**
+  describing the fix (on `main`, `## [Unreleased]` is empty — don't reuse it) +
+  fix the link-ref ladder; PR → `main` (**merge commit** → auto-publishes); then
+  **back-merge `main` into `develop`** (see *Back-merging a hotfix* below).
 
 **Cutting a release** (the version is bumped ONLY here):
 1. On `develop`, a `release: X.Y.Z` commit — bump `version` in `pyproject.toml`,
@@ -77,3 +80,16 @@ on feature PRs (`gh pr create --base develop`) — never rely on the default bas
 commit**. `pyproject.toml`'s `version` is the source of truth; `release.yml` keys
 the published version and the `## [<version>]` release notes off it. PEP 440
 pre-releases (e.g. `0.2.0a1`) publish as pre-releases.
+
+**Back-merging a hotfix** (only hotfixes need this): merge `main` into `develop`
+with a merge commit. Resolve the version/CHANGELOG collisions deterministically —
+take **main's** `version` and its new `## [X.Y.Z]` section, **keep develop's**
+`## [Unreleased]` contents, and ensure exactly ONE `## [Unreleased]` header +
+`[Unreleased]:` link-ref survive (now comparing against `vX.Y.Z`). `develop`'s
+`version` then equals the hotfix patch until the next release bump — expected.
+
+**No back-merge after a normal release:** the release commit originates on
+`develop`, and the `develop → main` merge commit records `develop`'s tip as a
+parent, so the next release's merge-base is that release commit and the merge
+stays clean. `develop` showing as "behind `main` by the release merge commit" is
+cosmetic and expected — don't back-merge to "fix" it.
