@@ -1,6 +1,6 @@
 # CLI Generator — Phase 3b: the `request` namespace (non-CRUD actions) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Emit `request <object> <action>` commands from the per-product `cli.yml` `request:` mappings, so the ~16 non-CRUD operations (suspend/resume/restore/archive/force-reauth, publish, reorder-positions, user-request action/revoke) become runnable instead of merely reserved.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11–3.14, Pydantic v2, Typer, Jinja2, pytest. Test runner: `uv run`.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (verb-first `request <object> <action>`; `cli.yml request:` block). **Builds on:** Phases 1/2a/2b/3g/3a on branch `cli-generator`. The real `products/prisma-browser/cli.yml` already has the 16 `request:` mappings (Phase 3a) — this phase makes them emit.
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md` (verb-first `request <object> <action>`; `cli.yml request:` block). **Builds on:** Phases 1/2a/2b/3g/3a on branch `cli-generator`. The real `products/prisma-browser/cli.yml` already has the 16 `request:` mappings (Phase 3a) — this phase makes them emit.
 
 ---
 
@@ -30,7 +30,7 @@
 - Modify: `src/phantasos/generator/cli/render_cli.py` — `variant_groups`, `_command_view.typer_path`, `_func_name` treat the leaf segment as `variant or action`.
 - Modify: `src/phantasos/generator/cli/discover.py` — `render_table` shows the action segment.
 - Modify: `src/phantasos/generator/cli/templates/_generated/app.py.jinja` — `_VERBS` gains `"request"`.
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md` + roadmap — request namespace now emitted.
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md` + roadmap — request namespace now emitted.
 - Tests: `tests/test_cli_classify.py`, `tests/test_cli_emitted.py`, `tests/test_cli_emitted_real.py`.
 
 ---
@@ -412,15 +412,15 @@ git commit -m "test(cli-gen): real-SDK request <object> <action> dispatch (gated
 ## Task 5: Docs — request namespace is now emitted
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md`
-- Modify: `docs/superpowers/plans/2026-06-09-cli-generator-phase-3-roadmap.md`
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md`
+- Modify: `docs/plans/2026-06-09-cli-generator-phase-3-roadmap.md`
 
 - [ ] **Step 1:** In the spec, note that `request <object> <action>` commands are emitted from `cli.yml request:` mappings (verb-first; action carried in the command's third segment; one SDK method per action). In the roadmap §3b, mark it DONE and remove the "reserved but not emitted" caveat from §3a's note.
 
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-06-09-cli-generator-design.md docs/superpowers/plans/2026-06-09-cli-generator-phase-3-roadmap.md
+git add docs/specs/2026-06-09-cli-generator-design.md docs/plans/2026-06-09-cli-generator-phase-3-roadmap.md
 git commit -m "docs: request namespace emitted (Phase 3b done)"
 ```
 

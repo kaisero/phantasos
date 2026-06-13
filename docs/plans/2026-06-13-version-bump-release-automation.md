@@ -1,12 +1,12 @@
 # Version-bump-triggered Release Automation — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make a new `pyproject.toml` version landing on `main` automatically build, publish to PyPI (Trusted Publishing), and create a GitHub Release from the matching `CHANGELOG.md` section — for phantasos itself and for every generated SDK/CLI project (the scaffold template).
 
 **Architecture:** One self-contained `release.yml` (filename + `environment: pypi` preserved for the pinned PyPI Trusted Publisher). Trigger on `push: main` + `workflow_dispatch`. A `check` job reads the version, gates on whether `v<version>` is already released (`gh release view`), and fails fast if the CHANGELOG section is missing; then `build` → `publish` (`skip-existing`) → `release` (`gh release create` makes the tag + Release, attaches sdist+wheel). The scaffold template mirrors it. Ship phantasos as `0.1.0a1` (PEP 440 alpha → auto pre-release) as the e2e test on merge.
 
-**Tech Stack:** GitHub Actions, uv, `pypa/gh-action-pypi-publish` (OIDC), `gh` CLI, awk/tomllib/`packaging`. Design doc: `docs/superpowers/specs/2026-06-13-version-bump-release-automation-design.md`.
+**Tech Stack:** GitHub Actions, uv, `pypa/gh-action-pypi-publish` (OIDC), `gh` CLI, awk/tomllib/`packaging`. Design doc: `docs/specs/2026-06-13-version-bump-release-automation-design.md`.
 
 **Branch:** all work on `release-automation` (already created from `main`), delivered via PR to `main`.
 
@@ -444,7 +444,7 @@ git push "https://x-access-token:$(gh auth token)@github.com/kaisero/phantasos.g
 ```bash
 gh pr create --base main --head release-automation \
   --title "ci: version-bump-triggered release (PyPI + GitHub Release from CHANGELOG); ship 0.1.0a1" \
-  --body "See docs/superpowers/specs/2026-06-13-version-bump-release-automation-design.md. Merging this PR is the e2e test: push-to-main runs the new release.yml, sees 0.1.0a1 as unreleased, and publishes it (PyPI pre-release + GitHub pre-release with CHANGELOG notes, sdist+wheel attached). Also applies the same model to the scaffold template for generated SDK/CLI projects."
+  --body "See docs/specs/2026-06-13-version-bump-release-automation-design.md. Merging this PR is the e2e test: push-to-main runs the new release.yml, sees 0.1.0a1 as unreleased, and publishes it (PyPI pre-release + GitHub pre-release with CHANGELOG notes, sdist+wheel attached). Also applies the same model to the scaffold template for generated SDK/CLI projects."
 ```
 
 - [ ] **Step 4: Confirm PR CI is green, then it's ready to merge**

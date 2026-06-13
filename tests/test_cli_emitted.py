@@ -1556,6 +1556,61 @@ def test_yaml_output_has_no_trailing_blank_line(
     assert not text.endswith("\n\n")
 
 
+def test_yaml_output_colored_on_terminal(emitted: Path) -> None:
+    import io
+
+    from rich.console import Console
+
+    out: Any = importlib.import_module("fakesdk_cli._generated.output")
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return {"name": "widget-1", "enabled": True}
+
+    buf = io.StringIO()
+    # force a TTY-like console; no_color=False ensures NO_COLOR env var is ignored
+    out._console = Console(file=buf, force_terminal=True, no_color=False)
+    out.render(_Model(), fmt="yaml")
+    assert "\x1b[" in buf.getvalue()  # ANSI styling present on a terminal
+
+
+def test_yaml_output_plain_and_round_trips_when_piped(
+    emitted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import yaml
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    payload = {"name": "widget-1", "enabled": True, "tags": ["a", "b"]}
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return payload
+
+    out.render(_Model(), fmt="yaml")
+    text = capsys.readouterr().out
+    assert "\x1b[" not in text  # no ANSI off a terminal
+    assert text.endswith("\n") and not text.endswith("\n\n")  # exactly one newline
+    assert yaml.safe_load(text) == payload
+
+
+def test_yaml_output_long_line_not_truncated_when_piped(
+    emitted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression guard: rich Syntax crops to width 80 off-TTY unless soft_wrap=True.
+    import yaml
+
+    out = importlib.import_module("fakesdk_cli._generated.output")
+    payload = {"url": "https://example.com/" + "x" * 300}
+
+    class _Model:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return payload
+
+    out.render(_Model(), fmt="yaml")
+    text = capsys.readouterr().out
+    assert yaml.safe_load(text) == payload  # full value, no truncation
+
+
 def test_autopager_short_content_writes_direct(
     emitted: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1655,6 +1710,31 @@ def test_maybe_paged_uses_pager_when_tty(
         for i in range(50):
             out._console.print(f"row{i}")
     assert "row49" in sink.read_text(encoding="utf-8")
+
+
+def test_config_show_yaml_routes_through_shared_console(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import io
+
+    from rich.console import Console
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # piped (non-TTY): plain YAML, no ANSI, content intact
+    res = CliRunner().invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "\x1b[" not in res.output and "format: json" in res.output
+
+    # forced terminal: config show YAML is colored via the shared _console
+    out: Any = importlib.import_module("fakesdk_cli._generated.output")
+    buf = io.StringIO()
+    out._console = Console(file=buf, force_terminal=True, no_color=False)
+    res2 = CliRunner().invoke(main.app, ["config", "show"])
+    assert res2.exit_code == 0
+    assert "\x1b[" in buf.getvalue()  # YAML went through print_yaml -> _console
 
 
 def test_config_init_and_show_commands(

@@ -1,6 +1,6 @@
 # Generated-CLI User Config + Opt-in Pager Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every generated CLI gains a layered user config file (packaged defaults ← `~/.{distribution}/config.yml` ← env ← flags) whose first consumers are an opt-in auto-threshold pager and the default `--output` format, plus `config init` / `config show` meta-commands.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Jinja templates (phantasos CLI generator), pydantic v2, Typer, Rich, PyYAML, pytest (fake-SDK emitted-CLI tests + gated real-SDK tests).
 
-**Spec:** `docs/superpowers/specs/2026-06-11-cli-user-config-pager-design.md` — READ IT FIRST. All decisions there are user-approved and python-pro-verified; do not re-litigate.
+**Spec:** `docs/specs/2026-06-11-cli-user-config-pager-design.md` — READ IT FIRST. All decisions there are user-approved and python-pro-verified; do not re-litigate.
 
 ---
 

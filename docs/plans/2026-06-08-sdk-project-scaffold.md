@@ -1,12 +1,12 @@
 # SDK Project Scaffolding (Phase C) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every generated SDK a phantasos-grade project — suppress OpenAPI Generator's scaffolding and render a curated, value-substituted project (pyproject, CI/CD, pre-commit, behavioral tests) from version-controlled templates that survive regeneration.
 
 **Architecture:** A new `scaffold.py` renders a built-in `src/phantasos/scaffold/` template tree plus per-product `products/<product>/overrides/` (same-path-wins) into the SDK root using the unified context (now including a typed `project:` block). phantasos writes a `.openapi-generator-ignore` before generation to suppress OAG's files; the isolated smoke check installs via `pip install <project_dir>`.
 
-**Tech Stack:** Python 3.11+, pydantic v2, jinja2, ruamel.yaml, pytest, nox, ruff, mypy. Builds on `declarative-products-config`. Design: `docs/superpowers/specs/2026-06-08-sdk-project-scaffold-design.md`.
+**Tech Stack:** Python 3.11+, pydantic v2, jinja2, ruamel.yaml, pytest, nox, ruff, mypy. Builds on `declarative-products-config`. Design: `docs/specs/2026-06-08-sdk-project-scaffold-design.md`.
 
 ---
 
@@ -832,7 +832,7 @@ Expected: the scaffolded component tests + the per-product model test pass again
 
 - [ ] **Step 5: Final review against the design**
 
-Re-read `docs/superpowers/specs/2026-06-08-sdk-project-scaffold-design.md`; confirm each section maps to merged work. If green, Phase C is complete.
+Re-read `docs/specs/2026-06-08-sdk-project-scaffold-design.md`; confirm each section maps to merged work. If green, Phase C is complete.
 
 ---
 

@@ -1,6 +1,6 @@
 # CLI Generator — Phase 2a: IR Refinement (aggregated command model) — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refine the Phase-1 IR so a user-facing command maps to one-or-more SDK methods (aggregated), capturing everything Phase 2b's emission needs — fixing the gaps the python-pro review found before any templates exist.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11–3.14, Pydantic v2, `inspect` + `typing.get_type_hints`, pytest. Test runner: `uv run pytest`.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (see the updated "The `CliIR`" section: `MethodBinding`, `Command.key`, `Command.bindings`, all-required-path-params). **Builds on:** Phase 1 (committed on branch `cli-generator`).
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md` (see the updated "The `CliIR`" section: `MethodBinding`, `Command.key`, `Command.bindings`, all-required-path-params). **Builds on:** Phase 1 (committed on branch `cli-generator`).
 
 ---
 

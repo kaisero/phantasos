@@ -1,6 +1,6 @@
 # Help-Panel Rename Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** De-suffix the generated CLI's tagged help panels — `Filter Options → Filters`, `Pagination Options → Pagination`, `Common Options → Common` — while keeping the default `Options` panel untouched (the conventional anchor; renaming it was reviewed and rejected).
 
@@ -31,13 +31,13 @@
 ### Task 1: Spec addendum + rename (tests first)
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-11-cli-common-options-panel-design.md` (append addendum)
+- Modify: `docs/specs/2026-06-11-cli-common-options-panel-design.md` (append addendum)
 - Modify: `tests/test_cli_emitted.py`, `tests/test_cli_emitted_real.py` (expectations first → red)
 - Modify: `src/phantasos/generator/cli/render_cli.py:36`, `src/phantasos/generator/cli/templates/_generated/commands.py.jinja` (→ green)
 
 - [ ] **Step 1: Append the addendum to the spec**
 
-Append to `docs/superpowers/specs/2026-06-11-cli-common-options-panel-design.md`:
+Append to `docs/specs/2026-06-11-cli-common-options-panel-design.md`:
 
 ```markdown
 ## Addendum (2026-06-11): panel de-suffixing
@@ -115,7 +115,7 @@ Expected: all pass (gated real tests included — they re-render the CLI from th
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-06-11-cli-common-options-panel-design.md \
+git add docs/specs/2026-06-11-cli-common-options-panel-design.md \
         src/phantasos/generator/cli/render_cli.py \
         src/phantasos/generator/cli/templates/_generated/commands.py.jinja \
         tests/test_cli_emitted.py tests/test_cli_emitted_real.py

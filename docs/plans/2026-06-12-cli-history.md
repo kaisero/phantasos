@@ -1,6 +1,6 @@
 # Generated-CLI Command History (WP1) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every generated CLI records real API calls to a capped JSONL history file (`configuration.history.*`, on by default, bodies opt-in via `verbose`) and exposes them through `show cli history` (table) / `--entry <id>` (full JSON), with the `.env`→config harmony fix and the CLAUDE.md config-extension recipe.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Jinja templates (phantasos CLI generator), pydantic v2, Typer/Rich, JSONL, pytest (fake-SDK emitted tests + gated real-SDK tests).
 
-**Spec:** `docs/superpowers/specs/2026-06-12-cli-history-design.md` — READ FIRST; all decisions are user-confirmed.
+**Spec:** `docs/specs/2026-06-12-cli-history-design.md` — READ FIRST; all decisions are user-confirmed.
 
 ---
 

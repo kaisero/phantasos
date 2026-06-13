@@ -1,6 +1,6 @@
 # CLI Generator: Per-Op Query-Param Defaults (cli.yml `defaults:`) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A cli.yml `defaults:` section that injects default values for query-param flags per SDK operation — used to default `sort=application.id, order=asc` on the two application list ops so `--all` cursor pagination works.
 
@@ -42,7 +42,7 @@ Decision (user, 2026-06-11): fix via cli.yml per-op defaults ONLY — no defensi
 | `src/phantasos/generator/cli/templates/_generated/commands.py.jinja` | render `default_literal` as the Option default |
 | `src/phantasos/generator/cli/templates/_generated/runtime.py.jinja` | drop injected defaults the selected binding doesn't accept |
 | `products/prisma-browser/cli.yml` | `defaults:` entries for the two application list ops |
-| `docs/superpowers/specs/2026-06-09-cli-generator-design.md` | spec sync |
+| `docs/specs/2026-06-09-cli-generator-design.md` | spec sync |
 | Tests | `tests/test_cli_config.py`, `tests/test_cli_ir.py`, `tests/test_cli_classify.py`, `tests/test_cli_emitted.py`, `tests/test_cli_emitted_real.py` |
 
 No fakesdk fixture changes: tests use `list_widgets`' existing `name` (str) and `limit` (int) query params to cover both literal types.
@@ -585,7 +585,7 @@ git commit -m "fix(cli-gen): default sort for application listings — --all pag
 ### Task 7: LIVE verification + spec sync + gate
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-09-cli-generator-design.md`
+- Modify: `docs/specs/2026-06-09-cli-generator-design.md`
 
 - [ ] **Step 1: LIVE verification of the rebuilt CLI** (credentials in `/home/ubuntu/git/prisma-browser-cli/.env`; READ-ONLY list calls only). Run WITHOUT any sort flags — the injected defaults must do the work now:
 
@@ -612,7 +612,7 @@ UV_PROJECT_ENVIRONMENT=/tmp/pbcli-venv uv run prisma-browser-cli show applicatio
 
 Expected: exit 0 and the single application JSON — NOT a validation error about `sort`. Paste ALL THREE actual outputs in the report (evidence before assertions).
 
-- [ ] **Step 2: Spec sync** — append to the "Table output & columns" area of `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (or a sibling section "Per-op query-param defaults"): the `defaults:` section shape, always-applied + user-overridable semantics, `Flag.cli_default` vs `Flag.default` invariant (model defaults never rendered — PATCH safety), build-time validation, and the motivating applications-cursor server quirk with the workaround-now-default. Match the spec's concise decision-oriented style.
+- [ ] **Step 2: Spec sync** — append to the "Table output & columns" area of `docs/specs/2026-06-09-cli-generator-design.md` (or a sibling section "Per-op query-param defaults"): the `defaults:` section shape, always-applied + user-overridable semantics, `Flag.cli_default` vs `Flag.default` invariant (model defaults never rendered — PATCH safety), build-time validation, and the motivating applications-cursor server quirk with the workaround-now-default. Match the spec's concise decision-oriented style.
 
 - [ ] **Step 3: Full gate:**
 
@@ -627,7 +627,7 @@ All clean / all pass (expect 236+ passed).
 - [ ] **Step 4: Commit:**
 
 ```bash
-git add docs/superpowers/specs/2026-06-09-cli-generator-design.md
+git add docs/specs/2026-06-09-cli-generator-design.md
 git commit -m "docs(spec): per-op query-param defaults (cli.yml defaults:, applications cursor quirk)"
 ```
 

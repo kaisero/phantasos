@@ -1,6 +1,6 @@
 # CLI Generator — Decouple `set` into `create`/`update`/`delete` Verbs Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the aggregated `set <object>` command (which dispatched create/patch/update via a `--id`/`--replace` heuristic) with **single-binding** verbs: `create` (POST), `update` (PATCH), and `delete` (renamed from `del`). Single-binding commands make Typer integration clean: required model fields become real `[required]` options, scalars get real types, and enum fields surface their choices in `--help` + shell completion (permissively).
 
@@ -21,7 +21,7 @@ No `set`, no `patch`/`put` verb, no `--replace`. **Deferred to roadmap:** all PU
 
 **Tech Stack:** Python 3.11–3.14, Pydantic v2, Typer/Click, Jinja2, pytest. Runner: `uv run`.
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cli-generator-design.md` (rewrites grammar + aggregated-command sections; permissive-enum stance unchanged). **Builds on:** branch `cli-generator`.
+**Spec:** `docs/specs/2026-06-09-cli-generator-design.md` (rewrites grammar + aggregated-command sections; permissive-enum stance unchanged). **Builds on:** branch `cli-generator`.
 
 ---
 
