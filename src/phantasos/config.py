@@ -6,6 +6,8 @@ loader against a registry) and the config the matching Jinja template needs.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 from phantasos.generator.cli.ir import CredentialField
@@ -24,7 +26,7 @@ class AuthComponent(_Component):
     runtime when a generated CLI tries to enumerate credentials.
     """
 
-    def __init_subclass__(cls, **kw: object) -> None:
+    def __init_subclass__(cls, **kw: Any) -> None:
         super().__init_subclass__(**kw)
         # Every direct or indirect subclass must override credential_fields().
         # Intermediate abstract bases are not supported without also overriding it.
