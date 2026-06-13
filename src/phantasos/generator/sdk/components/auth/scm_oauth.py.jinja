@@ -101,11 +101,16 @@ def api_client_from_credentials(
 {% endif %}    return ApiClient(cfg)
 
 
+def _pick(overrides, key, env_var):
+    v = overrides.pop(key, None)
+    return v if v is not None else os.environ.get(env_var)
+
+
 def api_client_from_env(**overrides) -> ApiClient:
-    client_id = overrides.pop("client_id", None) or os.environ.get("{{ client_id_env }}")
-    client_secret = overrides.pop("client_secret", None) or os.environ.get("{{ client_secret_env }}")
-    scope = overrides.pop("scope", None) or os.environ.get("{{ scope_env }}")
-    host = overrides.pop("host", None) or os.environ.get("{{ base_url_env }}") or DEFAULT_BASE_URL
+    client_id = _pick(overrides, "client_id", "{{ client_id_env }}")
+    client_secret = _pick(overrides, "client_secret", "{{ client_secret_env }}")
+    scope = _pick(overrides, "scope", "{{ scope_env }}")
+    host = _pick(overrides, "host", "{{ base_url_env }}") or DEFAULT_BASE_URL
     missing = [n for n, v in (("{{ client_id_env }}", client_id),
                               ("{{ client_secret_env }}", client_secret),
                               ("{{ scope_env }}", scope)) if not v]

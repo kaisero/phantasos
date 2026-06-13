@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from phantasos.config import OAuthClientCredentials
+from phantasos.config import ScmOAuth
 from phantasos.productconfig import (
     Hoist,
     ProductConfig,
@@ -81,12 +81,12 @@ def test_resolve_builtin_auth() -> None:
     from phantasos.config import BUILTIN_AUTH
 
     c = resolve_component(
-        {"type": "oauth_client_credentials", "token_url": "https://t/"},
+        {"type": "scm_oauth"},
         BUILTIN_AUTH,
         base_dir=Path(),
     )
-    assert isinstance(c, OAuthClientCredentials)
-    assert c.token_url == "https://t/"
+    assert isinstance(c, ScmOAuth)
+    assert c.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
 
 
 def test_resolve_custom_path(tmp_path: Path) -> None:
@@ -124,7 +124,7 @@ _SDK_YML = """\
 package: acme
 output: ../acme-sdk
 base_url: https://api.example.com
-auth: {type: oauth_client_credentials, token_url: "https://t/"}
+auth: {type: scm_oauth}
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
@@ -150,8 +150,8 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     d = _make_product(tmp_path)
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.config.package == "acme"
-    assert isinstance(loaded.auth, OAuthClientCredentials)
-    assert loaded.auth.token_url == "https://t/"
+    assert isinstance(loaded.auth, ScmOAuth)
+    assert loaded.auth.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
     assert loaded.context["spec_version"] == "9.9.9"
     assert loaded.context["spec_title"] == "Acme"
     assert loaded.context["package"] == "acme"

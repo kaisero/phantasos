@@ -10,6 +10,25 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
+
+
+class CredentialField(BaseModel):
+    """Describes one credential field exposed by an auth component.
+
+    Used by later PRs to drive environment-variable prompting and validation
+    in generated CLIs.  Defined here (ir.py) so it is included verbatim in
+    the emitted spec.py alongside CliIR.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    env_var: str
+    secret: bool = False
+    required: bool = True
+    client_kwarg: str | None = None
+
+
 Verb = Literal["create", "update", "delete", "show", "request", "load", "backup"]
 SubVerb = Literal[
     "create",

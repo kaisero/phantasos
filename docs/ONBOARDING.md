@@ -80,8 +80,7 @@ an acceptable signal to add a dep — it does not block you from proceeding.
 
 ```yaml
 auth:
-  type: oauth_client_credentials
-  token_url: https://auth.example.com/oauth2/token
+  type: scm_oauth
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true

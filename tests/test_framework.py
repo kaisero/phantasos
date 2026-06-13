@@ -113,7 +113,7 @@ def test_oneof_first_match_patch(tmp_path: Path) -> None:
 
 def test_render_auth_template_inlines_params() -> None:
     env = render._env()
-    out = env.get_template("auth/oauth_client_credentials.py.jinja").render(
+    out = env.get_template("auth/scm_oauth.py.jinja").render(
         base_url="https://api.example.com",
         token_url="https://auth.example.com/token",
         scope_env="SCOPE",
@@ -125,7 +125,7 @@ def test_render_auth_template_inlines_params() -> None:
     )
     assert 'DEFAULT_TOKEN_URL = "https://auth.example.com/token"' in out
     assert "class ExampleConfiguration(Configuration):" in out
-    assert 'os.environ.get("CID")' in out
+    assert '_pick(overrides, "client_id", "CID")' in out  # client_id_env inlined by Jinja
     assert "{{" not in out  # no unrendered jinja
 
 

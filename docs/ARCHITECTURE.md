@@ -23,7 +23,7 @@ Today everything lives in one repo. The re-arch separates code by **how reusable
    - Codegen patches: apostrophe-enum re-quote, **lenient enums** (str+int), **oneOf first-match**.
    - Mechanics: jar fetch/pin, OAG invocation, smoke (import + op count), facade *pattern*.
 2. **Components** (reusable, vendored+templated, selected per spec) → `phantasos/components/`:
-   - `auth/` (e.g. `oauth_client_credentials`), `pagination/` (e.g. `cursor`),
+   - `auth/` (e.g. `scm_oauth`), `pagination/` (e.g. `cursor`),
      `errors/` (e.g. `nested_error`), `facade/` (resource binding).
    - Each = **{interface, Jinja template(s), param dataclass}**.
 3. **Spec-specific** (one spec only) → that spec's `sdk.py` + hooks:
@@ -37,7 +37,7 @@ Today everything lives in one repo. The re-arch separates code by **how reusable
 | allOf-collapse, mojibake, enum-dedupe | `preprocess_spec.py` | `phantasos` generic transforms (reusable helpers) |
 | `HOISTS`, `USER_REQUEST_OPS` | `preprocess_spec.py` | spec `sdk.py` `preprocess()` hook (calls framework helpers) |
 | apostrophe / lenient-enum / oneOf patches | `apply_patches.py` | `phantasos` generic patches (default-on) |
-| `PrismaSaseConfiguration`, `token_url`, `scope=tsg_id`, `auth.apps...`, `DEFAULT_BASE_URL` | `overlay/auth.py` | `auth/oauth_client_credentials` **component template** + params in spec `sdk.py` |
+| `PrismaSaseConfiguration`, `token_url`, `scope=tsg_id`, `auth.apps...`, `DEFAULT_BASE_URL` | `overlay/auth.py` | `auth/scm_oauth` **component template** + params in spec `sdk.py` |
 | `.data`/`page_info.cursor` assumptions | `overlay/pagination.py` | `pagination/cursor` component (params: data_field, cursor_path, has_next_path) |
 | `{error:{message}}` extraction | `overlay/errors.py` | `errors/nested_error` component (params: message/code path) |
 | resource→Api binding | `overlay/facade.py` | `facade` component (generic; derived from generated `api/`) |
@@ -54,7 +54,7 @@ phantasos/
   patches.py             # generic codegen patches (apostrophe/lenient/oneOf)
   smoke.py               # import + op-count check
   components/
-    auth/oauth_client_credentials.py.jinja
+    auth/scm_oauth.py.jinja
     pagination/cursor.py.jinja
     errors/nested_error.py.jinja
     facade/client.py.jinja
@@ -77,7 +77,7 @@ CHANGELOG.md
 ## 5. `SdkConfig` (illustrative)
 ```python
 from phantasos import SdkConfig
-from phantasos.components.auth import OAuthClientCredentials
+from phantasos.components.auth import ScmOAuth
 from phantasos.components.pagination import CursorPagination
 from phantasos.components.errors import NestedError
 
@@ -85,9 +85,8 @@ CONFIG = SdkConfig(
     spec="./spec.yaml",
     package="prisma_browser",
     base_url="https://api.sase.paloaltonetworks.com",
-    auth=OAuthClientCredentials(
-        token_url="https://auth.apps.paloaltonetworks.com/oauth2/access_token",
-        scope_env="SCOPE", basic_auth=True,
+    auth=ScmOAuth(
+        scope_env="SCOPE",
     ),
     pagination=CursorPagination(data_field="data",
                                 cursor_path="page_info.cursor",
