@@ -2571,6 +2571,21 @@ def test_env_empty_exported_var_still_wins(
     assert captured["client_id"] == ""  # empty string threaded, NOT "ENVID"
 
 
+def test_env_unknown_selected_environment_errors(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A selected-but-undefined environment must fail loudly, not silently fall
+    # back to ambient env-var auth (which could use unintended credentials).
+    home = tmp_path / "home"
+    _write_user_config(home, "default_environment: ghost\nenvironments: {}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as exc:
+        rt._client()
+    assert exc.value.code == 2
+
+
 def test_env_selection_precedence(
     emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

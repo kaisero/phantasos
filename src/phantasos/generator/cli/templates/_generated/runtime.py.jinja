@@ -88,6 +88,14 @@ def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
     # vars override its fields per the locked precedence. NEVER use truthiness:
     # an exported-but-empty CLIENT_ID= must still win over the config value.
     name = _selected_environment()
+    if name is not None and name not in _config._raw_environments():
+        # An env was explicitly selected (-e / {{ env_prefix }}_ENVIRONMENT /
+        # default_environment) but isn't defined — fail loudly rather than
+        # silently falling back to ambient env-var auth (wrong-credentials risk).
+        _diag.fail(
+            f"unknown environment '{name}' (run 'config environment list')",
+            code=2,
+        )
     env = _config.resolve_environment(name) if name else {}
     overrides: dict[str, Any] = {}
     for f in _ir().credential_fields:
