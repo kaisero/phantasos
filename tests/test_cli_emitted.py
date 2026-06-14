@@ -1943,6 +1943,88 @@ def test_logging_invalid_level_warns_and_falls_back(
     assert cfg.get().logging.level == "info"
 
 
+def test_logging_captures_warnings_to_file_not_stderr(
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    import logging
+    import stat
+    import warnings
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    ls.init_logging()
+    warnings.warn("DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1)
+    for h in logging.getLogger("py.warnings").handlers:  # flush; do NOT shutdown
+        h.flush()
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    assert log.exists()
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    assert stat.S_IMODE(log.parent.stat().st_mode) == 0o700
+    line = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    assert line["level"] == "WARNING"
+    assert "not defined in the OpenAPI spec" in line["msg"]
+    # the JSONL record carries ts/logger fields
+    assert line["ts"].endswith("Z") and line["logger"] == "py.warnings"
+    # NOT on stderr
+    assert "not defined in the OpenAPI spec" not in capsys.readouterr().err
+
+
+def test_logging_does_not_touch_root_logger(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # M1: init_logging must NEVER mutate the root logger (that evicts pytest's
+    # log-capture handler). Only the py.warnings + package loggers get the sink.
+    import logging
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root_before = list(logging.getLogger().handlers)
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    ls.init_logging()
+    assert logging.getLogger().handlers == root_before  # root untouched
+    assert len(logging.getLogger("py.warnings").handlers) == 1
+    assert logging.getLogger("py.warnings").propagate is False
+    assert logging.getLogger("fakesdk_cli").propagate is False
+
+
+def test_logging_rotates_and_gzips(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import gzip
+    import logging
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    log = tmp_path / "rot.jsonl"
+    handler = ls._SecureRotatingFileHandler(
+        str(log), maxBytes=80, backupCount=2, encoding="utf-8", delay=True
+    )
+    handler.setFormatter(ls._JsonlFormatter())
+    handler.rotator = ls._gzip_rotator
+    handler.namer = ls._gzip_namer
+    rec_logger = logging.getLogger("fakesdk_cli._rot_test")
+    rec_logger.handlers[:] = [handler]
+    rec_logger.propagate = False
+    rec_logger.setLevel(logging.INFO)
+    try:
+        rec_logger.info("first line that is reasonably long to force a rollover")
+        rec_logger.info("second line that is also reasonably long for rollover")
+        handler.flush()
+        gz = tmp_path / "rot.jsonl.1.gz"
+        assert gz.exists()
+        with gzip.open(gz, "rt", encoding="utf-8") as f:
+            assert "first line" in f.read()
+    finally:
+        handler.close()
+        rec_logger.handlers[:] = []
+
+
 def test_dotenv_reaches_config_layer(
     emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
