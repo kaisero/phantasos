@@ -93,3 +93,12 @@ take **main's** `version` and its new `## [X.Y.Z]` section, **keep develop's**
 parent, so the next release's merge-base is that release commit and the merge
 stays clean. `develop` showing as "behind `main` by the release merge commit" is
 cosmetic and expected — don't back-merge to "fix" it.
+
+## Agent context docs (`.agents/context/`)
+
+Deep technical docs for this repo live in `.agents/context/` (start at
+`.agents/context/index.md`). They are loaded **on demand** — do NOT `@`-import them.
+
+- **Before** working in a subsystem, read its deep-dive (e.g. `.agents/context/sdk-generator.md`).
+- **After** a change that alters a subsystem, update its deep-dive's narrative and
+  run `uv run nox -s context` to refresh its generated blocks (`-- --check` must pass).
