@@ -2571,6 +2571,41 @@ def test_env_empty_exported_var_still_wins(
     assert captured["client_id"] == ""  # empty string threaded, NOT "ENVID"
 
 
+def test_generated_cli_imports_only_declared_dependencies(emitted_auth: Path) -> None:
+    # Regression guard: the generated CLI must import only its DECLARED deps.
+    # `typer>=0.12` resolves to the slim core, which does NOT install top-level
+    # `click` — so emitting `import click` (or any other undeclared package)
+    # breaks every generated CLI at import time. Scan every emitted module.
+    import ast
+
+    allowed = set(sys.stdlib_module_names) | {
+        # third-party deps declared in scaffold_context._CLI_DEPS
+        "typer",
+        "rich",
+        "yaml",
+        "dotenv",
+        "jmespath",
+        "pydantic",
+        "pygments",
+        # the emitted CLI package itself + the SDK it wraps
+        "fakesdk_cli",
+        "fakesdk",
+    }
+    offenders: dict[str, set[str]] = {}
+    for py in (emitted_auth / "fakesdk_cli" / "_generated").rglob("*.py"):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                tops = {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                tops = {node.module.split(".")[0]}
+            else:
+                continue
+            for top in tops - allowed:
+                offenders.setdefault(py.name, set()).add(top)
+    assert not offenders, f"generated CLI imports undeclared dependencies: {offenders}"
+
+
 def test_env_unknown_selected_environment_errors(
     emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
