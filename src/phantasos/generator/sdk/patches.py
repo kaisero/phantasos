@@ -162,6 +162,8 @@ def patch_oneof_unwrap_serializer(models_dir: Path) -> int:
             continue
         if "_phantasos_unwrap" in text:
             continue  # idempotent
+        if "\n    def to_str(self)" not in text:
+            continue  # anchor absent (OAG changed) — skip, don't write unchanged
         text = _ensure_model_serializer_import(text)
         text = text.replace(
             "\n    def to_str(self)", _UNWRAP_METHOD + "\n    def to_str(self)", 1
@@ -186,6 +188,8 @@ def patch_drop_empty_additional_properties(models_dir: Path) -> int:
             continue  # belongs to the unwrap patch
         if "_phantasos_drop_empty_additional_properties" in text:
             continue  # idempotent
+        if "\n    def to_str(self)" not in text:
+            continue  # anchor absent (OAG changed) — skip, don't write unchanged
         text = _ensure_model_serializer_import(text)
         text = text.replace(
             "\n    def to_str(self)", _DROP_EMPTY_METHOD + "\n    def to_str(self)", 1

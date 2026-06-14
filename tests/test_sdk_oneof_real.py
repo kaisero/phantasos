@@ -100,7 +100,11 @@ def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties() -> Non
                 }
             },
         }
-        dumped = GetSignInPolicy200Response.from_dict(raw).model_dump(mode="json")
+        model = GetSignInPolicy200Response.from_dict(raw)
+        dumped = model.model_dump(mode="json")
+        # by_alias must propagate through the unwrap serializer to the inner
+        # instance — this is the diagnostics.py render_error path.
+        dumped_alias = model.model_dump(mode="json", by_alias=True)
     finally:
         sys.path.remove(str(REAL_SDK))
 
@@ -113,6 +117,10 @@ def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties() -> Non
     assert item["type"] == "Rule"
     assert item["evaluation_order"] == 1  # snake_case contract
     assert "additional_properties" not in dumped["page_info"]
+
+    alias_item = dumped_alias["data"][0]
+    assert alias_item["evaluationOrder"] == 1  # by_alias propagated to inner
+    assert "actual_instance" not in alias_item
 
 
 def test_non_empty_additional_properties_is_preserved() -> None:

@@ -71,8 +71,8 @@ hide:
 # --- per-object curated table columns ---
 # Bare strings: header == path (snake_case field names from model_dump).
 # ColumnEntry (header/path): use when the display header should differ from the
-# JMESPath expression, or when the path is a nested JMESPath (e.g. through a
-# union's actual_instance wrapper).
+# JMESPath expression, or when the path is a nested JMESPath (e.g. a sub-field
+# like `metadata.created_time`).
 #
 # NOTE: datetime fields introspect as kind "json" so they never appear in auto
 # defaults — list them explicitly here to surface them in the table.

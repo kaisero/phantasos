@@ -96,3 +96,33 @@ def test_apply_generic_patches_reports_new_counts(tmp_path: Path) -> None:
     stats = patches.apply_generic_patches(pkg)
     assert stats["oneof_unwrap"] == 1
     assert stats["drop_empty_additional_properties"] == 1
+
+
+def test_patches_skip_when_to_str_anchor_absent(tmp_path: Path) -> None:
+    """A marker-matching model without the `to_str` anchor is skipped, not counted
+    and written back unchanged (guards against a silent no-op if OAG changes)."""
+    wrapper_no_anchor = (
+        "from pydantic import BaseModel\n"
+        "from typing import Any, Optional, Set\n\n\n"
+        "class Wrapper(BaseModel):\n"
+        "    actual_instance: Optional[Any] = None\n"
+        '    one_of_schemas: Set[str] = {"Inner"}\n'
+    )
+    inner_no_anchor = (
+        "from pydantic import BaseModel\n"
+        "from typing import Any, Dict\n\n\n"
+        "class Inner(BaseModel):\n"
+        "    id: str\n"
+        "    additional_properties: Dict[str, Any] = {}\n"
+    )
+    (tmp_path / "wrapper_no_anchor.py").write_text(wrapper_no_anchor, encoding="utf-8")
+    (tmp_path / "inner_no_anchor.py").write_text(inner_no_anchor, encoding="utf-8")
+    assert patches.patch_oneof_unwrap_serializer(tmp_path) == 0
+    assert patches.patch_drop_empty_additional_properties(tmp_path) == 0
+    # files left byte-for-byte unchanged
+    assert (tmp_path / "wrapper_no_anchor.py").read_text(
+        encoding="utf-8"
+    ) == wrapper_no_anchor
+    assert (tmp_path / "inner_no_anchor.py").read_text(
+        encoding="utf-8"
+    ) == inner_no_anchor
