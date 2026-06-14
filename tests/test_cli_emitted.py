@@ -2025,6 +2025,72 @@ def test_logging_rotates_and_gzips(
         rec_logger.handlers[:] = []
 
 
+def test_app_inits_logging_and_mirrors_diag(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import logging
+
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    res = CliRunner().invoke(main.app, ["config", "show"])  # any command
+    assert res.exit_code == 0, res.output
+    diag = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    diag.warning("a mirrored diagnostic line")
+    for h in logging.getLogger("fakesdk_cli").handlers:  # flush; never shutdown()
+        h.flush()
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    assert log.exists()  # init ran at app build
+    msgs = [
+        json.loads(line)["msg"]
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any("a mirrored diagnostic line" in m for m in msgs)  # diag -> log sink
+
+
+def test_full_command_warning_not_on_stderr_but_in_log(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A Python warning raised during a real command run must land in the logfile
+    # and NOT on the CLI's stderr.
+    import json
+
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+
+    class _W:
+        def list_widgets(self, **kw: Any) -> list[Any]:
+            import warnings
+
+            warnings.warn(
+                "Color: value 'mauve' is not defined in the OpenAPI spec", stacklevel=1
+            )
+            return []
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    res = CliRunner().invoke(main.app, ["show", "widget", "--output", "json"])
+    assert res.exit_code == 0, res.output
+    assert "not defined in the OpenAPI spec" not in res.output
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    msgs = [
+        json.loads(line)["msg"]
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any("not defined in the OpenAPI spec" in m for m in msgs)
+
+
 def test_dotenv_reaches_config_layer(
     emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -97,7 +97,15 @@ def init_logging() -> None:
         lg.handlers[:] = [handler]
         lg.setLevel(level)
         lg.propagate = False
-    logging.captureWarnings(True)  # warnings -> 'py.warnings' logger -> file
+    # warnings -> 'py.warnings' logger -> file. captureWarnings(True) is a no-op
+    # when warnings are ALREADY captured (the stdlib only saves/replaces
+    # showwarning the first time), so toggle off→on to deterministically reinstall
+    # logging's showwarning over whatever the current handler is. This matters in
+    # a test process where each test's warnings context restores showwarning
+    # between tests; a real CLI calls this exactly once. (This never touches root
+    # handlers, so M1 still holds.)
+    logging.captureWarnings(False)
+    logging.captureWarnings(True)
     # The `emitted` test fixture purges `{{ package }}.*` per test, so init_logging
     # (and this atexit.register) runs once per test — harmless: the summary's
     # `{sdk_package}._lenient` import fails for the fakesdk fixture (no `_lenient`)

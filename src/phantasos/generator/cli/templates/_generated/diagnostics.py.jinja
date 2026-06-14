@@ -6,17 +6,27 @@ from __future__ import annotations
 
 import enum
 import json
+import logging
 import sys
 from typing import Any, NoReturn
 
 from rich.console import Console
 from rich.theme import Theme
 
+_log = logging.getLogger("{{ package }}.diagnostics")
+
 
 class Level(enum.IntEnum):
     INFO = 20      # values align with logging.INFO/WARNING/ERROR for a future file sink
     WARNING = 30
     ERROR = 40
+
+
+_LEVEL_TO_LOGGING = {
+    Level.INFO: logging.INFO,
+    Level.WARNING: logging.WARNING,
+    Level.ERROR: logging.ERROR,
+}
 
 
 _SPEC: dict[Level, tuple[str, str, str]] = {
@@ -59,6 +69,9 @@ def _icon(glyph: str) -> str:
 def emit(level: Level, message: str, *, expected: str | None = None,
          example: str | None = None, got: str | None = None,
          hint: str | None = None) -> None:
+    # Mirror into the log sink BEFORE the console gate so the file is complete
+    # regardless of `_min_level` (which only suppresses the CONSOLE, e.g. --quiet).
+    _log.log(_LEVEL_TO_LOGGING[level], message)
     if level < _min_level:
         return
     label, glyph, style = _SPEC[level]
