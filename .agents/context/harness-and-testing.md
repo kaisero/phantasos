@@ -77,7 +77,7 @@ The template is in `protected_globs`, so:
 
 - The freeze hook denies any `Write` or `Edit` call targeting it.
 - The fast-gate blocks any stop where it appears dirty in git.
-- CODEOWNERS + branch protection require human code-owner review on any PR that touches it.
+- (Planned — see *Backstops* below:) CODEOWNERS + branch protection would add human code-owner review on any PR that touches it.
 
 The emitted file (`tests/test_sdk_crud_live.py` in the generated SDK output directory) is a build artifact, not a protected path — but the template that generated it is.
 
@@ -85,13 +85,24 @@ The emitted file (`tests/test_sdk_crud_live.py` in the generated SDK output dire
 
 ## Backstops
 
-### CODEOWNERS
+> **Status: planned, not yet added.** Both backstops are specified in the harness
+> design (`docs/specs/2026-06-10-autonomous-harness-thin-slice-design.md`) but are
+> **not in the repo today** — the merged thin slice shipped the hooks, the
+> `gate`/`live` nox sessions, and the frozen-oracle template, but neither
+> `.github/CODEOWNERS` nor `.github/workflows/live.yml` exists yet. They are the
+> intended human/CI net below the best-effort freeze hook.
 
-`.github/CODEOWNERS` covers the frozen paths. With "require code-owner review" enabled on the branch-protection rules, any PR that modifies a protected path needs human approval before merge. This is the non-bypassable net below the best-effort freeze hook.
+### CODEOWNERS (planned)
 
-### CI — live.yml
+A `.github/CODEOWNERS` covering the frozen paths, with "require code-owner review"
+branch protection, would make any PR that modifies a protected path need human
+approval before merge — the non-bypassable net below the best-effort freeze hook.
 
-`.github/workflows/live.yml` runs `nox -s live` on PRs (and optionally on a schedule for API drift detection). It is a separate workflow from `ci.yml` so a missing or expired tenant credential degrades gracefully without blocking the offline matrix.
+### CI — live.yml (planned)
+
+A `.github/workflows/live.yml` running `nox -s live` on PRs (and optionally on a
+schedule for API-drift detection), separate from `ci.yml` so a missing/expired
+tenant credential degrades gracefully without blocking the offline matrix.
 
 ---
 
