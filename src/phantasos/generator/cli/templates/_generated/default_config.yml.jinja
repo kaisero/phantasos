@@ -1,0 +1,43 @@
+# {{ distribution }} configuration file.
+#
+# Written by `{{ distribution }} config init` from the packaged defaults.
+# Location: ~/.{{ distribution }}/config.yml
+# Precedence: command-line flags > environment variables > this file >
+# packaged defaults.
+#
+# Environment variable reference:
+#   {{ env_prefix }}_PAGER_ENABLED      -> configuration.pager.enabled
+#   {{ env_prefix }}_PAGER_COMMAND      -> configuration.pager.command
+#   {{ env_prefix }}_OUTPUT_FORMAT      -> configuration.output.format
+#   {{ env_prefix }}_HISTORY_ENABLED      -> configuration.history.enabled
+#   {{ env_prefix }}_HISTORY_VERBOSE      -> configuration.history.verbose
+#   {{ env_prefix }}_HISTORY_FILE         -> configuration.history.file
+#   {{ env_prefix }}_HISTORY_MAX_SIZE_MB  -> configuration.history.max_size_mb
+
+configuration:
+  # Pager for long output: when enabled, results taller than the terminal are
+  # shown in a pager. Never engages when output is piped or redirected.
+  # Per-invocation override: --pager / --no-pager.
+  pager:
+    enabled: false
+    # Pager program. null -> $PAGER -> 'less -RFX'.
+    command: null
+
+  output:
+    # Default output format for results: json | yaml | table.
+    # Per-invocation override: --output.
+    format: json
+
+  # Command history: real API calls are appended to a JSON-Lines file
+  # (one JSON object per line). View with `{{ distribution }} show cli history`.
+  history:
+    enabled: true
+    # verbose: also record request and response BODIES in each entry.
+    # WARNING: bodies may contain sensitive tenant data — the history file
+    # is plain text in your home directory.
+    verbose: false
+    # null -> ~/.{{ distribution }}/history.jsonl
+    file: null
+    # When the file reaches this size the CLI warns and stops recording
+    # (no automatic trimming). Delete the file to start fresh.
+    max_size_mb: 50

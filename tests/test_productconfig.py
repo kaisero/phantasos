@@ -18,9 +18,36 @@ from phantasos.productconfig import (
 
 def test_productconfig_minimal() -> None:
     cfg = ProductConfig(package="acme", output="../acme-sdk", base_url="https://api/")
-    assert cfg.library == "urllib3"
+    assert cfg.generator.library == "urllib3"
     assert cfg.apply_generic_patches is True
     assert cfg.transforms == Transforms()
+
+
+def test_generator_block_defaults() -> None:
+    cfg = ProductConfig(package="acme", output="../acme-sdk", base_url="https://api/")
+    assert cfg.generator.library == "urllib3"
+    assert cfg.generator.oneof_discriminator_lookup is True
+
+
+def test_generator_block_overrides() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "acme",
+            "output": "../acme-sdk",
+            "base_url": "https://api/",
+            "generator": {"library": "httpx", "oneof_discriminator_lookup": False},
+        }
+    )
+    assert cfg.generator.library == "httpx"
+    assert cfg.generator.oneof_discriminator_lookup is False
+
+
+def test_top_level_library_rejected() -> None:
+    # `library` migrated into the generator: block (2026-06-11); extra=forbid rejects it
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {"package": "a", "output": "o", "base_url": "b", "library": "httpx"}
+        )
 
 
 def test_transforms_parse() -> None:
@@ -130,6 +157,7 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     assert loaded.context["package"] == "acme"
     assert loaded.context["support_email"] == "sdk@example.com"
     assert loaded.context["has_auth"] is True
+    assert loaded.context["library"] == "urllib3"
 
 
 def test_load_product_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,6 +193,19 @@ def test_vars_collision_is_error(tmp_path: Path) -> None:
         load_product(str(d / "sdk.yml"))
 
 
+def test_load_product_generator_library_httpx(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text(_OPENAPI, encoding="utf-8")
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\n"
+        "generator: {library: httpx}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.context["library"] == "httpx"
+
+
 from phantasos.productconfig import ProjectConfig  # noqa: E402
 
 
@@ -178,6 +219,36 @@ def test_project_defaults() -> None:
     assert p.license == "Apache-2.0"
     assert p.python_versions == ["3.11", "3.12", "3.13", "3.14"]
     assert "pydantic >= 2.11" in p.dependencies
+
+
+def test_retry_default_on(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8"
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.retry is not None
+    assert loaded.context["has_retry"] is True
+    assert loaded.retry.max_retries == 3
+
+
+def test_retry_disabled(tmp_path: Path) -> None:
+    d = tmp_path / "products" / "acme"
+    d.mkdir(parents=True)
+    (d / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
+    (d / "sdk.yml").write_text(
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\nretry: false\n",
+        "utf-8",
+    )
+    loaded = load_product(str(d / "sdk.yml"))
+    assert loaded.retry is None
+    assert loaded.context["has_retry"] is False
 
 
 def test_project_block_in_sdk_yml(tmp_path: Path) -> None:

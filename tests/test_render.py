@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from phantasos import render
+from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
 
 
@@ -61,6 +61,7 @@ def test_vendor_full_components(tmp_path: Path) -> None:
         "pagination.py",
         "errors.py",
         "facade.py",
+        "retry.py",
         "__init__.py",
     }
     extras = pkg / "extras"
@@ -91,7 +92,7 @@ def test_vendor_facade_only(tmp_path: Path) -> None:
     loaded = load_product(str(prod / "sdk.yml"))
     written = render.vendor(pkg, loaded)
 
-    assert set(written) == {"facade.py", "__init__.py"}
+    assert set(written) == {"facade.py", "retry.py", "__init__.py"}
     facade_src = (pkg / "extras" / "facade.py").read_text(encoding="utf-8")
     assert "from .auth" not in facade_src
     assert "from .pagination" not in facade_src
@@ -145,6 +146,81 @@ def test_vendor_custom_component_template(tmp_path: Path) -> None:
     written = render.vendor(pkg, loaded)
     assert "auth.py" in written
     assert (pkg / "extras" / "auth.py").read_text() == "HEADER = 'X-API-Key'  # acme\n"
+
+
+def test_vendor_writes_retry(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n", "utf-8"
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded)
+    assert "retry.py" in written
+    src = (pkg / "extras" / "retry.py").read_text()
+    assert "class JitteredRetry" in src and "def default_retry" in src
+    assert "status_forcelist=[408, 429, 500, 502, 503, 504]" in src
+    import ast
+
+    ast.parse(src)
+
+
+def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
+        "errors: {type: nested}\nfacade: false\n",
+        "utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    render.vendor(pkg, loaded)
+    src = (pkg / "extras" / "errors.py").read_text()
+    assert "RateLimitException" in src
+    assert "is_rate_limited" not in src
+
+
+def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
+    pkg = tmp_path / "out" / "acme"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "__init__.py").write_text(
+        "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
+    )
+    prod = tmp_path / "products" / "acme"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
+        "auth: {type: oauth_client_credentials, token_url: 'https://t/'}\n"
+        "facade: true\n",
+        "utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    render.vendor(pkg, loaded)
+    auth_src = (pkg / "extras" / "auth.py").read_text()
+    facade_src = (pkg / "extras" / "facade.py").read_text()
+    assert "from .retry import default_retry" in auth_src
+    assert "default_retry()" in auth_src
+    assert "from .retry import default_retry" in facade_src
+    assert "default_retry()" in facade_src
+    import ast
+
+    ast.parse(auth_src)
+    ast.parse(facade_src)
 
 
 def test_include_rejects_path_escape(tmp_path: Path) -> None:

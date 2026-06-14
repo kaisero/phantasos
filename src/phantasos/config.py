@@ -23,8 +23,6 @@ class OAuthClientCredentials(_Component):
     client_secret_env: str = "CLIENT_SECRET"  # noqa: S105  env-var name, not a secret
     base_url_env: str = "BASE_URL"
     config_class_name: str = "SdkConfiguration"
-    retry_statuses: tuple[int, ...] = (429, 500, 502, 503, 504)
-    backoff_factor: float = 0.5
     template: str = "auth/oauth_client_credentials.py.jinja"
 
 
@@ -53,9 +51,22 @@ class Facade(_Component):
     template: str = "facade/client.py.jinja"
 
 
+class RetryConfig(_Component):
+    """Retry policy with jitter (urllib3.Retry subclass) — on by default."""
+
+    max_retries: int = 3
+    backoff_base: float = 0.5
+    backoff_max: float = 8.0
+    jitter_frac: float = 0.25
+    statuses: list[int] = [408, 429, 500, 502, 503, 504]
+    respect_retry_after: bool = True
+    template: str = "retry/jittered_retry.py.jinja"
+
+
 # Built-in strategy registries: category -> {type name: model}. The loader uses
 # these to dispatch a YAML block's `type` to the right model (or a custom path).
 BUILTIN_AUTH = {"oauth_client_credentials": OAuthClientCredentials}
 BUILTIN_PAGINATION = {"cursor": CursorPagination}
 BUILTIN_ERRORS = {"nested": NestedError}
 BUILTIN_FACADE = {"default": Facade}
+BUILTIN_RETRY = {"default": RetryConfig}

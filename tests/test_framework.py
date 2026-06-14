@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from phantasos import patches, preprocess, render
+from phantasos.generator.sdk import patches, preprocess, render
 
 
 def test_collapse_allof_over_array_ref() -> None:
@@ -121,8 +121,7 @@ def test_render_auth_template_inlines_params() -> None:
         client_secret_env="CSEC",
         base_url_env="BASE",
         config_class_name="ExampleConfiguration",
-        retry_statuses=(429, 503),
-        backoff_factor=0.5,
+        has_retry=True,
     )
     assert 'DEFAULT_TOKEN_URL = "https://auth.example.com/token"' in out
     assert "class ExampleConfiguration(Configuration):" in out

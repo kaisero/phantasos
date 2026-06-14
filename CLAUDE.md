@@ -21,3 +21,75 @@
   (the Stop hook sets a per-checkout default automatically). For venv-backed
   nox sessions (e.g. `live`, `smoke`) also set `NOX_ENVDIR=/tmp/phantasos-nox`
   to relocate the session venvs off sshfs.
+
+## Adding a CLI configuration option (generated CLIs)
+
+Every user-facing setting of a GENERATED CLI follows one layered flow — packaged
+defaults <- `~/.{distribution}/config.yml` <- `.env` / shell env <- per-invocation
+flags (where applicable). To add an option:
+
+1. **Model field** — `src/phantasos/generator/cli/templates/_generated/config.py.jinja`:
+   add the field to the right section model (frozen pydantic; a NEW section gets its
+   own `XxxConfig` model wired into `CliConfiguration` via `Field(default_factory=…)`).
+2. **Default + docs** — `default_config.yml.jinja`: add the commented entry. The YAML
+   defaults MUST mirror the model defaults — the defaults-sync test
+   (`test_config_packaged_defaults_match_models`) enforces it.
+3. **Env var** — add an `_ENV_MAP` row named `{PREFIX}_{SECTION}_{KEY}` (the
+   `configuration` wrapper is skipped). Booleans also join `_BOOL_PATHS`; ints ride
+   pydantic lax coercion. `.env` works automatically: `load_config()` loads it first.
+4. **`effective_dict()`** — extend it (drives `config show`).
+5. **Tests** — behavioral, through the emitted package (`tests/test_cli_emitted.py`
+   `emitted` fixture). Config is cached at command-module IMPORT: set HOME/env
+   BEFORE `importlib.import_module`, and call `load_config.cache_clear()` after
+   mutating the environment mid-test.
+6. **Consumers** read via `_config.get().<section>.<key>` — never re-read files or
+   env directly.
+
+## Branching & release workflow
+
+Two long-lived branches: **`main`** (released code; protected; the GitHub default;
+the ONLY branch that publishes — landing a changed `version` here, by ANY merge
+method, auto-fires the `Release` workflow to PyPI + a GitHub Release) and
+**`develop`** (integration;
+never publishes). Because `main` is the default, **explicitly target `develop`**
+on feature PRs (`gh pr create --base develop`) — never rely on the default base.
+
+- **Never commit or push directly to `main`.** Direct pushes to `develop` are
+  allowed for trivial NON-code changes (typos, comments); anything user-facing
+  goes through a PR so it's recorded under `## [Unreleased]`.
+- **`feature/<kebab-slug>` / `bugfix/<kebab-slug>`** — branch off `develop`; PR
+  back into `develop` (`--base develop`); **squash-merge**. Such a PR MUST NOT bump
+  the version (a version bump is a release act, and mis-targeting `main` would
+  auto-publish). Record changes under `## [Unreleased]` in `CHANGELOG.md`.
+- **`hotfix/<kebab-slug>`** — for an urgent fix to *released* code: branch off
+  `main`; fix + **patch bump** + add a **new `## [X.Y.Z] - <date>` section**
+  describing the fix (on `main`, `## [Unreleased]` is empty — don't reuse it) +
+  fix the link-ref ladder; PR → `main` (**merge commit** → auto-publishes); then
+  **back-merge `main` into `develop`** (see *Back-merging a hotfix* below).
+
+**Cutting a release** (the version is bumped ONLY here):
+1. On `develop`, a `release: X.Y.Z` commit — bump `version` in `pyproject.toml`,
+   rename `## [Unreleased]` → `## [X.Y.Z] - <date>` (add a fresh empty
+   `## [Unreleased]` above) and fix the link-ref ladder, then `uv lock`.
+2. Open a **`develop → main` PR** and **merge-commit** it — never squash/rebase
+   `develop → main` (that diverges `develop` from `main` and breaks the next
+   release PR). The merge to `main` auto-publishes `X.Y.Z`.
+
+**Merge-strategy rule:** into `develop` (feature/bugfix) = **squash**; into `main`
+(release / hotfix) = **merge commit**; back-merge `main → develop` = **merge
+commit**. `pyproject.toml`'s `version` is the source of truth; `release.yml` keys
+the published version and the `## [<version>]` release notes off it. PEP 440
+pre-releases (e.g. `0.2.0a1`) publish as pre-releases.
+
+**Back-merging a hotfix** (only hotfixes need this): merge `main` into `develop`
+with a merge commit. Resolve the version/CHANGELOG collisions deterministically —
+take **main's** `version` and its new `## [X.Y.Z]` section, **keep develop's**
+`## [Unreleased]` contents, and ensure exactly ONE `## [Unreleased]` header +
+`[Unreleased]:` link-ref survive (now comparing against `vX.Y.Z`). `develop`'s
+`version` then equals the hotfix patch until the next release bump — expected.
+
+**No back-merge after a normal release:** the release commit originates on
+`develop`, and the `develop → main` merge commit records `develop`'s tip as a
+parent, so the next release's merge-base is that release commit and the merge
+stays clean. `develop` showing as "behind `main` by the release merge commit" is
+cosmetic and expected — don't back-merge to "fix" it.

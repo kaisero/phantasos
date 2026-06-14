@@ -1,0 +1,316 @@
+"""Render SDK results as Rich JSON (default), table, or YAML."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from contextlib import contextmanager
+from typing import Any
+
+import jmespath
+import yaml
+from rich.console import Console
+from rich.pager import Pager
+from rich.syntax import Syntax
+from rich.table import Table
+
+from . import config as _config
+from . import diagnostics as _diag
+
+_console = Console()
+
+
+def _to_data(obj: Any) -> Any:
+    if isinstance(obj, list):
+        return [_to_data(o) for o in obj]
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, dict):
+        return {k: _to_data(v) for k, v in obj.items()}
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    return str(obj)  # never leak a Python object repr to the user
+
+
+def print_yaml(text: str) -> None:
+    """Emit YAML to the console: syntax-highlighted on a terminal, byte-clean plain
+    YAML when piped/redirected/NO_COLOR (rich strips styling off-TTY). soft_wrap=True
+    stops rich's Syntax from cropping long lines to the off-TTY fallback width."""
+    _console.print(
+        Syntax(
+            text.rstrip("\n"),
+            "yaml",
+            theme="ansi_dark",
+            background_color="default",
+            word_wrap=False,
+            line_numbers=False,
+        ),
+        soft_wrap=True,
+    )
+
+
+def render(
+    result: Any,
+    fmt: str = "json",
+    *,
+    columns: list[str] | None = None,
+    default_columns: list[tuple[str, str]] | None = None,
+    items_field: str | None = None,
+) -> None:
+    if result is None:
+        return  # empty success (e.g. delete / HTTP 204) — print nothing
+    data = _to_data(result)
+    if fmt == "yaml":
+        print_yaml(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
+        return
+    if fmt == "table":
+        _render_table(data, columns=columns, default_columns=default_columns,
+                      items_field=items_field)
+        return
+    _console.print_json(data=data)  # default: Rich-formatted JSON
+
+
+_VERB_COLORS = {
+    "GET": "green",
+    "POST": "blue",
+    "PUT": "blue",
+    "PATCH": "yellow",
+    "DELETE": "red",
+}
+
+
+def render_dry_run(method: str, url: str, body: Any = None) -> None:
+    """Pretty-print the HTTP request a command WOULD send (no request performed)."""
+    color = _VERB_COLORS.get(str(method).upper(), "cyan")
+    _console.print("[dim]DRY RUN · no request sent[/]")
+    _console.print(f"[bold {color}]{method}[/] {url}")
+    if body in (None, "", b""):
+        return
+    data: Any = body
+    if isinstance(data, (bytes, bytearray)):
+        data = data.decode("utf-8", "replace")
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            _console.print(data)
+            return
+    _console.print_json(data=data)
+
+
+# ---- table rendering -------------------------------------------------------
+
+_PREFERRED = ("id", "name", "type", "status", "state")
+_MAX_HEURISTIC = 6
+_PREVIEW = 3
+
+
+def _split_columns(value: str) -> list[str]:
+    """Split a --columns value on top-level commas (commas inside [], (), {},
+    quotes or backticks belong to the JMESPath expression)."""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    quote: str | None = None
+    for ch in value:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch in "'\"`":
+            quote = ch
+            buf.append(ch)
+        elif ch in "[({":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth = max(0, depth - 1)  # stray closer must not mask later commas
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf).strip())
+    return [p for p in parts if p]
+
+
+_HEADER_RE = re.compile(r"^([A-Za-z0-9_ .-]+)=(?!=)")
+
+
+def parse_columns(values: list[str]) -> list[tuple[str, str]]:
+    """[(header, jmespath)] from --columns values; 'HEADER=expr' names a column
+    (a lone '=' — '==' comparisons pass through to the expression)."""
+    specs: list[tuple[str, str]] = []
+    for v in values:
+        for part in _split_columns(v):
+            m = _HEADER_RE.match(part)
+            if m:
+                specs.append((m.group(1).strip(), part[m.end():].strip()))
+            else:
+                specs.append((part, part))
+    return specs
+
+
+def _rows(data: Any, items_field: str | None) -> list[Any]:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and items_field:
+        items = data.get(items_field)
+        if isinstance(items, list):
+            return items
+    return [data]
+
+
+def _preview(items: list[Any]) -> str:
+    if not items:
+        return ""
+    if all(isinstance(i, dict) for i in items):
+        labels = [i.get("name") or i.get("id") for i in items]
+        if any(label is None for label in labels):
+            return f"{len(items)} item" + ("s" if len(items) != 1 else "")
+        shown = [str(label) for label in labels[:_PREVIEW]]
+    else:
+        shown = [_cell(i) for i in items[:_PREVIEW]]
+    extra = len(items) - _PREVIEW
+    return ", ".join(shown) + (f", +{extra} more" if extra > 0 else "")
+
+
+def _cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return _preview(value)
+    if isinstance(value, dict):
+        return json.dumps(value, separators=(",", ":"))
+    return str(value)
+
+
+def _heuristic_columns(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Last-resort columns from the data itself: top-level scalar-ish keys in
+    first-seen order, preferred identity fields first, cap _MAX_HEURISTIC."""
+    keys: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        for k, v in r.items():
+            if k in seen:
+                continue
+            seen.add(k)
+            if isinstance(v, dict):
+                continue
+            if isinstance(v, list) and any(
+                isinstance(i, (dict, list)) for i in v
+            ):
+                continue
+            keys.append(k)
+    ordered = [k for k in _PREFERRED if k in keys]
+    ordered += [k for k in keys if k not in ordered]
+    return [(k, k) for k in ordered[:_MAX_HEURISTIC]]
+
+
+class _Key:
+    """Plain-key getter with the same .search interface as a compiled JMESPath.
+
+    Used for data-derived heuristic columns: raw API keys are not guaranteed to
+    be valid JMESPath identifiers, and the heuristic must never exit."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def search(self, row: dict[str, Any]) -> Any:
+        return row.get(self.key)
+
+
+def _getters(
+    specs: list[tuple[str, str]],
+) -> list[tuple[str, Any]]:
+    out: list[tuple[str, Any]] = []
+    for header, path in specs:
+        try:
+            out.append((header, jmespath.compile(path)))
+        except Exception as exc:  # jmespath.exceptions.JMESPathError and friends
+            _diag.fail(f"invalid --columns expression {path!r}: {exc}", code=2)
+    return out
+
+
+def _render_table(
+    data: Any,
+    *,
+    columns: list[str] | None = None,
+    default_columns: list[tuple[str, str]] | None = None,
+    items_field: str | None = None,
+) -> None:
+    rows = [r for r in _rows(data, items_field) if isinstance(r, dict)]
+    if not rows:
+        _console.print("[dim]no results[/]")
+        return
+    if columns:
+        getters = _getters(parse_columns(columns))
+    elif default_columns:
+        getters = _getters(list(default_columns))
+    else:
+        # heuristic columns come from the data itself: plain key lookup, never
+        # jmespath-compiled (arbitrary keys may not be valid JMESPath)
+        getters = [(h, _Key(p)) for h, p in _heuristic_columns(rows)]
+    table = Table(*[h for h, _ in getters])
+    for r in rows:
+        table.add_row(*[_cell(g.search(r)) for _, g in getters])
+    _console.print(table)
+
+
+# ---- pager -----------------------------------------------------------------
+
+
+def _stdout_is_tty() -> bool:  # module-level for monkeypatching in tests
+    return sys.stdout.isatty()
+
+
+def pager_command() -> str:
+    """configuration.pager.command > $PAGER > 'less -RFX'."""
+    return _config.get().pager.command or os.environ.get("PAGER") or "less -RFX"
+
+
+class _AutoPager(Pager):
+    """Pages only when content is taller than the terminal; short content is
+    written directly (no process spawned). Receives the fully rendered ANSI
+    text from rich's pager context. The threshold counts logical lines — a
+    deliberate approximation (see spec)."""
+
+    def __init__(self, command: str) -> None:
+        self._command = command
+
+    def show(self, content: str) -> None:
+        if content.count("\n") <= max(_console.size.height - 1, 1):
+            sys.stdout.write(content)
+            return
+        argv = shlex.split(self._command)
+        if not argv:  # whitespace-only command resolves to no argv
+            sys.stdout.write(content)
+            return
+        try:
+            # run(input=...) absorbs the user quitting the pager early.
+            subprocess.run(argv, input=content, text=True, check=False)
+        except OSError:
+            _diag.warning(f"pager command not found: {argv[0]}")
+            sys.stdout.write(content)
+
+
+@contextmanager
+def maybe_paged(flag: bool | None):
+    """Wrap rendering in the auto-threshold pager when it should engage.
+
+    flag is the tri-state --pager/--no-pager value; None defers to config.
+    Never engages when stdout is not a TTY (pipes/redirects keep working).
+    """
+    enabled = flag if flag is not None else _config.get().pager.enabled
+    if not (enabled and _stdout_is_tty()):
+        yield
+        return
+    with _console.pager(pager=_AutoPager(pager_command()), styles=True):
+        yield

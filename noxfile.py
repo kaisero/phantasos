@@ -130,8 +130,8 @@ def smoke(session: nox.Session) -> None:
     the default session list. Each SDK is written to a sibling dir of its product dir.
     """
     _sync(session)
-    session.run("phantasos", "build", "prisma-browser")
-    session.run("phantasos", "build", "adem")
+    session.run("phantasos", "sdk", "build", "prisma-browser")
+    session.run("phantasos", "sdk", "build", "adem")
 
 
 @nox.session
@@ -151,7 +151,7 @@ def live(session: nox.Session) -> None:
             if stripped and not stripped.startswith("#") and "=" in stripped:
                 key, _, value = stripped.partition("=")
                 session.env.setdefault(key.strip(), value.strip().strip('"'))
-    session.run("phantasos", "build", "prisma-browser", "--no-smoke")
+    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     from phantasos.productconfig import load_product
 
     out_dir = load_product("prisma-browser").output_dir

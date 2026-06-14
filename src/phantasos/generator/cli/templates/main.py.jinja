@@ -1,0 +1,18 @@
+"""Entry point for the {{ package }} CLI.
+
+This file is generated once and then hand-owned. You can customise it freely:
+  - add top-level callbacks (--version, --config, etc.)
+  - register additional sub-apps
+  - call app.add_typer(...) to wire in commands from custom/
+
+Re-running the build will NOT overwrite this file.
+"""
+from __future__ import annotations
+
+# The generated app is rebuilt on every `cli build` run.
+from {{ package }}._generated.app import build_generated_app
+
+app = build_generated_app()
+
+if __name__ == "__main__":
+    app()

@@ -1,0 +1,110 @@
+# CLI config for prisma-browser-cli — declarative deltas over the auto-classifier.
+# Consumed by `phantasos cli build prisma-browser`. The classifier always runs over the
+# built SDK; this file only supplies what it can't infer.
+
+# --- project metadata for the generated CLI project (scaffold context) ---
+project:
+  distribution: prisma-browser-cli
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-browser-cli
+  description: Command-line interface for the Palo Alto Networks Prisma Browser Management APIs
+
+# --- oneOf (union) request bodies → variant subcommands `set application <variant>` ---
+# Applications use an undiscriminated oneOf body keyed by the path `type`. BOTH the create
+# and the patch method are unions, so each variant command aggregates a create + a patch
+# binding (dispatched at runtime by --id). `catalog` has no create/patch variant → omitted.
+variants:
+  applications.create_application:
+    path_param: type
+    map:
+      custom: CustomApplicationInput
+      private: PrivateApplicationInput
+      non-web: NonWebApplicationInput
+      localdesktopcustom: LocalDesktopApplicationInput
+  applications.patch_application_by_type_and_id:
+    path_param: type
+    map:
+      custom: CustomPatchApplicationInput
+      private: PrivatePatchApplicationInput
+      non-web: NonWebPatchApplicationInput
+      localdesktopcustom: LocalDesktopPatchApplicationInput
+
+# --- non-CRUD actions → the `request` namespace (`request <object> <action>`) ---
+# NOTE: request-namespace commands are EMITTED starting in Phase 3b. Until then these
+# entries reserve the mapping (the build skips them cleanly, no "unmapped" warning).
+request:
+  devices.suspend_devices: {object: device, action: suspend}
+  devices.resume_devices: {object: device, action: resume}
+  devices.restore_devices: {object: device, action: restore}
+  devices.archive_devices: {object: device, action: archive}
+  devices.force_reauth_devices: {object: device, action: force-reauth}
+  users.suspend_users: {object: user, action: suspend}
+  users.resume_users: {object: user, action: resume}
+  users.force_reauth_users: {object: user, action: force-reauth}
+  user_requests.action_user_request: {object: user-request, action: action}
+  user_requests.revoke_user_request: {object: user-request, action: revoke}
+  configuration_management.publish_draft_configuration: {object: configuration, action: publish}
+  access_and_data_policy.update_access_and_data_positions:
+    {object: access-and-data-section, action: reorder}
+  customization_policy.update_customization_positions:
+    {object: customization-section, action: reorder}
+  security_policy.update_security_positions: {object: security-section, action: reorder}
+  security_policy.patch_security_positions: {object: security-section, action: reorder-patch}
+  sign_in_policy.update_sign_in_positions: {object: sign-in-section, action: reorder}
+
+# Deferred to roadmap:
+#   - PUT (update_*) full-replace: returns as a future `update`-fallback (when no PATCH) / `replace` verb.
+#   - bulk_create/bulk_delete: return via the future `load`/`backup` verbs (also blocked by the
+#     list[Model] body introspection gap).
+hide:
+  - access_and_data_policy.update_access_and_data_section_by_id
+  - applications.bulk_create_applications
+  - applications.bulk_delete_applications
+  - customization_policy.update_customization_section_by_id
+  - device_groups.update_device_group
+  - plugins.update_application_plugin
+  - security_policy.update_security_section_by_id
+  - sign_in_policy.update_sign_in_section_by_id
+  - user_groups.update_user_group
+
+# --- per-object curated table columns ---
+# Bare strings: header == path (snake_case field names from model_dump).
+# ColumnEntry (header/path): use when the display header should differ from the
+# JMESPath expression, or when the path is a nested JMESPath (e.g. through a
+# union's actual_instance wrapper).
+#
+# NOTE: datetime fields introspect as kind "json" so they never appear in auto
+# defaults — list them explicitly here to surface them in the table.
+# NOTE: ApplicationItem is a OneOf union whose data field holds variant objects
+# (CustomApplication, PrivateApplication, …) wrapped in actual_instance. The
+# JMESPath root "actual_instance" IS a valid root field on ApplicationItem, so
+# paths of the form actual_instance.<field> pass build validation and resolve at
+# runtime for every variant that exposes the field.
+columns:
+  device-group:
+    - id
+    - name
+    - platform
+    - created_by
+    - devices
+    - created_at
+  application:
+    - {header: id,          path: actual_instance.id}
+    - {header: name,        path: actual_instance.name}
+    - {header: type,        path: actual_instance.type}
+    - {header: description, path: actual_instance.description}
+
+# Server quirk (verified 2026-06-11): the application list endpoints only honor
+# their pagination cursor when an explicit sort+order is supplied — without one,
+# page 2 comes back empty and --all silently truncates at 100. application.name
+# gives a human-meaningful listing order; note it is not guaranteed unique, so
+# cursor ties are theoretically possible (application.id would avoid them).
+# Other endpoints (device-groups, devices, users) paginate fine unsorted.
+defaults:
+  applications.list_applications:
+    sort: application.name
+    order: asc
+  applications.list_applications_by_type:
+    sort: application.name
+    order: asc

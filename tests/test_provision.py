@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from phantasos import provision
-from phantasos.provision import ProvisionError
+from phantasos.generator.sdk import provision
+from phantasos.generator.sdk.provision import ProvisionError
 
 
 class _FakeResp:

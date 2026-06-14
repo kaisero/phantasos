@@ -1,0 +1,49 @@
+"""`config` meta-commands: manage the {{ distribution }} user configuration file."""
+
+from __future__ import annotations
+
+import typer
+import yaml
+
+from . import config as _config
+from . import diagnostics as _diag
+from . import output as _output
+
+config_app = typer.Typer(
+    no_args_is_help=True, help="Manage the CLI configuration file."
+)
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing config file."
+    ),
+) -> None:
+    """Write the commented default configuration to ~/.{{ distribution }}/config.yml."""
+    path = _config.config_path()
+    if path.exists() and not force:
+        _diag.fail(f"{path} exists (use --force to overwrite)", code=2)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_config.packaged_default_text(), encoding="utf-8")
+    except OSError as exc:
+        _diag.fail(f"cannot write {path}: {exc}", code=1)
+    _diag.info(f"wrote {path}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print the effective merged configuration and where it came from."""
+    # Always reflect the CURRENT disk state: the cache was primed at import
+    # (command modules read config for option defaults), so a file written by
+    # `config init` in this same process would otherwise be invisible here.
+    _config.load_config.cache_clear()
+    _cfg, _warnings, sources = _config.load_config()
+    _config.warn_once()
+    _diag.info(f"merged from: {', '.join(sources)}")
+    _output.print_yaml(
+        yaml.safe_dump(
+            _config.effective_dict(), sort_keys=False, default_flow_style=False
+        )
+    )

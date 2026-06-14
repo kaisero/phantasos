@@ -2,14 +2,68 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  check:
+    name: Detect unreleased version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+      version: ${{ steps.gate.outputs.version }}
+      prerelease: ${{ steps.gate.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      - name: Resolve version, gate on existing release, extract notes
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          OUT=$(uv run --no-project --with packaging python -c "import tomllib; from packaging.version import Version; v=tomllib.load(open('pyproject.toml','rb'))['project']['version']; nv=str(Version(v)); assert nv==v, 'pyproject version '+v+' not PEP440-canonical; use '+nv; print(v); print(str(Version(v).is_prerelease).lower())")
+          VERSION=$(printf '%s\n' "$OUT" | sed -n 1p)
+          PRERELEASE=$(printf '%s\n' "$OUT" | sed -n 2p)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Resolved version v$VERSION (prerelease=$PRERELEASE)"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          awk -v ver="$VERSION" '/^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } } found { print }' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::Missing CHANGELOG.md section '## [$VERSION]'. Add release notes before bumping the version."
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      - name: Upload release notes
+        if: steps.gate.outputs.release == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: notes.md
+
   build:
     name: Build distributions
+    needs: check
+    if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,7 +89,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/${{ github.event.repository.name }}
     permissions:
-      id-token: write  # required for PyPI Trusted Publishing (OIDC) + attestations
+      id-token: write  # PyPI Trusted Publishing (OIDC) + attestations
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -44,4 +98,40 @@ jobs:
       - name: Publish
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          attestations: true  # generate & upload PEP 740 build provenance
+          attestations: true  # PEP 740 build provenance
+          skip-existing: true  # idempotent if a retry re-runs after a successful upload
+
+  release:
+    name: Create GitHub Release
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # create the tag + GitHub Release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: .
+      - name: Create GitHub Release (tag + notes + assets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.check.outputs.version }}"
+          FLAGS=()
+          if [ "${{ needs.check.outputs.prerelease }}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file notes.md \
+            "${FLAGS[@]}" \
+            dist/*

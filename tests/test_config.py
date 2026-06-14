@@ -31,3 +31,16 @@ def test_unknown_field_rejected() -> None:
 
 def test_facade_template() -> None:
     assert Facade(type="default").template == "facade/client.py.jinja"
+
+
+def test_retry_defaults() -> None:
+    from phantasos.config import RetryConfig
+
+    r = RetryConfig(type="default")
+    assert r.max_retries == 3
+    assert r.backoff_base == 0.5
+    assert r.backoff_max == 8.0
+    assert r.jitter_frac == 0.25
+    assert r.statuses == [408, 429, 500, 502, 503, 504]
+    assert r.respect_retry_after is True
+    assert r.template == "retry/jittered_retry.py.jinja"

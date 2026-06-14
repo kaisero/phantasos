@@ -1,0 +1,454 @@
+"""Command runtime: load typed IR, dispatch to the right SDK method, render results."""
+
+from __future__ import annotations
+
+import enum
+import functools
+import importlib
+import inspect
+import json
+import shlex
+import sys
+import time
+import typing
+from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlsplit
+from importlib.resources import files
+from typing import Any, NoReturn
+
+from pydantic import ValidationError
+
+from . import diagnostics as _diag
+from . import history as _history
+from . import output as _output
+from .spec import CliIR, Command, Flag, MethodBinding
+
+
+@functools.lru_cache(maxsize=1)
+def _ir() -> CliIR:
+    text = files(__package__).joinpath("ir.json").read_text(encoding="utf-8")
+    return CliIR.model_validate_json(text)
+
+
+def _commands() -> dict[str, Command]:
+    return {c.key: c for c in _ir().commands}
+
+
+def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
+    try:
+        from dotenv import find_dotenv, load_dotenv
+        load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
+    except ModuleNotFoundError:
+        pass
+    facade = importlib.import_module(_ir().facade_module)
+    return facade.Client.from_env()
+
+
+def _models() -> Any:
+    return importlib.import_module(f"{_ir().sdk_package}.models")
+
+
+def _sdk_exc() -> type[BaseException]:
+    try:
+        mod = importlib.import_module(f"{_ir().sdk_package}.exceptions")
+    except ModuleNotFoundError:
+        return Exception
+    base = getattr(mod, "OpenApiException", None)
+    return base if isinstance(base, type) else Exception
+
+
+def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
+    """Param names the bound SDK method accepts, or None if undeterminable /
+    **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
+    facade's API class, never an instantiated client."""
+    try:
+        facade = importlib.import_module(_ir().facade_module)
+        fn = getattr(facade._RESOURCES[resource], sdk_method)
+        sig = inspect.signature(fn)
+    except Exception:
+        # fail-open: dropping nothing preserves pre-feature behavior, and the
+        # SDK's own @validate_call remains the backstop for bad kwargs
+        return None
+    params = sig.parameters.values()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+        return None
+    return {p.name for p in params} - {"self"}
+
+
+def _hooks() -> Any | None:
+    try:
+        return importlib.import_module("{{ package }}.hooks")
+    except ModuleNotFoundError:
+        return None
+
+
+class InputError(Exception):
+    """A user-supplied flag value could not be parsed. Carries optional structured
+    fields rendered by the diagnostics facade; never a raw traceback."""
+
+    def __init__(self, message: str, *, expected: str | None = None,
+                 example: str | None = None, got: Any | None = None,
+                 code: int = 2) -> None:
+        super().__init__(message)
+        self.message = message
+        self.expected = expected
+        self.example = example
+        self.got = got
+        self.code = code
+
+
+_BOOL_TRUE = {"1", "true", "yes", "y", "on"}
+_BOOL_FALSE = {"0", "false", "no", "n", "off"}
+
+
+def _coerce(flag: Flag, value: Any) -> Any:
+    if value is None:
+        return None
+    if flag.kind == "json" and isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise InputError(f"{flag.name}: invalid JSON ({exc})", got=value) from exc
+    if flag.py_type == "int" and isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise InputError(f"{flag.name}: invalid integer", got=value) from exc
+    if flag.py_type == "bool" and isinstance(value, str):
+        v = value.strip().lower()
+        if v in _BOOL_TRUE:
+            return True
+        if v in _BOOL_FALSE:
+            return False
+        raise InputError(f"{flag.name}: invalid boolean (use true or false)", got=value)
+    return value
+
+
+def _fail_input(exc: InputError) -> NoReturn:
+    _diag.fail(exc.message, code=exc.code,
+               expected=exc.expected, example=exc.example,
+               got=(repr(exc.got) if exc.got is not None else None))
+
+
+_SUBVERB_PRIORITY = {
+    "patch": 0, "create": 1, "update": 2, "delete": 3,
+    "get": 4, "list": 5, "bulk_create": 6, "bulk_delete": 7,
+}
+
+
+def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
+    candidates = [b for b in cmd.bindings if set(b.requires) <= present]
+    if not candidates:
+        _diag.fail(f"no operation for '{cmd.key}' matches the given arguments", code=2)
+    best_len = max(len(b.requires) for b in candidates)
+    top = [b for b in candidates if len(b.requires) == best_len]
+    return min(top, key=lambda b: (_SUBVERB_PRIORITY.get(b.sub_verb, 99), b.sdk_method))
+
+
+def _strip_optional(ann: Any) -> Any:
+    if typing.get_origin(ann) is typing.Union:
+        args = [a for a in typing.get_args(ann) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return ann
+
+
+def _placeholder(ann: Any) -> Any:
+    return {str: "string", bool: False, int: 0, float: 0.0}.get(
+        _strip_optional(ann), None
+    )
+
+
+def _skeleton(model: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name, f in model.model_fields.items():
+        if name == "additional_properties" or not f.is_required():
+            continue
+        out[f.alias or name] = _placeholder(f.annotation)
+    return out
+
+
+def _describe_json_field(model_cls: Any, param: str) -> tuple[str | None, str | None]:
+    mf = getattr(model_cls, "model_fields", {}).get(param)
+    if mf is None:
+        return None, None
+    ann = _strip_optional(mf.annotation)
+    origin = typing.get_origin(ann)
+    lo = hi = None
+    for m in getattr(mf, "metadata", []):
+        lo = getattr(m, "min_length", lo)
+        hi = getattr(m, "max_length", hi)
+    if origin in (list, set):
+        inner = _strip_optional(typing.get_args(ann)[0])
+        is_obj = hasattr(inner, "model_fields")
+        shape = "array of objects" if is_obj else "array"
+        if lo and hi:
+            count = f" ({lo}–{hi} items)"
+        elif hi:
+            count = f" (max {hi} items)"
+        elif lo:
+            count = f" (min {lo} items)"
+        else:
+            count = ""
+        ex = [_skeleton(inner)] if is_obj else [_placeholder(inner)]
+        return f"a JSON {shape}{count}", json.dumps(ex)
+    if hasattr(ann, "model_fields"):
+        return "a JSON object", json.dumps(_skeleton(ann))
+    return "a JSON object", json.dumps({"key": "value"})
+
+
+def _build_body(binding: MethodBinding, body: dict[str, Any],
+                flags: dict[str, Flag], models: Any,
+                extra: dict[str, Any] | None = None) -> Any:
+    model_cls = getattr(models, binding.body_model)
+    parsed: dict[str, Any] = {}
+    for k, v in body.items():
+        if v is None:
+            continue
+        try:
+            parsed[k] = _coerce(flags[k], v)
+        except InputError as exc:
+            if flags[k].kind == "json" and exc.expected is None:
+                exp, ex = _describe_json_field(model_cls, k)
+                exc.expected, exc.example = exp, (
+                    f"{flags[k].name} '{ex}'" if ex else None
+                )
+            raise
+    if extra:
+        parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion
+    # PATCH semantics: use model_construct (no validation) so that only the
+    # user-supplied fields are set.  SDKs that reuse the create model have required
+    # fields, but PATCH must never enforce them — the server ignores absent fields.
+    if binding.sub_verb == "patch":
+        inner = model_cls.model_construct(**parsed)
+    else:
+        inner = model_cls(**parsed)
+    if binding.body_wrapper:
+        return getattr(models, binding.body_wrapper)(inner)
+    return inner
+
+
+def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> None:
+    """Print the HTTP request that would be sent, via the SDK's <method>_serialize
+    (no request performed, no credentials needed). Falls back to a call reference
+    if the SDK lacks the serialize convention."""
+    try:
+        pkg = _ir().sdk_package
+        api_client_mod = importlib.import_module(f"{pkg}.api_client")
+        config_mod = importlib.import_module(f"{pkg}.configuration")
+        facade = importlib.import_module(_ir().facade_module)
+        client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
+        api = getattr(client, cmd.sdk_resource)
+        serialize = getattr(api, f"_{binding.sdk_method}_serialize", None)
+        if serialize is None:
+            raise AttributeError(f"no _{binding.sdk_method}_serialize")
+        # Build complete kwargs: all params default to None (_host_index=0),
+        # then overlay the domain kwargs we already have.
+        sig = inspect.signature(serialize)
+        complete: dict[str, Any] = {
+            k: (0 if k == "_host_index" else None)
+            for k in sig.parameters
+        }
+        complete.update(kwargs)
+        # Coerce string values to enum types where the public method expects them.
+        # The _serialize methods have no type hints; use the public method's hints.
+        pub = getattr(api, binding.sdk_method, None)
+        if pub is not None:
+            try:
+                hints = typing.get_type_hints(pub)
+            except Exception:
+                hints = {}
+            for k, v in list(complete.items()):
+                hint = hints.get(k)
+                if typing.get_origin(hint) is typing.Union:
+                    inner = [a for a in typing.get_args(hint) if a is not type(None)]
+                    hint = inner[0] if len(inner) == 1 else None
+                if (hint is not None and isinstance(hint, type)
+                        and issubclass(hint, enum.Enum) and isinstance(v, str)):
+                    complete[k] = hint(v)
+        method, url, _headers, body, *_rest = serialize(**complete)
+    except Exception:  # dry-run must never fail hard
+        print(f"DRY-RUN {cmd.key} -> {cmd.sdk_resource}.{binding.sdk_method}(...)")
+        return
+    _output.render_dry_run(method, url, body)
+
+
+def _error_headline_for(exc: BaseException) -> str:
+    """Same best-effort headline render_error shows: parsed-body first (via
+    _diag._error_headline), then str(exc), then the exception type name.
+    (python-pro review: deriving from str(exc) alone violates the spec and
+    misses the actionable server message.)"""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    if isinstance(body, str) and body.strip():
+        try:
+            headline = _diag._error_headline(json.loads(body))
+        except ValueError:
+            headline = None
+        if headline:
+            return headline[:300]
+    text = str(exc).strip()
+    return text.splitlines()[0][:300] if text else type(exc).__name__
+
+
+def _history_entry(cmd: Command, binding: MethodBinding, status: str,
+                   *, duration_ms: int | None = None,
+                   exc: BaseException | None = None,
+                   request_body: Any = None,
+                   response: Any = None,
+                   http: dict[str, str] | None = None) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "command": shlex.join(sys.argv[1:]) if len(sys.argv) > 1 else cmd.key,
+        "sdk_method": f"{cmd.sdk_resource}.{binding.sdk_method}",
+        "status": status,
+    }
+    if http:
+        uri = http.get("http_uri", "")
+        entry["http_method"] = http.get("http_method", "")
+        # the query string lives ONLY in http_params (no redundancy in the URI)
+        entry["http_uri"] = uri.split("?", 1)[0]
+        query = urlsplit(uri).query
+        if query:
+            # structured query params: single value -> str, repeated key -> list
+            # (headers are deliberately NOT captured: they carry the auth token)
+            params: dict[str, Any] = {}
+            for k, v in parse_qsl(query):
+                if k in params:
+                    prev = params[k]
+                    params[k] = [*prev, v] if isinstance(prev, list) else [prev, v]
+                else:
+                    params[k] = v
+            entry["http_params"] = params
+    if duration_ms is not None:
+        entry["duration_ms"] = duration_ms
+    if exc is not None:
+        http_status = getattr(exc, "status", None)
+        if http_status is not None:
+            entry["http_status"] = http_status
+        entry["error"] = _error_headline_for(exc)
+    if _config_verbose():
+        if request_body is not None:
+            entry["request_body"] = _output._to_data(request_body)
+        if response is not None:
+            entry["response_body"] = _output._to_data(response)
+    return entry
+
+
+def _config_verbose() -> bool:
+    from . import config as _config
+
+    return _config.get().history.verbose
+
+
+def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
+        query: dict[str, Any], output: str, paginate_all: bool,
+        dry_run: bool, verbose: bool,
+        columns: list[str] | None = None,
+        quiet: bool = False,
+        pager: bool | None = None) -> None:
+    _diag.set_min_level(_diag.Level.ERROR if quiet else _diag.Level.INFO)
+    cmd = _commands()[key]
+    if columns:
+        output = "table"  # --columns implies table rendering
+    present = {k for k, v in path.items() if v is not None}
+    if cmd.variant and cmd.variant_param:
+        present.add(cmd.variant_param)
+    binding = _pick_binding(cmd, present)
+
+    path_flags = {f.param: f for f in cmd.path_params}
+    query_flags = {f.param: f for f in cmd.query_flags}
+    body_flags = {f.param: f for f in cmd.body_flags}
+
+    kwargs: dict[str, Any] = {}
+    try:
+        for k, v in path.items():
+            if v is not None:
+                kwargs[k] = _coerce(path_flags[k], v)
+        if cmd.variant and cmd.variant_param:
+            kwargs[cmd.variant_param] = cmd.variant
+        accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+        for k, v in query.items():
+            if v is None:
+                continue
+            # cli.yml-injected defaults are per-OP, but a command can aggregate
+            # multiple bindings (list + get); drop an injected default the selected
+            # binding's method doesn't accept (e.g. sort/order on a get).
+            if (query_flags[k].cli_default is not None
+                    and accepted is not None and k not in accepted):
+                continue
+            kwargs[k] = _coerce(query_flags[k], v)
+    except InputError as exc:
+        _fail_input(exc)
+
+    hooks = _hooks()
+    # Filled by the call_api wrapper below; defined here so the except branch sees it.
+    http_capture: dict[str, str] = {}
+    try:
+        if binding.body_model:
+            models_mod = _models()
+            extra: dict[str, Any] = {}
+            if cmd.variant and cmd.variant_param:
+                model_cls = getattr(models_mod, binding.body_model, None)
+                fields = getattr(model_cls, "model_fields", {}) if model_cls else {}
+                if cmd.variant_param in fields:
+                    extra[cmd.variant_param] = cmd.variant
+            kwargs[binding.body_param] = _build_body(
+                binding, body, body_flags, models_mod, extra
+            )
+        if hooks and (pre := getattr(hooks, "before_call", None)) and callable(pre):
+            kwargs = pre(binding.sdk_method, kwargs, cmd) or kwargs
+        if dry_run:
+            _dry_run(cmd, binding, kwargs)
+            return
+        client = _client()
+        api = getattr(client, cmd.sdk_resource)
+        method = getattr(api, binding.sdk_method)
+        # Observe the actual outgoing request: every generated SDK method routes
+        # through api_client.call_api(method, url, ...) with the query string
+        # already appended to url. Wrap it for the duration of the call (first
+        # invocation wins under --all; restored in finally). Non-OAG clients
+        # (test fakes) lack the shape -> fields simply absent.
+        api_client = getattr(api, "api_client", None)
+        original_call = getattr(api_client, "call_api", None)
+        if callable(original_call):
+            def _capturing_call(*args: Any, **kw: Any) -> Any:
+                if len(args) >= 2 and not http_capture:
+                    http_capture["http_method"] = str(args[0])
+                    http_capture["http_uri"] = str(args[1])
+                return original_call(*args, **kw)
+            api_client.call_api = _capturing_call
+        started = time.monotonic()
+        try:
+            if binding.sub_verb == "list" and paginate_all:
+                pg = getattr(client, "paginate", None)
+                result = list(pg(method, **kwargs)) if pg else method(**kwargs)
+            else:
+                result = method(**kwargs)
+        finally:
+            if callable(original_call):
+                api_client.call_api = original_call
+        duration_ms = int((time.monotonic() - started) * 1000)
+        if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
+            result = post(binding.sdk_method, result, cmd) or result
+        _history.record(_history_entry(
+            cmd, binding, "success", duration_ms=duration_ms,
+            request_body=kwargs.get(binding.body_param) if binding.body_param else None,
+            response=result, http=http_capture,
+        ))
+        with _output.maybe_paged(pager):
+            _output.render(
+                result, fmt=output, columns=columns,
+                default_columns=[(c.header, c.path) for c in cmd.columns],
+                items_field=cmd.items_field,
+            )
+    except InputError as exc:
+        _fail_input(exc)
+    except (_sdk_exc(), ValidationError) as exc:
+        _history.record(_history_entry(cmd, binding, "error", exc=exc,
+                                       http=http_capture))
+        if verbose:
+            raise
+        _diag.render_error(exc)
+        raise SystemExit(1) from exc
