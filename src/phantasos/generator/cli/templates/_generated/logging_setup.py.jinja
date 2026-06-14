@@ -1,9 +1,9 @@
 """Structured file logging for the {{ distribution }} CLI (injected by phantasos).
 
-Installs a rotating JSON-Lines log sink on the ``py.warnings`` and ``{{ package }}``
-loggers and routes Python warnings (e.g. the SDK's lenient-enum pass-through) into
-it instead of stderr. A single terse stderr summary is emitted at exit if unknown
-enum values occurred.
+Installs a rotating JSON-Lines log sink on the ``py.warnings`` and package
+loggers and routes Python warnings (e.g. the SDK's lenient-enum pass-through)
+into it instead of stderr. A single terse stderr summary is emitted at exit if
+unknown enum values occurred.
 """
 
 from __future__ import annotations

@@ -1959,7 +1959,9 @@ def test_logging_captures_warnings_to_file_not_stderr(
     ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
     importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
     ls.init_logging()
-    warnings.warn("DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1)
+    warnings.warn(
+        "DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1
+    )
     for h in logging.getLogger("py.warnings").handlers:  # flush; do NOT shutdown
         h.flush()
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
@@ -2043,24 +2045,20 @@ def test_config_set_unset(
     assert data["configuration"]["logging"]["level"] == "debug"
 
     # dotted set
-    assert (
-        r.invoke(main.app, ["config", "set", "output.format", "yaml"]).exit_code == 0
-    )
+    assert r.invoke(main.app, ["config", "set", "output.format", "yaml"]).exit_code == 0
     data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert data["configuration"]["output"]["format"] == "yaml"
 
     # bool coercion (history.enabled)
     assert (
-        r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code
-        == 0
+        r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code == 0
     )
     data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert data["configuration"]["history"]["enabled"] is False
 
     # int coercion (history.max_size_mb)
     assert (
-        r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code
-        == 0
+        r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code == 0
     )
     data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert data["configuration"]["history"]["max_size_mb"] == 7
@@ -2114,8 +2112,7 @@ def test_app_inits_logging_and_mirrors_diag(
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
     assert log.exists()  # init ran at app build
     msgs = [
-        json.loads(line)["msg"]
-        for line in log.read_text(encoding="utf-8").splitlines()
+        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
     ]
     assert any("a mirrored diagnostic line" in m for m in msgs)  # diag -> log sink
 
@@ -2153,8 +2150,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
     assert "not defined in the OpenAPI spec" not in res.output
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
     msgs = [
-        json.loads(line)["msg"]
-        for line in log.read_text(encoding="utf-8").splitlines()
+        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
     ]
     assert any("not defined in the OpenAPI spec" in m for m in msgs)
 
