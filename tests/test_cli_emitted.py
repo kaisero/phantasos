@@ -1343,7 +1343,7 @@ def test_columns_flag_implies_table_and_renders_curated(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
     res = runner.invoke(
         app_mod.build_generated_app(), ["show", "widget", "--columns", "name,id"]
@@ -1372,7 +1372,7 @@ def test_show_without_columns_uses_ir_default_columns(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
     res = runner.invoke(
         app_mod.build_generated_app(), ["show", "widget", "--output", "table"]
@@ -1431,7 +1431,7 @@ def test_query_default_is_injected_and_overridable(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
 
     # no flags -> cli.yml defaults flow into the SDK call (int correctly typed)
@@ -1483,7 +1483,7 @@ def test_injected_defaults_not_sent_to_get_binding(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
 
     # get binding: the injected name/limit defaults must NOT reach the call
@@ -2202,7 +2202,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     res = CliRunner().invoke(main.app, ["show", "widget", "--output", "json"])
     assert res.exit_code == 0, res.output
     assert "not defined in the OpenAPI spec" not in res.output
@@ -2843,6 +2843,7 @@ def test_env_vars_override_active_environment(
         "  prod:\n"
         "    client_id: ENVID\n"
         "    client_secret: ${PROD_SECRET}\n"
+        "    scope: prod-scope\n"
         "    base_url: https://api.example.com\n",
     )
     monkeypatch.setenv("HOME", str(home))
@@ -2861,28 +2862,40 @@ def test_env_vars_override_active_environment(
     assert captured["client_id"] == "SHELLID"  # env var wins
     assert captured["client_secret"] == "envfile-secret"  # from the env file
     assert captured["host"] == "https://api.example.com"  # base_url -> host kwarg
-    assert "scope" not in captured  # unset everywhere -> not threaded
+    assert captured["scope"] == "prod-scope"  # resolved from the env file
 
 
 def test_env_empty_exported_var_still_wins(
     emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # Presence-not-truthiness precedence: an exported-but-empty var still beats
+    # the config value. Demonstrated on the OPTIONAL base_url field (an empty
+    # REQUIRED field is now rejected by the pre-flight — see
+    # test_empty_exported_required_var_is_treated_as_missing). The required
+    # fields are fully supplied so the pre-flight passes.
     home = tmp_path / "home"
     _write_user_env_file(
         home,
-        "default_environment: prod\nenvironments:\n  prod:\n    client_id: ENVID\n",
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: ENVID\n"
+        "    client_secret: ENVSECRET\n"
+        "    scope: ENVSCOPE\n"
+        "    base_url: https://config-host\n",
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
-    monkeypatch.setenv("CLIENT_ID", "")  # exported but empty -> presence wins
+    monkeypatch.setenv("BASE_URL", "")  # exported but empty -> presence wins
+    monkeypatch.delenv("CLIENT_ID", raising=False)
     monkeypatch.delenv("CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("BASE_URL", raising=False)
     monkeypatch.delenv("SCOPE", raising=False)
 
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     captured = _capture_facade_kwargs(rt, monkeypatch)
     rt._client()
-    assert captured["client_id"] == ""  # empty string threaded, NOT "ENVID"
+    assert captured["host"] == ""  # empty string threaded, NOT "https://config-host"
+    assert captured["client_id"] == "ENVID"  # required fields still resolve
 
 
 def test_generated_cli_imports_only_declared_dependencies(emitted_auth: Path) -> None:
@@ -2945,7 +2958,9 @@ def test_env_selection_precedence(
         "environments:\n"
         "  prod: {client_id: PROD}\n"
         "  staging: {client_id: STAGING}\n"
-        "  adhoc: {client_id: ADHOC}\n",
+        # adhoc is the env actually threaded by _client below, so it carries the
+        # full required credential set; prod/staging only exercise name resolution.
+        "  adhoc: {client_id: ADHOC, client_secret: SEC, scope: SC}\n",
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
@@ -2983,7 +2998,8 @@ def test_env_option_in_help_and_threads_selection(
     home = tmp_path / "home"
     _write_user_env_file(
         home,
-        "environments:\n  staging: {client_id: STAGING}\n",
+        "environments:\n"
+        "  staging: {client_id: STAGING, client_secret: SEC, scope: SC}\n",
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
@@ -3029,6 +3045,195 @@ def test_env_option_in_help_and_threads_selection(
     )
     assert res.exit_code == 0, res.output
     assert captured["client_id"] == "STAGING"  # -e selected staging's fields
+
+
+# --- bugfix: clean missing-credentials error (descriptor-driven pre-flight) ---
+
+
+def test_missing_credentials_message_guides_user(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Nothing configured at all (no environment, no credential env vars): the
+    # first command must fail cleanly (exit 2, no raw traceback) and guide the
+    # user toward BOTH remediation paths.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "no credentials configured" in err
+    assert "environment create" in err  # primary remediation path
+    # names the three genuinely-required vars; base_url (host has a default) is NOT
+    assert "CLIENT_ID" in err and "CLIENT_SECRET" in err and "SCOPE" in err
+    assert "BASE_URL" not in err
+
+
+def test_missing_credentials_names_active_environment(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # An environment is active (default_environment) but incomplete: the message
+    # names the environment and only the fields it is still missing.
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PRODID}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "environment 'prod'" in err
+    assert "CLIENT_SECRET" in err and "SCOPE" in err
+    assert "CLIENT_ID" not in err  # client_id IS set -> not listed as missing
+
+
+def test_missing_credentials_via_dash_e_selected_environment(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The -e contextvar path (distinct from default_environment) is covered too.
+    home = tmp_path / "home"
+    _write_user_env_file(home, "environments:\n  staging: {client_id: STAGINGID}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    rt.select_environment("staging")
+    try:
+        with pytest.raises(SystemExit) as ei:
+            rt._client()
+        assert ei.value.code == 2
+    finally:
+        rt.select_environment(None)  # reset module contextvar for other tests
+
+
+def test_empty_exported_required_var_is_treated_as_missing(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An exported-but-EMPTY required var is unusable (the SDK rejects it with
+    # `if not v`); the pre-flight mirrors that and fails cleanly rather than
+    # threading "" and letting a raw RuntimeError escape.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "")  # exported but empty
+    monkeypatch.setenv("CLIENT_SECRET", "s")
+    monkeypatch.setenv("SCOPE", "sc")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+
+def test_auth_failure_renders_clean_error(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Credentials ARE present but the auth/token request still fails: this must
+    # be a clean error (exit 1, no traceback), distinct from misconfiguration.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "id")
+    monkeypatch.setenv("CLIENT_SECRET", "secret")
+    monkeypatch.setenv("SCOPE", "scope")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    def _boom(**kw: Any) -> Any:
+        raise RuntimeError("token endpoint returned 503")
+
+    monkeypatch.setattr(rt, "_facade_from_env", _boom)
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 1
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "authentication failed" in err
+    assert "token endpoint returned 503" in err
+
+
+def test_auth_failure_reraises_under_verbose(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # With --verbose the original traceback is preserved for debugging.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "id")
+    monkeypatch.setenv("CLIENT_SECRET", "secret")
+    monkeypatch.setenv("SCOPE", "scope")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    def _boom(**kw: Any) -> Any:
+        raise RuntimeError("token endpoint returned 503")
+
+    monkeypatch.setattr(rt, "_facade_from_env", _boom)
+    with pytest.raises(RuntimeError, match="token endpoint returned 503"):
+        rt._client(verbose=True)
+
+
+def test_no_auth_runtime_has_no_credential_preflight(emitted: Path) -> None:
+    # The pre-flight is gated on ir.credential_fields: a no-auth CLI must not
+    # emit any of the credential-error machinery.
+    src = (emitted / "fakesdk_cli" / "_generated" / "runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "no credentials configured" not in src
+    assert "authentication failed" not in src
 
 
 # --- PR3: gating (no-auth CLI must be unaffected) -----------------------------
