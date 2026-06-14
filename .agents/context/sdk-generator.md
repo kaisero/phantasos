@@ -101,10 +101,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   every `phantasos sdk build`. All customisation lives in `products/<name>/` or
   `src/phantasos/scaffold/` (see `docs/ONBOARDING.md` §6).
 - **OAG's own supporting files are suppressed**, not used: `setup.py`,
-  `setup.cfg`, `requirements.txt`, `tox.ini`, CI workflows, and `README.md` are
-  listed in `.openapi-generator-ignore` (written by `generate.py`) so the
-  phantasos scaffold owns them; `prune_suppressed_files()` also deletes stale
-  copies left by earlier builds.
+  `setup.cfg`, `requirements.txt`, `test-requirements.txt`, `tox.ini`,
+  `git_push.sh`, the CI workflows, and `README.md` (the full `_OAG_IGNORE` list
+  in `generate.py`) are listed in `.openapi-generator-ignore` so the phantasos
+  scaffold owns them; `prune_suppressed_files()` also deletes stale copies left
+  by earlier builds.
 - **JRE and OAG jar are pinned and cached** under `~/.cache/phantasos`
   (override the dir with `PHANTASOS_CACHE`). The Temurin JRE 17 and the OAG jar
   are checksum-verified on download; set `PHANTASOS_JAVA` to use your own JVM.
