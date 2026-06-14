@@ -42,6 +42,9 @@ _REGISTRY = [
 
 
 def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
+    from . import logging_setup as _logging_setup
+
+    _logging_setup.init_logging()
     exclude = exclude or set()
     app = typer.Typer(no_args_is_help=True)
 

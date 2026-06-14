@@ -162,9 +162,36 @@ def main() -> int:
         r = cli("environment", "show")
         assert "staging" not in r.stdout, f"staging still in show output: {r.stdout}"
 
+        # 5. Structured logging: a command run created the JSONL logfile at the
+        #    default path with private (0o600) permissions, and no raw Python
+        #    warning text leaked onto stderr of a normal run.
+        logfile = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+        assert logfile.exists(), f"logfile not created: {logfile}"
+        log_mode = stat.S_IMODE(logfile.stat().st_mode)
+        assert log_mode == 0o600, oct(log_mode)
+        assert "not defined in the OpenAPI spec" not in r.stderr, r.stderr
+        assert "UserWarning" not in r.stderr, r.stderr
+
+        # 6. `config set` writes config.yml and `config show` reflects it.
+        r = cli("config", "set", "loglevel", "debug")
+        assert r.returncode == 0, f"config set failed:\n{r.stderr}"
+        r = cli("config", "show")
+        assert r.returncode == 0 and "level: debug" in r.stdout, (
+            f"config show did not reflect set:\n{r.stdout}{r.stderr}"
+        )
+        # `config unset` reverts it.
+        r = cli("config", "unset", "loglevel")
+        assert r.returncode == 0, f"config unset failed:\n{r.stderr}"
+        r = cli("config", "show")
+        assert r.returncode == 0 and "level: info" in r.stdout, (
+            f"config show did not revert after unset:\n{r.stdout}{r.stderr}"
+        )
+
         print(
             "cli-smoke OK: generated CLI imports + runs against its declared deps "
-            "(typer slim, no top-level click); environments live in environments.yml"
+            "(typer slim, no top-level click); environments live in environments.yml; "
+            "structured logging writes ~/.fakesdk_cli/logs/fakesdk_cli.jsonl (0o600); "
+            "config set/unset round-trips through config.yml"
         )
         return 0
     finally:

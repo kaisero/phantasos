@@ -361,6 +361,7 @@ def render_cli(
     render("_generated/history.py.jinja", gen / "history.py")
     render("_generated/cli_commands.py.jinja", gen / "cli_commands.py")
     render("_generated/diagnostics.py.jinja", gen / "diagnostics.py")
+    render("_generated/logging_setup.py.jinja", gen / "logging_setup.py")
     render("_generated/output.py.jinja", gen / "output.py")
     render("_generated/runtime.py.jinja", gen / "runtime.py")
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed

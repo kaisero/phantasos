@@ -1,0 +1,128 @@
+"""Structured file logging for the {{ distribution }} CLI (injected by phantasos).
+
+Installs a rotating JSON-Lines log sink on the ``py.warnings`` and package
+loggers and routes Python warnings (e.g. the SDK's lenient-enum pass-through)
+into it instead of stderr. A single terse stderr summary is emitted at exit if
+unknown enum values occurred.
+"""
+
+from __future__ import annotations
+
+import atexit
+import gzip
+import importlib
+import json
+import logging
+import shutil
+from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+from . import config as _config
+
+TRACE = 5
+_MAX_BYTES = 10 * 1024 * 1024
+_BACKUPS = 3
+_initialized = False
+
+
+class _JsonlFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, tz=timezone.utc)
+        payload: dict[str, str] = {
+            "ts": ts.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:  # keep tracebacks (logger.exception / exc_info=True)
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, separators=(",", ":"))
+
+
+class _SecureRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that keeps the active log file private (0o600)."""
+
+    def _open(self):  # type: ignore[no-untyped-def]
+        stream = super()._open()
+        try:
+            Path(self.baseFilename).chmod(0o600)
+        except OSError:
+            pass
+        return stream
+
+
+def _gzip_rotator(source: str, dest: str) -> None:
+    with open(source, "rb") as f_in, gzip.open(dest, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
+    Path(source).unlink(missing_ok=True)
+
+
+def _gzip_namer(name: str) -> str:
+    return name + ".gz"
+
+
+def init_logging() -> None:
+    """Stand up the rotating JSONL log sink (idempotent per process)."""
+    global _initialized
+    if _initialized:
+        return
+    logging.addLevelName(TRACE, "TRACE")
+    path = _config.log_file_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.parent.chmod(0o700)
+    except OSError:
+        return  # can't create the log dir: skip (do NOT mark initialized; allow retry)
+    _initialized = True
+    handler = _SecureRotatingFileHandler(
+        str(path),
+        maxBytes=_MAX_BYTES,
+        backupCount=_BACKUPS,
+        encoding="utf-8",
+        delay=True,
+    )
+    handler.setFormatter(_JsonlFormatter())
+    handler.rotator = _gzip_rotator
+    handler.namer = _gzip_namer
+    level = _config.log_level_int(_config.get().logging.level)
+    # Attach the file sink to the `py.warnings` + `{{ package }}` loggers with
+    # propagate=False — NEVER touch the root logger. This captures Python
+    # warnings + our diagnostics into the file and keeps them off stderr (no
+    # stdlib lastResort handler fires because py.warnings has a handler), while
+    # leaving root / pytest's log-capture handler untouched. `handlers[:] = [..]`
+    # (not addHandler) keeps it idempotent if init runs again in-process.
+    for name in ("py.warnings", "{{ package }}"):
+        lg = logging.getLogger(name)
+        lg.handlers[:] = [handler]
+        lg.setLevel(level)
+        lg.propagate = False
+    # warnings -> 'py.warnings' logger -> file. captureWarnings(True) is a no-op
+    # when warnings are ALREADY captured (the stdlib only saves/replaces
+    # showwarning the first time), so toggle off→on to deterministically reinstall
+    # logging's showwarning over whatever the current handler is. This matters in
+    # a test process where each test's warnings context restores showwarning
+    # between tests; a real CLI calls this exactly once. (This never touches root
+    # handlers, so M1 still holds.)
+    logging.captureWarnings(False)
+    logging.captureWarnings(True)
+    # The `emitted` test fixture purges `{{ package }}.*` per test, so init_logging
+    # (and this atexit.register) runs once per test — harmless: the summary's
+    # `{sdk_package}._lenient` import fails for the fakesdk fixture (no `_lenient`)
+    # so the try/except below makes it a no-op; in a real CLI it runs once at exit.
+    atexit.register(_emit_unknown_enum_summary, path)
+
+
+def _emit_unknown_enum_summary(logfile: Path) -> None:
+    try:
+        from . import runtime as _rt
+
+        mod = importlib.import_module(f"{_rt._ir().sdk_package}._lenient")
+        unknown = getattr(mod, "UNKNOWN_ENUM_VALUES", {})
+    except Exception:
+        return
+    n = sum(len(v) for v in unknown.values())
+    if n:
+        from . import diagnostics as _diag
+
+        _diag.warning(f"{n} API value(s) not defined in the spec — see {logfile}")
