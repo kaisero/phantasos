@@ -1,0 +1,21 @@
+# Quality-harness config — single source for the .claude/hooks/ scripts.
+# Reuse in another repo = copy .claude/hooks + this file, adjust values.
+
+# Paths the agent must never write (the freeze hook denies Write/Edit;
+# the Stop gate blocks while any of these is dirty in git).
+# Includes the harness itself so the agent cannot disable its own guardrails.
+protected_globs = [
+    "products/*/overrides/tests/test_sdk_crud_live.py*", # emitted-suite template = the frozen oracle
+    "tests/acceptance/**",                               # reserved for future hand-written oracles
+    ".claude/harness.toml",
+    ".claude/hooks/**",
+    ".claude/settings.json",
+]
+
+# Offline gate the Stop hook runs on every main-loop stop.
+fast_gate_command = ["uv", "run", "nox", "-s", "gate"]
+fast_gate_enabled = true
+
+# Loop guard: after this many consecutive blocked stops, allow with a loud
+# warning instead of blocking forever (CI still catches the red state).
+max_consecutive_blocks = 3
