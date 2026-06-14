@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Agent-facing context docs (`.agents/context/`) — thin slice: a system index
+  (`index.md`) and the `sdk-generator` deep-dive, with an AST generator
+  (`nox -s context`) that fills their mechanical sections (module map, public
+  API) and a `--check` mode, plus an A/B evaluation harness (`tools/ab_eval/`).
+  Discoverable via a root `AGENTS.md` and a `CLAUDE.md` pointer.
+
 ## [0.1.0a1] - 2026-06-13
 
 ### Added
