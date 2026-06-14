@@ -87,7 +87,7 @@ dev = [
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-src = ["src", "tests", "transformations"]
+src = ["src", "tests", "tools", "transformations"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "S", "ASYNC", "PTH", "RUF"]
@@ -123,7 +123,7 @@ warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
-files = ["src", "tests"]
+files = ["src", "tests", "tools"]
 # Fixtures deliberately mirror OpenAPI-Generator output (untyped); they are not
 # code-under-test, so keep them out of strict analysis (ruff special-cases them too).
 exclude = ['^tests/fixtures/']
@@ -156,6 +156,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
 
 [tool.coverage.run]
