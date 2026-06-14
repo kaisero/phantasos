@@ -26,7 +26,10 @@ this package. They wire the three pipeline stages together:
    (`inventory.py`: `OperationInfo` / `ParamInfo` / `FieldInfo`), classifying each
    param as path / query / body and capturing the response model + list-envelope
    `items_field` for table columns. The `body_fields` map records oneOf-variant
-   model fields.
+   model fields. For a oneOf **list** item, `_item_fields` reports the union
+   (superset) of the variant models' fields — not the wrapper scaffolding — so
+   default and curated columns resolve against real variant fields (bare names,
+   no `actual_instance.` prefix).
 2. **Classify** — `classify.build_cli_ir(inv, cfg)` in `classify.py` turns the
    inventory + `cli.yml` (`CliConfig`) into a `CliIR` plus a list of unmapped ops.
    Precedence: `cli.yml` `hide` > `request` > `override`/`variants` >
