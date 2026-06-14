@@ -69,7 +69,7 @@ Hard invariants:
 
 ## Cross-cutting
 
-- [decisions](decisions.md): the design-decision log + rationale (the WHY, incl. evolutions from `ARCHITECTURE.md`).
+- [decisions](decisions.md): the design-decision log + rationale (the WHY, incl. evolutions from the original architecture proposal).
 - [goals-non-goals](goals-non-goals.md): what phantasos is and isn't (Palo Alto Networks-focused).
 
 ## Rules

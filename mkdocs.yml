@@ -29,7 +29,6 @@ theme:
 nav:
   - Home: index.md
   - Authoring a spec: AUTHORING_A_SPEC.md
-  - Architecture: ARCHITECTURE.md
   - API Reference: reference.md
 
 # Internal/historical markdown kept in the repo but excluded from the published site:

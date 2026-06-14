@@ -18,6 +18,5 @@ phantasos sdk build prisma-browser    # SDK from products/prisma-browser/
 phantasos cli build prisma-browser    # CLI from the built SDK
 ```
 
-See the [Authoring guide](AUTHORING_A_SPEC.md) to onboard a new spec, the
-[Architecture](ARCHITECTURE.md) for the design, and the
+See the [Authoring guide](AUTHORING_A_SPEC.md) to onboard a new spec and the
 [API Reference](reference.md) for the `phantasos` package.

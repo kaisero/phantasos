@@ -4,9 +4,9 @@ Validated against f5cf840 on 2026-06-14 · Purpose: what phantasos is for, and t
 
 This frames scope so that design questions can be answered by "is this on the
 path or off it?". The *why* behind several of these lines lives in
-[decisions](decisions.md); the binding rules live in `CLAUDE.md`. Note:
-`docs/ARCHITECTURE.md` is stale on scope (it says "arbitrary OpenAPI specs") — the
-goals below supersede it.
+[decisions](decisions.md); the binding rules live in `CLAUDE.md`. (An earlier
+architecture proposal framed scope as "arbitrary OpenAPI specs"; the goals below
+supersede that framing.)
 
 ## Goals
 

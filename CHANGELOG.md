@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generated CLIs (with an auth component) now report a clean, actionable error instead of a raw traceback when no credentials are configured on the first command: a descriptor-driven pre-flight names the missing required credential variables (and the active environment, if any) and points to both `environment create` and the credential env vars (exit code `2`). A genuine auth failure when credentials *are* present (e.g. a token-endpoint error) is likewise reported cleanly with exit code `1`; `--verbose` still surfaces the traceback. The SCM `base_url` credential is now correctly treated as optional (the SDK host has a default).
 
+### Removed
+
+- Obsolete `docs/ARCHITECTURE.md` (a stale "proposal" describing a superseded
+  layout) and its references — superseded by the `.agents/context/` set; the
+  published-site nav entry is dropped (a fresh architecture page belongs to the
+  user-facing docs rework).
+
 ## [0.1.0a1] - 2026-06-13
 
 ### Added

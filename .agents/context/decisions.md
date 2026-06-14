@@ -8,11 +8,13 @@ pointer to the deep-dive or spec that elaborates it. The **binding rules** (test
 policy, branching/release, the config-adding recipe) live in `CLAUDE.md` — this
 file explains *why*, not *what you must do*.
 
-A note on `docs/ARCHITECTURE.md`: it is the original architecture-review proposal
-and is now **stale** on two points — the repo layout it sketches, and its
-"arbitrary OpenAPI specs" framing. Where it conflicts with the entries below, the
-entries (which reflect the maintained intent and the shipped code) win. The
-conflicts are flagged as *evolutions* so the history stays legible.
+Some entries below contrast with the project's **original architecture-review
+proposal** (formerly `docs/ARCHITECTURE.md`, removed as obsolete once these
+context docs superseded it — it survives in git history). That proposal went
+**stale** on two points: the repo layout it sketched, and its "arbitrary OpenAPI
+specs" framing. Where it conflicted with the entries below, the entries (the
+maintained intent and the shipped code) win; the conflicts are flagged as
+*evolutions* so the history stays legible.
 
 ---
 
@@ -26,16 +28,16 @@ preprocessing, codegen patches — go in an explicit, narrow `hooks.py` whose su
 is small and obvious, rather than being smeared through the config. This extends
 the harness's anti-arbitrary-code ethos to the configuration layer.
 
-- **Rejected:** the original per-spec Python module from `ARCHITECTURE.md` §1/§5
+- **Rejected:** the original per-spec Python module from that proposal
   (`CONFIG = SdkConfig(...)` plus free-form `preprocess`/`patch` functions). It
   made every config an executable program — harder to review, trivially able to
   do anything.
-- *Evolution from `ARCHITECTURE.md`.* See [product-config](product-config.md).
+- *Evolution from the original proposal.* See [product-config](product-config.md).
 
 ## Scope is Palo Alto Networks products, not arbitrary OpenAPI
 
 The real, maintained goal is generating SDKs and CLIs for **Palo Alto Networks
-products** from their OpenAPI specs. `ARCHITECTURE.md` framed the project as a
+products** from their OpenAPI specs. The original proposal framed the project as a
 generator for "arbitrary OpenAPI specs"; that framing is superseded. The nuance
 worth preserving: the *implementation* is deliberately spec-agnostic — pluggable
 components, generic spec transforms, no PAN-specific hard-coding in the generator
@@ -43,7 +45,7 @@ core — but that is an engineering convenience, not a promise. Supporting
 arbitrary **non-PAN** specs is explicitly not a maintained goal; do not contort
 the design to serve one.
 
-- *Evolution from `ARCHITECTURE.md`.* See [goals-non-goals](goals-non-goals.md).
+- *Evolution from the original proposal.* See [goals-non-goals](goals-non-goals.md).
 
 ## Components are vendored and templated, not a runtime dependency
 
@@ -58,7 +60,7 @@ see `productconfig._BASE_DEPS`). A user installs the SDK, not the generator.
   depends on. That would couple every generated SDK to a phantasos release and to
   phantasos's own dependency tree.
 - **Cost (accepted):** component code lives in `.jinja`, not directly importable,
-  so it is covered by template-render tests (`ARCHITECTURE.md` §8). See
+  so it is covered by template-render tests. See
   [components](components.md).
 
 ## Wrap and patch OpenAPI Generator, do not reimplement it
@@ -96,7 +98,7 @@ Components are opted into per product via `sdk.yml`; a product builds only the
 behaviours it selects. The interface set (auth / pagination / errors / facade /
 retry) is deliberately kept minimal and is not over-abstracted ahead of demand.
 
-- **Rationale:** `ARCHITECTURE.md` §8 names "over-abstraction before a 2nd spec"
+- **Rationale:** the original proposal's risk analysis named "over-abstraction before a 2nd spec"
   as the top risk. The mitigation is to build only what the current product needs
   and revisit the contracts when a genuinely different spec forces the question —
   not to speculatively generalise. See [components](components.md) and
@@ -111,7 +113,7 @@ artifact.
 
 - **Rationale:** a generated SDK's public API changes on its own cadence (a spec
   revision, a component fix); tying its version to the generator's would either
-  over- or under-signal change to its consumers. `ARCHITECTURE.md` §1. See
+  over- or under-signal change to its consumers. See
   [sdk-generator](sdk-generator.md).
 
 ## Two-stage pipeline: build the SDK first, then introspect it for the CLI
