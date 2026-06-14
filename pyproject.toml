@@ -105,6 +105,8 @@ ignore = []
 "src/phantasos/generator/sdk/provision.py" = ["S310"]
 # smoke.py shells out to the isolated venv's python/pip — trusted argv.
 "src/phantasos/generator/sdk/smoke.py" = ["S603"]
+# cli_isolated_smoke.py shells out to `uv`/the clean venv's python — trusted argv.
+"tests/cli_isolated_smoke.py" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]
