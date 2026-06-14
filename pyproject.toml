@@ -109,6 +109,8 @@ ignore = []
 # protected .claude/harness.toml); their tests subprocess the hooks themselves.
 ".claude/hooks/*.py" = ["S603", "S607"]
 "tests/test_harness_hooks.py" = ["S603", "S607"]
+# ab_eval/run.py shells out to the trusted `claude` CLI binary — argv is fixed.
+"tools/ab_eval/run.py" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]
