@@ -8,7 +8,7 @@ from pathlib import Path
 
 from phantasos.generator.sdk import patches
 
-_INNER_SRC = '''\
+_INNER_SRC = """\
 from __future__ import annotations
 import pprint
 from pydantic import BaseModel, ConfigDict
@@ -22,9 +22,9 @@ class Inner(BaseModel):
 
     def to_str(self) -> str:
         return pprint.pformat(self.model_dump())
-'''
+"""
 
-_WRAPPER_SRC = '''\
+_WRAPPER_SRC = """\
 from __future__ import annotations
 import pprint
 from pydantic import BaseModel, ConfigDict
@@ -39,7 +39,7 @@ class Wrapper(BaseModel):
 
     def to_str(self) -> str:
         return pprint.pformat(self.model_dump())
-'''
+"""
 
 
 def _write_fixture(models: Path) -> None:
@@ -74,9 +74,14 @@ def test_patched_models_serialize_cleanly(tmp_path: Path) -> None:
         # non-empty additional_properties is preserved
         i2 = Inner(id="y")
         i2.additional_properties = {"k": 1}
-        assert i2.model_dump(mode="json") == {"id": "y", "additional_properties": {"k": 1}}  # noqa: E501
+        assert i2.model_dump(mode="json") == {
+            "id": "y",
+            "additional_properties": {"k": 1},
+        }
         # oneOf wrapper unwraps to its actual_instance (and that inner drops empty bag)
-        assert Wrapper(actual_instance=Inner(id="z")).model_dump(mode="json") == {"id": "z"}  # noqa: E501
+        assert Wrapper(actual_instance=Inner(id="z")).model_dump(mode="json") == {
+            "id": "z"
+        }
     finally:
         sys.path.remove(str(tmp_path))
         for mod in ("patch_fixture_inner", "patch_fixture_wrapper"):
