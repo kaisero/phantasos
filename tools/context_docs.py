@@ -30,6 +30,7 @@ BLOCKS: list[tuple[str, str, list[str]]] = [
     ("cli-generator.md", "module-map", ["src/phantasos/generator/cli/*.py"]),
     ("cli-generator.md", "api", ["src/phantasos/generator/cli/*.py"]),
     ("scaffold.md", "api", ["src/phantasos/scaffold.py"]),
+    ("phantasos-cli.md", "api", ["src/phantasos/cli.py"]),
 ]
 
 
