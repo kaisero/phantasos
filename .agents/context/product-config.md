@@ -23,7 +23,7 @@ point. It runs in one pass:
    `ValidationError` at parse time.
 3. **Component resolution** — `resolve_component(block, registry, base_dir)` for
    each of `auth`, `pagination`, `errors`, `facade`, `retry`. The dispatcher
-   checks the `type` field: a relative path or `.jinja` suffix → `CustomComponent`
+   checks the `type` field: a `./`-prefixed path or `.jinja` suffix → `CustomComponent`
    (extra fields forwarded as template vars); a string name → looked up in the
    relevant `BUILTIN_*` registry (e.g. `BUILTIN_AUTH`) in `config.py`; missing
    → `ValueError`. `facade`/`retry` default to `true` in `sdk.yml`, which the
@@ -41,7 +41,9 @@ point. It runs in one pass:
 ### Jinja context keys (auto-exposed)
 
 `package`, `library`, `base_url`, `spec_version`, `spec_title`, `has_auth`,
-`has_pagination`, `has_errors`, `has_facade`, `has_retry`, `config_class_name`.
+`has_pagination`, `has_errors`, `has_facade`, `config_class_name`. (`has_retry` is
+also injected into the context but is **not** in `_AUTO_EXPOSED`, so a `vars` key
+of that name silently shadows it — a gap in the collision guard, not protection.)
 When `project:` is present: `distribution`, `description`, `author`,
 `author_email`, `repo_url`, `license`, `python_versions`, `dependencies`.
 `cfg.vars` entries are merged last (collisions with auto-exposed names are
