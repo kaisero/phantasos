@@ -100,14 +100,17 @@ Registers the two hooks against their events and carries the permissions the har
 
 ### `.claude/harness.toml`
 
-Single source of harness config — both hooks read it; reuse in another repo = copy `.claude/` + edit this file.
+Single source of harness config — both hooks read it; reuse in another repo = copy `.claude/` + edit this file. The harness protects its own config, hooks, and settings so the agent cannot disable its guardrails.
 
 ```toml
 protected_globs = [
-  "products/*/overrides/tests/test_sdk_crud_live.py*",  # the emitted-suite template = the real oracle
-  "tests/acceptance/**",                                 # reserved for future hand-written oracles
+    "products/*/overrides/tests/test_sdk_crud_live.py*", # emitted-suite template = the frozen oracle
+    "tests/acceptance/**",                               # reserved for future hand-written oracles
+    ".claude/harness.toml",
+    ".claude/hooks/**",
+    ".claude/settings.json",
 ]
-fast_gate_command = ["nox", "-s", "gate"]
+fast_gate_command = ["uv", "run", "nox", "-s", "gate"]
 fast_gate_enabled = true
 max_consecutive_blocks = 3
 ```

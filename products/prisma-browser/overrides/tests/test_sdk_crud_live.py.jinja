@@ -1,0 +1,79 @@
+"""Live CRUD round-trip for {{ package }} device groups — FROZEN ORACLE.
+
+Part of the phantasos quality harness: proves the generated SDK performs a
+real create -> read -> delete cycle against a live tenant. Do NOT weaken,
+mock, or skip-hack this suite — the template it is generated from is a
+protected path (see the phantasos repo's CLAUDE.md and .claude/harness.toml);
+changes require human review.
+
+Skips (never fails) when live credentials are absent, so offline runs and
+credential-less contributors are unaffected.
+"""
+
+import os
+import uuid
+
+import pytest
+
+from {{ package }}.exceptions import NotFoundException
+from {{ package }}.extras.facade import Client
+from {{ package }}.models.device_group_platform import DeviceGroupPlatform
+from {{ package }}.models.device_group_request import DeviceGroupRequest
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+_PREFIX = "phx-harness-"
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def client():
+    c = Client.from_env()
+    yield c
+    c.close()
+
+
+@pytest.fixture()
+def created_ids(client):
+    """Cleanup net, registered BEFORE any resource is created.
+
+    Teardown runs even when the test body fails: it deletes every tracked id,
+    then sweeps the tenant for leftovers carrying our prefix (leaks from
+    crashed earlier runs).
+    """
+    ids = []
+    yield ids
+    for dg_id in ids:
+        try:
+            client.device_groups.delete_device_group(dg_id)
+        except NotFoundException:
+            pass  # already deleted by the test body — the happy path
+    page = client.device_groups.list_device_groups(limit=100)
+    for dg in page.data or []:
+        if dg.name.startswith(_PREFIX):
+            try:
+                client.device_groups.delete_device_group(dg.id)
+            except NotFoundException:
+                pass
+
+
+def test_device_group_crud_round_trip(client, created_ids):
+    name = _PREFIX + uuid.uuid4().hex[:12]
+
+    created = client.device_groups.create_device_group(
+        DeviceGroupRequest(name=name, platform=DeviceGroupPlatform.DESKTOP_BROWSER)
+    )
+    assert created.device_group_id, "create returned no deviceGroupId"
+    created_ids.append(created.device_group_id)
+
+    got = client.device_groups.get_device_group_by_id(created.device_group_id)
+    assert got.id == created.device_group_id
+    assert got.name == name
+    assert got.platform == DeviceGroupPlatform.DESKTOP_BROWSER
+
+    client.device_groups.delete_device_group(created.device_group_id)
+    with pytest.raises(NotFoundException):
+        client.device_groups.get_device_group_by_id(created.device_group_id)

@@ -107,6 +107,10 @@ ignore = []
 "src/phantasos/generator/sdk/smoke.py" = ["S603"]
 # cli_isolated_smoke.py shells out to `uv`/the clean venv's python — trusted argv.
 "tests/cli_isolated_smoke.py" = ["S603", "S607"]
+# The quality-harness hooks run trusted argv (git + the gate command from the
+# protected .claude/harness.toml); their tests subprocess the hooks themselves.
+".claude/hooks/*.py" = ["S603", "S607"]
+"tests/test_harness_hooks.py" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]
