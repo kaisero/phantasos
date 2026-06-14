@@ -34,7 +34,8 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
    `<package>/extras/`. Then `scaffold.render_scaffold()` (in the sibling
-   `scaffold` package, not this one) lays down the project scaffold, with
+   `scaffold` module, `phantasos/scaffold.py` — not this package) lays down the
+   project scaffold, with
    `products/<name>/overrides/` winning over the built-in templates.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
