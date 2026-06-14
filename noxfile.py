@@ -96,6 +96,17 @@ def gate(session: nox.Session) -> None:
     session.run("pytest", "-q")
 
 
+@nox.session(venv_backend="none")
+def context(session: nox.Session) -> None:
+    """Regenerate (or --check) the .agents/context/ mechanical blocks.
+
+    `nox -s context` rewrites the GENERATED markers from live code;
+    `nox -s context -- --check` fails if any block is stale (the freshness
+    gate runs this). Pure stdlib, no install needed.
+    """
+    session.run("python", "tools/context_docs.py", *session.posargs, external=True)
+
+
 @nox.session
 def audit(session: nox.Session) -> None:
     """Scan installed dependencies for known vulnerabilities (pip-audit).
