@@ -101,6 +101,9 @@ _BOOL_PATHS = {
     ("configuration", "history", "enabled"),
     ("configuration", "history", "verbose"),
 }
+_INT_PATHS = {
+    ("configuration", "history", "max_size_mb"),
+}
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
@@ -285,6 +288,70 @@ def log_file_path() -> Path:
     if f:
         return Path(f).expanduser()
     return Path.home() / f".{_DISTRIBUTION}" / "logs" / f"{_DISTRIBUTION}.jsonl"
+
+
+# --- config.yml writers (used by `config set` / `config unset`) ----------------
+
+
+def _raw_config_yml() -> dict[str, Any]:
+    """The RAW user ``config.yml`` as a dict (``{}`` if absent/invalid/not a map).
+
+    Reads the FILE only — packaged defaults and env layers are deliberately
+    excluded so ``config set`` edits exactly what the user owns."""
+    path = config_path()
+    if not path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def coerce_config_value(path: tuple[str, ...], value: str) -> Any:
+    """Coerce a CLI string to the type the given config path expects (mirrors the
+    env coercion): bool for ``_BOOL_PATHS``, int for ``_INT_PATHS``, else str."""
+    if path in _BOOL_PATHS:
+        low = value.strip().lower()
+        if low in _TRUE:
+            return True
+        if low in _FALSE:
+            return False
+        raise ValueError(f"{'.'.join(path[1:])}: not a boolean ({value!r})")
+    if path in _INT_PATHS:
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(
+                f"{'.'.join(path[1:])}: not an integer ({value!r})"
+            ) from None
+    return value
+
+
+def validate_config(raw: dict[str, Any]) -> tuple[bool, str]:
+    """Validate a raw config dict against the models. Returns ``(ok, message)``;
+    catches a bad value (e.g. an unknown log level) via the field validators."""
+    try:
+        ConfigFile.model_validate(raw)
+    except ValidationError as exc:
+        errs = exc.errors()
+        msg = errs[0]["msg"] if errs else str(exc)
+        return False, msg
+    return True, ""
+
+
+@functools.cache
+def _known_config_paths() -> set[tuple[str, ...]]:
+    """Every settable config path (``("configuration", section, key)``), derived
+    from the pydantic models. Used to reject unknown keys with a clean exit even
+    though the models allow extras for forward-compatible FILE loading."""
+    paths: set[tuple[str, ...]] = set()
+    for section, model in CliConfiguration.model_fields.items():
+        sub = model.annotation
+        if sub is not None and isinstance(sub, type) and issubclass(sub, BaseModel):
+            for key in sub.model_fields:
+                paths.add(("configuration", section, key))
+    return paths
 {% if ir.credential_fields %}
 
 # --- Named environments (isolated top-level keys; NOT in ConfigFile) -----------

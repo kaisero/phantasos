@@ -2025,6 +2025,74 @@ def test_logging_rotates_and_gzips(
         rec_logger.handlers[:] = []
 
 
+def test_config_set_unset(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import yaml as _yaml
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    cfg_file = home / ".fakesdk_cli" / "config.yml"
+
+    # alias set -> nested logging.level
+    assert r.invoke(main.app, ["config", "set", "loglevel", "debug"]).exit_code == 0
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["logging"]["level"] == "debug"
+
+    # dotted set
+    assert (
+        r.invoke(main.app, ["config", "set", "output.format", "yaml"]).exit_code == 0
+    )
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["output"]["format"] == "yaml"
+
+    # bool coercion (history.enabled)
+    assert (
+        r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code
+        == 0
+    )
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["history"]["enabled"] is False
+
+    # int coercion (history.max_size_mb)
+    assert (
+        r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code
+        == 0
+    )
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["history"]["max_size_mb"] == 7
+
+    # invalid value -> exit 2
+    assert r.invoke(main.app, ["config", "set", "loglevel", "bogus"]).exit_code == 2
+    # unknown key (resolved path unknown) -> exit 2
+    assert r.invoke(main.app, ["config", "set", "nope.key", "x"]).exit_code == 2
+
+    # unset reverts (via alias)
+    assert r.invoke(main.app, ["config", "unset", "loglevel"]).exit_code == 0
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "level" not in data.get("configuration", {}).get("logging", {})
+    # unset of an unknown key -> exit 2 (validated against resolved path)
+    assert r.invoke(main.app, ["config", "unset", "nope.key"]).exit_code == 2
+
+
+def test_config_set_show_reflects(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    assert r.invoke(main.app, ["config", "set", "loglevel", "debug"]).exit_code == 0
+    res = r.invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "level: debug" in res.output
+
+
 def test_app_inits_logging_and_mirrors_diag(
     emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

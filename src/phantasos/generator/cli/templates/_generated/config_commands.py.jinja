@@ -13,6 +13,25 @@ config_app = typer.Typer(
     no_args_is_help=True, help="Manage the CLI configuration file."
 )
 
+_SET_ALIASES = {"loglevel": "logging.level", "logfile": "logging.file"}
+
+
+def _resolve_key(key: str) -> tuple[str, ...]:
+    dotted = _SET_ALIASES.get(key, key)
+    return ("configuration", *dotted.split("."))
+
+
+def _write_config(data: dict) -> None:
+    path = _config.config_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        _diag.fail(f"cannot write {path}: {exc}", code=1)
+
 
 @config_app.command("init")
 def config_init(
@@ -47,3 +66,54 @@ def config_show() -> None:
             _config.effective_dict(), sort_keys=False, default_flow_style=False
         )
     )
+
+
+@config_app.command("set")
+def config_set(key: str, value: str) -> None:
+    """Set a config option in config.yml (e.g. `config set loglevel debug`).
+
+    NOTE: writing config.yml strips any comments `config init` wrote; run
+    `config init --force` to restore the commented template.
+    """
+    path = _resolve_key(key)
+    if path not in _config._known_config_paths():
+        _diag.fail(f"unknown config key '{key}'", code=2)
+    try:
+        coerced = _config.coerce_config_value(path, value)
+    except ValueError as exc:
+        _diag.fail(f"invalid value for '{key}': {exc}", code=2)
+    raw = _config._raw_config_yml()
+    node = raw
+    for part in path[:-1]:
+        nxt = node.setdefault(part, {})
+        if not isinstance(nxt, dict):
+            _diag.fail(f"cannot set '{key}': '{part}' is not a section", code=2)
+        node = nxt
+    node[path[-1]] = coerced
+    ok, err = _config.validate_config(raw)
+    if not ok:
+        _diag.fail(f"invalid value for '{key}': {err}", code=2)
+    _write_config(raw)
+    _diag.info(f"set {'.'.join(path[1:])} = {coerced!r}")
+
+
+@config_app.command("unset")
+def config_unset(key: str) -> None:
+    """Remove a config option from config.yml (revert to the default).
+
+    NOTE: writing config.yml strips any comments `config init` wrote; run
+    `config init --force` to restore the commented template.
+    """
+    path = _resolve_key(key)
+    if path not in _config._known_config_paths():
+        _diag.fail(f"unknown config key '{key}'", code=2)
+    raw = _config._raw_config_yml()
+    node = raw
+    for part in path[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            _diag.info(f"{key} not set")
+            return
+    node.pop(path[-1], None)
+    _write_config(raw)
+    _diag.info(f"unset {'.'.join(path[1:])}")
