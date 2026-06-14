@@ -129,6 +129,36 @@ def _union_members(model: type[BaseModel]) -> list[str] | None:
     return None
 
 
+def _item_fields(item: type[BaseModel]) -> list[FieldInfo]:
+    """Fields for a response list item.
+
+    For a oneOf wrapper, return the union (superset) of every variant model's
+    fields (dedup by name, first-seen order) instead of the wrapper scaffolding
+    (actual_instance / one_of_schemas / ...). This lets default and curated
+    columns resolve against the real variant fields.
+    """
+    members = _union_members(item)
+    if not members:
+        return _model_fields(item)
+    ns: ModuleType = sys.modules[item.__module__]
+    seen: set[str] = set()
+    out: list[FieldInfo] = []
+    for name in members:
+        member_cls = getattr(ns, name, None)
+        # Skip anything that isn't a real model: a member literally named "List"
+        # would resolve to typing.List via getattr (not None), and _model_fields
+        # would then crash. Not triggered by today's list-response wrappers, but
+        # cheap insurance against a List/Dict-named variant becoming a list item.
+        if not (isinstance(member_cls, type) and issubclass(member_cls, BaseModel)):
+            continue
+        for field in _model_fields(member_cls):
+            if field.name in seen:
+                continue
+            seen.add(field.name)
+            out.append(field)
+    return out
+
+
 def _response_info(tp: object) -> tuple[str | None, str | None, list[FieldInfo]]:
     """(return_model, items_field, item_fields) from a return annotation.
 
@@ -151,8 +181,8 @@ def _response_info(tp: object) -> tuple[str | None, str | None, list[FieldInfo]]
         args = get_args(inner)
         item = _unwrap_optional(args[0]) if args else None
         if isinstance(item, type) and issubclass(item, BaseModel):
-            return base.__name__, fname, _model_fields(item)
-    return base.__name__, None, _model_fields(base)
+            return base.__name__, fname, _item_fields(item)
+    return base.__name__, None, _item_fields(base)
 
 
 def _docstring_parts(fn: object) -> tuple[str, str]:

@@ -76,11 +76,10 @@ hide:
 #
 # NOTE: datetime fields introspect as kind "json" so they never appear in auto
 # defaults — list them explicitly here to surface them in the table.
-# NOTE: ApplicationItem is a OneOf union whose data field holds variant objects
-# (CustomApplication, PrivateApplication, …) wrapped in actual_instance. The
-# JMESPath root "actual_instance" IS a valid root field on ApplicationItem, so
-# paths of the form actual_instance.<field> pass build validation and resolve at
-# runtime for every variant that exposes the field.
+# NOTE: ApplicationItem is a OneOf union (CustomApplication, PrivateApplication,
+# …). Response-item introspection reports the union (superset) of the variant
+# fields, so curated columns are bare field names — no actual_instance.* prefix.
+# A field absent from a given variant simply renders empty for that row.
 columns:
   device-group:
     - id
@@ -90,10 +89,10 @@ columns:
     - devices
     - created_at
   application:
-    - {header: id,          path: actual_instance.id}
-    - {header: name,        path: actual_instance.name}
-    - {header: type,        path: actual_instance.type}
-    - {header: description, path: actual_instance.description}
+    - id
+    - name
+    - type
+    - description
 
 # Server quirk (verified 2026-06-11): the application list endpoints only honor
 # their pagination cursor when an explicit sort+order is supplied — without one,
