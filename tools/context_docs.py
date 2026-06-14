@@ -16,11 +16,19 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 CONTEXT = REPO / ".agents" / "context"
 
-# (doc filename, block kind, package dir relative to repo root).
-BLOCKS: list[tuple[str, str, str]] = [
-    ("sdk-generator.md", "module-map", "src/phantasos/generator/sdk"),
-    ("sdk-generator.md", "api", "src/phantasos/generator/sdk"),
+# (doc filename, block kind, list of repo-root-relative glob patterns).
+BLOCKS: list[tuple[str, str, list[str]]] = [
+    ("sdk-generator.md", "module-map", ["src/phantasos/generator/sdk/*.py"]),
+    ("sdk-generator.md", "api", ["src/phantasos/generator/sdk/*.py"]),
 ]
+
+
+def expand(patterns: list[str]) -> list[Path]:
+    """Expand glob patterns (repo-root-relative) to a sorted, deduped .py file list."""
+    found: set[Path] = set()
+    for pat in patterns:
+        found.update(p for p in REPO.glob(pat) if p.suffix == ".py" and p.is_file())
+    return sorted(found)
 
 
 def _first_doc_line(node: ast.AST) -> str:
@@ -34,9 +42,9 @@ def _first_doc_line(node: ast.AST) -> str:
     return doc.splitlines()[0].strip() if doc else ""
 
 
-def module_map(pkg_dir: Path) -> str:
+def module_map(files: list[Path]) -> str:
     rows = []
-    for path in sorted(pkg_dir.glob("*.py")):
+    for path in files:
         if path.name == "__init__.py":
             continue
         tree = ast.parse(path.read_text())
@@ -51,9 +59,9 @@ def _signature(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return f"{fn.name}({', '.join(names)})"
 
 
-def public_api(pkg_dir: Path) -> str:
+def public_api(files: list[Path]) -> str:
     out: list[str] = []
-    for path in sorted(pkg_dir.glob("*.py")):
+    for path in files:
         if path.name == "__init__.py":
             continue
         tree = ast.parse(path.read_text())
@@ -80,10 +88,10 @@ def public_api(pkg_dir: Path) -> str:
 RENDERERS = {"module-map": module_map, "api": public_api}
 
 
-def render(kind: str, pkg_dir: Path) -> str:
+def render(kind: str, files: list[Path]) -> str:
     if kind not in RENDERERS:
         raise ValueError(f"unknown block kind {kind!r}; known: {sorted(RENDERERS)}")
-    return RENDERERS[kind](pkg_dir)
+    return RENDERERS[kind](files)
 
 
 def inject(text: str, kind: str, content: str) -> str:
@@ -99,11 +107,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true", help="fail if any block is stale")
     ns = ap.parse_args(argv)
     stale: list[str] = []
-    for doc_name, kind, pkg in BLOCKS:
+    for doc_name, kind, patterns in BLOCKS:
         doc = CONTEXT / doc_name
         try:
+            files = expand(patterns)
             text = doc.read_text()
-            updated = inject(text, kind, render(kind, REPO / pkg))
+            updated = inject(text, kind, render(kind, files))
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
