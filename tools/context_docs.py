@@ -40,13 +40,15 @@ def module_map(pkg_dir: Path) -> str:
         if path.name == "__init__.py":
             continue
         tree = ast.parse(path.read_text())
-        rows.append(f"- `{path.name}` — {_first_doc_line(tree)}")
+        doc = _first_doc_line(tree)
+        rows.append(f"- `{path.name}` — {doc}" if doc else f"- `{path.name}`")
     return "\n".join(rows)
 
 
 def _signature(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    args = [a.arg for a in fn.args.args]
-    return f"{fn.name}({', '.join(args)})"
+    a = fn.args
+    names = [arg.arg for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs)]
+    return f"{fn.name}({', '.join(names)})"
 
 
 def public_api(pkg_dir: Path) -> str:
@@ -58,11 +60,17 @@ def public_api(pkg_dir: Path) -> str:
         items: list[str] = []
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
-                items.append(f"  - class `{node.name}` — {_first_doc_line(node)}")
+                doc = _first_doc_line(node)
+                name = node.name
+                line = f"  - class `{name}` — {doc}" if doc else f"  - class `{name}`"
+                items.append(line)
             elif isinstance(
                 node, (ast.FunctionDef, ast.AsyncFunctionDef)
             ) and not node.name.startswith("_"):
-                items.append(f"  - `{_signature(node)}` — {_first_doc_line(node)}")
+                doc = _first_doc_line(node)
+                sig = _signature(node)
+                line = f"  - `{sig}` — {doc}" if doc else f"  - `{sig}`"
+                items.append(line)
         if items:
             out.append(f"- `{path.name}`")
             out.extend(items)
@@ -73,14 +81,16 @@ RENDERERS = {"module-map": module_map, "api": public_api}
 
 
 def render(kind: str, pkg_dir: Path) -> str:
+    if kind not in RENDERERS:
+        raise ValueError(f"unknown block kind {kind!r}; known: {sorted(RENDERERS)}")
     return RENDERERS[kind](pkg_dir)
 
 
 def inject(text: str, kind: str, content: str) -> str:
     start, end = f"<!-- GENERATED:{kind} -->", f"<!-- /GENERATED:{kind} -->"
     i, j = text.find(start), text.find(end)
-    if i == -1 or j == -1:
-        raise ValueError(f"markers for {kind!r} not found")
+    if i == -1 or j == -1 or j < i + len(start):
+        raise ValueError(f"markers for {kind!r} out of order or not found")
     return text[: i + len(start)] + "\n" + content + "\n" + text[j:]
 
 
@@ -91,8 +101,12 @@ def main(argv: list[str] | None = None) -> int:
     stale: list[str] = []
     for doc_name, kind, pkg in BLOCKS:
         doc = CONTEXT / doc_name
-        text = doc.read_text()
-        updated = inject(text, kind, render(kind, REPO / pkg))
+        try:
+            text = doc.read_text()
+            updated = inject(text, kind, render(kind, REPO / pkg))
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         if ns.check:
             if updated != text:
                 stale.append(f"{doc_name}:{kind}")
