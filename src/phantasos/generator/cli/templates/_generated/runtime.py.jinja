@@ -75,7 +75,7 @@ def _selected_environment() -> str | None:
 {% endif %}
 
 
-def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
+def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
     try:
         from dotenv import find_dotenv, load_dotenv
         load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
@@ -98,12 +98,41 @@ def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
         )
     env = _config.resolve_environment(name) if name else {}
     overrides: dict[str, Any] = {}
+    missing: list[str] = []
     for f in _ir().credential_fields:
         ev = os.environ.get(f.env_var)  # PRESENCE check, not truthiness
         val = ev if ev is not None else env.get(f.name)
         if val is not None:
             overrides[f.client_kwarg or f.name] = val
-    return _facade_from_env(**overrides)
+        # A required credential that resolves to None OR "" is unusable (the SDK
+        # rejects empties with `if not v`); pre-empt the raw RuntimeError with a
+        # clean, actionable message instead of leaking a traceback on first use.
+        if f.required and not val:
+            missing.append(f.env_var)
+    if missing:
+        joined = ", ".join(missing)
+        if name:
+            headline = f"environment '{name}' is missing required credentials: {joined}"
+        elif overrides:
+            headline = f"missing required credentials: {joined}"
+        else:
+            headline = "no credentials configured"
+        _diag.fail(
+            headline,
+            code=2,
+            hint=(
+                f"run 'environment create <name>' to save credentials, "
+                f"or set {joined} (e.g. in a .env file)"
+            ),
+        )
+    try:
+        return _facade_from_env(**overrides)
+    except RuntimeError as exc:
+        # Credentials are present but auth still failed (token endpoint down,
+        # network error, rejected secret). Keep --verbose's traceback for debugging.
+        if verbose:
+            raise
+        _diag.fail(f"authentication failed: {exc}", code=1)
 {%- else %}
     return _facade_from_env()
 {%- endif %}
@@ -467,7 +496,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         if dry_run:
             _dry_run(cmd, binding, kwargs)
             return
-        client = _client()
+        client = _client(verbose=verbose)
         api = getattr(client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
         # Observe the actual outgoing request: every generated SDK method routes

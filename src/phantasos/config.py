@@ -61,6 +61,7 @@ class ScmOAuth(AuthComponent):
                 name="base_url",
                 env_var=self.base_url_env,
                 client_kwarg="host",
+                required=False,  # host has an SDK default; not required for auth
             ),
         ]
 
