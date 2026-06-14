@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Agent-facing context docs (`.agents/context/`) — thin slice: a system index
-  (`index.md`) and the `sdk-generator` deep-dive, with an AST generator
-  (`nox -s context`) that fills their mechanical sections (module map, public
-  API) and a `--check` mode, plus an A/B evaluation harness (`tools/ab_eval/`).
-  Discoverable via a root `AGENTS.md` and a `CLAUDE.md` pointer.
+- Agent-facing context docs (`.agents/context/`) — a modular, on-demand technical
+  doc set for in-repo coding agents: an `index.md` system map, per-subsystem
+  deep-dives (sdk-generator, cli-generator, components, product-config, scaffold,
+  phantasos-cli, harness-and-testing, release-workflow), and cross-cutting
+  `decisions.md` / `goals-non-goals.md`. An AST generator (`nox -s context`,
+  `tools/context_docs.py`) fills the mechanical sections (module maps, public API)
+  with a `--check` mode enforced by a test; discoverable via a root `AGENTS.md`
+  and a `CLAUDE.md` pointer. Includes an A/B evaluation harness (`tools/ab_eval/`).
 
 ## [0.1.0a1] - 2026-06-13
 
