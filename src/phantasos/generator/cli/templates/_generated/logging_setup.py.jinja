@@ -29,15 +29,15 @@ _initialized = False
 class _JsonlFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc)
-        return json.dumps(
-            {
-                "ts": ts.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                "level": record.levelname,
-                "logger": record.name,
-                "msg": record.getMessage(),
-            },
-            separators=(",", ":"),
-        )
+        payload: dict[str, str] = {
+            "ts": ts.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:  # keep tracebacks (logger.exception / exc_info=True)
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, separators=(",", ":"))
 
 
 class _SecureRotatingFileHandler(RotatingFileHandler):
@@ -67,14 +67,14 @@ def init_logging() -> None:
     global _initialized
     if _initialized:
         return
-    _initialized = True
     logging.addLevelName(TRACE, "TRACE")
     path = _config.log_file_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         path.parent.chmod(0o700)
     except OSError:
-        return  # never let logging setup break the CLI
+        return  # can't create the log dir: skip (do NOT mark initialized; allow retry)
+    _initialized = True
     handler = _SecureRotatingFileHandler(
         str(path),
         maxBytes=_MAX_BYTES,
