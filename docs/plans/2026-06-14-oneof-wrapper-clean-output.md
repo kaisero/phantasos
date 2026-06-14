@@ -53,22 +53,25 @@ This repo may sit on sshfs. Prefix uv with an explicit env dir and relocate nox 
 
 ---
 
-## Task 1: Branch setup
+## Task 1: Setup — branch, spec, and read the subsystem deep-dives
 
-**Files:** none (git only)
+**Files:** none (git + reading only)
 
-- [ ] **Step 1: Create the feature branch off `develop`**
+- [x] **Step 1: Feature branch + spec/plan are already in place**
 
-```bash
-cd /home/ubuntu/git/phantasos
-git checkout develop
-git pull --ff-only
-git checkout -b feature/oneof-wrapper-clean-output
-```
-
-Expected: `Switched to a new branch 'feature/oneof-wrapper-clean-output'`.
+`feature/oneof-wrapper-clean-output` is branched off the up-to-date `develop`; the
+plan (`docs/plans/2026-06-14-oneof-wrapper-clean-output.md`) and the design spec
+(`docs/specs/2026-06-14-oneof-wrapper-clean-output-design.md`) are committed on it.
+Confirm with `git branch --show-current` → `feature/oneof-wrapper-clean-output`.
 
 > Per CLAUDE.md: feature branches PR back into `develop` (squash-merge) and **must not** bump the version. Changes are recorded under `## [Unreleased]`.
+
+- [ ] **Step 2: Read the subsystem deep-dives before touching code (required by CLAUDE.md)**
+
+This change touches the SDK generator and the CLI generator. Read both deep-dives now:
+
+Run: `sed -n '1,200p' .agents/context/sdk-generator.md && sed -n '1,200p' .agents/context/cli-generator.md`
+Expected: you understand the SDK build pipeline (preprocess → generate → patch → vendor → smoke; where `patches.apply_generic_patches` runs) and the CLI introspect→classify→render pipeline (where `introspect._response_info` and column resolution live). These deep-dives are updated after implementation in Task 8.
 
 ---
 
@@ -660,7 +663,38 @@ If the sweep found nothing to change, skip this commit.
 
 ---
 
-## Task 8: Full offline gate + live gate + manual evidence
+## Task 8: Update the agent-context deep-dives + refresh generated blocks
+
+**Files:**
+- Modify: `.agents/context/sdk-generator.md`
+- Modify: `.agents/context/cli-generator.md`
+
+Required by the CLAUDE.md `.agents/context/` working agreement: after a change that alters a subsystem, update its deep-dive's narrative and refresh its generated blocks.
+
+- [ ] **Step 1: Update `sdk-generator.md` narrative**
+
+In `.agents/context/sdk-generator.md`, in the section describing the generic patches (search for `apply_generic_patches` / `patch_oneof_first_match`), add a sentence covering the two new patches: the oneOf **unwrap** serializer (model_dump serializes a wrapper as its `actual_instance`) and the **drop-empty-`additional_properties`** wrap serializer (model_dump omits an empty bag; non-empty preserved; `to_dict()`/request path unchanged because the wrap handler respects `exclude=`).
+
+- [ ] **Step 2: Update `cli-generator.md` narrative**
+
+In `.agents/context/cli-generator.md`, in the introspection/column section (search for `_response_info` / columns), note that oneOf list items now report the **union (superset)** of variant fields (`_item_fields`), so default/curated columns resolve against real variant fields (no `actual_instance.` prefix).
+
+- [ ] **Step 3: Refresh generated blocks and verify**
+
+Run: `NOX_ENVDIR=/tmp/phantasos-nox UV_PROJECT_ENVIRONMENT=/tmp/phantasos uv run nox -s context`
+Then verify the check passes: `NOX_ENVDIR=/tmp/phantasos-nox UV_PROJECT_ENVIRONMENT=/tmp/phantasos uv run nox -s context -- --check`
+Expected: generated blocks refreshed; `--check` exits 0 (clean).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add .agents/context/sdk-generator.md .agents/context/cli-generator.md
+git commit -m "docs(context): note oneOf unwrap/drop-empty serializers and union item-fields"
+```
+
+---
+
+## Task 9: Full offline gate + live gate + manual evidence
 
 **Files:** none
 
@@ -692,7 +726,7 @@ Expected: columns `id  name  type  description  mode  evaluation_order` with pop
 
 ---
 
-## Task 9: Changelog + PR
+## Task 10: Changelog + PR
 
 **Files:**
 - Modify: `CHANGELOG.md`
@@ -739,7 +773,8 @@ Expected: PR opened against `develop` (squash-merge; **no version bump**).
 - Column coupling (mandatory) → Task 5 (introspection) + Task 6 (cli.yml), with the build-failure forcing function exercised in Task 5 Step 5.
 - All five affected commands → Task 6 verification (application + access-and-data-policy; the other three policies share the same code path and default-column logic).
 - Stale test sweep → Task 7.
-- Acceptance bar (offline regression + live gate + manual) → Task 8; CHANGELOG → Task 9.
+- Agent-context deep-dives updated + `nox -s context` refreshed → Task 8 (per the `.agents/context/` working agreement).
+- Acceptance bar (offline regression + live gate + manual) → Task 9; CHANGELOG → Task 10.
 
 **Placeholder scan:** none — every code/edit step contains the literal content and exact anchors.
 
