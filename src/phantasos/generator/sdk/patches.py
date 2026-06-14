@@ -4,6 +4,8 @@ Spec-agnostic; applied to any generated package. Idempotent.
   - apostrophe enum values (`'Old McDonald's Farm'`) -> re-quoted
   - lenient enums (str+int) -> tolerate values newer than the spec
   - oneOf first-match -> from_json returns the first matching branch
+  - oneOf unwrap -> model_dump serializes the wrapper as its actual_instance
+  - drop empty additional_properties -> model_dump omits the empty bag
 """
 
 from __future__ import annotations
@@ -118,10 +120,89 @@ def patch_oneof_first_match(models_dir: Path) -> int:
     return files
 
 
+_UNWRAP_METHOD = '''
+    @model_serializer
+    def _phantasos_unwrap(self) -> Any:
+        """phantasos: serialize a oneOf wrapper as its actual instance, so
+        model_dump()/model_dump_json() match the hand-written to_dict() instead
+        of leaking the generator scaffolding (actual_instance, one_of_schemas, ...)."""
+        return self.actual_instance
+'''
+
+_DROP_EMPTY_METHOD = '''
+    @model_serializer(mode="wrap")
+    def _phantasos_drop_empty_additional_properties(self, handler) -> Any:
+        """phantasos: omit an empty additional_properties bag from
+        model_dump()/model_dump_json(); non-empty bags are left untouched.
+        Respects exclude=/by_alias=/exclude_none=, so to_dict() is unchanged."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("additional_properties") == {}:
+            data.pop("additional_properties")
+        return data
+'''
+
+
+def _ensure_model_serializer_import(text: str) -> str:
+    # Key on the IMPORT, not a bare `model_serializer` substring, so an unrelated
+    # reference (a future field_serializer/model_validator, a hand-edit) can never
+    # suppress a needed import while a method still gets injected (-> NameError).
+    if "model_serializer," in text or "import model_serializer" in text:
+        return text
+    return text.replace(
+        "from pydantic import ", "from pydantic import model_serializer, ", 1
+    )
+
+
+def patch_oneof_unwrap_serializer(models_dir: Path) -> int:
+    """Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps."""
+    count = 0
+    for path in sorted(models_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "actual_instance" not in text or "one_of_schemas" not in text:
+            continue
+        if "_phantasos_unwrap" in text:
+            continue  # idempotent
+        text = _ensure_model_serializer_import(text)
+        text = text.replace(
+            "\n    def to_str(self)", _UNWRAP_METHOD + "\n    def to_str(self)", 1
+        )
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+def patch_drop_empty_additional_properties(models_dir: Path) -> int:
+    """Attach a wrap model_serializer dropping empty additional_properties bags.
+
+    Skips oneOf wrappers (they carry no additional_properties field and get the
+    unwrap serializer instead); a class may have at most one model_serializer.
+    """
+    count = 0
+    for path in sorted(models_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "additional_properties: Dict[str, Any] = {}" not in text:
+            continue
+        if "one_of_schemas" in text:
+            continue  # belongs to the unwrap patch
+        if "_phantasos_drop_empty_additional_properties" in text:
+            continue  # idempotent
+        text = _ensure_model_serializer_import(text)
+        text = text.replace(
+            "\n    def to_str(self)", _DROP_EMPTY_METHOD + "\n    def to_str(self)", 1
+        )
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
 def apply_generic_patches(pkg_dir: Path) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),
         "lenient_enums": rebase_lenient_enums(pkg_dir),
         "oneof_first_match": patch_oneof_first_match(models),
+        "oneof_unwrap": patch_oneof_unwrap_serializer(models),
+        "drop_empty_additional_properties": patch_drop_empty_additional_properties(
+            models
+        ),
     }
