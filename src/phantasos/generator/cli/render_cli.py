@@ -317,6 +317,7 @@ def render_cli(
     *,
     env_prefix: str | None = None,
     distribution: str | None = None,
+    auth: object | None = None,
 ) -> list[str]:
     reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
     if reserved:
@@ -339,6 +340,13 @@ def render_cli(
         "env_prefix": resolved_prefix,
         "distribution": distribution or package,
     }
+    # Enrich the IR with credential descriptors from the auth component (if any),
+    # BEFORE any template render or the ir.json write, so templates and the
+    # serialized IR see the same enriched copy. model_copy returns a new instance,
+    # leaving the caller's ir untouched.
+    if auth is not None and hasattr(auth, "credential_fields"):
+        ir = ir.model_copy(update={"credential_fields": list(auth.credential_fields())})
+        ctx["ir"] = ir
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
@@ -353,12 +361,22 @@ def render_cli(
     render("_generated/history.py.jinja", gen / "history.py")
     render("_generated/cli_commands.py.jinja", gen / "cli_commands.py")
     render("_generated/diagnostics.py.jinja", gen / "diagnostics.py")
+    render("_generated/logging_setup.py.jinja", gen / "logging_setup.py")
     render("_generated/output.py.jinja", gen / "output.py")
     render("_generated/runtime.py.jinja", gen / "runtime.py")
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
     spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
     (gen / "spec.py").write_text(spec_src, encoding="utf-8")
     written.append(str((gen / "spec.py").relative_to(out_dir)))
+    # `config environment` commands — rendered with STATIC per-field typer options
+    # generated from ir.credential_fields (no `click` dependency; typer only).
+    # Emitted ONLY for auth CLIs; a no-auth CLI never references it (app.py's
+    # registration is gated on the same condition).
+    if ir.credential_fields:
+        render(
+            "_generated/environment_commands.py.jinja",
+            gen / "environment_commands.py",
+        )
     (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
     written.append(str((gen / "ir.json").relative_to(out_dir)))
 

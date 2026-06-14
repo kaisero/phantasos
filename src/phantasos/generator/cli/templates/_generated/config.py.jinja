@@ -10,17 +10,30 @@ from __future__ import annotations
 
 import functools
 import os
+{%- if ir.credential_fields %}
+import re
+{%- endif %}
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import diagnostics as _diag
 
 _ENV_PREFIX = "{{ env_prefix }}"
 _DISTRIBUTION = "{{ distribution }}"
+
+_LOG_LEVELS = {
+    "trace": 5,
+    "debug": 10,
+    "info": 20,
+    "warning": 30,
+    "warn": 30,
+    "error": 40,
+    "critical": 50,
+}
 
 
 class PagerConfig(BaseModel):
@@ -42,11 +55,28 @@ class HistoryConfig(BaseModel):
     max_size_mb: int = 50
 
 
+class LoggingConfig(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    level: str = "info"
+    file: str | None = None  # None -> ~/.{{ distribution }}/logs/{{ distribution }}.jsonl
+
+    @field_validator("level")
+    @classmethod
+    def _known_level(cls, v: str) -> str:
+        if v.lower() not in _LOG_LEVELS:
+            raise ValueError(
+                f"unknown log level {v!r} (choose: trace, debug, info, "
+                "warning, error, critical)"
+            )
+        return v.lower()
+
+
 class CliConfiguration(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
     pager: PagerConfig = Field(default_factory=PagerConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
 class ConfigFile(BaseModel):
@@ -63,11 +93,16 @@ _ENV_MAP: dict[str, tuple[str, ...]] = {
     f"{_ENV_PREFIX}_HISTORY_VERBOSE": ("configuration", "history", "verbose"),
     f"{_ENV_PREFIX}_HISTORY_FILE": ("configuration", "history", "file"),
     f"{_ENV_PREFIX}_HISTORY_MAX_SIZE_MB": ("configuration", "history", "max_size_mb"),
+    f"{_ENV_PREFIX}_LOGGING_LEVEL": ("configuration", "logging", "level"),
+    f"{_ENV_PREFIX}_LOGGING_FILE": ("configuration", "logging", "file"),
 }
 _BOOL_PATHS = {
     ("configuration", "pager", "enabled"),
     ("configuration", "history", "enabled"),
     ("configuration", "history", "verbose"),
+}
+_INT_PATHS = {
+    ("configuration", "history", "max_size_mb"),
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -236,5 +271,149 @@ def effective_dict() -> dict[str, Any]:
                 "file": c.history.file,
                 "max_size_mb": c.history.max_size_mb,
             },
+            "logging": {"level": c.logging.level, "file": c.logging.file},
         }
     }
+
+
+def log_level_int(name: str) -> int:
+    """The stdlib numeric level for a config level name (default INFO)."""
+    return _LOG_LEVELS.get(name.lower(), 20)
+
+
+def log_file_path() -> Path:
+    """The structured-log file path: the configured ``logging.file`` (``~`` and
+    ``${VAR}`` left to the caller) or the default ``logs/{{ distribution }}.jsonl``."""
+    f = get().logging.file
+    if f:
+        return Path(f).expanduser()
+    return Path.home() / f".{_DISTRIBUTION}" / "logs" / f"{_DISTRIBUTION}.jsonl"
+
+
+# --- config.yml writers (used by `config set` / `config unset`) ----------------
+
+
+def _raw_config_yml() -> dict[str, Any]:
+    """The RAW user ``config.yml`` as a dict (``{}`` if absent/invalid/not a map).
+
+    Reads the FILE only — packaged defaults and env layers are deliberately
+    excluded so ``config set`` edits exactly what the user owns."""
+    path = config_path()
+    if not path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def coerce_config_value(path: tuple[str, ...], value: str) -> Any:
+    """Coerce a CLI string to the type the given config path expects (mirrors the
+    env coercion): bool for ``_BOOL_PATHS``, int for ``_INT_PATHS``, else str."""
+    if path in _BOOL_PATHS:
+        low = value.strip().lower()
+        if low in _TRUE:
+            return True
+        if low in _FALSE:
+            return False
+        raise ValueError(f"{'.'.join(path[1:])}: not a boolean ({value!r})")
+    if path in _INT_PATHS:
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(
+                f"{'.'.join(path[1:])}: not an integer ({value!r})"
+            ) from None
+    return value
+
+
+def validate_config(raw: dict[str, Any]) -> tuple[bool, str]:
+    """Validate a raw config dict against the models. Returns ``(ok, message)``;
+    catches a bad value (e.g. an unknown log level) via the field validators."""
+    try:
+        ConfigFile.model_validate(raw)
+    except ValidationError as exc:
+        errs = exc.errors()
+        msg = errs[0]["msg"] if errs else str(exc)
+        return False, msg
+    return True, ""
+
+
+@functools.cache
+def _known_config_paths() -> set[tuple[str, ...]]:
+    """Every settable config path (``("configuration", section, key)``), derived
+    from the pydantic models. Used to reject unknown keys with a clean exit even
+    though the models allow extras for forward-compatible FILE loading."""
+    paths: set[tuple[str, ...]] = set()
+    for section, model in CliConfiguration.model_fields.items():
+        sub = model.annotation
+        if sub is not None and isinstance(sub, type) and issubclass(sub, BaseModel):
+            for key in sub.model_fields:
+                paths.add(("configuration", section, key))
+    return paths
+{% if ir.credential_fields %}
+
+# --- Named environments (isolated top-level keys; NOT in ConfigFile) -----------
+# The credential field surface, baked in at template time from the resolved auth
+# component, so this early-loaded module never imports the (heavier) IR loader.
+_ENV_FIELDS: list[dict[str, Any]] = [
+{%- for f in ir.credential_fields %}
+    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+{%- endfor %}
+]
+
+_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def environments_path() -> Path:
+    return Path.home() / f".{_DISTRIBUTION}" / "environments.yml"
+
+
+def _read_env_file() -> dict[str, Any]:
+    """The RAW environments file as a dict.
+
+    Returns ``{}`` when the file is missing, unreadable, invalid, or not a
+    mapping — never raises (environment reads must not abort the CLI)."""
+    path = environments_path()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _raw_environments() -> dict[str, Any]:
+    """The ``environments:`` mapping (name -> field dict), or ``{}``."""
+    envs = _read_env_file().get("environments")
+    return envs if isinstance(envs, dict) else {}
+
+
+def default_environment() -> str | None:
+    """The configured ``default_environment``, or ``None``."""
+    value = _read_env_file().get("default_environment")
+    return value if isinstance(value, str) else None
+
+
+def _resolve_value(v: Any) -> Any:
+    """Resolve a ``${VAR}`` reference against the process environment.
+
+    A string that fully matches ``${VAR}`` is replaced by ``os.environ[VAR]``
+    (or ``None`` if unset). Any other value is returned unchanged."""
+    if isinstance(v, str):
+        m = _ENV_REF_RE.match(v)
+        if m:
+            return os.environ.get(m.group(1))
+    return v
+
+
+def resolve_environment(name: str) -> dict[str, Any]:
+    """Resolved credential fields for the named environment.
+
+    Maps each known credential field to its resolved value (``${VAR}`` expanded);
+    fields absent from the environment block resolve to ``None``."""
+    env = _raw_environments().get(name)
+    if not isinstance(env, dict):
+        env = {}
+    return {f["name"]: _resolve_value(env.get(f["name"])) for f in _ENV_FIELDS}
+{% endif %}

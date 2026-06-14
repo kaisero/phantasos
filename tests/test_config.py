@@ -7,15 +7,16 @@ from phantasos.config import (
     CursorPagination,
     Facade,
     NestedError,
-    OAuthClientCredentials,
+    ScmOAuth,
 )
 
 
-def test_oauth_defaults_and_template() -> None:
-    a = OAuthClientCredentials(type="oauth_client_credentials", token_url="https://t/")
+def test_scm_oauth_defaults_and_template() -> None:
+    a = ScmOAuth(type="scm_oauth")
     assert a.scope_env == "SCOPE"
     assert a.config_class_name == "SdkConfiguration"
-    assert a.template == "auth/oauth_client_credentials.py.jinja"
+    assert a.template == "auth/scm_oauth.py.jinja"
+    assert a.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
 
 
 def test_cursor_defaults() -> None:

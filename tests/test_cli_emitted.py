@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from phantasos.config import ScmOAuth
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping, VariantMap
 from phantasos.generator.cli.introspect import introspect
@@ -46,6 +47,71 @@ def emitted(tmp_path: Path) -> Iterator[Path]:
             del sys.modules[name]
 
 
+@pytest.fixture
+def pager_subprocess(tmp_path: Path) -> None:
+    """Skip the test unless this environment can spawn a working pager
+    subprocess in the test (pytest-capture) context.
+
+    The autopager tests pipe content to a real `tee` subprocess. Some sandboxed
+    environments (e.g. the Claude Code Stop-hook gate) silently prevent the
+    spawned binary from writing its file, which would hard-fail these tests for
+    reasons unrelated to the code under test. We probe with the SAME mechanism,
+    in-context, and skip only when it genuinely cannot run — so CI and normal
+    dev runs still exercise the real piping behavior AND still catch real
+    regressions (a probe that works but a test that fails is a true failure).
+    """
+    import shutil
+    import subprocess
+
+    tee = shutil.which("tee")
+    probe = tmp_path / ".pager_probe"
+    ok = False
+    if tee is not None:
+        try:
+            # Mirror the tests' own invocation exactly (inherit stdout/stderr,
+            # which under pytest are the captured fds) so the probe sees the same
+            # conditions — including a sandbox that blocks the spawned write.
+            subprocess.run(  # noqa: S603 — fixed argv (resolved tee path)
+                [tee, str(probe)],
+                input="ok",
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            ok = probe.is_file() and probe.read_text(encoding="utf-8") == "ok"
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+    if not ok:
+        pytest.skip(
+            "environment cannot spawn a pager subprocess (sandboxed); the real "
+            "piping behavior is exercised in CI and normal dev runs"
+        )
+
+
+@pytest.fixture
+def emitted_auth(tmp_path: Path) -> Iterator[Path]:
+    """Like `emitted`, but rendered WITH an auth component so the IR carries
+    credential_fields (client_id/client_secret/scope/base_url). Importable as
+    `fakesdk_cli` (env_prefix FAKESDK)."""
+    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    render_cli(
+        ir,
+        package="fakesdk_cli",
+        out_dir=tmp_path,
+        env_prefix="FAKESDK",
+        auth=ScmOAuth(type="scm_oauth"),
+    )
+    sys.path.insert(0, str(tmp_path))
+    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+        del sys.modules[name]
+    try:
+        yield tmp_path
+    finally:
+        sys.path.remove(str(tmp_path))
+        for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
+            del sys.modules[name]
+
+
 def test_output_formats(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
 
@@ -69,6 +135,12 @@ def _write_user_config(home: Path, body: str) -> None:
     d = home / ".fakesdk_cli"
     d.mkdir(parents=True, exist_ok=True)
     (d / "config.yml").write_text(body, encoding="utf-8")
+
+
+def _write_user_env_file(home: Path, body: str) -> None:
+    d = home / ".fakesdk_cli"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "environments.yml").write_text(body, encoding="utf-8")
 
 
 def test_config_defaults_when_no_user_file(
@@ -1271,7 +1343,7 @@ def test_columns_flag_implies_table_and_renders_curated(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
     res = runner.invoke(
         app_mod.build_generated_app(), ["show", "widget", "--columns", "name,id"]
@@ -1300,7 +1372,7 @@ def test_show_without_columns_uses_ir_default_columns(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
     res = runner.invoke(
         app_mod.build_generated_app(), ["show", "widget", "--output", "table"]
@@ -1359,7 +1431,7 @@ def test_query_default_is_injected_and_overridable(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
 
     # no flags -> cli.yml defaults flow into the SDK call (int correctly typed)
@@ -1411,7 +1483,7 @@ def test_injected_defaults_not_sent_to_get_binding(
     class _Client:
         widgets = _W()
 
-    monkeypatch.setattr(rt, "_client", lambda: _Client())
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
 
     # get binding: the injected name/limit defaults must NOT reach the call
@@ -1627,11 +1699,17 @@ def test_autopager_short_content_writes_direct(
 
 
 def test_autopager_tall_content_pipes_to_command(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pager_subprocess: None,
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "10")
-    monkeypatch.setenv("COLUMNS", "80")
+    # Force a short console so 50 lines are unambiguously tall enough to page,
+    # independent of the ambient terminal/env: Rich's size short-circuits when
+    # both _width and _height are set (rich/console.py size property).
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
     sink = tmp_path / "paged.txt"
     content = "".join(f"line{i}\n" for i in range(50))
     out._AutoPager(f"tee {sink}").show(content)
@@ -1644,8 +1722,16 @@ def test_autopager_missing_binary_falls_back(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "5")
-    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
+
+    # A missing pager binary surfaces as OSError from subprocess; inject it
+    # deterministically rather than relying on the OS/sandbox to fail an exec,
+    # which is what we're asserting the code tolerates.
+    def _missing(*_a: object, **_k: object) -> None:
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(out.subprocess, "run", _missing)
     content = "".join(f"line{i}\n" for i in range(50))
     out._AutoPager("/definitely/not/a/pager").show(content)
     captured = capsys.readouterr()
@@ -1697,11 +1783,14 @@ def test_maybe_paged_skips_when_not_a_tty(
 
 
 def test_maybe_paged_uses_pager_when_tty(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pager_subprocess: None,
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "5")
-    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
     monkeypatch.setattr(out, "_stdout_is_tty", lambda: True)
     sink = tmp_path / "paged.txt"
     monkeypatch.setenv("PAGER", f"tee {sink}")
@@ -1869,6 +1958,259 @@ def test_history_config_defaults_and_env(
     h = cfg.get().history
     assert h.enabled is False and h.verbose is True
     assert h.file == "/tmp/h.jsonl" and h.max_size_mb == 5  # noqa: S108
+
+
+def test_logging_config_defaults_and_env(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    assert cfg.get().logging.level == "info"
+    assert cfg.get().logging.file is None
+    assert cfg.effective_dict()["configuration"]["logging"] == {
+        "level": "info",
+        "file": None,
+    }
+    # default path is under logs/ next to config.yml
+    assert cfg.log_file_path().name == "fakesdk_cli.jsonl"
+    assert cfg.log_file_path().parent.name == "logs"
+    # env override
+    monkeypatch.setenv("FAKESDK_LOGGING_LEVEL", "debug")
+    cfg.load_config.cache_clear()
+    assert cfg.get().logging.level == "debug"
+    assert cfg.log_level_int("warn") == 30 and cfg.log_level_int("trace") == 5
+    # FILE env override resolves through log_file_path()
+    monkeypatch.setenv("FAKESDK_LOGGING_FILE", str(tmp_path / "custom.jsonl"))
+    cfg.load_config.cache_clear()
+    assert cfg.log_file_path() == tmp_path / "custom.jsonl"
+
+
+def test_logging_invalid_level_warns_and_falls_back(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    (home / ".fakesdk_cli").mkdir(parents=True)
+    (home / ".fakesdk_cli" / "config.yml").write_text(
+        "configuration:\n  logging:\n    level: bogus\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    # bad level is rejected by _validate's bounded retry -> falls back to default
+    assert cfg.get().logging.level == "info"
+
+
+def test_logging_captures_warnings_to_file_not_stderr(
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    import logging
+    import stat
+    import warnings
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    ls.init_logging()
+    warnings.warn(
+        "DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1
+    )
+    for h in logging.getLogger("py.warnings").handlers:  # flush; do NOT shutdown
+        h.flush()
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    assert log.exists()
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    assert stat.S_IMODE(log.parent.stat().st_mode) == 0o700
+    line = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    assert line["level"] == "WARNING"
+    assert "not defined in the OpenAPI spec" in line["msg"]
+    # the JSONL record carries ts/logger fields
+    assert line["ts"].endswith("Z") and line["logger"] == "py.warnings"
+    # NOT on stderr
+    assert "not defined in the OpenAPI spec" not in capsys.readouterr().err
+
+
+def test_logging_does_not_touch_root_logger(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # M1: init_logging must NEVER mutate the root logger (that evicts pytest's
+    # log-capture handler). Only the py.warnings + package loggers get the sink.
+    import logging
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root_before = list(logging.getLogger().handlers)
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    ls.init_logging()
+    assert logging.getLogger().handlers == root_before  # root untouched
+    assert len(logging.getLogger("py.warnings").handlers) == 1
+    assert logging.getLogger("py.warnings").propagate is False
+    assert logging.getLogger("fakesdk_cli").propagate is False
+
+
+def test_logging_rotates_and_gzips(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import gzip
+    import logging
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    log = tmp_path / "rot.jsonl"
+    handler = ls._SecureRotatingFileHandler(
+        str(log), maxBytes=80, backupCount=2, encoding="utf-8", delay=True
+    )
+    handler.setFormatter(ls._JsonlFormatter())
+    handler.rotator = ls._gzip_rotator
+    handler.namer = ls._gzip_namer
+    rec_logger = logging.getLogger("fakesdk_cli._rot_test")
+    rec_logger.handlers[:] = [handler]
+    rec_logger.propagate = False
+    rec_logger.setLevel(logging.INFO)
+    try:
+        rec_logger.info("first line that is reasonably long to force a rollover")
+        rec_logger.info("second line that is also reasonably long for rollover")
+        handler.flush()
+        gz = tmp_path / "rot.jsonl.1.gz"
+        assert gz.exists()
+        with gzip.open(gz, "rt", encoding="utf-8") as f:
+            assert "first line" in f.read()
+    finally:
+        handler.close()
+        rec_logger.handlers[:] = []
+
+
+def test_config_set_unset(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import yaml as _yaml
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    cfg_file = home / ".fakesdk_cli" / "config.yml"
+
+    # alias set -> nested logging.level
+    assert r.invoke(main.app, ["config", "set", "loglevel", "debug"]).exit_code == 0
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["logging"]["level"] == "debug"
+
+    # dotted set
+    assert r.invoke(main.app, ["config", "set", "output.format", "yaml"]).exit_code == 0
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["output"]["format"] == "yaml"
+
+    # bool coercion (history.enabled)
+    assert (
+        r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code == 0
+    )
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["history"]["enabled"] is False
+
+    # int coercion (history.max_size_mb)
+    assert (
+        r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code == 0
+    )
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert data["configuration"]["history"]["max_size_mb"] == 7
+
+    # invalid value -> exit 2
+    assert r.invoke(main.app, ["config", "set", "loglevel", "bogus"]).exit_code == 2
+    # unknown key (resolved path unknown) -> exit 2
+    assert r.invoke(main.app, ["config", "set", "nope.key", "x"]).exit_code == 2
+
+    # unset reverts (via alias)
+    assert r.invoke(main.app, ["config", "unset", "loglevel"]).exit_code == 0
+    data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "level" not in data.get("configuration", {}).get("logging", {})
+    # unset of an unknown key -> exit 2 (validated against resolved path)
+    assert r.invoke(main.app, ["config", "unset", "nope.key"]).exit_code == 2
+
+
+def test_config_set_show_reflects(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    assert r.invoke(main.app, ["config", "set", "loglevel", "debug"]).exit_code == 0
+    res = r.invoke(main.app, ["config", "show"])
+    assert res.exit_code == 0
+    assert "level: debug" in res.output
+
+
+def test_app_inits_logging_and_mirrors_diag(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import logging
+
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    res = CliRunner().invoke(main.app, ["config", "show"])  # any command
+    assert res.exit_code == 0, res.output
+    diag = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    diag.warning("a mirrored diagnostic line")
+    for h in logging.getLogger("fakesdk_cli").handlers:  # flush; never shutdown()
+        h.flush()
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    assert log.exists()  # init ran at app build
+    msgs = [
+        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any("a mirrored diagnostic line" in m for m in msgs)  # diag -> log sink
+
+
+def test_full_command_warning_not_on_stderr_but_in_log(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A Python warning raised during a real command run must land in the logfile
+    # and NOT on the CLI's stderr.
+    import json
+
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+
+    class _W:
+        def list_widgets(self, **kw: Any) -> list[Any]:
+            import warnings
+
+            warnings.warn(
+                "Color: value 'mauve' is not defined in the OpenAPI spec", stacklevel=1
+            )
+            return []
+
+    class _Client:
+        widgets = _W()
+
+    monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
+    res = CliRunner().invoke(main.app, ["show", "widget", "--output", "json"])
+    assert res.exit_code == 0, res.output
+    assert "not defined in the OpenAPI spec" not in res.output
+    log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
+    msgs = [
+        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any("not defined in the OpenAPI spec" in m for m in msgs)
 
 
 def test_dotenv_reaches_config_layer(
@@ -2425,3 +2767,939 @@ def test_quiet_keeps_errors(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert res.exit_code == 2
     assert "error: --enabled" in res.stderr
+
+
+# --- PR3: named environments ---------------------------------------------------
+
+
+def test_env_resolve_environment_expands_refs(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: abc123\n"
+        "    client_secret: ${PROD_SECRET}\n"
+        "    scope: tsg_id:1234\n"
+        "    base_url: https://api.example.com\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PROD_SECRET", "s3cr3t")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert cfg.default_environment() == "prod"
+    resolved = cfg.resolve_environment("prod")
+    assert resolved == {
+        "client_id": "abc123",
+        "client_secret": "s3cr3t",  # ${PROD_SECRET} expanded from the process env
+        "scope": "tsg_id:1234",
+        "base_url": "https://api.example.com",
+    }
+    # an unset ${VAR} resolves to None, not the literal
+    monkeypatch.delenv("PROD_SECRET", raising=False)
+    assert cfg.resolve_environment("prod")["client_secret"] is None
+
+
+def test_config_yml_stray_environments_key_is_flagged(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Environments live in environments.yml now. A stray `environments:` in
+    # config.yml is genuinely misplaced, so load_config flags it as an unknown
+    # key rather than silently swallowing it — this guards the decoupling.
+    home = tmp_path / "home"
+    _write_user_config(
+        home,
+        "configuration:\n  output:\n    format: json\n"
+        "environments:\n  prod:\n    client_id: x\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    warnings = cfg.load_config()[1]
+    assert any("environments" in w for w in warnings), warnings
+
+
+def _capture_facade_kwargs(rt: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Monkeypatch the thin _facade_from_env seam to capture threaded kwargs."""
+    captured: dict[str, Any] = {}
+
+    def _fake(**kw: Any) -> Any:
+        captured.update(kw)
+        return object()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    return captured
+
+
+def test_env_vars_override_active_environment(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: ENVID\n"
+        "    client_secret: ${PROD_SECRET}\n"
+        "    scope: prod-scope\n"
+        "    base_url: https://api.example.com\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    # chdir off the source tree so find_dotenv(usecwd=True) can't discover a
+    # developer .env above the repo and pollute the credential env vars.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PROD_SECRET", "envfile-secret")
+    monkeypatch.setenv("CLIENT_ID", "SHELLID")  # exported -> beats the config value
+    monkeypatch.delenv("CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("SCOPE", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["client_id"] == "SHELLID"  # env var wins
+    assert captured["client_secret"] == "envfile-secret"  # from the env file
+    assert captured["host"] == "https://api.example.com"  # base_url -> host kwarg
+    assert captured["scope"] == "prod-scope"  # resolved from the env file
+
+
+def test_env_empty_exported_var_still_wins(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Presence-not-truthiness precedence: an exported-but-empty var still beats
+    # the config value. Demonstrated on the OPTIONAL base_url field (an empty
+    # REQUIRED field is now rejected by the pre-flight — see
+    # test_empty_exported_required_var_is_treated_as_missing). The required
+    # fields are fully supplied so the pre-flight passes.
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod:\n"
+        "    client_id: ENVID\n"
+        "    client_secret: ENVSECRET\n"
+        "    scope: ENVSCOPE\n"
+        "    base_url: https://config-host\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    monkeypatch.setenv("BASE_URL", "")  # exported but empty -> presence wins
+    monkeypatch.delenv("CLIENT_ID", raising=False)
+    monkeypatch.delenv("CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("SCOPE", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["host"] == ""  # empty string threaded, NOT "https://config-host"
+    assert captured["client_id"] == "ENVID"  # required fields still resolve
+
+
+def test_generated_cli_imports_only_declared_dependencies(emitted_auth: Path) -> None:
+    # Regression guard: the generated CLI must import only its DECLARED deps.
+    # `typer>=0.12` resolves to the slim core, which does NOT install top-level
+    # `click` — so emitting `import click` (or any other undeclared package)
+    # breaks every generated CLI at import time. Scan every emitted module.
+    import ast
+
+    allowed = set(sys.stdlib_module_names) | {
+        # third-party deps declared in scaffold_context._CLI_DEPS
+        "typer",
+        "rich",
+        "yaml",
+        "dotenv",
+        "jmespath",
+        "pydantic",
+        "pygments",
+        # the emitted CLI package itself + the SDK it wraps
+        "fakesdk_cli",
+        "fakesdk",
+    }
+    offenders: dict[str, set[str]] = {}
+    for py in (emitted_auth / "fakesdk_cli" / "_generated").rglob("*.py"):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                tops = {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                tops = {node.module.split(".")[0]}
+            else:
+                continue
+            for top in tops - allowed:
+                offenders.setdefault(py.name, set()).add(top)
+    assert not offenders, f"generated CLI imports undeclared dependencies: {offenders}"
+
+
+def test_env_unknown_selected_environment_errors(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A selected-but-undefined environment must fail loudly, not silently fall
+    # back to ambient env-var auth (which could use unintended credentials).
+    home = tmp_path / "home"
+    _write_user_env_file(home, "default_environment: ghost\nenvironments: {}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as exc:
+        rt._client()
+    assert exc.value.code == 2
+
+
+def test_env_selection_precedence(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod: {client_id: PROD}\n"
+        "  staging: {client_id: STAGING}\n"
+        # adhoc is the env actually threaded by _client below, so it carries the
+        # full required credential set; prod/staging only exercise name resolution.
+        "  adhoc: {client_id: ADHOC, client_secret: SEC, scope: SC}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    # ensure no per-field env vars interfere with the field assertions
+    for var in ("CLIENT_ID", "CLIENT_SECRET", "BASE_URL", "SCOPE"):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    # default_environment alone
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+    rt.select_environment(None)
+    assert rt._selected_environment() == "prod"
+
+    # {PREFIX}_ENVIRONMENT beats default_environment
+    monkeypatch.setenv("FAKESDK_ENVIRONMENT", "staging")
+    assert rt._selected_environment() == "staging"
+
+    # the -e contextvar beats both
+    rt.select_environment("adhoc")
+    assert rt._selected_environment() == "adhoc"
+
+    # and the selected env's fields are what _client threads
+    captured = _capture_facade_kwargs(rt, monkeypatch)
+    rt._client()
+    assert captured["client_id"] == "ADHOC"
+    rt.select_environment(None)  # reset module contextvar for other tests
+
+
+def test_env_option_in_help_and_threads_selection(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "environments:\n"
+        "  staging: {client_id: STAGING, client_secret: SEC, scope: SC}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "BASE_URL",
+        "SCOPE",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    main = importlib.import_module("fakesdk_cli.main")
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    help_out = _strip_ansi(
+        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    )
+    assert "--environment" in help_out
+    # the short flag is advertised alongside the long flag
+    env_line = next(ln for ln in help_out.splitlines() if "--environment" in ln)
+    assert "-e" in env_line
+
+    captured: dict[str, Any] = {}
+
+    class _W:
+        def list_widgets(self, **kw: Any) -> list[Any]:
+            return []
+
+    class _Client:
+        widgets = _W()
+
+        def paginate(self, m: Any, **kw: Any) -> Iterator[Any]:
+            return iter([])
+
+    def _fake(**kw: Any) -> Any:
+        captured.update(kw)
+        return _Client()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    res = CliRunner().invoke(
+        main.app, ["show", "widget", "-e", "staging", "--output", "json"]
+    )
+    assert res.exit_code == 0, res.output
+    assert captured["client_id"] == "STAGING"  # -e selected staging's fields
+
+
+# --- bugfix: clean missing-credentials error (descriptor-driven pre-flight) ---
+
+
+def test_missing_credentials_message_guides_user(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Nothing configured at all (no environment, no credential env vars): the
+    # first command must fail cleanly (exit 2, no raw traceback) and guide the
+    # user toward BOTH remediation paths.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "no credentials configured" in err
+    assert "environment create" in err  # primary remediation path
+    # names the three genuinely-required vars; base_url (host has a default) is NOT
+    assert "CLIENT_ID" in err and "CLIENT_SECRET" in err and "SCOPE" in err
+    assert "BASE_URL" not in err
+
+
+def test_missing_credentials_names_active_environment(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # An environment is active (default_environment) but incomplete: the message
+    # names the environment and only the fields it is still missing.
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PRODID}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "environment 'prod'" in err
+    assert "CLIENT_SECRET" in err and "SCOPE" in err
+    assert "CLIENT_ID" not in err  # client_id IS set -> not listed as missing
+
+
+def test_missing_credentials_via_dash_e_selected_environment(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The -e contextvar path (distinct from default_environment) is covered too.
+    home = tmp_path / "home"
+    _write_user_env_file(home, "environments:\n  staging: {client_id: STAGINGID}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    rt.select_environment("staging")
+    try:
+        with pytest.raises(SystemExit) as ei:
+            rt._client()
+        assert ei.value.code == 2
+    finally:
+        rt.select_environment(None)  # reset module contextvar for other tests
+
+
+def test_empty_exported_required_var_is_treated_as_missing(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An exported-but-EMPTY required var is unusable (the SDK rejects it with
+    # `if not v`); the pre-flight mirrors that and fails cleanly rather than
+    # threading "" and letting a raw RuntimeError escape.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "")  # exported but empty
+    monkeypatch.setenv("CLIENT_SECRET", "s")
+    monkeypatch.setenv("SCOPE", "sc")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 2
+
+
+def test_auth_failure_renders_clean_error(
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Credentials ARE present but the auth/token request still fails: this must
+    # be a clean error (exit 1, no traceback), distinct from misconfiguration.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "id")
+    monkeypatch.setenv("CLIENT_SECRET", "secret")
+    monkeypatch.setenv("SCOPE", "scope")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    def _boom(**kw: Any) -> Any:
+        raise RuntimeError("token endpoint returned 503")
+
+    monkeypatch.setattr(rt, "_facade_from_env", _boom)
+    with pytest.raises(SystemExit) as ei:
+        rt._client()
+    assert ei.value.code == 1
+
+    err = _strip_ansi(capsys.readouterr().err)
+    assert "authentication failed" in err
+    assert "token endpoint returned 503" in err
+
+
+def test_auth_failure_reraises_under_verbose(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # With --verbose the original traceback is preserved for debugging.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLIENT_ID", "id")
+    monkeypatch.setenv("CLIENT_SECRET", "secret")
+    monkeypatch.setenv("SCOPE", "scope")
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("FAKESDK_ENVIRONMENT", raising=False)
+
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+
+    def _boom(**kw: Any) -> Any:
+        raise RuntimeError("token endpoint returned 503")
+
+    monkeypatch.setattr(rt, "_facade_from_env", _boom)
+    with pytest.raises(RuntimeError, match="token endpoint returned 503"):
+        rt._client(verbose=True)
+
+
+def test_no_auth_runtime_has_no_credential_preflight(emitted: Path) -> None:
+    # The pre-flight is gated on ir.credential_fields: a no-auth CLI must not
+    # emit any of the credential-error machinery.
+    src = (emitted / "fakesdk_cli" / "_generated" / "runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "no credentials configured" not in src
+    assert "authentication failed" not in src
+
+
+# --- PR3: gating (no-auth CLI must be unaffected) -----------------------------
+
+
+def test_no_auth_client_calls_facade_with_no_args(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    captured: dict[str, Any] = {"called": False, "kwargs": None}
+
+    def _fake(**kw: Any) -> Any:
+        captured["called"] = True
+        captured["kwargs"] = kw
+        return object()
+
+    monkeypatch.setattr(rt, "_facade_from_env", _fake)
+    rt._client()
+    assert captured["called"] is True
+    assert captured["kwargs"] == {}  # no credential threading for a no-auth CLI
+
+
+def test_no_auth_help_has_no_environment_flag(emitted: Path) -> None:
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    help_out = _strip_ansi(
+        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    )
+    assert "--environment" not in help_out
+    # a no-auth CLI also has no environment helpers / contextvar on the runtime
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    assert not hasattr(rt, "select_environment")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    assert not hasattr(cfg, "resolve_environment")
+
+
+# --- PR4: top-level `environment` command group -------------------------------
+
+
+def _read_config_yml(home: Path) -> dict[str, Any]:
+    import yaml as _yaml
+
+    text = (home / ".fakesdk_cli" / "config.yml").read_text(encoding="utf-8")
+    data: dict[str, Any] = _yaml.safe_load(text)
+    return data
+
+
+def _read_environments_yml(home: Path) -> dict[str, Any]:
+    import yaml as _yaml
+
+    text = (home / ".fakesdk_cli" / "environments.yml").read_text(encoding="utf-8")
+    data: dict[str, Any] = _yaml.safe_load(text)
+    return data
+
+
+def test_env_create_writes_fields_and_auto_activates(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # secret supplied via the hidden prompt; the rest on the command line
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--scope",
+            "tsg_id:1",
+            "--base-url",
+            "https://api",
+        ],
+        input="s3cr3t\n",
+    )
+    assert res.exit_code == 0, res.output
+    assert "s3cr3t" not in res.output  # hidden prompt must not echo the secret
+
+    data = _read_environments_yml(home)
+    assert data["environments"]["prod"] == {
+        "client_id": "abc",
+        "client_secret": "s3cr3t",  # captured from the hidden prompt, stored as-is
+        "scope": "tsg_id:1",
+        "base_url": "https://api",
+    }
+    # the environments file must be private (it holds client_secret)
+    import stat
+
+    mode = stat.S_IMODE((home / ".fakesdk_cli" / "environments.yml").stat().st_mode)
+    assert mode == 0o600, oct(mode)
+    # no default existed -> the first environment is auto-activated
+    assert data["default_environment"] == "prod"
+
+
+def test_env_create_stores_ref_verbatim(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "${PROD_SECRET}",  # a ${VAR} reference, not a literal
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    data = _read_environments_yml(home)
+    # stored VERBATIM — NOT resolved at write time
+    assert data["environments"]["prod"]["client_secret"] == "${PROD_SECRET}"
+
+
+def test_env_create_duplicate_requires_force(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    args = [
+        "environment",
+        "create",
+        "prod",
+        "--client-id",
+        "abc",
+        "--client-secret",
+        "s",
+        "--scope",
+        "s",
+        "--base-url",
+        "u",
+    ]
+    assert r.invoke(main.app, args).exit_code == 0
+    # re-create the same name -> refused with exit code 2
+    res_dup = r.invoke(main.app, args)
+    assert res_dup.exit_code == 2, res_dup.output
+    assert "already exists" in (res_dup.stderr or res_dup.output)
+    # --force overwrites
+    res_force = r.invoke(
+        main.app,
+        [
+            "environment",
+            "create",
+            "prod",
+            "--force",
+            "--client-id",
+            "xyz",
+            "--client-secret",
+            "s",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res_force.exit_code == 0, res_force.output
+    assert _read_environments_yml(home)["environments"]["prod"]["client_id"] == "xyz"
+
+
+def test_env_activate_undefined_errors_and_existing_updates_default(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod: {client_id: PROD}\n"
+        "  staging: {client_id: STAGING}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+
+    # activating an undefined environment -> exit code 2
+    res_bad = r.invoke(main.app, ["environment", "activate", "nope"])
+    assert res_bad.exit_code == 2, res_bad.output
+    assert "no such environment" in (res_bad.stderr or res_bad.output)
+    # the default is unchanged after the failed activate
+    assert _read_environments_yml(home)["default_environment"] == "prod"
+
+    # activating an existing one updates default_environment
+    res_ok = r.invoke(main.app, ["environment", "activate", "staging"])
+    assert res_ok.exit_code == 0, res_ok.output
+    assert _read_environments_yml(home)["default_environment"] == "staging"
+
+
+def test_env_show_marks_active_and_hides_secrets(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: staging\n"
+        "environments:\n"
+        "  prod: {client_id: PROD, client_secret: prodsecret}\n"
+        "  staging: {client_id: STAGING, client_secret: stagesecret}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "show"])
+    assert res.exit_code == 0, res.output
+    out = res.output
+    assert "prod" in out and "staging" in out
+    # the active environment is marked
+    active_line = next(ln for ln in out.splitlines() if ln.startswith("staging"))
+    assert "active" in active_line
+    prod_line = next(ln for ln in out.splitlines() if ln.startswith("prod"))
+    assert "active" not in prod_line
+    # NEVER print field values / secrets
+    assert "prodsecret" not in out and "stagesecret" not in out
+    assert "PROD" not in out and "STAGING" not in out
+
+
+def test_env_show_empty_says_so(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "show"])
+    assert res.exit_code == 0, res.output
+    assert "no environments" in (res.output + (res.stderr or "")).lower()
+
+
+def test_env_show_no_active_after_force_delete(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    # environments present but NO default_environment (reachable via
+    # `delete --force` of the active env while others remain)
+    _write_user_env_file(home, "environments:\n  staging: {client_id: STAGING}\n")
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "show"])
+    assert res.exit_code == 0, res.output
+    out = (res.output + (res.stderr or "")).lower()
+    assert "staging" in out
+    assert "no active environment" in out  # auth falls back to env vars
+    assert "(active)" not in res.output  # nothing is marked active
+
+
+def test_env_delete_non_default_removes_it(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\n"
+        "environments:\n"
+        "  prod: {client_id: PROD}\n"
+        "  staging: {client_id: STAGING}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "delete", "staging"])
+    assert res.exit_code == 0, res.output
+    data = _read_environments_yml(home)
+    assert "staging" not in data["environments"]
+    assert "prod" in data["environments"]
+    assert data["default_environment"] == "prod"
+
+
+def test_env_delete_default_without_force_errors(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "delete", "prod"])
+    assert res.exit_code == 2
+    msg = res.stderr or res.output
+    assert "active environment" in msg
+    # environment must NOT have been removed
+    data = _read_environments_yml(home)
+    assert "prod" in data["environments"]
+
+
+def test_env_delete_force_removes_default_and_unsets_key(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    _write_user_env_file(
+        home,
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "delete", "--force", "prod"])
+    assert res.exit_code == 0, res.output
+    data = _read_environments_yml(home)
+    assert "prod" not in data.get("environments", {})
+    assert "default_environment" not in data
+
+
+def test_env_delete_unknown_name_errors(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["environment", "delete", "ghost"])
+    assert res.exit_code == 2
+    assert "no such environment" in (res.stderr or res.output)
+
+
+def test_env_create_preserves_existing_environments(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    # config.yml holds only configuration (unrelated to environment writes)
+    _write_user_config(home, "configuration:\n  output:\n    format: table\n")
+    # environments.yml holds the existing environments
+    _write_user_env_file(
+        home,
+        "default_environment: existing\nenvironments:\n  existing: {client_id: OLD}\n",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "s",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    env_data = _read_environments_yml(home)
+    # prior environment survives in environments.yml
+    assert env_data["environments"]["existing"] == {"client_id": "OLD"}
+    assert "prod" in env_data["environments"]
+    # a default already existed -> NOT overwritten by the new env
+    assert env_data["default_environment"] == "existing"
+    # config.yml remains unchanged
+    cfg_data = _read_config_yml(home)
+    assert cfg_data["configuration"]["output"]["format"] == "table"
+
+
+def test_env_create_secret_never_written_to_history(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Secret-leak guard: a config-group command records NO history, so a secret
+    (whether on the command line or prompted) never lands in the history file."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    main = importlib.import_module("fakesdk_cli.main")
+
+    # secret on the command line
+    res = CliRunner().invoke(
+        main.app,
+        [
+            "environment",
+            "create",
+            "prod",
+            "--client-id",
+            "abc",
+            "--client-secret",
+            "s3cr3t",
+            "--scope",
+            "s",
+            "--base-url",
+            "u",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    history = home / ".fakesdk_cli" / "history.jsonl"
+    # config-group commands do not go through runtime.run() -> no history at all
+    assert not history.exists()
+
+
+def test_env_group_emitted_and_visible_in_help(
+    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # the hand-written module is emitted verbatim for an auth CLI
+    assert (
+        emitted_auth / "fakesdk_cli" / "_generated" / "environment_commands.py"
+    ).exists()
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
+    assert "environment" in top_help  # top-level group, in the "CLI" panel
+    env_help = _strip_ansi(r.invoke(main.app, ["environment", "--help"]).output)
+    for verb in ("create", "activate", "show", "delete"):
+        assert verb in env_help
+    # the dynamic per-field create options are present, by kebab name
+    create_help = _strip_ansi(
+        r.invoke(main.app, ["environment", "create", "--help"]).output
+    )
+    assert "--client-id" in create_help
+    assert "--client-secret" in create_help
+    assert "--scope" in create_help
+    assert "--base-url" in create_help
+
+
+def test_no_auth_has_no_environment_group(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # the hand-written module is NOT emitted for a no-auth CLI
+    assert not (
+        emitted / "fakesdk_cli" / "_generated" / "environment_commands.py"
+    ).exists()
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
+    assert "environment" not in top_help
+    # the absent top-level group fails to invoke
+    res = r.invoke(main.app, ["environment", "--help"])
+    assert res.exit_code != 0

@@ -43,8 +43,7 @@ def test_vendor_full_components(tmp_path: Path) -> None:
         "output: x\n"
         "base_url: https://api.example.com\n"
         "auth:\n"
-        "  type: oauth_client_credentials\n"
-        "  token_url: 'https://auth/token'\n"
+        "  type: scm_oauth\n"
         "  config_class_name: DemoConfiguration\n"
         "pagination:\n"
         "  type: cursor\n"
@@ -205,7 +204,7 @@ def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
     )
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: b\n"
-        "auth: {type: oauth_client_credentials, token_url: 'https://t/'}\n"
+        "auth: {type: scm_oauth}\n"
         "facade: true\n",
         "utf-8",
     )

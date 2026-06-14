@@ -66,6 +66,23 @@ jobs:
       - name: Build (strict)
         run: uv run nox -s docs
 
+  cli-smoke:
+    name: CLI isolated-install smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      # Generates a CLI, installs it into a CLEAN venv (its declared deps only —
+      # typer resolves to the slim core, no top-level click) and runs it. Catches
+      # undeclared-dependency / import / run regressions the dev-venv tests cannot.
+      - name: Generate -> install -> run a CLI in a clean venv
+        run: uv run nox -s cli-smoke
+
   smoke:
     name: Build smoke (auto-provisioned Java)
     runs-on: ubuntu-latest

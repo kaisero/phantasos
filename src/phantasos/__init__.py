@@ -6,12 +6,12 @@ from .config import (
     CursorPagination,
     Facade,
     NestedError,
-    OAuthClientCredentials,
+    ScmOAuth,
 )
 
 __all__ = [
     "CursorPagination",
     "Facade",
     "NestedError",
-    "OAuthClientCredentials",
+    "ScmOAuth",
 ]
