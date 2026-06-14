@@ -25,6 +25,18 @@ BLOCKS: list[tuple[str, str, list[str]]] = [
         "api",
         ["src/phantasos/productconfig.py", "src/phantasos/config.py"],
     ),
+    # components/**/*.py yields no files (only .jinja templates live there);
+    # the param models and vendor entry-point are in config.py and render.py.
+    (
+        "components.md",
+        "module-map",
+        ["src/phantasos/config.py", "src/phantasos/generator/sdk/render.py"],
+    ),
+    (
+        "components.md",
+        "api",
+        ["src/phantasos/config.py", "src/phantasos/generator/sdk/render.py"],
+    ),
 ]
 
 
