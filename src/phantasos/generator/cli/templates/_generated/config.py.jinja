@@ -196,13 +196,6 @@ def load_config() -> tuple[ConfigFile, tuple[str, ...], tuple[str, ...]]:
         env_applied = True
     if env_applied:
         sources.append("environment variables")
-    # Named environments live in ISOLATED top-level keys, deliberately outside the
-    # validated `configuration` tree. Drop them before validation so _validate /
-    # _collect_extras never see them (otherwise a spurious "unknown config key
-    # 'environments'" warning would fire). They are read separately via the
-    # `_raw_*` helpers below, straight from the on-disk file.
-    merged.pop("environments", None)
-    merged.pop("default_environment", None)
     cfg = _validate(merged, warnings)
     _collect_extras(cfg, (), warnings)
     return cfg, tuple(warnings), tuple(sources)
@@ -262,12 +255,16 @@ _ENV_FIELDS: list[dict[str, Any]] = [
 _ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
-def _raw_config() -> dict[str, Any]:
-    """The RAW config file as a dict, independent of the cached ConfigFile.
+def environments_path() -> Path:
+    return Path.home() / f".{_DISTRIBUTION}" / "environments.yml"
+
+
+def _read_env_file() -> dict[str, Any]:
+    """The RAW environments file as a dict.
 
     Returns ``{}`` when the file is missing, unreadable, invalid, or not a
     mapping — never raises (environment reads must not abort the CLI)."""
-    path = config_path()
+    path = environments_path()
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
@@ -277,13 +274,13 @@ def _raw_config() -> dict[str, Any]:
 
 def _raw_environments() -> dict[str, Any]:
     """The ``environments:`` mapping (name -> field dict), or ``{}``."""
-    envs = _raw_config().get("environments")
+    envs = _read_env_file().get("environments")
     return envs if isinstance(envs, dict) else {}
 
 
 def default_environment() -> str | None:
     """The configured ``default_environment``, or ``None``."""
-    value = _raw_config().get("default_environment")
+    value = _read_env_file().get("default_environment")
     return value if isinstance(value, str) else None
 
 

@@ -4,10 +4,10 @@ The ``create`` command exposes one ``--<field>`` option per credential field,
 generated as STATIC typer options from the auth component's descriptor — so this
 module depends only on ``typer`` (no direct ``click`` dependency).
 
-Environments live in an ISOLATED top-level ``environments:`` mapping of the user
-config file (NOT in the validated ``configuration:`` tree); the active one is the
-top-level ``default_environment`` key. Field values are stored VERBATIM — a
-literal OR a ``${VAR}`` reference string — and resolved only at client-build time.
+Environments live in the dedicated ``~/.{distribution}/environments.yml`` file
+(top-level ``environments:`` mapping and ``default_environment:`` key). Field
+values are stored VERBATIM — a literal OR a ``${VAR}`` reference string — and
+resolved only at client-build time.
 """
 
 from __future__ import annotations
@@ -33,18 +33,19 @@ def _credential_fields() -> list[Any]:
     return list(_rt._ir().credential_fields)
 
 
-def _write_raw_config(data: dict[str, Any]) -> None:
-    """Atomically dump the full raw config dict back to disk at 0o600.
+def _write_environments_file(data: dict[str, Any]) -> None:
+    """Atomically dump the environments dict to ``environments.yml`` at 0o600.
 
-    Preserves every other top-level key — we only ever mutate the caller's
-    in-memory copy of the raw config before handing it here. The file may hold
-    secret credentials, so it is created private (0o600) and written via a temp
-    file + atomic rename so a crash mid-write can't corrupt an existing config."""
-    path = _config.config_path()
+    The file is env-only (environments + default_environment) so we simply
+    serialise the caller's in-memory dict. The file may hold secret credentials,
+    so it is created private (0o600) and written via a temp file + atomic rename
+    so a crash mid-write can't corrupt an existing environments file."""
+    path = _config.environments_path()
     content = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
     tmp = path.with_name(path.name + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.parent.chmod(0o700)  # tighten even if the dir pre-existed (holds secrets)
         fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(content)
@@ -60,8 +61,8 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
     (secrets with input hidden), stores values verbatim under
     ``environments[name]``, and auto-activates the first environment."""
     fields = _credential_fields()
-    raw = _config._raw_config()
-    environments = raw.get("environments")
+    data = _config._read_env_file()
+    environments = data.get("environments")
     if not isinstance(environments, dict):
         environments = {}
 
@@ -81,13 +82,13 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
             values[f.name] = typer.prompt(_kebab(f.name), hide_input=bool(f.secret))
 
     environments[name] = values
-    raw["environments"] = environments
-    first_environment = not isinstance(raw.get("default_environment"), str)
+    data["environments"] = environments
+    first_environment = not isinstance(data.get("default_environment"), str)
     if first_environment:
-        raw["default_environment"] = name
-    _write_raw_config(raw)
+        data["default_environment"] = name
+    _write_environments_file(data)
 
-    _diag.info(f"wrote environment '{name}' to {_config.config_path()}")
+    _diag.info(f"wrote environment '{name}' to {_config.environments_path()}")
     if first_environment:
         _diag.info(f"activated environment '{name}' (default_environment)")
 
@@ -122,14 +123,14 @@ def activate(name: str) -> None:
     """Make NAME the active environment (sets default_environment)."""
     if name not in _config._raw_environments():
         _diag.fail(f"no such environment: '{name}'", code=2)
-    raw = _config._raw_config()
-    raw["default_environment"] = name
-    _write_raw_config(raw)
+    data = _config._read_env_file()
+    data["default_environment"] = name
+    _write_environments_file(data)
     _diag.info(f"activated environment '{name}'")
 
 
-@environment_app.command("list")
-def list_environments() -> None:
+@environment_app.command("show")
+def show_environments() -> None:
     """List the defined environment names (never their field values)."""
     environments = _config._raw_environments()
     if not environments:
@@ -139,12 +140,33 @@ def list_environments() -> None:
     for name in environments:
         marker = " (active)" if name == active else ""
         typer.echo(f"{name}{marker}")
+    if active not in environments:
+        # no default set (or it points at a deleted env) — auth uses env vars
+        _diag.info("no active environment — auth falls back to environment variables")
 
 
-@environment_app.command("current")
-def current() -> None:
-    """Print the active environment name."""
-    active = _config.default_environment()
-    if not active:
-        _diag.fail("no active environment", code=2)
-    typer.echo(active)
+@environment_app.command("delete")
+def delete(
+    name: str,
+    force: bool = typer.Option(
+        False, "--force", help="Delete even the active environment."
+    ),
+) -> None:
+    """Remove a named environment from the config."""
+    data = _config._read_env_file()
+    envs = data.get("environments")
+    if not isinstance(envs, dict) or name not in envs:
+        _diag.fail(f"no such environment: '{name}'", code=2)
+    if data.get("default_environment") == name and not force:
+        _diag.fail(
+            f"'{name}' is the active environment; run "
+            "'environment activate <other>' first, or pass --force to delete it "
+            "(auth then falls back to environment variables)",
+            code=2,
+        )
+    del envs[name]
+    data["environments"] = envs
+    if data.get("default_environment") == name:  # only with --force
+        data.pop("default_environment", None)
+    _write_environments_file(data)
+    _diag.info(f"removed environment '{name}'")

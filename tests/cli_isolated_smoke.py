@@ -121,32 +121,50 @@ def main() -> int:
             "s3cr3t",
         )
         assert r.returncode == 0, f"create failed:\n{r.stderr}"
-        cfg = home / ".fakesdk_cli" / "config.yml"
-        # Parse + assert config content in the CLEAN venv (it has pyyaml; this
-        # outer process only has phantasos + stdlib).
+        env_file = home / ".fakesdk_cli" / "environments.yml"
+        # Parse + assert environments.yml content in the CLEAN venv (it has pyyaml;
+        # this outer process only has phantasos + stdlib).
         verify = (
             "import sys, yaml; d = yaml.safe_load(open(sys.argv[1]));"
             " assert d['environments']['prod']['client_secret'] == 's3cr3t', d;"
-            " assert d['default_environment'] == 'prod', d; print('CONFIG OK')"
+            " assert d['default_environment'] == 'prod', d; print('ENV OK')"
         )
         chk = subprocess.run(
-            [str(py), "-c", verify, str(cfg)], capture_output=True, text=True
+            [str(py), "-c", verify, str(env_file)], capture_output=True, text=True
         )
-        assert chk.returncode == 0 and "CONFIG OK" in chk.stdout, chk.stderr
-        mode = stat.S_IMODE(cfg.stat().st_mode)
+        assert chk.returncode == 0 and "ENV OK" in chk.stdout, chk.stderr
+        mode = stat.S_IMODE(env_file.stat().st_mode)
         assert mode == 0o600, oct(mode)
 
-        # 3. list marks active and hides values; current prints the active name.
-        r = cli("environment", "list")
+        # 3. show marks active and hides values.
+        r = cli("environment", "show")
         assert r.returncode == 0 and "prod" in r.stdout and "s3cr3t" not in r.stdout, (
             r.stdout
         )
-        r = cli("environment", "current")
-        assert r.returncode == 0 and "prod" in r.stdout, r.stdout
+
+        # 4. create a second environment, delete it, assert it's gone.
+        r = cli(
+            "environment",
+            "create",
+            "staging",
+            "--client-id",
+            "stg",
+            "--scope",
+            "tsg_id:2",
+            "--base-url",
+            "https://stg.api.example.com",
+            "--client-secret",
+            "stgsecret",
+        )
+        assert r.returncode == 0, f"create staging failed:\n{r.stderr}"
+        r = cli("environment", "delete", "staging")
+        assert r.returncode == 0, f"delete staging failed:\n{r.stderr}"
+        r = cli("environment", "show")
+        assert "staging" not in r.stdout, f"staging still in show output: {r.stdout}"
 
         print(
             "cli-smoke OK: generated CLI imports + runs against its declared deps "
-            "(typer slim, no top-level click)"
+            "(typer slim, no top-level click); environments live in environments.yml"
         )
         return 0
     finally:

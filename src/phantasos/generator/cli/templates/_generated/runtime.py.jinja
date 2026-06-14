@@ -93,7 +93,7 @@ def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
         # default_environment) but isn't defined — fail loudly rather than
         # silently falling back to ambient env-var auth (wrong-credentials risk).
         _diag.fail(
-            f"unknown environment '{name}' (run 'environment list')",
+            f"unknown environment '{name}' (run 'environment show')",
             code=2,
         )
     env = _config.resolve_environment(name) if name else {}

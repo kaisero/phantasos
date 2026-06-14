@@ -42,19 +42,6 @@ configuration:
     # (no automatic trimming). Delete the file to start fresh.
     max_size_mb: 50
 {% if ir.credential_fields %}
-# Named environments (credentials & endpoints). These are TOP-LEVEL keys,
-# deliberately OUTSIDE the validated `configuration:` tree above.
-#
-# `default_environment` selects which environment is used when neither the
-# `--environment/-e` flag nor the {{ env_prefix }}_ENVIRONMENT variable is set.
-# A `${VAR}` value is resolved from the process environment at read time, so
-# secrets can stay out of this file. Per-field {{ env_prefix }}_* environment
-# variables override the active environment's fields.
-#
-# default_environment: prod
-# environments:
-#   prod:
-{%- for f in ir.credential_fields %}
-#     {{ f.name }}: {% if f.secret %}${PROD_{{ f.env_var }}}{% else %}...{% endif %}
-{%- endfor %}
+# Named environments live in ~/.{{ distribution }}/environments.yml (not here).
+# Manage them with: environment create / activate / show / delete.
 {% endif -%}
