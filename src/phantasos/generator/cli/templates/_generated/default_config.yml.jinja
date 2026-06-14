@@ -41,3 +41,7 @@ configuration:
     # When the file reaches this size the CLI warns and stops recording
     # (no automatic trimming). Delete the file to start fresh.
     max_size_mb: 50
+{% if ir.credential_fields %}
+# Named environments live in ~/.{{ distribution }}/environments.yml (not here).
+# Manage them with: environment create / activate / show / delete.
+{% endif -%}

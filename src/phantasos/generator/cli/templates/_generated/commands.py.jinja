@@ -39,9 +39,22 @@ def {{ c.func_name }}(
         help="Page output taller than the terminal (default from config).",
         rich_help_panel="Common",
     ),
+{%- if ir.credential_fields %}
+    environment: str | None = typer.Option(
+        None,
+        "--environment",
+        "-e",
+        help="Named environment to use for this command.",
+        rich_help_panel="Common",
+    ),
+{%- endif %}
 ) -> None:
 {%- if c.summary %}
     """{{ c.summary }}"""
+{%- endif %}
+{%- if ir.credential_fields %}
+    if environment is not None:
+        _rt.select_environment(environment)
 {%- endif %}
     _rt.run(
         "{{ c.key }}",

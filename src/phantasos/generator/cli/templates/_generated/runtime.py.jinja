@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+{% if ir.credential_fields -%}
+import contextvars
+{% endif -%}
 import enum
 import functools
 import importlib
 import inspect
 import json
+{%- if ir.credential_fields %}
+import os
+{%- endif %}
 import shlex
 import sys
 import time
@@ -34,14 +40,73 @@ def _commands() -> dict[str, Command]:
     return {c.key: c for c in _ir().commands}
 
 
+def _facade_from_env(**kw: Any) -> Any:
+    """Tiny seam over the facade's ``Client.from_env`` so tests can monkeypatch
+    the credential threading without standing up a real client."""
+    return importlib.import_module(_ir().facade_module).Client.from_env(**kw)
+{% if ir.credential_fields %}
+
+# Per-invocation environment selection. A contextvar (not a module global) so the
+# selection is scoped to the running command and never leaks across CliRunner
+# invocations sharing the imported module.
+_SELECTED_ENV: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "selected_env", default=None
+)
+
+
+def select_environment(name: str | None) -> None:
+    """Record the environment chosen by ``--environment/-e`` for this command."""
+    _SELECTED_ENV.set(name)
+
+
+def _selected_environment() -> str | None:
+    """The active environment name, by precedence:
+    -e flag (contextvar) > {{ env_prefix }}_ENVIRONMENT env var > default_environment.
+
+    An EMPTY {{ env_prefix }}_ENVIRONMENT is treated as absent (falsy), so it falls
+    through to default_environment rather than selecting an environment named ""."""
+    from . import config as _config
+
+    return (
+        _SELECTED_ENV.get()
+        or os.environ.get("{{ env_prefix }}_ENVIRONMENT")
+        or _config.default_environment()
+    )
+{% endif %}
+
+
 def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
     try:
         from dotenv import find_dotenv, load_dotenv
         load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
     except ModuleNotFoundError:
         pass
-    facade = importlib.import_module(_ir().facade_module)
-    return facade.Client.from_env()
+{%- if ir.credential_fields %}
+    from . import config as _config
+
+    # Resolve the active named environment (if any), then let presence-based env
+    # vars override its fields per the locked precedence. NEVER use truthiness:
+    # an exported-but-empty CLIENT_ID= must still win over the config value.
+    name = _selected_environment()
+    if name is not None and name not in _config._raw_environments():
+        # An env was explicitly selected (-e / {{ env_prefix }}_ENVIRONMENT /
+        # default_environment) but isn't defined — fail loudly rather than
+        # silently falling back to ambient env-var auth (wrong-credentials risk).
+        _diag.fail(
+            f"unknown environment '{name}' (run 'environment show')",
+            code=2,
+        )
+    env = _config.resolve_environment(name) if name else {}
+    overrides: dict[str, Any] = {}
+    for f in _ir().credential_fields:
+        ev = os.environ.get(f.env_var)  # PRESENCE check, not truthiness
+        val = ev if ev is not None else env.get(f.name)
+        if val is not None:
+            overrides[f.client_kwarg or f.name] = val
+    return _facade_from_env(**overrides)
+{%- else %}
+    return _facade_from_env()
+{%- endif %}
 
 
 def _models() -> Any:

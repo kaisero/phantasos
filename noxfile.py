@@ -25,6 +25,7 @@ nox.options.sessions = [
     "lint",
     "type_check",
     "tests",
+    "cli-smoke",
     "docs",
 ]
 
@@ -118,6 +119,22 @@ def docs_serve(session: nox.Session) -> None:
     """Serve the docs locally with live reload."""
     _sync(session, "docs")
     session.run("mkdocs", "serve")
+
+
+@nox.session(name="cli-smoke")
+def cli_smoke(session: nox.Session) -> None:
+    """Generate a CLI, install it into a CLEAN venv (its declared deps only —
+    typer resolves to the slim core, no top-level ``click``), and run its entry
+    point + ``config environment`` commands the way the console script does.
+
+    This is the generate -> install-in-its-own-venv -> run gate: offline, no
+    Java. It catches undeclared-dependency / import / run regressions that the
+    pytest suite (which runs in the dev venv) cannot.
+    """
+    _sync(session)
+    session.run(
+        "python", str(Path(__file__).parent / "tests" / "cli_isolated_smoke.py")
+    )
 
 
 @nox.session

@@ -63,21 +63,22 @@ the built-in type name, a custom template path, or omit it entirely to skip vend
 
 Writes `extras/auth.py`.
 
-**Built-in type: `oauth_client_credentials`**
+**Built-in type: `scm_oauth`**
 
-OAuth2 client-credentials grant (Basic creds, form body), auto-refreshing token.
+Strata Cloud (SCM/SASE) OAuth2 client-credentials grant (Basic creds, form body),
+auto-refreshing token. The `token_url` is baked in as
+`https://auth.apps.paloaltonetworks.com/oauth2/access_token` — override only if
+targeting a different IdP endpoint.
 
 ```yaml
 auth:
-  type: oauth_client_credentials
-  token_url: https://auth.example.com/oauth2/token
+  type: scm_oauth
+  # token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token  # baked default
   scope_env: SCOPE                    # default: SCOPE
   client_id_env: CLIENT_ID            # default: CLIENT_ID
   client_secret_env: CLIENT_SECRET    # default: CLIENT_SECRET
   base_url_env: BASE_URL              # default: BASE_URL
   config_class_name: SdkConfiguration # default: SdkConfiguration
-  retry_statuses: [429, 500, 502, 503, 504]  # default
-  backoff_factor: 0.5                 # default
 ```
 
 ### `pagination`
@@ -277,8 +278,7 @@ package: prisma_browser
 output: ../../../prisma-browser-sdk
 base_url: https://api.sase.paloaltonetworks.com
 auth:
-  type: oauth_client_credentials
-  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  type: scm_oauth
   scope_env: SCOPE
   base_url_env: PRISMA_SASE_BASE_URL
   config_class_name: PrismaSaseConfiguration
@@ -300,8 +300,7 @@ package: adem
 output: ../../../adem-sdk
 base_url: https://api.sase.paloaltonetworks.com
 auth:
-  type: oauth_client_credentials
-  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  type: scm_oauth
   scope_env: SCOPE
   base_url_env: ADEM_BASE_URL
   config_class_name: AdemConfiguration

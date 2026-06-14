@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import functools
 import os
+{%- if ir.credential_fields %}
+import re
+{%- endif %}
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -238,3 +241,68 @@ def effective_dict() -> dict[str, Any]:
             },
         }
     }
+{% if ir.credential_fields %}
+
+# --- Named environments (isolated top-level keys; NOT in ConfigFile) -----------
+# The credential field surface, baked in at template time from the resolved auth
+# component, so this early-loaded module never imports the (heavier) IR loader.
+_ENV_FIELDS: list[dict[str, Any]] = [
+{%- for f in ir.credential_fields %}
+    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+{%- endfor %}
+]
+
+_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def environments_path() -> Path:
+    return Path.home() / f".{_DISTRIBUTION}" / "environments.yml"
+
+
+def _read_env_file() -> dict[str, Any]:
+    """The RAW environments file as a dict.
+
+    Returns ``{}`` when the file is missing, unreadable, invalid, or not a
+    mapping — never raises (environment reads must not abort the CLI)."""
+    path = environments_path()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _raw_environments() -> dict[str, Any]:
+    """The ``environments:`` mapping (name -> field dict), or ``{}``."""
+    envs = _read_env_file().get("environments")
+    return envs if isinstance(envs, dict) else {}
+
+
+def default_environment() -> str | None:
+    """The configured ``default_environment``, or ``None``."""
+    value = _read_env_file().get("default_environment")
+    return value if isinstance(value, str) else None
+
+
+def _resolve_value(v: Any) -> Any:
+    """Resolve a ``${VAR}`` reference against the process environment.
+
+    A string that fully matches ``${VAR}`` is replaced by ``os.environ[VAR]``
+    (or ``None`` if unset). Any other value is returned unchanged."""
+    if isinstance(v, str):
+        m = _ENV_REF_RE.match(v)
+        if m:
+            return os.environ.get(m.group(1))
+    return v
+
+
+def resolve_environment(name: str) -> dict[str, Any]:
+    """Resolved credential fields for the named environment.
+
+    Maps each known credential field to its resolved value (``${VAR}`` expanded);
+    fields absent from the environment block resolve to ``None``."""
+    env = _raw_environments().get(name)
+    if not isinstance(env, dict):
+        env = {}
+    return {f["name"]: _resolve_value(env.get(f["name"])) for f in _ENV_FIELDS}
+{% endif %}
