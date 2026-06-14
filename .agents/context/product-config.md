@@ -1,6 +1,6 @@
 # product-config
 
-Validated against ca087e7 on 2026-06-14 · Purpose: how a product's `sdk.yml` (and optional `cli.yml`, `hooks.py`, `overrides/`) is declared, loaded, and converted into a `LoadedProduct` that drives every downstream build stage.
+Validated against 50c1e34 on 2026-06-14 · Purpose: how a product's `sdk.yml` (and optional `cli.yml`, `hooks.py`, `overrides/`) is declared, loaded, and converted into a `LoadedProduct` that drives every downstream build stage.
 
 ## Purpose & responsibilities
 
@@ -92,7 +92,7 @@ files are optional.
 
 | Category | `type` name | Model | Key fields |
 |---|---|---|---|
-| `auth` | `oauth_client_credentials` | `OAuthClientCredentials` | `token_url`, `scope_env`, `client_id_env`, `client_secret_env`, `base_url_env`, `config_class_name` |
+| `auth` | `scm_oauth` | `ScmOAuth` | `token_url`, `scope_env`, `client_id_env`, `client_secret_env`, `base_url_env`, `config_class_name` |
 | `pagination` | `cursor` | `CursorPagination` | `data_field`, `page_info_field`, `cursor_field`, `has_next_field` |
 | `errors` | `nested` | `NestedError` | `error_field`, `message_field`, `code_field` |
 | `facade` | `default` | `Facade` | (no config fields) |

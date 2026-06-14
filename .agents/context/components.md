@@ -1,6 +1,6 @@
 # components
 
-Validated against b99d1e5 on 2026-06-14 · Purpose: reusable, Jinja-templated SDK extras selected per-product and vendored into `<package>/extras/`.
+Validated against 50c1e34 on 2026-06-14 · Purpose: reusable, Jinja-templated SDK extras selected per-product and vendored into `<package>/extras/`.
 
 ## Purpose & responsibilities
 
@@ -47,15 +47,31 @@ without mapping through a registry; path-escape out of `extras/` raises
 
 ### auth
 
-- **Registry key:** `oauth_client_credentials`
-- **Param model:** `OAuthClientCredentials` — `token_url` (required),
-  `scope_env`, `client_id_env`, `client_secret_env`, `base_url_env`,
-  `config_class_name` (default `SdkConfiguration`).
-- **Template:** `auth/oauth_client_credentials.py.jinja`
+- **Registry key:** `scm_oauth`
+- **Base class:** `AuthComponent` — the common base for every auth strategy. It
+  declares `credential_fields()`, which subclasses MUST override (enforced at
+  class-definition time via `__init_subclass__`). Each returned `CredentialField`
+  describes one credential the component exposes (`name`, `env_var`, `secret`,
+  `required`, optional `client_kwarg`); `CredentialField` lives in
+  `generator/cli/ir.py` so it travels into the emitted CLI's `spec.py`. The CLI
+  generator reads these descriptors to drive named environments, credential
+  prompting, and the missing-credential pre-flight (see `cli-generator.md`).
+- **Param model:** `ScmOAuth` ("Strata Cloud (SCM/SASE) OAuth2
+  client-credentials provider") — `token_url`, `scope_env` (`SCOPE`),
+  `client_id_env` (`CLIENT_ID`), `client_secret_env` (`CLIENT_SECRET`),
+  `base_url_env` (`BASE_URL`), `config_class_name` (default `SdkConfiguration`).
+  Its `credential_fields()` exposes `client_id`, `client_secret` (secret),
+  `scope`, and an OPTIONAL `base_url` (`client_kwarg="host"`; the SDK host has a
+  default).
+- **Template:** `auth/scm_oauth.py.jinja`
 - **Renders:** `extras/auth.py` — `TokenManager` (auto-refreshing
   client-credentials grant via Basic auth over urllib3), a `Configuration`
   subclass whose `access_token` property delegates to `TokenManager`,
   `api_client_from_credentials()`, `api_client_from_env()`.
+- **Named environments:** for a generated CLI, the credentials these fields name
+  can also come from a named environment in `~/.{distribution}/environments.yml`
+  (per-field env vars still win). The resolution + environment CLI lives in the
+  CLI generator, not here — see `cli-generator.md`.
 
 ### pagination
 
@@ -122,7 +138,8 @@ without mapping through a registry; path-escape out of `extras/` raises
 
 <!-- GENERATED:api -->
 - `config.py`
-  - class `OAuthClientCredentials` — OAuth2 client-credentials auth (Basic creds, form body).
+  - class `AuthComponent` — Base class for all auth components.
+  - class `ScmOAuth` — Strata Cloud (SCM/SASE) OAuth2 client-credentials provider.
   - class `CursorPagination` — Cursor pagination: items under `data_field`, cursor under page_info.
   - class `NestedError` — Error message at ``body[error_field][message_field]`` (+ optional code).
   - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.

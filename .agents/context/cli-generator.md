@@ -1,6 +1,6 @@
 # cli-generator
 
-Validated against df9da1e on 2026-06-14 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
+Validated against 50c1e34 on 2026-06-14 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
 
 ## Purpose & responsibilities
 
@@ -36,16 +36,22 @@ this package. They wire the three pipeline stages together:
    and resolves per-OBJECT table columns (see the comment block in `classify.py` —
    columns resolve per object via the show command's item model, never per
    command, because write ops return divergent response models).
-3. **Render** — `render_cli.render_cli(ir, package, out_dir, ...)` in
-   `render_cli.py` wipes/re-emits `_generated/` from Jinja templates: the runtime
-   modules, one command module per SDK resource, the `app.py` factory, a typed
-   copy of the IR models (`spec.py`, copied from `ir.py`) and `ir.json`. It
-   `ruff`-formats only the files it wrote, then emits the hand-owned files
-   (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never overwritten on
-   rebuild). `cli_build` then lays down the project scaffold via the sibling
-   `scaffold` module, using `scaffold_context.build_cli_scaffold_context()` (the
-   SDK product context overridden for the CLI) and `cli_overrides/` as the
-   override tree.
+3. **Render** — `render_cli.render_cli(ir, package, out_dir, *, env_prefix,
+   distribution, auth)` in `render_cli.py` wipes/re-emits `_generated/` from Jinja
+   templates: the runtime modules, one command module per SDK resource, the
+   `app.py` factory, a typed copy of the IR models (`spec.py`, copied from
+   `ir.py`) and `ir.json`. The `auth` parameter is the product's resolved auth
+   component (`loaded.auth`, passed by `cli_build`); when present, its
+   `credential_fields()` enrich a `model_copy` of the IR (`ir.credential_fields`)
+   BEFORE any template render or the `ir.json` write, so templates, `spec.py`, and
+   the serialized IR all see the same enriched copy. That field gates the
+   auth-only emissions (`environment_commands.py`, the `environment` app, the
+   credential pre-flight). It `ruff`-formats only the files it wrote, then emits
+   the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
+   overwritten on rebuild). `cli_build` then lays down the project scaffold via
+   the sibling `scaffold` module, using
+   `scaffold_context.build_cli_scaffold_context()` (the SDK product context
+   overridden for the CLI) and `cli_overrides/` as the override tree.
 
 `discover.py` (`render_table`, `render_stub`) renders the human-readable
 classification table and a `cli.yml` stub for `cli discover`. `columns.py`
@@ -89,9 +95,12 @@ flags. The mechanics are emitted from `templates/_generated/config.py.jinja`
 (frozen pydantic section models + `_ENV_MAP` + cached `load_config()` +
 `effective_dict()`) and `default_config.yml.jinja` (commented defaults that MUST
 mirror the model defaults). Consumers read via `_config.get().<section>.<key>`.
-Current sections: `pager`, `output`, `history`. To ADD an option, follow the
-recipe in `CLAUDE.md` → "Adding a CLI configuration option (generated CLIs)" — it
-owns the step-by-step rules (do not duplicate them here).
+Current sections: `pager`, `output`, `history`, `logging` (`level`, `file`).
+`config set <key> <value>` / `config unset <key>` write/remove options in
+`config.yml` (type-coerced; unknown keys or invalid values exit `2`; writing
+strips the commented template — `config init --force` restores it). To ADD an
+option, follow the recipe in `CLAUDE.md` → "Adding a CLI configuration option
+(generated CLIs)" — it owns the step-by-step rules (do not duplicate them here).
 
 ## How `cli.yml` feeds the build
 
@@ -118,6 +127,28 @@ keys / param names / objects fail the build loudly.
   (`output.py`). Spec: `docs/specs/2026-06-13-cli-yaml-rich-coloring-design.md`.
 - **Common options panel** — shared `--output`/`--pager`/`--quiet` etc. help
   panel. Spec: `docs/specs/2026-06-11-cli-common-options-panel-design.md`.
+- **Named environments** (auth CLIs only) — credentials stored in
+  `~/.{distribution}/environments.yml` (`environments:` + `default_environment:`,
+  `${VAR}` refs expanded at read time). Top-level `environment` command group
+  (`create`/`activate`/`show`/`delete`; `show` never prints values, `delete`
+  --force-gates the active env, first create auto-activates; `create`'s
+  per-credential options are built from `ir.credential_fields`). Active env
+  resolves `-e/--environment` flag > `{PREFIX}_ENVIRONMENT` env var >
+  `default_environment`; per-field credential env vars still override the env.
+  Helpers in the emitted `config.py` (`resolve_environment`, `default_environment`)
+  + `runtime.py` (`select_environment`); commands in `environment_commands.py.jinja`.
+- **Structured logging** — a rotating JSON-Lines log at
+  `~/.{distribution}/logs/{distribution}.jsonl` (`0o600`, gzip-rotated);
+  `warnings` (incl. the SDK lenient-enum pass-through) and CLI diagnostics go to
+  it instead of the terminal, with a terse stderr summary at exit. New `logging`
+  config section (above). Emitted `logging_setup.py.jinja`. See CHANGELOG
+  Unreleased for the exact behavior (no dedicated spec).
+- **Credential pre-flight** (auth CLIs) — `runtime.py` checks
+  `ir.credential_fields` before the first request: missing REQUIRED credentials
+  fail cleanly (exit `2`) naming the variables (and active env, if any) and
+  pointing at `environment create` / the env vars, instead of a raw traceback; a
+  genuine auth failure with credentials present exits `1` (`--verbose` keeps the
+  traceback). See CHANGELOG Unreleased.
 
 ## Build / run pointers
 
@@ -182,6 +213,7 @@ keys / param names / objects fail the build loudly.
   - class `OperationInfo`
   - class `OperationInventory`
 - `ir.py`
+  - class `CredentialField` — Describes one credential field exposed by an auth component.
   - class `Flag`
   - class `MethodBinding`
   - class `ColumnSpec` — One table column: a header + a JMESPath evaluated against each row dict
@@ -189,7 +221,7 @@ keys / param names / objects fail the build loudly.
   - class `CliIR`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->
