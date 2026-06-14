@@ -12,8 +12,9 @@ Typer CLI. Both stages are driven by the host CLI `phantasos` (`src/phantasos/cl
 a Typer app): `phantasos sdk build <product>` produces the SDK, then
 `phantasos cli build <product>` produces the CLI (`phantasos cli discover` prints
 the operation→command classification table and an optional `cli.yml` stub). Each
-emitted project is standalone, depending only on `urllib3` / `pydantic` / `httpx`
-at runtime.
+emitted project is standalone, depending only on a small urllib3-based runtime
+set (`urllib3`, `python-dateutil`, `pydantic`, `typing-extensions` — see
+`productconfig._BASE_DEPS`).
 
 Three layers, kept strictly separate:
 
