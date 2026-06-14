@@ -48,6 +48,47 @@ def emitted(tmp_path: Path) -> Iterator[Path]:
 
 
 @pytest.fixture
+def pager_subprocess(tmp_path: Path) -> None:
+    """Skip the test unless this environment can spawn a working pager
+    subprocess in the test (pytest-capture) context.
+
+    The autopager tests pipe content to a real `tee` subprocess. Some sandboxed
+    environments (e.g. the Claude Code Stop-hook gate) silently prevent the
+    spawned binary from writing its file, which would hard-fail these tests for
+    reasons unrelated to the code under test. We probe with the SAME mechanism,
+    in-context, and skip only when it genuinely cannot run — so CI and normal
+    dev runs still exercise the real piping behavior AND still catch real
+    regressions (a probe that works but a test that fails is a true failure).
+    """
+    import shutil
+    import subprocess
+
+    tee = shutil.which("tee")
+    probe = tmp_path / ".pager_probe"
+    ok = False
+    if tee is not None:
+        try:
+            # Mirror the tests' own invocation exactly (inherit stdout/stderr,
+            # which under pytest are the captured fds) so the probe sees the same
+            # conditions — including a sandbox that blocks the spawned write.
+            subprocess.run(  # noqa: S603 — fixed argv (resolved tee path)
+                [tee, str(probe)],
+                input="ok",
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            ok = probe.is_file() and probe.read_text(encoding="utf-8") == "ok"
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+    if not ok:
+        pytest.skip(
+            "environment cannot spawn a pager subprocess (sandboxed); the real "
+            "piping behavior is exercised in CI and normal dev runs"
+        )
+
+
+@pytest.fixture
 def emitted_auth(tmp_path: Path) -> Iterator[Path]:
     """Like `emitted`, but rendered WITH an auth component so the IR carries
     credential_fields (client_id/client_secret/scope/base_url). Importable as
@@ -1658,11 +1699,17 @@ def test_autopager_short_content_writes_direct(
 
 
 def test_autopager_tall_content_pipes_to_command(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pager_subprocess: None,
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "10")
-    monkeypatch.setenv("COLUMNS", "80")
+    # Force a short console so 50 lines are unambiguously tall enough to page,
+    # independent of the ambient terminal/env: Rich's size short-circuits when
+    # both _width and _height are set (rich/console.py size property).
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
     sink = tmp_path / "paged.txt"
     content = "".join(f"line{i}\n" for i in range(50))
     out._AutoPager(f"tee {sink}").show(content)
@@ -1675,8 +1722,16 @@ def test_autopager_missing_binary_falls_back(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "5")
-    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
+
+    # A missing pager binary surfaces as OSError from subprocess; inject it
+    # deterministically rather than relying on the OS/sandbox to fail an exec,
+    # which is what we're asserting the code tolerates.
+    def _missing(*_a: object, **_k: object) -> None:
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(out.subprocess, "run", _missing)
     content = "".join(f"line{i}\n" for i in range(50))
     out._AutoPager("/definitely/not/a/pager").show(content)
     captured = capsys.readouterr()
@@ -1728,11 +1783,14 @@ def test_maybe_paged_skips_when_not_a_tty(
 
 
 def test_maybe_paged_uses_pager_when_tty(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    emitted: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pager_subprocess: None,
 ) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    monkeypatch.setenv("LINES", "5")
-    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setattr(out._console, "_width", 80)
+    monkeypatch.setattr(out._console, "_height", 5)
     monkeypatch.setattr(out, "_stdout_is_tty", lambda: True)
     sink = tmp_path / "paged.txt"
     monkeypatch.setenv("PAGER", f"tee {sink}")
