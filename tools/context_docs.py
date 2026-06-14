@@ -25,6 +25,10 @@ BLOCKS: list[tuple[str, str, list[str]]] = [
     # config.py, which components.md owns. product-config.md covers the loader
     # (productconfig.py) and sdk-generator.md covers render.py — no duplication.
     ("components.md", "api", ["src/phantasos/config.py"]),
+    # generator/cli/*.py is non-recursive: only the top-level CLI generator
+    # modules. templates/ and cli_overrides/ are Jinja/tests, not generator code.
+    ("cli-generator.md", "module-map", ["src/phantasos/generator/cli/*.py"]),
+    ("cli-generator.md", "api", ["src/phantasos/generator/cli/*.py"]),
 ]
 
 
