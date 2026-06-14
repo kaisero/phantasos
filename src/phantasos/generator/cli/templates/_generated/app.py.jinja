@@ -59,8 +59,10 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
         app.add_typer(t, name=v)
     app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
 {%- if ir.credential_fields %}
-    _config_commands.config_app.add_typer(
-        _environment_commands.environment_app, name="environment"
+    app.add_typer(
+        _environment_commands.environment_app,
+        name="environment",
+        rich_help_panel="CLI",
     )
 {%- endif %}
     verb_apps["show"].add_typer(_cli_commands.cli_show_app, name="cli")

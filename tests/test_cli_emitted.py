@@ -2752,7 +2752,7 @@ def test_no_auth_help_has_no_environment_flag(emitted: Path) -> None:
     assert not hasattr(cfg, "resolve_environment")
 
 
-# --- PR4: `config environment` command group ----------------------------------
+# --- PR4: top-level `environment` command group -------------------------------
 
 
 def _read_config_yml(home: Path) -> dict[str, Any]:
@@ -2776,7 +2776,6 @@ def test_env_create_writes_fields_and_auto_activates(
     res = CliRunner().invoke(
         main.app,
         [
-            "config",
             "environment",
             "create",
             "prod",
@@ -2820,7 +2819,6 @@ def test_env_create_stores_ref_verbatim(
     res = CliRunner().invoke(
         main.app,
         [
-            "config",
             "environment",
             "create",
             "prod",
@@ -2851,7 +2849,6 @@ def test_env_create_duplicate_requires_force(
     r = CliRunner()
 
     args = [
-        "config",
         "environment",
         "create",
         "prod",
@@ -2873,7 +2870,6 @@ def test_env_create_duplicate_requires_force(
     res_force = r.invoke(
         main.app,
         [
-            "config",
             "environment",
             "create",
             "prod",
@@ -2910,14 +2906,14 @@ def test_env_activate_undefined_errors_and_existing_updates_default(
     r = CliRunner()
 
     # activating an undefined environment -> exit code 2
-    res_bad = r.invoke(main.app, ["config", "environment", "activate", "nope"])
+    res_bad = r.invoke(main.app, ["environment", "activate", "nope"])
     assert res_bad.exit_code == 2, res_bad.output
     assert "no such environment" in (res_bad.stderr or res_bad.output)
     # the default is unchanged after the failed activate
     assert _read_config_yml(home)["default_environment"] == "prod"
 
     # activating an existing one updates default_environment
-    res_ok = r.invoke(main.app, ["config", "environment", "activate", "staging"])
+    res_ok = r.invoke(main.app, ["environment", "activate", "staging"])
     assert res_ok.exit_code == 0, res_ok.output
     assert _read_config_yml(home)["default_environment"] == "staging"
 
@@ -2937,7 +2933,7 @@ def test_env_list_marks_active_and_hides_secrets(
     )
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["config", "environment", "list"])
+    res = CliRunner().invoke(main.app, ["environment", "list"])
     assert res.exit_code == 0, res.output
     out = res.output
     assert "prod" in out and "staging" in out
@@ -2959,7 +2955,7 @@ def test_env_list_empty_says_so(
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["config", "environment", "list"])
+    res = CliRunner().invoke(main.app, ["environment", "list"])
     assert res.exit_code == 0, res.output
     assert "no environments" in (res.output + (res.stderr or "")).lower()
 
@@ -2976,7 +2972,7 @@ def test_env_current_prints_active(
     )
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["config", "environment", "current"])
+    res = CliRunner().invoke(main.app, ["environment", "current"])
     assert res.exit_code == 0, res.output
     assert res.output.strip() == "prod"
 
@@ -2989,7 +2985,7 @@ def test_env_current_no_active_errors(
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["config", "environment", "current"])
+    res = CliRunner().invoke(main.app, ["environment", "current"])
     assert res.exit_code == 2, res.output
 
 
@@ -3010,7 +3006,6 @@ def test_env_create_preserves_other_top_level_keys(
     res = CliRunner().invoke(
         main.app,
         [
-            "config",
             "environment",
             "create",
             "prod",
@@ -3049,7 +3044,6 @@ def test_env_create_secret_never_written_to_history(
     res = CliRunner().invoke(
         main.app,
         [
-            "config",
             "environment",
             "create",
             "prod",
@@ -3081,16 +3075,14 @@ def test_env_group_emitted_and_visible_in_help(
     ).exists()
     main = importlib.import_module("fakesdk_cli.main")
     r = CliRunner()
-    cfg_help = _strip_ansi(r.invoke(main.app, ["config", "--help"]).output)
-    assert "environment" in cfg_help
-    env_help = _strip_ansi(
-        r.invoke(main.app, ["config", "environment", "--help"]).output
-    )
+    top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
+    assert "environment" in top_help  # top-level group, in the "CLI" panel
+    env_help = _strip_ansi(r.invoke(main.app, ["environment", "--help"]).output)
     for verb in ("create", "activate", "list", "current"):
         assert verb in env_help
     # the dynamic per-field create options are present, by kebab name
     create_help = _strip_ansi(
-        r.invoke(main.app, ["config", "environment", "create", "--help"]).output
+        r.invoke(main.app, ["environment", "create", "--help"]).output
     )
     assert "--client-id" in create_help
     assert "--client-secret" in create_help
@@ -3110,8 +3102,8 @@ def test_no_auth_has_no_environment_group(
     ).exists()
     main = importlib.import_module("fakesdk_cli.main")
     r = CliRunner()
-    cfg_help = _strip_ansi(r.invoke(main.app, ["config", "--help"]).output)
-    assert "environment" not in cfg_help
-    # invoking the subcommand fails (the group is absent)
-    res = r.invoke(main.app, ["config", "environment", "--help"])
+    top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
+    assert "environment" not in top_help
+    # the absent top-level group fails to invoke
+    res = r.invoke(main.app, ["environment", "--help"])
     assert res.exit_code != 0

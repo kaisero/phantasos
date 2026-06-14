@@ -1,8 +1,8 @@
 """Isolated end-to-end smoke for a GENERATED CLI (the generate -> install -> run gate).
 
 Renders the fakesdk CLI (with auth), installs it into a CLEAN venv that has only
-the CLI's DECLARED third-party deps, and runs its entry point + ``config
-environment`` commands exactly the way the console script does
+the CLI's DECLARED third-party deps, and runs its entry point + the
+``environment`` commands exactly the way the console script does
 (``from <pkg>.main import app; app()``).
 
 This catches what the in-repo pytest suite cannot: that suite runs in the dev
@@ -101,14 +101,13 @@ def main() -> int:
         # 1. The import that previously failed, plus help for the whole tree.
         r = cli("--help")
         assert r.returncode == 0, f"`--help` failed:\n{r.stderr}"
-        r = cli("config", "environment", "--help")
+        r = cli("environment", "--help")
         assert r.returncode == 0 and "create" in r.stdout, (
-            f"`config environment --help`:\n{r.stdout}{r.stderr}"
+            f"`environment --help`:\n{r.stdout}{r.stderr}"
         )
 
         # 2. create (secret via flag so no prompt), auto-activate, file is 0o600.
         r = cli(
-            "config",
             "environment",
             "create",
             "prod",
@@ -138,11 +137,11 @@ def main() -> int:
         assert mode == 0o600, oct(mode)
 
         # 3. list marks active and hides values; current prints the active name.
-        r = cli("config", "environment", "list")
+        r = cli("environment", "list")
         assert r.returncode == 0 and "prod" in r.stdout and "s3cr3t" not in r.stdout, (
             r.stdout
         )
-        r = cli("config", "environment", "current")
+        r = cli("environment", "current")
         assert r.returncode == 0 and "prod" in r.stdout, r.stdout
 
         print(

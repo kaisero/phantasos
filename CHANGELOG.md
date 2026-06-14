@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Generated CLIs with an auth component now support named environments: a top-level `environments:` / `default_environment:` block in `config.yml` (with `${VAR}` references resolved at read time), an `--environment/-e` flag, and a `{PREFIX}_ENVIRONMENT` selector. Per-field credential env vars override the active environment.
-- `config environment` command group (auth CLIs only): `create` (per-credential-field options built dynamically from the auth component; secrets prompted with input hidden and stored verbatim, including `${VAR}` references), `activate`, `list` (names only — never values/secrets), and `current`. The first environment created is auto-activated.
+- Top-level `environment` command group (auth CLIs only; shown in the `--help` "CLI" panel beside `config`): `create` (per-credential-field options built dynamically from the auth component; secrets prompted with input hidden and stored verbatim, including `${VAR}` references), `activate`, `list` (names only — never values/secrets), and `current`. The first environment created is auto-activated.
 
 ## [0.1.0a1] - 2026-06-13
 
