@@ -118,13 +118,6 @@ without mapping through a registry; path-escape out of `extras/` raises
   4. Add `{% if has_<family> %}` imports to `extras_init.py.jinja`.
   5. Test with `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-ctx uv run nox -s gate`.
 
-## Module map
-
-<!-- GENERATED:module-map -->
-- `config.py` — Pydantic component models for a generated SDK's vendored extras.
-- `render.py` — Vendor step: render selected component templates into the SDK's extras/.
-<!-- /GENERATED:module-map -->
-
 ## Public API
 
 <!-- GENERATED:api -->
@@ -134,16 +127,14 @@ without mapping through a registry; path-escape out of `extras/` raises
   - class `NestedError` — Error message at ``body[error_field][message_field]`` (+ optional code).
   - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.
   - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
-- `render.py`
-  - `vendor(pkg_dir, loaded)`
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants
 
 - **No `.py` files live under `components/`** — the directory contains only
-  `.jinja` templates. The param models are in `src/phantasos/config.py`; the
-  generated block globs therefore target `config.py` and `render.py`, not
-  `components/**/*.py` (that glob yields zero files).
+  `.jinja` templates. The param models are in `src/phantasos/config.py`, which
+  the Public API block below targets (`components/**/*.py` yields zero files;
+  `render.py`'s vendor step is documented in `sdk-generator.md`).
 - **`retry` is unconditional when `facade: true`** — `ProductConfig` defaults
   `retry: true`, so unless the product explicitly sets `retry: false`, retry is
   always vendored. `facade` and `auth` templates both reference

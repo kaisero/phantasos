@@ -115,12 +115,6 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
 ## Public API
 
 <!-- GENERATED:api -->
-- `config.py`
-  - class `OAuthClientCredentials` — OAuth2 client-credentials auth (Basic creds, form body).
-  - class `CursorPagination` — Cursor pagination: items under `data_field`, cursor under page_info.
-  - class `NestedError` — Error message at ``body[error_field][message_field]`` (+ optional code).
-  - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.
-  - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
 - `productconfig.py`
   - class `ProjectConfig`
   - class `Hoist`

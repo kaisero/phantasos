@@ -20,23 +20,11 @@ CONTEXT = REPO / ".agents" / "context"
 BLOCKS: list[tuple[str, str, list[str]]] = [
     ("sdk-generator.md", "module-map", ["src/phantasos/generator/sdk/*.py"]),
     ("sdk-generator.md", "api", ["src/phantasos/generator/sdk/*.py"]),
-    (
-        "product-config.md",
-        "api",
-        ["src/phantasos/productconfig.py", "src/phantasos/config.py"],
-    ),
-    # components/**/*.py yields no files (only .jinja templates live there);
-    # the param models and vendor entry-point are in config.py and render.py.
-    (
-        "components.md",
-        "module-map",
-        ["src/phantasos/config.py", "src/phantasos/generator/sdk/render.py"],
-    ),
-    (
-        "components.md",
-        "api",
-        ["src/phantasos/config.py", "src/phantasos/generator/sdk/render.py"],
-    ),
+    ("product-config.md", "api", ["src/phantasos/productconfig.py"]),
+    # components/ holds only .jinja templates; the component param models live in
+    # config.py, which components.md owns. product-config.md covers the loader
+    # (productconfig.py) and sdk-generator.md covers render.py — no duplication.
+    ("components.md", "api", ["src/phantasos/config.py"]),
 ]
 
 
