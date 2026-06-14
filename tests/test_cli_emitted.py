@@ -1902,6 +1902,47 @@ def test_history_config_defaults_and_env(
     assert h.file == "/tmp/h.jsonl" and h.max_size_mb == 5  # noqa: S108
 
 
+def test_logging_config_defaults_and_env(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    assert cfg.get().logging.level == "info"
+    assert cfg.get().logging.file is None
+    assert cfg.effective_dict()["configuration"]["logging"] == {
+        "level": "info",
+        "file": None,
+    }
+    # default path is under logs/ next to config.yml
+    assert cfg.log_file_path().name == "fakesdk_cli.jsonl"
+    assert cfg.log_file_path().parent.name == "logs"
+    # env override
+    monkeypatch.setenv("FAKESDK_LOGGING_LEVEL", "debug")
+    cfg.load_config.cache_clear()
+    assert cfg.get().logging.level == "debug"
+    assert cfg.log_level_int("warn") == 30 and cfg.log_level_int("trace") == 5
+    # FILE env override resolves through log_file_path()
+    monkeypatch.setenv("FAKESDK_LOGGING_FILE", str(tmp_path / "custom.jsonl"))
+    cfg.load_config.cache_clear()
+    assert cfg.log_file_path() == tmp_path / "custom.jsonl"
+
+
+def test_logging_invalid_level_warns_and_falls_back(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    (home / ".fakesdk_cli").mkdir(parents=True)
+    (home / ".fakesdk_cli" / "config.yml").write_text(
+        "configuration:\n  logging:\n    level: bogus\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    # bad level is rejected by _validate's bounded retry -> falls back to default
+    assert cfg.get().logging.level == "info"
+
+
 def test_dotenv_reaches_config_layer(
     emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

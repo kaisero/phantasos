@@ -13,6 +13,8 @@
 #   {{ env_prefix }}_HISTORY_VERBOSE      -> configuration.history.verbose
 #   {{ env_prefix }}_HISTORY_FILE         -> configuration.history.file
 #   {{ env_prefix }}_HISTORY_MAX_SIZE_MB  -> configuration.history.max_size_mb
+#   {{ env_prefix }}_LOGGING_LEVEL        -> configuration.logging.level
+#   {{ env_prefix }}_LOGGING_FILE         -> configuration.logging.file
 
 configuration:
   # Pager for long output: when enabled, results taller than the terminal are
@@ -41,6 +43,14 @@ configuration:
     # When the file reaches this size the CLI warns and stops recording
     # (no automatic trimming). Delete the file to start fresh.
     max_size_mb: 50
+
+  # Logging: a rotating JSON-Lines log of warnings + CLI diagnostics, kept off
+  # the terminal. Per-invocation override: {{ env_prefix }}_LOGGING_LEVEL / _LOGGING_FILE.
+  logging:
+    # trace | debug | info | warning | error | critical
+    level: info
+    # null -> ~/.{{ distribution }}/logs/{{ distribution }}.jsonl
+    file: null
 {% if ir.credential_fields %}
 # Named environments live in ~/.{{ distribution }}/environments.yml (not here).
 # Manage them with: environment create / activate / show / delete.
