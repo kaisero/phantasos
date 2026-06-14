@@ -20,6 +20,11 @@ CONTEXT = REPO / ".agents" / "context"
 BLOCKS: list[tuple[str, str, list[str]]] = [
     ("sdk-generator.md", "module-map", ["src/phantasos/generator/sdk/*.py"]),
     ("sdk-generator.md", "api", ["src/phantasos/generator/sdk/*.py"]),
+    (
+        "product-config.md",
+        "api",
+        ["src/phantasos/productconfig.py", "src/phantasos/config.py"],
+    ),
 ]
 
 
