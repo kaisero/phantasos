@@ -58,13 +58,19 @@ Hard invariants:
 
 ## Subsystem deep-dives
 
-- [sdk-generator](sdk-generator.md): the SDK build pipeline (preprocess → provision → OAG → patches → vendor → scaffold → smoke).
-<!-- remaining links added in the scale increment: product-config, components,
-     cli-generator, scaffold, phantasos-cli, harness-and-testing, release-workflow -->
+- [product-config](product-config.md): `products/<name>/` anatomy + how `productconfig.load_product` validates `sdk.yml` into a `LoadedProduct`.
+- [sdk-generator](sdk-generator.md): the SDK build pipeline (preprocess → generate/OAG → patches → vendor → scaffold → smoke).
+- [components](components.md): the vendored, Jinja-templated components (auth/pagination/errors/facade/retry) rendered into `extras/`.
+- [cli-generator](cli-generator.md): the CLI generator (introspect → classify → render) + the layered generated-CLI config.
+- [scaffold](scaffold.md): the shared scaffold engine (built-in templates vs product overrides, same-path-wins).
+- [phantasos-cli](phantasos-cli.md): the host CLI surface (`phantasos sdk build` / `cli discover` / `cli build`).
+- [harness-and-testing](harness-and-testing.md): the quality harness (freeze + fast-gate hooks, `nox -s gate`/`live`, frozen oracle).
+- [release-workflow](release-workflow.md): branching + version-driven release automation.
 
 ## Cross-cutting
 
-<!-- links added in the scale increment: decisions, goals-non-goals -->
+- [decisions](decisions.md): the design-decision log + rationale (the WHY, incl. evolutions from `ARCHITECTURE.md`).
+- [goals-non-goals](goals-non-goals.md): what phantasos is and isn't (Palo Alto Networks-focused).
 
 ## Rules
 
