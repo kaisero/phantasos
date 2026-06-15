@@ -105,7 +105,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - **The generated SDK is never hand-edited.** It is a pure build artifact —
   everything (tests, `pyproject.toml`, workflows, `README.md`) is regenerated on
   every `phantasos sdk build`. All customisation lives in `products/<name>/` or
-  `src/phantasos/scaffold/` (see `docs/ONBOARDING.md` §6).
+  `src/phantasos/scaffold/` (see `docs/authoring.md`).
 - **OAG's own supporting files are suppressed**, not used: `setup.py`,
   `setup.cfg`, `requirements.txt`, `test-requirements.txt`, `tox.ini`,
   `git_push.sh`, the CI workflows, and `README.md` (the full `_OAG_IGNORE` list
