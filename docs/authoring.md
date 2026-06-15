@@ -8,7 +8,7 @@ declarative product directory.
 Create the product directory:
 
 ```
-products/<name>/
+products/my-product/
 ├── openapi.yml                 # OpenAPI source document
 ├── sdk.yml                     # build config (see Config reference below)
 ├── overrides/
@@ -19,21 +19,23 @@ products/<name>/
 Write a minimal `sdk.yml`:
 
 ```yaml
-package: my_sdk                 # Python package name (snake_case)
-output: ../../../my-sdk         # where to write the SDK (relative to sdk.yml)
+package: my_product              # Python import name (snake_case)
+output: ../../../my-product-sdk  # where to write the SDK (relative to sdk.yml)
 base_url: https://api.example.com
-facade: true                    # bind generated *Api classes onto one client
-project:                        # required to scaffold a full project
-  distribution: my-sdk
+facade: true                     # bind generated *Api classes onto one client
+project:                         # required to scaffold a full project
+  distribution: my-product-sdk
   author: Jane Smith
   author_email: jane@example.com
-  repo_url: https://github.com/org/my-sdk
+  repo_url: https://github.com/org/my-product-sdk
 ```
 
 Build the SDK, then the CLI:
 
 ```bash
-phantasos sdk build my-product    # or a direct path: phantasos sdk build products/my-product/sdk.yml
+phantasos sdk build my-product
+# or pass a direct path:
+phantasos sdk build products/my-product/sdk.yml
 phantasos cli build my-product
 ```
 
