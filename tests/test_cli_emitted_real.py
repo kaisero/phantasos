@@ -790,13 +790,16 @@ def test_real_ir_carries_columns() -> None:
     # curated columns attach to the object's write commands too (per-object rule)
     create_dg = next(c for c in ir.commands if c.key == "create:device-group")
     assert create_dg.columns == show_dg.columns
-    # application columns: JMESPath paths through actual_instance union wrapper
+    # application columns: bare variant fields (oneOf items report the union of
+    # variant fields, so no actual_instance.* prefix is needed)
     show_app = next(c for c in ir.commands if c.key == "show:application")
-    assert [c.path for c in show_app.columns][:2] == [
-        "actual_instance.id",
-        "actual_instance.name",
-    ]
+    assert [c.path for c in show_app.columns] == ["id", "name", "type", "description"]
     assert show_app.items_field == "data"
+    # a policy list (uncurated, oneOf RuleSummary|Section) gets real default columns
+    show_adp = next(c for c in ir.commands if c.key == "show:access-and-data-policy")
+    assert [c.path for c in show_adp.columns][:3] == ["id", "name", "type"]
+    assert "one_of_schemas" not in [c.path for c in show_adp.columns]
+    assert "actual_instance" not in {col.path.split(".")[0] for col in show_adp.columns}
     # every show command with a response model got SOME columns
     shows = [c for c in ir.commands if c.verb == "show"]
     assert any(c.columns for c in shows)

@@ -30,7 +30,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    by earlier builds.
 3. **Patches** — when enabled, `patches.apply_generic_patches()` in `patches.py`
    fixes apostrophe enums, rebases enums onto lenient bases, and rewrites oneOf
-   to first-match; a product `hooks.py::patch(pkg_dir)` runs after.
+   to first-match. It also attaches pydantic `model_serializer`s so `model_dump()`
+   unwraps each oneOf wrapper to its `actual_instance` (no scaffolding leak) and
+   omits empty `additional_properties` bags (non-empty bags preserved); the wrap
+   handler respects `exclude=`, so the `to_dict()` request path is byte-unchanged.
+   A product `hooks.py::patch(pkg_dir)` runs after.
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
    `<package>/extras/`. Then `scaffold.render_scaffold()` (in the sibling
@@ -74,6 +78,8 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   - `patch_apostrophe_enums(models_dir)`
   - `rebase_lenient_enums(pkg_dir)`
   - `patch_oneof_first_match(models_dir)`
+  - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
+  - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
   - `apply_generic_patches(pkg_dir)`
 - `preprocess.py`
   - `load(path)`
