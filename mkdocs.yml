@@ -37,6 +37,7 @@ nav:
 exclude_docs: |
   specs/
   plans/
+  TODO.md
 
 plugins:
   - search
