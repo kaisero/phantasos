@@ -116,10 +116,10 @@ class Command(BaseModel):
     summary: str = ""
     description: str = ""
     paginated: bool = False
-    # True ONLY for a `show` command whose every binding is the SAME single
-    # get-by-id operation and there is NO list binding — i.e. the object can only
-    # be fetched one-at-a-time by id (the API exposes no list endpoint). Drives the
-    # runtime "has no list operation" diagnostic in _pick_binding.
+    # True ONLY for a `show` command that has get-by-id binding(s) requiring only
+    # the id path param and NO list binding — i.e. the object can only be fetched
+    # one-at-a-time by id (the API exposes no list endpoint). Drives the runtime
+    # "has no list operation" diagnostic in _pick_binding.
     get_by_id_only: bool = False
     # list-envelope field holding the rows (e.g. "data"); None when the op
     # returns the item directly

@@ -414,6 +414,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         cmd.get_by_id_only = (
             cmd.verb == "show"
             and id_flag is not None
+            and bool(cmd.bindings)  # else all() below is vacuously true on no bindings
             and not any(b.sub_verb == "list" for b in cmd.bindings)
             and all(b.requires == [id_flag.param] for b in cmd.bindings)
         )
