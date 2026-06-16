@@ -108,7 +108,7 @@ able to assume a single canonical id parameter. Likely a generic preprocess/patc
 - [ ] Audit id path-param names across all operations in each product spec
 - [ ] Design a normalization transform (rename to a canonical `id`, or expose a stable accessor)
 - [ ] Apply + re-smoke; confirm the CLI generator can rely on the canonical id
-- [ ] Document the convention in `docs/AUTHORING_A_SPEC.md`
+- [ ] Document the convention in `docs/authoring.md`
 
 ## Follow-up: consider a Typer CLI
 

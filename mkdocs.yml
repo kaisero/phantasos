@@ -28,29 +28,27 @@ theme:
 
 nav:
   - Home: index.md
-  - Authoring a spec: AUTHORING_A_SPEC.md
-  - API Reference: reference.md
+  - Architecture: architecture.md
+  - Authoring a product: authoring.md
+  - CLI reference: cli-reference.md
 
 # Internal/historical markdown kept in the repo but excluded from the published site:
 # the prototype phase write-ups, the migration index/plan, and planning docs.
 exclude_docs: |
   specs/
   plans/
+  TODO.md
 
 plugins:
   - search
-  - mkdocstrings:
-      handlers:
-        python:
-          options:
-            docstring_style: google
-            show_source: true
-            show_root_heading: true
-            members_order: source
 
 markdown_extensions:
   - admonition
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - toc:
       permalink: true

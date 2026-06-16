@@ -54,7 +54,7 @@ rejected).
 ```
 products/<name>/
 ├── openapi.yml                  # OpenAPI source (or set sdk.yml `spec:`)
-├── sdk.yml                      # required — build config (see AUTHORING_A_SPEC.md)
+├── sdk.yml                      # required — build config (see authoring.md)
 ├── cli.yml                      # optional — CLI classifier overrides
 ├── overrides/
 │   ├── README.md.jinja          # required — becomes the SDK's README
@@ -109,8 +109,7 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
   then inspects the built SDK; requires the SDK to be importable (build first).
 - **Tests:** `uv run nox -s gate` (offline); the relevant test file is
   `tests/test_productconfig.py` and `tests/test_config.py`.
-- **Field reference:** `docs/AUTHORING_A_SPEC.md`; onboarding walkthrough:
-  `docs/ONBOARDING.md`.
+- **Field reference:** `docs/authoring.md`.
 
 ## Public API
 
@@ -151,8 +150,7 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
 
 ## See also
 
-- Field reference: `docs/AUTHORING_A_SPEC.md`
-- Onboarding: `docs/ONBOARDING.md`
+- Field reference: `docs/authoring.md`
 - Component templates: `.agents/context/components.md` (when written)
 - SDK build pipeline: `.agents/context/sdk-generator.md`
 - Design: `docs/specs/2026-06-14-agents-context-docs-design.md`

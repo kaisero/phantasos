@@ -1,23 +1,46 @@
 # Authoring a product (`products/<product>/sdk.yml`)
 
 `phantasos` builds a vendored, self-contained Python SDK for an OpenAPI spec from a
-declarative product directory. Create `products/<product>/` with at minimum:
+declarative product directory.
 
-- `openapi.yml` — the OpenAPI source document (or set `spec:` to point elsewhere)
-- `sdk.yml` — the build config described below
+## Quickstart
 
-Then run:
+Create the product directory:
 
-```bash
-phantasos sdk build <product>       # resolves products/<product>/sdk.yml
-# or pass a direct path:
-phantasos sdk build path/to/sdk.yml
+```
+products/my-product/
+├── openapi.yml                 # OpenAPI source document
+├── sdk.yml                     # build config (see Config reference below)
+├── overrides/
+│   └── README.md.jinja         # required — becomes the generated SDK's README
+└── hooks.py                    # optional — Python preprocess/patch hooks
 ```
 
-The build pipeline: **preprocess** (generic transforms → declarative transforms →
-`hooks.py` `preprocess`) → **generate** (OpenAPI Generator) → **patch** (generic patches
-→ `hooks.py` `patch`) → **vendor** (render component templates into `<package>/extras/`,
-write `_about.py` provenance) → **smoke** (import every module + count operations).
+Write a minimal `sdk.yml`:
+
+```yaml
+package: my_product              # Python import name (snake_case)
+output: ../../../my-product-sdk  # where to write the SDK (relative to sdk.yml)
+base_url: https://api.example.com
+facade: true                     # bind generated *Api classes onto one client
+project:                         # required to scaffold a full project
+  distribution: my-product-sdk
+  author: Jane Smith
+  author_email: jane@example.com
+  repo_url: https://github.com/org/my-product-sdk
+```
+
+Build the SDK, then the CLI:
+
+```bash
+phantasos sdk build my-product
+# or pass a direct path:
+phantasos sdk build products/my-product/sdk.yml
+phantasos cli build my-product
+```
+
+For what each build stage does, see [Architecture](architecture.md). The full
+configuration surface is the reference below.
 
 ---
 

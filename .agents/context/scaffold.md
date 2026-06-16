@@ -67,7 +67,7 @@ Characterised by category — not enumerated exhaustively:
 
 ## See also
 
-- `docs/ONBOARDING.md` §5 "What the scaffold produces" and §6 "Never hand-edit the generated SDK"
+- `docs/authoring.md` — the `overrides/` section (per-product scaffold templates, same-path-wins; the generated SDK is a pure build artifact)
 - `src/phantasos/generator/sdk/build.py` — SDK orchestrator that calls into this engine
 - `src/phantasos/cli.py` — `phantasos cli build` path that calls into this engine
 - `src/phantasos/generator/cli/scaffold_context.py` — builds the CLI-specific Jinja context

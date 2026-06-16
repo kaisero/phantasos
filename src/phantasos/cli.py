@@ -122,7 +122,7 @@ def cli_build(
     if loaded.config.project is None and cfg.project is None:
         typer.echo(
             "ERROR: cli build needs project metadata to scaffold the CLI — add a "
-            "'project:' block to sdk.yml or cli.yml (see docs/ONBOARDING.md)",
+            "'project:' block to sdk.yml or cli.yml (see docs/authoring.md)",
             err=True,
         )
         raise typer.Exit(2)

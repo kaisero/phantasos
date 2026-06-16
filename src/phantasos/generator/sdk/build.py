@@ -79,13 +79,13 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     if loaded.config.project is None:
         raise ValueError(
             "sdk.yml needs a 'project:' block to scaffold the SDK; "
-            "see docs/ONBOARDING.md"
+            "see docs/authoring.md"
         )
     readme_tpl = loaded.base_dir / "overrides" / "README.md.jinja"
     if not readme_tpl.exists():
         raise ValueError(
             f"missing {readme_tpl} — each product must provide a per-product README "
-            "(overrides/README.md.jinja); see docs/ONBOARDING.md"
+            "(overrides/README.md.jinja); see docs/authoring.md"
         )
 
     from ... import scaffold
