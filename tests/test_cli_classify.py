@@ -445,6 +445,16 @@ def test_defaults_stamp_cli_default_on_query_flags() -> None:
     assert all(f.cli_default is None for f in create.body_flags)
 
 
+def test_get_by_id_only_flag() -> None:
+    """`thing` exposes only get_thing(thing_id) (no list) -> get_by_id_only;
+    `widget` has list_widgets -> not id-only."""
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, CliConfig())
+    by_key = {c.key: c for c in ir.commands}
+    assert by_key["show:thing"].get_by_id_only is True
+    assert by_key["show:widget"].get_by_id_only is False
+
+
 def test_defaults_validation_errors() -> None:
     from pathlib import Path
 
