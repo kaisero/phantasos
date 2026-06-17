@@ -403,6 +403,22 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
 
+    # ---- get-by-id-only show commands.
+    # A `show` with a single get-by-id binding and NO list operation can only
+    # fetch one object by id; flag it so the runtime emits a precise "no list
+    # operation" diagnostic instead of the generic no-match message. The strict
+    # `requires == [id]` check keeps the flag (and message) accurate: a show whose
+    # get also needs a discriminator (e.g. by_type_and_id) is NOT flagged.
+    for cmd in groups.values():
+        id_flag = next((f for f in cmd.path_params if f.kind == "id"), None)
+        cmd.get_by_id_only = (
+            cmd.verb == "show"
+            and id_flag is not None
+            and bool(cmd.bindings)  # else all() below is vacuously true on no bindings
+            and not any(b.sub_verb == "list" for b in cmd.bindings)
+            and all(b.requires == [id_flag.param] for b in cmd.bindings)
+        )
+
     # ---- Table columns.
     # CRITICAL: columns resolve per OBJECT, never per command. Real-SDK write ops
     # return DIVERGENT response models (e.g. create_device_group ->

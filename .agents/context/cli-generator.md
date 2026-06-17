@@ -39,6 +39,9 @@ this package. They wire the three pipeline stages together:
    and resolves per-OBJECT table columns (see the comment block in `classify.py` —
    columns resolve per object via the show command's item model, never per
    command, because write ops return divergent response models).
+   It also flags `Command.get_by_id_only` — a `show` whose only binding is a single
+   get-by-id (no list endpoint) — so the runtime can emit a precise "no list
+   operation" error instead of the generic no-match message.
 3. **Render** — `render_cli.render_cli(ir, package, out_dir, *, env_prefix,
    distribution, auth)` in `render_cli.py` wipes/re-emits `_generated/` from Jinja
    templates: the runtime modules, one command module per SDK resource, the
@@ -252,6 +255,11 @@ keys / param names / objects fail the build loudly.
 - **Some phase-2 gaps are explicit TODOs in code**: `dict` / `list[Model]`
   request bodies are not yet introspected (`introspect.py`), and
   `select_method_for_verb` is reserved but not yet wired into `build_cli_ir`.
+- **`get_by_id_only`** marks a `show` command backed solely by a get-by-id
+  operation (no list binding; the get requires exactly the id). `runtime._pick_binding`
+  uses it to print `'show <object>' has no list operation` + an `--id` hint when no
+  binding matches, rather than the generic no-match diagnostic. Computed strictly
+  (`requires == [id]`), so a `show` whose get also needs a discriminator is not flagged.
 
 ## See also
 

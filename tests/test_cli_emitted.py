@@ -3703,3 +3703,53 @@ def test_no_auth_has_no_environment_group(
     # the absent top-level group fails to invoke
     res = r.invoke(main.app, ["environment", "--help"])
     assert res.exit_code != 0
+
+
+# --- bugfix: clear error for get-by-id-only show commands (no list op) --------
+
+
+def test_show_id_only_reports_no_list_operation(
+    emitted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A show command backed only by get-by-id (no list) reports a clear
+    'no list operation' error with an --id hint, not the generic no-match.
+    Fails at _pick_binding before any client is constructed -> no fake facade."""
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    with pytest.raises(SystemExit) as exc:
+        rt.run(
+            "show:thing",
+            path={},
+            body={},
+            query={},
+            output="json",
+            paginate_all=False,
+            dry_run=False,
+            verbose=False,
+        )
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "has no list operation" in err
+    assert "--id" in err
+
+
+def test_show_id_only_with_id_still_dispatches_get(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Positive control: the get-by-id path is unaffected — `show thing --id t1`
+    still dispatches get_thing(thing_id="t1")."""
+    rt = importlib.import_module("fakesdk_cli._generated.runtime")
+    calls: list[Any] = []
+    facade, fake_cls = _fake_client(calls)
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_cls()))
+    rt.run(
+        "show:thing",
+        path={"thing_id": "t1"},
+        body={},
+        query={},
+        output="json",
+        paginate_all=False,
+        dry_run=False,
+        verbose=False,
+    )
+    assert calls and calls[0][0] == "get_thing"
+    assert calls[0][1].get("thing_id") == "t1"

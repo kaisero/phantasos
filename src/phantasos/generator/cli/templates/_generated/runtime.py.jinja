@@ -233,6 +233,18 @@ _SUBVERB_PRIORITY = {
 def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
     candidates = [b for b in cmd.bindings if set(b.requires) <= present]
     if not candidates:
+        if cmd.get_by_id_only:
+            # A `show` backed only by get-by-id (no list endpoint exists).
+            # Reaching here means --id was omitted; say so precisely instead of
+            # the generic no-match message.
+            _diag.fail(
+                f"'{cmd.verb} {cmd.object}' has no list operation",
+                code=2,
+                hint=(
+                    f"fetch a single {cmd.object} by id, "
+                    f"e.g. '{cmd.verb} {cmd.object} --id <id>'"
+                ),
+            )
         _diag.fail(f"no operation for '{cmd.key}' matches the given arguments", code=2)
     best_len = max(len(b.requires) for b in candidates)
     top = [b for b in candidates if len(b.requires) == best_len]
