@@ -1357,9 +1357,14 @@ def sdk_docs(session: nox.Session) -> None:
     session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     out = load_product("prisma-browser").output_dir
     session.chdir(str(out))
+    # Isolate this `uv run` to a dedicated env so it does NOT inherit
+    # UV_PROJECT_ENVIRONMENT (the gate venv) and editable-install the SDK there
+    # (which would make prisma_browser mypy-resolvable and break the gate).
+    build_env = session.virtualenv.location + "-build"  # dedicated, off the gate env
+    docs_env = {**os.environ, "UV_PROJECT_ENVIRONMENT": build_env}
     session.run(
         "uv", "run", "--group", "docs", "mkdocs", "build", "--strict",
-        external=True, env={**os.environ},
+        external=True, env=docs_env,
     )
     assert (out / "site" / "reference").exists(), "reference pages were not generated"
 ```
