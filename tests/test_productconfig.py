@@ -305,3 +305,19 @@ def test_product_config_docs_present():
         docs={"showcase_resource": "applications"},
     )
     assert cfg.docs.showcase_resource == "applications"
+
+
+def test_has_docs_in_context(tmp_path):
+    # Minimal product dir: sdk.yml + empty openapi.yml
+    import textwrap
+    (tmp_path / "openapi.yml").write_text("info: {title: T, version: '1'}\n")
+    (tmp_path / "sdk.yml").write_text(textwrap.dedent("""
+        package: p
+        output: ./out
+        base_url: https://x
+        docs: {showcase_resource: applications}
+        project: {distribution: p, author: A, author_email: a@b.c, repo_url: https://h/p}
+    """))
+    from phantasos.productconfig import load_product
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["has_docs"] is True

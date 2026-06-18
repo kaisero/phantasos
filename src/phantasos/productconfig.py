@@ -178,6 +178,7 @@ _AUTO_EXPOSED = {
     "license",
     "python_versions",
     "dependencies",
+    "has_docs",
 }
 
 
@@ -232,6 +233,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_errors": errors is not None,
         "has_facade": facade is not None,
         "has_retry": retry is not None,
+        "has_docs": cfg.docs is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
     }
     if cfg.project is not None:
