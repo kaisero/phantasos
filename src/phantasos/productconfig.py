@@ -50,13 +50,26 @@ class DocsOperations(BaseModel):
     delete: str | None = None
 
 
+class DocsExamples(BaseModel):
+    """Optional per-slot verbatim override of the showcase CRUD example block."""
+
+    model_config = ConfigDict(extra="forbid")
+    create: str | None = None
+    read: str | None = None
+    list: str | None = None
+    update: str | None = None
+    delete: str | None = None
+
+
 class DocsConfig(BaseModel):
     """Opt-in user-documentation generation (sdk.yml `docs:` block)."""
 
     model_config = ConfigDict(extra="forbid")
     showcase_resource: str
+    showcase_variant: str | None = None
     site_name: str | None = None
     operations: DocsOperations | None = None
+    examples: DocsExamples | None = None
 
 
 class Hoist(BaseModel):

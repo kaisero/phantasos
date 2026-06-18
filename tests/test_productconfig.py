@@ -336,3 +336,22 @@ def test_has_docs_in_context(tmp_path: Path) -> None:
 
     loaded = load_product(str(tmp_path / "sdk.yml"))
     assert loaded.context["has_docs"] is True
+
+
+def test_docs_examples_and_variant_parse() -> None:
+    from phantasos.productconfig import DocsConfig
+
+    cfg = DocsConfig.model_validate(
+        {
+            "showcase_resource": "applications",
+            "showcase_variant": "CustomApplicationInput",
+            "examples": {
+                "create": "created = client.applications.create_application(...)"
+            },
+        }
+    )
+    assert cfg.showcase_variant == "CustomApplicationInput"
+    assert cfg.examples is not None
+    assert cfg.examples.create is not None
+    assert cfg.examples.create.startswith("created =")
+    assert cfg.examples.read is None
