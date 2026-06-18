@@ -54,17 +54,22 @@ def _ctx(**over: Any) -> dict[str, Any]:
             "operations": {
                 "create": {
                     "method": "create_application",
+                    "example_override": None,
                     "required_args": [
                         {"name": "type", "kind": "path", "placeholder": "WEB"},
                         {
                             "name": "create_or_replace_app_input",
                             "kind": "body",
                             "body_model": "CreateOrReplaceAppInput",
+                            "body_code": (
+                                'CustomApplicationInput(\n    name="example",\n)'
+                            ),
                         },
                     ],
                 },
                 "read": {
                     "method": "get_application_by_id",
+                    "example_override": None,
                     "required_args": [
                         {"name": "id", "kind": "path", "placeholder": "<id>"}
                     ],
@@ -72,6 +77,7 @@ def _ctx(**over: Any) -> dict[str, Any]:
                 "list": {"method": "list_applications", "required_args": []},
                 "delete": {
                     "method": "delete_application_by_id",
+                    "example_override": None,
                     "required_args": [
                         {"name": "id", "kind": "path", "placeholder": "<id>"}
                     ],
@@ -125,9 +131,15 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
         "operations": {
             "read": {
                 "method": "query_thing",
+                "example_override": None,
                 "required_args": [
                     {"name": "id", "kind": "path", "placeholder": "<id>"},
-                    {"name": "thing_query", "kind": "body", "body_model": "ThingQuery"},
+                    {
+                        "name": "thing_query",
+                        "kind": "body",
+                        "body_model": "ThingQuery",
+                        "body_code": "ThingQuery()",
+                    },
                 ],
             },
         },
@@ -140,7 +152,7 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     )
     gs = (tmp_path / "docs/getting-started.md").read_text()
     assert "query_thing(" in gs
-    assert "thing_query=ThingQuery(...)" in gs
+    assert "thing_query=ThingQuery()" in gs
 
 
 def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
@@ -186,3 +198,22 @@ def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
     data = yaml.unsafe_load((tmp_path / "mkdocs.yml").read_text())
     assert data["site_description"] == desc
     assert data["site_name"] == "Acme: SDK"
+
+
+def test_crud_renders_synthesized_body_code(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    crud = (tmp_path / "docs/guides/crud.md").read_text()
+    assert "CustomApplicationInput(" in crud
+    assert 'name="example"' in crud
+    assert "CreateOrReplaceAppInput(...)" not in crud  # no opaque placeholder
+
+
+def test_crud_uses_manual_override_verbatim(tmp_path: Path) -> None:
+    ctx = _ctx()
+    ctx["showcase"]["operations"]["create"]["example_override"] = (
+        "created = client.applications.create_application(MAGIC)"
+    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, ctx)
+    crud = (tmp_path / "docs/guides/crud.md").read_text()
+    assert "MAGIC" in crud
+    assert 'name="example"' not in crud  # override replaced the whole call
