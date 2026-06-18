@@ -118,8 +118,10 @@ def test_no_docs_when_flag_false(tmp_path: Path) -> None:
 
 def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     # A showcase with no list op falls back to the read op in Getting Started; if
-    # that read op has a body arg, the template must render BodyModel(...) (not
-    # crash on a missing 'placeholder' under StrictUndefined).
+    # that read op has a body arg, the template must render its synthesized
+    # body_code (here "ThingQuery()") — and must not crash on a missing
+    # 'placeholder' key (body args carry body_code, not placeholder) under
+    # StrictUndefined.
     showcase: dict[str, Any] = {
         "attr": "things",
         "has_create": False,
