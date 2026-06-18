@@ -146,3 +146,101 @@ def test_build_docs_context_unknown_resource(tmp_path: Any) -> None:
     inv = OperationInventory(sdk_package="p", sdk_version="1", operations=APPLICATIONS)
     with pytest.raises(ValueError, match=r"nope.*applications"):
         docs._validate_resource(inv, "nope")
+
+
+def test_shape_context_synthesizes_body_code_and_override() -> None:
+    import datetime
+
+    from pydantic import BaseModel, Field, StrictStr
+
+    from phantasos.generator.cli.inventory import (
+        OperationInfo,
+        OperationInventory,
+        ParamInfo,
+    )
+    from phantasos.generator.sdk.docs import shape_context
+    from phantasos.productconfig import DocsExamples
+
+    class AppInput(BaseModel):
+        name: StrictStr = Field(description="Name")
+        created_at: datetime.datetime
+
+    # OperationInventory requires sdk_package/sdk_version (no defaults, extra="forbid").
+    inv = OperationInventory(
+        sdk_package="p",
+        sdk_version="1",
+        operations=[
+            OperationInfo(
+                resource="apps",
+                method="create_app",
+                params=[
+                    ParamInfo(
+                        name="body",
+                        annotation="AppInput",
+                        location="body",
+                        required=True,
+                        body_model="AppInput",
+                    )
+                ],
+            )
+        ],
+    )
+    ctx: dict[str, Any] = shape_context(
+        inv,
+        resource="apps",
+        site_name="x",
+        auth=None,
+        overrides=None,
+        has_pagination=False,
+        resolve={"AppInput": AppInput}.get,
+        variant=None,
+        examples=DocsExamples(create="X = 1"),
+    )
+    op = ctx["showcase"]["operations"]["create"]
+    body = next(a for a in op["required_args"] if a["kind"] == "body")
+    assert body["body_code"].startswith("AppInput(")
+    assert 'name="example"' in body["body_code"]
+    assert op["example_override"] == "X = 1"
+
+
+def test_shape_context_falls_back_without_resolver() -> None:
+    from phantasos.generator.cli.inventory import (
+        OperationInfo,
+        OperationInventory,
+        ParamInfo,
+    )
+    from phantasos.generator.sdk.docs import shape_context
+
+    inv = OperationInventory(
+        sdk_package="p",
+        sdk_version="1",
+        operations=[
+            OperationInfo(
+                resource="apps",
+                method="create_app",
+                params=[
+                    ParamInfo(
+                        name="body",
+                        annotation="AppInput",
+                        location="body",
+                        required=True,
+                        body_model="AppInput",
+                    )
+                ],
+            )
+        ],
+    )
+    ctx: dict[str, Any] = shape_context(
+        inv,
+        resource="apps",
+        site_name="x",
+        auth=None,
+        overrides=None,
+        has_pagination=False,
+    )
+    body = next(
+        a
+        for a in ctx["showcase"]["operations"]["create"]["required_args"]
+        if a["kind"] == "body"
+    )
+    assert body["body_code"] == "AppInput(...)"

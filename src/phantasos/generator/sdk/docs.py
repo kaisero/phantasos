@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...productconfig import DocsOperations, LoadedProduct
+    from ...productconfig import DocsExamples, DocsOperations, LoadedProduct
     from ..cli.inventory import OperationInfo, OperationInventory
 
 # Leading method token -> CRUD slot. "patch"/"put" also mean update.
@@ -75,17 +76,30 @@ def classify_operations(
     return slots
 
 
-def _op_dict(op: OperationInfo) -> dict[str, object]:
+def _op_dict(
+    op: OperationInfo,
+    resolve: Callable[[str], type | None] | None,
+    variant: str | None,
+) -> dict[str, object]:
+    from .examples import synthesize_body
+
     required_args: list[dict[str, object]] = []
     for p in op.params:
         if not p.required:
             continue
         if p.location == "body":
+            cls = resolve(p.body_model) if (resolve and p.body_model) else None
+            body_code = (
+                synthesize_body(cls, variant=variant)
+                if cls is not None
+                else f"{p.body_model}(...)"
+            )
             required_args.append(
                 {
                     "name": p.name,
                     "kind": "body",
                     "body_model": p.body_model,
+                    "body_code": body_code,
                 }
             )
         elif p.location == "path":
@@ -115,10 +129,16 @@ def shape_context(
     auth: object | None,
     overrides: DocsOperations | None,
     has_pagination: bool,
+    resolve: Callable[[str], type | None] | None = None,
+    variant: str | None = None,
+    examples: DocsExamples | None = None,
 ) -> dict[str, object]:
     ops = [op for op in inventory.operations if op.resource == resource]
     slots = classify_operations(ops, resource, overrides)
-    operations = {slot: _op_dict(op) for slot, op in slots.items()}
+    operations = {slot: _op_dict(op, resolve, variant) for slot, op in slots.items()}
+    ex = vars(examples) if examples else {}
+    for slot, entry in operations.items():
+        entry["example_override"] = ex.get(slot)
     showcase = {
         "attr": resource,
         "operations": operations,
@@ -160,6 +180,8 @@ def _validate_resource(inventory: OperationInventory, resource: str) -> None:
 
 def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, object]:
     """Scoped introspect of the showcase resource -> docs context dict."""
+    import importlib
+
     from ..cli.introspect import introspect
 
     cfg = loaded.config
@@ -168,6 +190,13 @@ def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, ob
     inventory = introspect(cfg.package, project_dir)
     _validate_resource(inventory, cfg.docs.showcase_resource)
     site_name = cfg.docs.site_name or loaded.context.get("distribution", cfg.package)
+
+    models_ns = importlib.import_module(f"{cfg.package}.models")
+
+    def _resolve(name: str) -> type | None:
+        obj = getattr(models_ns, name, None)
+        return obj if isinstance(obj, type) else None
+
     return shape_context(
         inventory,
         resource=cfg.docs.showcase_resource,
@@ -175,4 +204,7 @@ def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, ob
         auth=loaded.auth,
         overrides=cfg.docs.operations,
         has_pagination=bool(loaded.context.get("has_pagination")),
+        resolve=_resolve,
+        variant=cfg.docs.showcase_variant,
+        examples=cfg.docs.examples,
     )

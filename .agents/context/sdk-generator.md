@@ -97,7 +97,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   - `build(loaded, run_smoke)`
 - `docs.py`
   - `classify_operations(operations, resource, overrides)` — Map each CRUD slot to its canonical OperationInfo (present slots only).
-  - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination)`
+  - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination, resolve, variant, examples)`
   - `build_docs_context(loaded, project_dir)` — Scoped introspect of the showcase resource -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
