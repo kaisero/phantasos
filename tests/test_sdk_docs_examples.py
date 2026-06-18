@@ -46,6 +46,32 @@ def test_required_only_with_typed_placeholders() -> None:
     assert "note" not in out and "strict_mode" not in out
 
 
+# An int-valued enum (mirrors the generated SDK's int enums). Unlike a str-enum,
+# the synthesizer must emit the value as a BARE literal (no surrounding quotes).
+class Priority(int, enum.Enum):
+    LOW = 1
+    HIGH = 5
+
+
+class ScalarFields(BaseModel):
+    priority: Priority  # int-enum -> bare `1`
+    ratio: float  # float scalar -> `0.0`
+    count: int  # int scalar -> `0`
+    enabled: StrictBool  # bool scalar -> `False`
+
+
+def test_int_enum_and_float_scalars_render_bare() -> None:
+    out = synthesize_body(ScalarFields)
+    assert out == (
+        "ScalarFields(\n"
+        "    priority=1,\n"  # bare int-enum literal, not "1"
+        "    ratio=0.0,\n"
+        "    count=0,\n"
+        "    enabled=False,\n"
+        ")"
+    )
+
+
 class _Wrapper(BaseModel):
     actual_instance: CustomApp | UrlInput | None = None
 
