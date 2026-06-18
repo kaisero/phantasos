@@ -52,11 +52,25 @@ plugins:
             - https://docs.pydantic.dev/latest/objects.inv
           options:
             docstring_style: sphinx
+            extensions:
+              - griffe_pydantic
+            show_if_no_docstring: true
             filters:
               - "!^_"
               - "!_with_http_info$"
               - "!_without_preload_content$"
               - "!_serialize$"
+              - "!^to_str$"
+              - "!^to_json$"
+              - "!^to_dict$"
+              - "!^from_json$"
+              - "!^from_dict$"
+              - "!^model_config$"
+              - "!^additional_properties$"
+              - "!^actual_instance$"
+              - "!^one_of_schemas$"
+              - "!^oneof_schema_"
+              - "!^discriminator_value_class_map$"
             show_bases: false
             show_source: false
             show_root_heading: true

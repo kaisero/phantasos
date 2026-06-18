@@ -143,6 +143,22 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     assert "thing_query=ThingQuery(...)" in gs
 
 
+def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    mk = (tmp_path / "mkdocs.yml").read_text()
+    assert "griffe_pydantic" in mk
+    assert "show_if_no_docstring: true" in mk
+    # boilerplate the aggressive filter must hide. NB: mkdocstrings filters are
+    # re.search patterns, so the unanchored-tail "!^oneof_schema_" matches every
+    # oneof_schema_<n>_validator member — and avoids a backslash that would not
+    # survive the verbatim YAML round-trip.
+    for pat in ("!^to_dict$", "!^model_config$", "!^additional_properties$",
+                "!^actual_instance$", "!^oneof_schema_"):
+        assert pat in mk, pat
+    pp = (tmp_path / "pyproject.toml").read_text()
+    assert "griffe-pydantic" in pp
+
+
 def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
     # Free-text site_name/description containing ": " must not break the YAML.
     import yaml
