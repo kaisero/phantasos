@@ -69,7 +69,10 @@ include = ["src/phantasos", "README.md"]
 [dependency-groups]
 # python-dotenv + pyyaml: the emitted-CLI tests import a generated CLI in-process,
 # which imports yaml/dotenv at module load — both must be present in the test env.
-test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6"]
+# pymdown-extensions: the docs-scaffold tests yaml.unsafe_load the generated
+# mkdocs.yml, whose mermaid fence uses `!!python/name:pymdownx.superfences.
+# fence_code_format` — unsafe_load imports that path, so pymdownx must be present.
+test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6", "pymdown-extensions>=10"]
 typecheck = ["mypy>=1.11", { include-group = "test" }]
 lint = ["ruff>=0.6", "codespell>=2.3"]
 audit = ["pip-audit>=2.7"]

@@ -157,7 +157,14 @@ def smoke(session: nox.Session) -> None:
     your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
     the default session list. Each SDK is written to a sibling dir of its product dir.
     """
+    from phantasos.productconfig import sdk_runtime_deps
+
     _sync(session)
+    # `phantasos sdk build` of a docs:-enabled product (prisma-browser) introspects
+    # the freshly generated package in-process (build_docs_context), which imports the
+    # SDK's runtime deps (e.g. python-dateutil). Pre-install them so the build's
+    # introspect step can import the package. Mirrors the `live`/`sdk-docs` sessions.
+    session.install(*sdk_runtime_deps())
     session.run("phantasos", "sdk", "build", "prisma-browser")
     session.run("phantasos", "sdk", "build", "adem")
 
