@@ -1,0 +1,38 @@
+{% if has_docs | default(false) %}# Getting Started
+
+This guide takes you from zero to your first successful API call.
+
+## Install
+
+```bash
+pip install {{ distribution }}
+```
+
+{% if has_auth %}## Configure credentials
+
+The client reads credentials from the environment. Set:
+
+```bash
+{% for c in credentials %}{% if c.required %}export {{ c.env_var }}="{% if c.secret %}…{% else %}your-{{ c.name }}{% endif %}"
+{% endif %}{% endfor %}```
+
+See the [Authentication guide](guides/authentication.md) for every option and for passing
+credentials explicitly.
+{% endif %}
+
+## Your first call
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_env()
+{% if showcase.has_list %}
+# List {{ showcase.attr }}
+page = client.{{ showcase.attr }}.{{ showcase.operations["list"].method }}()
+print(page){% elif showcase.has_read %}
+result = client.{{ showcase.attr }}.{{ showcase.operations["read"].method }}({% for a in showcase.operations["read"].required_args %}{{ a.name }}="{{ a.placeholder }}"{% if not loop.last %}, {% endif %}{% endfor %})
+print(result){% endif %}
+```
+
+You're set — continue to [CRUD operations](guides/crud.md).
+{% endif %}
