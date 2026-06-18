@@ -152,8 +152,13 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
     # re.search patterns, so the unanchored-tail "!^oneof_schema_" matches every
     # oneof_schema_<n>_validator member — and avoids a backslash that would not
     # survive the verbatim YAML round-trip.
-    for pat in ("!^to_dict$", "!^model_config$", "!^additional_properties$",
-                "!^actual_instance$", "!^oneof_schema_"):
+    for pat in (
+        "!^to_dict$",
+        "!^model_config$",
+        "!^additional_properties$",
+        "!^actual_instance$",
+        "!^oneof_schema_",
+    ):
         assert pat in mk, pat
     pp = (tmp_path / "pyproject.toml").read_text()
     assert "griffe-pydantic" in pp
