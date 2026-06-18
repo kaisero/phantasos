@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guides are tailored to that resource via a scoped, build-time introspection. The site
   builds under `mkdocs build --strict`. Products without a `docs:` block emit no docs
   (and no longer ship the previously non-building mkdocs shell).
+- Generated SDK docs now render each pydantic model's full field surface (via
+  `griffe-pydantic`), document oneOf wrapper types as links to their variant
+  models, and emit real-shaped CRUD examples synthesized from the schema.
+- `sdk.yml` `docs:` gains `showcase_variant` (choose the oneOf variant used in
+  the example) and `examples.<slot>` (verbatim per-operation example override).
 
 ### Changed
 

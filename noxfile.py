@@ -179,6 +179,15 @@ def live(session: nox.Session) -> None:
             if stripped and not stripped.startswith("#") and "=" in stripped:
                 key, _, value = stripped.partition("=")
                 session.env.setdefault(key.strip(), value.strip().strip('"'))
+    # Pre-install the SDK's stable runtime deps so the in-process introspect step
+    # (triggered by docs context build during sdk build) can import the SDK package.
+    # introspect() adds the SDK dir to sys.path; we only need the deps in the venv.
+    session.install(
+        "urllib3>=2.1.0,<3",
+        "python-dateutil>=2.8.2",
+        "pydantic>=2.11",
+        "typing-extensions>=4.7.1",
+    )
     session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     from phantasos.productconfig import load_product
 
@@ -198,12 +207,28 @@ def sdk_docs(session: nox.Session) -> None:
     from phantasos.productconfig import load_product
 
     _sync(session)
-    # Pre-install the SDK's runtime deps so that the in-process introspect step
-    # (called by sdk build to shape the docs context) can import the SDK package.
-    # The build will overwrite the SDK on disk; installing its deps beforehand is
-    # safe because the dep set is stable across regenerations.
     out = load_product("prisma-browser").output_dir
-    session.install(str(out))
+    # Wipe any stale mkdocs site/ tree left by a previous run — setuptools's flat
+    # layout discovery would otherwise see both `site/` and the SDK package as
+    # top-level packages and refuse to build.
+    stale_site = out / "site"
+    if stale_site.exists():
+        import shutil
+
+        shutil.rmtree(stale_site)
+    # Pre-install the SDK's known stable runtime deps.  We install them directly
+    # (rather than via the SDK's own pyproject.toml) so this step is robust to
+    # partially-built SDK state — e.g. when the OAG-generated pyproject.toml is
+    # present instead of the phantasos-scaffolded one, installing the whole project
+    # would fail (wrong build backend / flat-layout discovery collision with
+    # site/).  The dep set is stable across regenerations; introspect() adds the
+    # SDK dir to sys.path itself, so the package is importable without pip install.
+    session.install(
+        "urllib3>=2.1.0,<3",
+        "python-dateutil>=2.8.2",
+        "pydantic>=2.11",
+        "typing-extensions>=4.7.1",
+    )
     session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     session.chdir(str(out))
     # Isolate this `uv run` to a DEDICATED project env. It would otherwise inherit
@@ -226,5 +251,19 @@ def sdk_docs(session: nox.Session) -> None:
         external=True,
         env=docs_env,
     )
-    if not (out / "site" / "reference").exists():
+    site = out / "site"
+    if not (site / "reference").exists():
         session.error("reference pages were not generated")
+    # (A) griffe-pydantic surfaces field descriptions on a leaf model page
+    leaf = site / "reference/models/custom_application_input/index.html"
+    if not (leaf.exists() and "Name of the application" in leaf.read_text()):
+        session.error("model field descriptions did not render (griffe-pydantic)")
+    # (B) oneOf wrapper page links its variant models
+    wrapper = site / "reference/models/create_or_replace_app_input/index.html"
+    if not (wrapper.exists() and "CustomApplicationInput" in wrapper.read_text()):
+        session.error("oneOf wrapper page is missing variant links")
+    # (C) the curated CRUD example rendered (not the opaque placeholder)
+    crud = site / "guides/crud/index.html"
+    txt = crud.read_text() if crud.exists() else ""
+    if "Acme Wiki" not in txt or "CreateOrReplaceAppInput(...)" in txt:
+        session.error("CRUD create example did not render the curated body")

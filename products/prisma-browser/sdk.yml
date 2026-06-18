@@ -11,6 +11,17 @@ errors: {type: nested}
 facade: true
 docs:
   showcase_resource: applications
+  showcase_variant: CustomApplicationInput
+  examples:
+    create: |
+      created = client.applications.create_application(
+          type="custom",
+          create_or_replace_app_input=CustomApplicationInput(
+              name="Acme Wiki",
+              type="custom",
+              urls=[UrlInput(url="https://wiki.acme.com/*")],
+          ),
+      )
 transforms:
   hoist:
     - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
