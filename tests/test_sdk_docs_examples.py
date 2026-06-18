@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import enum
-from typing import Optional, Union
 
 from pydantic import BaseModel, Field, StrictBool, StrictStr
 
@@ -11,14 +10,15 @@ from phantasos.generator.sdk.examples import synthesize_body
 
 # A real str-enum (mirrors the generated SDK's LenientStrEnum, which is a
 # `str, Enum`). Not a mock — exercises the synthesizer's real enum path.
-class Color(str, enum.Enum):
+# Deliberately (str, Enum) rather than StrEnum to match the generated code.
+class Color(str, enum.Enum):  # noqa: UP042
     RED = "red"
     BLUE = "blue"
 
 
 class UrlInput(BaseModel):
     url: StrictStr = Field(description="URL pattern")
-    strict_mode: Optional[StrictBool] = Field(default=False)  # optional -> omitted
+    strict_mode: StrictBool | None = Field(default=False)  # optional -> omitted
 
 
 class CustomApp(BaseModel):
@@ -26,7 +26,7 @@ class CustomApp(BaseModel):
     color: Color
     urls: list[UrlInput]
     created_at: datetime.datetime
-    note: Optional[str] = None  # optional -> omitted
+    note: str | None = None  # optional -> omitted
 
 
 def test_required_only_with_typed_placeholders() -> None:
@@ -47,7 +47,7 @@ def test_required_only_with_typed_placeholders() -> None:
 
 
 class _Wrapper(BaseModel):
-    actual_instance: Optional[Union[CustomApp, UrlInput]] = None
+    actual_instance: CustomApp | UrlInput | None = None
 
 
 def test_oneof_picks_named_variant() -> None:
@@ -61,7 +61,7 @@ def test_oneof_defaults_to_first_variant() -> None:
 def test_cycle_guard_terminates() -> None:
     # required self-reference would recurse forever without the guard
     class A(BaseModel):
-        nxt: "A"  # required cycle
+        nxt: A  # required cycle
 
     A.model_rebuild()
     out = synthesize_body(A)
