@@ -22,6 +22,14 @@ transforms:
     - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
+    # Cloud-storage providers ship without operationIds, so OAG auto-names them
+    # seb_api_v1_* (unclassifiable). Give them CRUD-friendly operationIds so the
+    # CLI classifier maps them to show/create/delete cloud-storage-provider.
+    # (The full-replace PUT is intentionally left raw + hidden in cli.yml.)
+    - {path: /seb-api/v1/integrations/cloud-storage, method: get, operation_id: ListCloudStorageProviders, tag: Integrations}
+    - {path: /seb-api/v1/integrations/cloud-storage, method: post, operation_id: CreateCloudStorageProvider, tag: Integrations}
+    - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: get, operation_id: GetCloudStorageProviderById, tag: Integrations}
+    - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: delete, operation_id: DeleteCloudStorageProviderById, tag: Integrations}
 project:
   distribution: prisma-browser-sdk
   description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs
