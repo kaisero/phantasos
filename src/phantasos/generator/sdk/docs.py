@@ -13,8 +13,13 @@ if TYPE_CHECKING:
 
 # Leading method token -> CRUD slot. "patch"/"put" also mean update.
 _VERB_SLOT = {
-    "create": "create", "get": "read", "list": "list",
-    "update": "update", "patch": "update", "put": "update", "delete": "delete",
+    "create": "create",
+    "get": "read",
+    "list": "list",
+    "update": "update",
+    "patch": "update",
+    "put": "update",
+    "delete": "delete",
 }
 _BY_SUFFIX = re.compile(r"_by_.*$")
 
@@ -43,9 +48,7 @@ def classify_operations(
 ) -> dict[str, OperationInfo]:
     """Map each CRUD slot to its canonical OperationInfo (present slots only)."""
     by_method = {op.method: op for op in operations}
-    override_map = (
-        {k: v for k, v in vars(overrides).items() if v} if overrides else {}
-    )
+    override_map = {k: v for k, v in vars(overrides).items() if v} if overrides else {}
 
     slots: dict[str, OperationInfo] = {}
     for slot in ("create", "read", "list", "update", "delete"):
@@ -54,7 +57,8 @@ def classify_operations(
             slots[slot] = by_method[pinned]
             continue
         candidates = [
-            op for op in operations
+            op
+            for op in operations
             if _slot(op.method) == slot
             and not op.method.startswith("bulk_")
             and _matches_resource(resource, _noun(op.method))
@@ -72,14 +76,22 @@ def _op_dict(op: OperationInfo) -> dict[str, object]:
         if not p.required:
             continue
         if p.location == "body":
-            required_args.append({
-                "name": p.name, "kind": "body", "body_model": p.body_model,
-            })
+            required_args.append(
+                {
+                    "name": p.name,
+                    "kind": "body",
+                    "body_model": p.body_model,
+                }
+            )
         elif p.location == "path":
-            placeholder = (p.enum_values[0] if p.enum_values else f"<{p.name}>")
-            required_args.append({
-                "name": p.name, "kind": "path", "placeholder": str(placeholder),
-            })
+            placeholder = p.enum_values[0] if p.enum_values else f"<{p.name}>"
+            required_args.append(
+                {
+                    "name": p.name,
+                    "kind": "path",
+                    "placeholder": str(placeholder),
+                }
+            )
     return {
         "method": op.method,
         "summary": op.summary,
@@ -91,8 +103,13 @@ def _op_dict(op: OperationInfo) -> dict[str, object]:
 
 
 def shape_context(
-    inventory: OperationInventory, *, resource: str, site_name: str,
-    auth: object | None, overrides: DocsOperations | None, has_pagination: bool,
+    inventory: OperationInventory,
+    *,
+    resource: str,
+    site_name: str,
+    auth: object | None,
+    overrides: DocsOperations | None,
+    has_pagination: bool,
 ) -> dict[str, object]:
     ops = [op for op in inventory.operations if op.resource == resource]
     slots = classify_operations(ops, resource, overrides)
@@ -110,10 +127,14 @@ def shape_context(
     credentials = []
     if auth is not None and hasattr(auth, "credential_fields"):
         for f in auth.credential_fields():
-            credentials.append({
-                "name": f.name, "env_var": f.env_var,
-                "secret": f.secret, "required": f.required,
-            })
+            credentials.append(
+                {
+                    "name": f.name,
+                    "env_var": f.env_var,
+                    "secret": f.secret,
+                    "required": f.required,
+                }
+            )
     return {
         "has_docs": True,
         "site_name": site_name,
@@ -137,7 +158,8 @@ def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, ob
     from ..cli.introspect import introspect
 
     cfg = loaded.config
-    assert cfg.docs is not None  # guarded by the caller
+    if cfg.docs is None:  # guarded by the caller; this is a defensive check
+        raise AssertionError("build_docs_context called without a docs config")
     inventory = introspect(cfg.package, project_dir)
     _validate_resource(inventory, cfg.docs.showcase_resource)
     site_name = cfg.docs.site_name or loaded.context.get("distribution", cfg.package)
