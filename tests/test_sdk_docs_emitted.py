@@ -108,3 +108,52 @@ def test_no_docs_when_flag_false(tmp_path: Path) -> None:
     # Assert no doc FILES were emitted (not that the dir is absent).
     assert not list((tmp_path / "docs").rglob("*.md"))
     assert not (tmp_path / "docs" / "_hooks.py").exists()
+
+
+def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
+    # A showcase with no list op falls back to the read op in Getting Started; if
+    # that read op has a body arg, the template must render BodyModel(...) (not
+    # crash on a missing 'placeholder' under StrictUndefined).
+    showcase: dict[str, Any] = {
+        "attr": "things",
+        "has_create": False,
+        "has_read": True,
+        "has_list": False,
+        "has_update": False,
+        "has_delete": False,
+        "list": None,
+        "operations": {
+            "read": {
+                "method": "query_thing",
+                "required_args": [
+                    {"name": "id", "kind": "path", "placeholder": "<id>"},
+                    {"name": "thing_query", "kind": "body", "body_model": "ThingQuery"},
+                ],
+            },
+        },
+    }
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(),
+        None,
+        tmp_path,
+        _ctx(showcase=showcase, show_pagination_guide=False, has_pagination=False),
+    )
+    gs = (tmp_path / "docs/getting-started.md").read_text()
+    assert "query_thing(" in gs
+    assert "thing_query=ThingQuery(...)" in gs
+
+
+def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
+    # Free-text site_name/description containing ": " must not break the YAML.
+    import yaml
+
+    desc = "Acme: the next-gen API SDK"
+    scaffold.render_scaffold(
+        scaffold.builtin_dir(),
+        None,
+        tmp_path,
+        _ctx(description=desc, site_name="Acme: SDK"),
+    )
+    data = yaml.unsafe_load((tmp_path / "mkdocs.yml").read_text())
+    assert data["site_description"] == desc
+    assert data["site_name"] == "Acme: SDK"

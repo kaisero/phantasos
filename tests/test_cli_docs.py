@@ -98,6 +98,14 @@ def test_classify_honours_override() -> None:
     assert slots["read"].method == "get_application_by_type_and_id"
 
 
+def test_classify_raises_on_unknown_override() -> None:
+    from phantasos.productconfig import DocsOperations
+
+    ov = DocsOperations(create="does_not_exist")
+    with pytest.raises(ValueError, match=r"does_not_exist.*applications"):
+        classify_operations(APPLICATIONS, "applications", ov)
+
+
 def test_shape_context_shapes_showcase_and_credentials() -> None:
     from phantasos.config import ScmOAuth
     from phantasos.generator.sdk.docs import shape_context

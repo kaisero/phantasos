@@ -1,5 +1,5 @@
-{% if has_docs | default(false) %}site_name: {{ site_name }}
-site_description: {{ description }}
+{% if has_docs | default(false) %}site_name: {{ site_name | tojson }}
+site_description: {{ description | tojson }}
 repo_url: {{ repo_url }}
 repo_name: {{ repo_url | replace("https://github.com/", "") }}
 

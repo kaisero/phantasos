@@ -30,7 +30,7 @@ client = Client.from_env()
 # List {{ showcase.attr }}
 page = client.{{ showcase.attr }}.{{ showcase.operations["list"].method }}()
 print(page){% elif showcase.has_read %}
-result = client.{{ showcase.attr }}.{{ showcase.operations["read"].method }}({% for a in showcase.operations["read"].required_args %}{{ a.name }}="{{ a.placeholder }}"{% if not loop.last %}, {% endif %}{% endfor %})
+result = client.{{ showcase.attr }}.{{ showcase.operations["read"].method }}({% for a in showcase.operations["read"].required_args %}{% if a.kind == "body" %}{{ a.name }}={{ a.body_model }}(...){% else %}{{ a.name }}="{{ a.placeholder }}"{% endif %}{% if not loop.last %}, {% endif %}{% endfor %})
 print(result){% endif %}
 ```
 

@@ -53,7 +53,12 @@ def classify_operations(
     slots: dict[str, OperationInfo] = {}
     for slot in ("create", "read", "list", "update", "delete"):
         pinned = override_map.get(slot)
-        if pinned and pinned in by_method:
+        if pinned:
+            if pinned not in by_method:
+                raise ValueError(
+                    f"docs.operations.{slot} = {pinned!r} is not a method of "
+                    f"resource {resource!r}; available: {sorted(by_method)}"
+                )
             slots[slot] = by_method[pinned]
             continue
         candidates = [
