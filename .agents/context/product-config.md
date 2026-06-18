@@ -116,6 +116,8 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
 <!-- GENERATED:api -->
 - `productconfig.py`
   - class `ProjectConfig`
+  - class `DocsOperations` — Optional per-verb override of the showcase resource's CRUD methods.
+  - class `DocsConfig` — Opt-in user-documentation generation (sdk.yml `docs:` block).
   - class `Hoist`
   - class `TagOperation`
   - class `Transforms`
