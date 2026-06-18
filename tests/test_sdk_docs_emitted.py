@@ -164,6 +164,14 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
     assert "griffe-pydantic" in pp
 
 
+def test_gen_ref_pages_handles_oneof_wrappers(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    script = (tmp_path / "docs/scripts/gen_ref_pages.py").read_text()
+    # detection + variant-link rendering must be present in the emitted script
+    assert "actual_instance" in script
+    assert "One of the following variants" in script
+
+
 def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
     # Free-text site_name/description containing ": " must not break the YAML.
     import yaml
