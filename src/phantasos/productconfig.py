@@ -39,6 +39,26 @@ class ProjectConfig(BaseModel):
     dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
 
 
+class DocsOperations(BaseModel):
+    """Optional per-verb override of the showcase resource's CRUD methods."""
+
+    model_config = ConfigDict(extra="forbid")
+    create: str | None = None
+    read: str | None = None
+    list: str | None = None
+    update: str | None = None
+    delete: str | None = None
+
+
+class DocsConfig(BaseModel):
+    """Opt-in user-documentation generation (sdk.yml `docs:` block)."""
+
+    model_config = ConfigDict(extra="forbid")
+    showcase_resource: str
+    site_name: str | None = None
+    operations: DocsOperations | None = None
+
+
 class Hoist(BaseModel):
     # `schema` shadows a pydantic BaseModel attribute, so store it as schema_name
     # with a YAML alias of `schema`. populate_by_name lets tests pass either.
@@ -90,6 +110,7 @@ class ProductConfig(BaseModel):
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
+    docs: DocsConfig | None = None
 
 
 class CustomComponent(BaseModel):

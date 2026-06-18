@@ -272,3 +272,36 @@ def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     assert loaded.context["distribution"] == "acme-sdk"
     assert loaded.context["repo_url"] == "https://github.com/x/acme-sdk"
     assert loaded.context["license"] == "Apache-2.0"
+
+
+from phantasos.productconfig import DocsConfig, DocsOperations  # noqa: E402
+
+
+def test_docs_config_defaults():
+    d = DocsConfig(showcase_resource="applications")
+    assert d.showcase_resource == "applications"
+    assert d.site_name is None
+    assert d.operations is None
+
+
+def test_docs_operations_override_parsed():
+    d = DocsConfig(
+        showcase_resource="applications",
+        operations={"create": "create_application", "read": "get_application_by_id"},
+    )
+    assert d.operations.create == "create_application"
+    assert d.operations.read == "get_application_by_id"
+    assert d.operations.list is None
+
+
+def test_product_config_docs_absent_is_none():
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.docs is None
+
+
+def test_product_config_docs_present():
+    cfg = ProductConfig(
+        package="p", output="o", base_url="https://x",
+        docs={"showcase_resource": "applications"},
+    )
+    assert cfg.docs.showcase_resource == "applications"
