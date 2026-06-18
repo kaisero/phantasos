@@ -25,6 +25,16 @@ _BASE_DEPS = [
 ]
 
 
+def sdk_runtime_deps() -> list[str]:
+    """The OAG-fixed runtime deps every generated SDK requires.
+
+    Stable across regenerations; exposed so callers (e.g. the ``sdk-docs`` /
+    ``live`` nox sessions) can pre-install them without depending on a built
+    SDK's ``pyproject.toml``.
+    """
+    return list(_BASE_DEPS)
+
+
 class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     distribution: str

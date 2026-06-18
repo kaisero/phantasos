@@ -179,18 +179,13 @@ def live(session: nox.Session) -> None:
             if stripped and not stripped.startswith("#") and "=" in stripped:
                 key, _, value = stripped.partition("=")
                 session.env.setdefault(key.strip(), value.strip().strip('"'))
+    from phantasos.productconfig import load_product, sdk_runtime_deps
+
     # Pre-install the SDK's stable runtime deps so the in-process introspect step
     # (triggered by docs context build during sdk build) can import the SDK package.
     # introspect() adds the SDK dir to sys.path; we only need the deps in the venv.
-    session.install(
-        "urllib3>=2.1.0,<3",
-        "python-dateutil>=2.8.2",
-        "pydantic>=2.11",
-        "typing-extensions>=4.7.1",
-    )
+    session.install(*sdk_runtime_deps())
     session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
-    from phantasos.productconfig import load_product
-
     out_dir = load_product("prisma-browser").output_dir
     session.install(str(out_dir))
     session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
@@ -204,7 +199,7 @@ def sdk_docs(session: nox.Session) -> None:
     ``smoke``). NOT added to nox.options.sessions, so the default ``nox``/CI run is
     unaffected and phantasos's own ``docs`` session stays intact.
     """
-    from phantasos.productconfig import load_product
+    from phantasos.productconfig import load_product, sdk_runtime_deps
 
     _sync(session)
     out = load_product("prisma-browser").output_dir
@@ -223,12 +218,7 @@ def sdk_docs(session: nox.Session) -> None:
     # would fail (wrong build backend / flat-layout discovery collision with
     # site/).  The dep set is stable across regenerations; introspect() adds the
     # SDK dir to sys.path itself, so the package is importable without pip install.
-    session.install(
-        "urllib3>=2.1.0,<3",
-        "python-dateutil>=2.8.2",
-        "pydantic>=2.11",
-        "typing-extensions>=4.7.1",
-    )
+    session.install(*sdk_runtime_deps())
     session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     session.chdir(str(out))
     # Isolate this `uv run` to a DEDICATED project env. It would otherwise inherit
