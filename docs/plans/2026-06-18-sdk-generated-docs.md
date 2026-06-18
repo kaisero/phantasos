@@ -983,7 +983,8 @@ import mkdocs_gen_files
 PACKAGE = "{{ package }}"
 SUBPACKAGES = ("api", "models")
 
-src = Path(__file__).resolve().parent.parent / PACKAGE
+# script is at <sdk-root>/docs/scripts/gen_ref_pages.py -> parents[2] == <sdk-root>
+src = Path(__file__).resolve().parents[2] / PACKAGE
 assert src.is_dir(), src  # fail loudly if the package path drifts
 
 nav = mkdocs_gen_files.Nav()
@@ -1281,7 +1282,11 @@ def test_docs_emitted_when_has_docs(tmp_path):
 def test_no_docs_when_flag_false(tmp_path):
     scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx(has_docs=False))
     assert not (tmp_path / "mkdocs.yml").exists()
-    assert not (tmp_path / "docs").exists()
+    # render_scaffold does dest.parent.mkdir() before the whitespace-skip check, so an
+    # EMPTY docs/ dir may be created even when every template gates out. Assert no doc
+    # FILES were emitted (not that the dir is absent).
+    assert not list((tmp_path / "docs").rglob("*.md"))
+    assert not (tmp_path / "docs" / "_hooks.py").exists()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

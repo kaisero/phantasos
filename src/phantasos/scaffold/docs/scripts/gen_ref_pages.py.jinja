@@ -9,7 +9,9 @@ import mkdocs_gen_files
 PACKAGE = "{{ package }}"
 SUBPACKAGES = ("api", "models")
 
-src = Path(__file__).resolve().parent.parent / PACKAGE
+# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
+# is the SDK root (scripts -> docs -> root) where the package directory lives.
+src = Path(__file__).resolve().parents[2] / PACKAGE
 assert src.is_dir(), src  # fail loudly if the package path drifts
 
 nav = mkdocs_gen_files.Nav()
