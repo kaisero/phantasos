@@ -9,6 +9,8 @@ auth:
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
+docs:
+  showcase_resource: applications
 transforms:
   hoist:
     - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
