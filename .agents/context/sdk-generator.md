@@ -37,10 +37,34 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    A product `hooks.py::patch(pkg_dir)` runs after.
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
-   `<package>/extras/`. Then `scaffold.render_scaffold()` (in the sibling
-   `scaffold` module, `phantasos/scaffold.py` — not this package) lays down the
-   project scaffold, with
-   `products/<name>/overrides/` winning over the built-in templates.
+   `<package>/extras/`. At this point `facade._RESOURCES` exists in-process, so
+   the docs stage (4a) can run before the scaffold is written.
+   4a. **Docs** (config-gated) — when the product's `sdk.yml` has a `docs:` block,
+   `docs.build_docs_context()` in `generator/sdk/docs.py` runs a scoped,
+   in-process `introspect()` of the configured `showcase_resource`, classifies the
+   resource's operations into CRUD slots via `classify_operations()`, and shapes
+   a `docs_context` dict (via `shape_context()`) containing `has_docs`,
+   `site_name`, `showcase` (per-verb method names, required args, return models),
+   `credentials` (from `loaded.auth.credential_fields()`), and
+   `show_pagination_guide`. Products without a `docs:` block skip this step
+   entirely — `has_docs` is `False` in the scaffold context and all doc templates
+   gate out.
+   Then `scaffold.render_scaffold()` (in the sibling `scaffold` module,
+   `phantasos/scaffold.py` — not this package) lays down the project scaffold with
+   `{**loaded.context, **docs_context}` as the context (just `loaded.context` for
+   non-docs products), and `products/<name>/overrides/` winning over the built-in
+   templates.
+   The documentation templates live under `src/phantasos/scaffold/docs/` — Home,
+   Getting Started, Architecture, authentication/pagination/CRUD guides, a
+   `scripts/gen_ref_pages.py` (mkdocs-gen-files + literate-nav reference
+   generator), and a `_hooks.py` MkDocs logging filter that silences griffe's
+   benign `Duplicate parameter information` warnings so `mkdocs build --strict`
+   passes against OAG's sphinx docstrings. All templates are gated on
+   `{% if has_docs | default(false) %}` (mandatory `| default(false)` because the
+   scaffold engine uses `StrictUndefined`); when `has_docs` is false they render
+   to whitespace and `render_scaffold` skips the file. The `nox -s sdk-docs`
+   session is the integration gate: it performs a real SDK build, then runs
+   `mkdocs build --strict` in the output directory.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
