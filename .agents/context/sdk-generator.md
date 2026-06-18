@@ -81,6 +81,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 <!-- GENERATED:module-map -->
 - `build.py` — SDK build orchestrator: preprocess -> generate -> patch -> vendor -> scaffold.
 - `docs.py` — Scoped introspect + verb classification + docs context for generated SDKs.
+- `examples.py` — Synthesize illustrative constructor examples from live pydantic models.
 - `generate.py` — Run OpenAPI Generator (python) — jar fetch/verify + invocation.
 - `patches.py` — Generic codegen-bug patches for OpenAPI Generator (python) output.
 - `preprocess.py` — Spec preprocessing — generic transforms + parameterized spec-specific helpers.
@@ -98,6 +99,8 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   - `classify_operations(operations, resource, overrides)` — Map each CRUD slot to its canonical OperationInfo (present slots only).
   - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination)`
   - `build_docs_context(loaded, project_dir)` — Scoped introspect of the showcase resource -> docs context dict.
+- `examples.py`
+  - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
