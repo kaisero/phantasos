@@ -143,6 +143,43 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
         "has_facade": True,
         "has_retry": True,
         "config_class_name": "AcmeConfiguration",
+        "has_docs": True,
+        "site_name": "acme-sdk",
+        "show_pagination_guide": True,
+        "spec_title": "Acme API",
+        "credentials": [
+            {
+                "name": "client_id",
+                "env_var": "CLIENT_ID",
+                "secret": False,
+                "required": True,
+            },
+        ],
+        "showcase": {
+            "attr": "widgets",
+            "has_create": True,
+            "has_read": True,
+            "has_list": True,
+            "has_update": False,
+            "has_delete": True,
+            "list": {"method": "list_widgets"},
+            "operations": {
+                "create": {"method": "create_widget", "required_args": []},
+                "read": {
+                    "method": "get_widget_by_id",
+                    "required_args": [
+                        {"name": "id", "kind": "path", "placeholder": "<id>"}
+                    ],
+                },
+                "list": {"method": "list_widgets", "required_args": []},
+                "delete": {
+                    "method": "delete_widget_by_id",
+                    "required_args": [
+                        {"name": "id", "kind": "path", "placeholder": "<id>"}
+                    ],
+                },
+            },
+        },
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     wfs = sorted((out / ".github" / "workflows").glob("*.yml"))
@@ -157,7 +194,11 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
     assert {p.name for p in wfs} >= expected_wfs
     for wf in wfs:
         parse(wf.read_text())  # raises on invalid YAML
-    parse((out / "mkdocs.yml").read_text())
+    # mkdocs.yml uses !!python/name: tags (pymdownx superfences); safe YAML
+    # loaders cannot resolve them — use unsafe loader only for syntax validation.
+    import yaml
+
+    yaml.unsafe_load((out / "mkdocs.yml").read_text())
 
 
 def test_builtin_meta_files_render(tmp_path: Path) -> None:

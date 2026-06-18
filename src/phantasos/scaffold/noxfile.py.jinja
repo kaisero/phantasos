@@ -25,3 +25,22 @@ def type_check(session: nox.Session) -> None:
 def tests(session: nox.Session) -> None:
     session.install(".", "pytest", "pytest-cov")
     session.run("pytest", "--cov={{ package }}", *session.posargs)
+{% if has_docs | default(false) %}
+
+@nox.session
+def docs(session: nox.Session) -> None:
+    session.run_install(
+        "uv", "sync", "--group", "docs",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("mkdocs", "build", "--strict")
+
+
+@nox.session(name="docs-serve")
+def docs_serve(session: nox.Session) -> None:
+    session.run_install(
+        "uv", "sync", "--group", "docs",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("mkdocs", "serve")
+{% endif %}
