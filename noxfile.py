@@ -185,3 +185,37 @@ def live(session: nox.Session) -> None:
     out_dir = load_product("prisma-browser").output_dir
     session.install(str(out_dir))
     session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
+
+
+@nox.session(name="sdk-docs", venv_backend="uv")
+def sdk_docs(session: nox.Session) -> None:
+    """Build the prisma-browser SDK + its docs and run ``mkdocs build --strict``.
+
+    Integration gate (opt-in; needs the OAG JRE + network, self-provisioned like
+    ``smoke``). NOT added to nox.options.sessions, so the default ``nox``/CI run is
+    unaffected and phantasos's own ``docs`` session stays intact.
+    """
+    from phantasos.productconfig import load_product
+
+    _sync(session)
+    # Pre-install the SDK's runtime deps so that the in-process introspect step
+    # (called by sdk build to shape the docs context) can import the SDK package.
+    # The build will overwrite the SDK on disk; installing its deps beforehand is
+    # safe because the dep set is stable across regenerations.
+    out = load_product("prisma-browser").output_dir
+    session.install(str(out))
+    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
+    session.chdir(str(out))
+    session.run(
+        "uv",
+        "run",
+        "--group",
+        "docs",
+        "mkdocs",
+        "build",
+        "--strict",
+        external=True,
+        env={**os.environ},
+    )
+    if not (out / "site" / "reference").exists():
+        session.error("reference pages were not generated")
