@@ -130,3 +130,45 @@ def test_render_rejects_reserved_cli_object(tmp_path: Path) -> None:
 def test_render_cli_emits_diagnostics_module(tmp_path: Path) -> None:
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
     assert (tmp_path / "fakesdk_cli" / "_generated" / "diagnostics.py").exists()
+
+
+def _diag(base: Path) -> str:
+    return (base / "fakesdk_cli" / "_generated" / "diagnostics.py").read_text()
+
+
+def test_error_envelope_threaded_from_component(tmp_path: Path) -> None:
+    from phantasos.config import ListError, NestedError
+
+    # list_error -> errors_field descriptor flows into diagnostics + ir.json
+    render_cli(
+        _ir(),
+        package="fakesdk_cli",
+        out_dir=tmp_path / "list",
+        errors=ListError(type="list_error"),
+    )
+    diag = _diag(tmp_path / "list")
+    assert '"errors_field": "_errors"' in diag and '"error_field": None' in diag
+    ir_json = json.loads(
+        (tmp_path / "list" / "fakesdk_cli" / "_generated" / "ir.json").read_text()
+    )
+    assert ir_json["error_envelope"]["errors_field"] == "_errors"
+
+    # nested -> wrapper + error_field; the `errorResponse` wrapper is config and
+    # appears ONLY in this product's CLI (not leaked into others)
+    render_cli(
+        _ir(),
+        package="fakesdk_cli",
+        out_dir=tmp_path / "nested",
+        errors=NestedError(type="nested"),
+    )
+    diag2 = _diag(tmp_path / "nested")
+    assert '"error_field": "error"' in diag2 and "errorResponse" in diag2
+    assert '"errors_field": None' in diag2
+
+
+def test_no_error_component_emits_generic_envelope(tmp_path: Path) -> None:
+    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)  # no errors=
+    diag = _diag(tmp_path)
+    # default envelope: zero product shapes baked into the generic template
+    assert "errorResponse" not in diag and '"_errors"' not in diag
+    assert '"error_field": None' in diag and '"errors_field": None' in diag

@@ -19,6 +19,7 @@ from .ir import CliIR, ColumnSpec, Command, Flag, FlagKind, MethodBinding, SubVe
 _VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
     ("create_", "create", "create"),
     ("patch_", "update", "patch"),
+    ("update_", "update", "put"),  # PUT full-replace; body stays required (see below)
     ("delete_", "delete", "delete"),
     ("get_", "show", "get"),
     ("list_", "show", "list"),
@@ -365,13 +366,6 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             for f in cmd.path_params:
                 if f.kind == "id":
                     f.required = True
-        # PATCH semantics: no body field should ever be mandatory for update.
-        # For SDKs with a proper all-optional patch model this is a no-op; for
-        # SDKs that reuse the create model (required fields) it corrects semantics.
-        # PUT-fallback (required body fields) is deferred and handled separately.
-        if verb == "update":
-            for f in cmd.body_flags:
-                f.required = False
 
     for op in inv.operations:
         key0 = f"{op.resource}.{op.method}"
@@ -402,6 +396,18 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 )
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
+
+    # ---- Update body requiredness (per-command, post-merge: order-independent).
+    # PATCH is partial → no body field should be mandatory. A PUT-only update is a
+    # full replace → the model's required fields STAY required (omitting one would
+    # wipe it server-side). A command that merges BOTH (a `patch_` + an `update_`
+    # PUT on one object) is relaxed because PATCH offers a valid partial update.
+    # Deciding from the final binding set (not per-binding in `_emit`) avoids the
+    # emit-order sensitivity a per-binding gate would have.
+    for cmd in groups.values():
+        if cmd.verb == "update" and any(b.sub_verb == "patch" for b in cmd.bindings):
+            for f in cmd.body_flags:
+                f.required = False
 
     # ---- get-by-id-only show commands.
     # A `show` with a single get-by-id binding and NO list operation can only

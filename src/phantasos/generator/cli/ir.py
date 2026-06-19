@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 
@@ -42,10 +42,43 @@ class CredentialField(BaseModel):
         return v
 
 
+class ErrorEnvelope(BaseModel):
+    """Config-driven description of a product's error body, threaded onto the IR so
+    the emitted CLI's error headline carries NO product-specific keys.
+
+    Contributed by the resolved error component (`error_fields()`). The default is
+    the no-error-component case: peel nothing, parse no documented envelope, and
+    rely on the product-AGNOSTIC `fallback_keys`. Defined here (ir.py) so it ships
+    verbatim in the emitted spec.py alongside CliIR.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    # Outer keys peeled before lookup (e.g. an `errorResponse` wrapper).
+    wrappers: tuple[str, ...] = ()
+    # Nested object holding the message (None = message is at the body top level).
+    error_field: str | None = None
+    # List-style envelope field holding [{code, message}, ...] (None = no list shape).
+    errors_field: str | None = None
+    message_field: str = "message"
+    code_field: str = "code"
+    # Product-AGNOSTIC fallback vocabulary (RFC 7807 + de-facto conventions + the
+    # `msg` gateway/transport shape). Tried only after the configured envelope misses.
+    fallback_keys: tuple[str, ...] = (
+        "error",
+        "message",
+        "msg",
+        "detail",
+        "title",
+        "description",
+    )
+
+
 Verb = Literal["create", "update", "delete", "show", "request", "load", "backup"]
 SubVerb = Literal[
     "create",
     "patch",
+    "put",
     "update",
     "get",
     "list",
@@ -139,3 +172,6 @@ class CliIR(BaseModel):
     # Credential descriptors contributed by the resolved auth component.
     # Empty list when no auth component is configured (backward-compatible default).
     credential_fields: list[CredentialField] = []
+    # Error-envelope descriptor contributed by the resolved error component.
+    # Default is the no-component case (generic fallback only); see ErrorEnvelope.
+    error_envelope: ErrorEnvelope = Field(default_factory=ErrorEnvelope)

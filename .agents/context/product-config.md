@@ -94,7 +94,9 @@ files are optional.
 |---|---|---|---|
 | `auth` | `scm_oauth` | `ScmOAuth` | `token_url`, `scope_env`, `client_id_env`, `client_secret_env`, `base_url_env`, `config_class_name` |
 | `pagination` | `cursor` | `CursorPagination` | `data_field`, `page_info_field`, `cursor_field`, `has_next_field` |
-| `errors` | `nested` | `NestedError` | `error_field`, `message_field`, `code_field` |
+| `pagination` | `offset` | `OffsetPagination` | `data_field`, `limit_field`, `offset_field`, `total_field`, `default_page_size` |
+| `errors` | `nested` | `NestedError` | `error_field`, `message_field`, `code_field`, `wrappers` |
+| `errors` | `list_error` | `ListError` | `errors_field`, `message_field`, `code_field`, `request_id_field` |
 | `facade` | `default` | `Facade` | (no config fields) |
 | `retry` | `default` | `RetryConfig` | `max_retries`, `backoff_base`, `backoff_max`, `jitter_frac`, `statuses`, `respect_retry_after` |
 

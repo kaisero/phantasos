@@ -129,6 +129,86 @@ def test_render_auth_template_inlines_params() -> None:
     assert "{{" not in out  # no unrendered jinja
 
 
+def _render_offset(**overrides: object) -> str:
+    env = render._env()
+    params: dict[str, object] = {
+        "data_field": "data",
+        "limit_field": "limit",
+        "offset_field": "offset",
+        "total_field": "total",
+        "default_page_size": 100,
+    }
+    params.update(overrides)
+    return env.get_template("pagination/offset.py.jinja").render(**params)
+
+
+def _exec_paginate(src: str) -> Any:
+    ns: dict[str, Any] = {}
+    exec(compile(src, "offset.py", "exec"), ns)  # noqa: S102  (rendered SDK source)
+    return ns["paginate"]
+
+
+def test_render_offset_pagination_no_unrendered_jinja() -> None:
+    src = _render_offset()
+    assert "{{" not in src and "{%" not in src
+    assert "def paginate(" in src
+
+
+def test_render_offset_pagination_walks_all_pages() -> None:
+    from types import SimpleNamespace
+
+    paginate = _exec_paginate(_render_offset())
+    items = list(range(250))
+
+    def list_method(**kw: int) -> SimpleNamespace:
+        off, lim = kw["offset"], kw["limit"]
+        chunk = items[off : off + lim]
+        return SimpleNamespace(data=chunk, total=len(items), limit=lim, offset=off)
+
+    # default page size 100 -> 100 + 100 + 50, stop on the short final page
+    assert list(paginate(list_method)) == items
+
+
+def test_render_offset_pagination_respects_caller_limit() -> None:
+    from types import SimpleNamespace
+
+    paginate = _exec_paginate(_render_offset())
+    items = list(range(120))
+    seen_limits: list[int] = []
+
+    def list_method(**kw: int) -> SimpleNamespace:
+        seen_limits.append(kw["limit"])
+        off, lim = kw["offset"], kw["limit"]
+        return SimpleNamespace(
+            data=items[off : off + lim], total=len(items), limit=lim, offset=off
+        )
+
+    assert list(paginate(list_method, limit=50)) == items
+    assert seen_limits == [50, 50, 50]  # 50 + 50 + 20 (short) -> 3 calls
+
+
+def test_render_offset_pagination_total_guard_stops_runaway() -> None:
+    from types import SimpleNamespace
+
+    paginate = _exec_paginate(_render_offset())
+    calls = {"n": 0}
+
+    # A buggy endpoint that ignores offset and always returns a FULL page would loop
+    # forever on the short-page rule alone; the offset>=total guard must stop it.
+    def list_method(**kw: int) -> SimpleNamespace:
+        calls["n"] += 1
+        if calls["n"] > 5:
+            raise AssertionError("paginate did not stop — total guard missing")
+        lim = kw["limit"]
+        return SimpleNamespace(
+            data=list(range(lim)), total=lim, limit=lim, offset=kw["offset"]
+        )
+
+    out = list(paginate(list_method))
+    assert len(out) == 100  # one full page, then offset(100) >= total(100) -> stop
+    assert calls["n"] == 1
+
+
 def _render_facade(*, has_auth: bool, has_pagination: bool) -> str:
     env = render._env()
     result: str = env.get_template("facade/client.py.jinja").render(

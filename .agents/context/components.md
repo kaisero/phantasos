@@ -75,23 +75,55 @@ without mapping through a registry; path-escape out of `extras/` raises
 
 ### pagination
 
+Two strategies; both render `extras/pagination.py` with the same
+`paginate(list_method, **kwargs)` iterator surface (so the CLI `--all` wiring is
+strategy-agnostic).
+
 - **Registry key:** `cursor`
-- **Param model:** `CursorPagination` — `data_field` (`data`),
-  `page_info_field` (`page_info`), `cursor_field` (`cursor`),
-  `has_next_field` (`has_next_page`).
-- **Template:** `pagination/cursor.py.jinja`
-- **Renders:** `extras/pagination.py` — `paginate(list_method, **kwargs)`
-  iterator that walks pages via cursor until `has_next_field` is false.
+  - **Param model:** `CursorPagination` — `data_field` (`data`),
+    `page_info_field` (`page_info`), `cursor_field` (`cursor`),
+    `has_next_field` (`has_next_page`).
+  - **Template:** `pagination/cursor.py.jinja` — walks pages via cursor until
+    `has_next_field` is false.
+- **Registry key:** `offset`
+  - **Param model:** `OffsetPagination` — `data_field` (`data`),
+    `limit_field` (`limit`), `offset_field` (`offset`), `total_field` (`total`),
+    `default_page_size` (`100`).
+  - **Template:** `pagination/offset.py.jinja` — walks `limit`/`offset` pages,
+    stopping on a short page or `offset >= total`. The template OWNS the page
+    size/offset defaults because the CLI runtime forwards neither flag unless the
+    user passes it (a bare `--all` sends no `limit`/`offset`).
 
 ### errors
 
+Both render `extras/errors.py`, re-exporting the OAG-generated exception classes
+(the FIXED name set `extras/__init__.py` imports) plus `error_message(exc)`.
+
 - **Registry key:** `nested`
-- **Param model:** `NestedError` — `error_field` (`error`),
-  `message_field` (`message`), `code_field` (`code`).
-- **Template:** `errors/nested_error.py.jinja`
-- **Renders:** `extras/errors.py` — re-exports the OAG-generated exception
-  classes and adds `error_message(exc)` that extracts a human-readable string
-  from `body[error_field][message_field]`.
+  - **Param model:** `NestedError` — `error_field` (`error`),
+    `message_field` (`message`), `code_field` (`code`),
+    `wrappers` (`("errorResponse", "error_response")` — outer keys peeled first).
+  - **Template:** `errors/nested_error.py.jinja` — peels `wrappers`, then extracts
+    from `body[error_field][message_field]`.
+- **Registry key:** `list_error`
+  - **Param model:** `ListError` — `errors_field` (`_errors`),
+    `message_field` (`message`), `code_field` (`code`),
+    `request_id_field` (`_request_id`).
+  - **Template:** `errors/list_error.py.jinja` — iterates the `_errors[]` array,
+    formatting each entry as `code: message` and joining, with a flat-field fallback
+    (the documented schema only — gateway/transport shapes like `{"msg": …}` are NOT
+    this component's concern).
+
+**CLI error rendering is config-driven (no product keys in generic code).** Each
+error component exposes `error_fields() -> ir.ErrorEnvelope`; `render_cli` enriches
+the IR with it (mirroring `auth.credential_fields()`), and the emitted
+`diagnostics._error_headline` reads that descriptor — peel `wrappers`, then
+`error_field`, then `errors_field`, then a product-AGNOSTIC `fallback_keys` set
+(RFC 7807 + `error`/`message`/`msg`/`description`). A product with no error
+component gets the default envelope (generic fallback only). So a product's
+documented envelope shape lives in ONE place (its component), and the gateway
+`msg` shape lives once in the generic `fallback_keys` tier — never hardcoded
+per-product in the shared template.
 
 ### facade
 
@@ -141,7 +173,9 @@ without mapping through a registry; path-escape out of `extras/` raises
   - class `AuthComponent` — Base class for all auth components.
   - class `ScmOAuth` — Strata Cloud (SCM/SASE) OAuth2 client-credentials provider.
   - class `CursorPagination` — Cursor pagination: items under `data_field`, cursor under page_info.
+  - class `OffsetPagination` — Offset/limit pagination: items under `data_field`, `total_field` optional.
   - class `NestedError` — Error message at ``body[error_field][message_field]`` (+ optional code).
+  - class `ListError` — Errors as a list under ``body[errors_field]``; each entry {code, message}.
   - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.
   - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
 <!-- /GENERATED:api -->
