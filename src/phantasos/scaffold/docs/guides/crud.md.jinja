@@ -1,0 +1,52 @@
+{% if has_docs | default(false) %}# CRUD operations
+
+End-to-end create, read, update, and delete for the `{{ showcase.attr }}` resource. Browse
+the full operation list in the **[API Reference](../reference/)**.
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_env()
+```
+{% set ops = showcase.operations %}
+{% if showcase.has_create %}
+## Create
+
+```python
+{% if ops["create"].get("example_override") %}{{ ops["create"].get("example_override") }}{% else %}created = client.{{ showcase.attr }}.{{ ops["create"].method }}(
+{% for a in ops["create"].required_args %}{% if a.kind == "body" %}    {{ a.name }}={{ a.body_code | indent(4) }},
+{% else %}    {{ a.name }}="{{ a.placeholder }}",
+{% endif %}{% endfor %}){% endif %}
+```
+{% endif %}
+{% if showcase.has_read %}
+## Read
+
+```python
+{% if ops["read"].get("example_override") %}{{ ops["read"].get("example_override") }}{% else %}fetched = client.{{ showcase.attr }}.{{ ops["read"].method }}(
+{% for a in ops["read"].required_args %}{% if a.kind == "body" %}    {{ a.name }}={{ a.body_code | indent(4) }},
+{% else %}    {{ a.name }}="{{ a.placeholder }}",
+{% endif %}{% endfor %}){% endif %}
+```
+{% endif %}
+{% if showcase.has_update %}
+## Update
+
+```python
+{% if ops["update"].get("example_override") %}{{ ops["update"].get("example_override") }}{% else %}updated = client.{{ showcase.attr }}.{{ ops["update"].method }}(
+{% for a in ops["update"].required_args %}{% if a.kind == "body" %}    {{ a.name }}={{ a.body_code | indent(4) }},
+{% else %}    {{ a.name }}="{{ a.placeholder }}",
+{% endif %}{% endfor %}){% endif %}
+```
+{% endif %}
+{% if showcase.has_delete %}
+## Delete
+
+```python
+{% if ops["delete"].get("example_override") %}{{ ops["delete"].get("example_override") }}{% else %}client.{{ showcase.attr }}.{{ ops["delete"].method }}(
+{% for a in ops["delete"].required_args %}{% if a.kind == "body" %}    {{ a.name }}={{ a.body_code | indent(4) }},
+{% else %}    {{ a.name }}="{{ a.placeholder }}",
+{% endif %}{% endfor %}){% endif %}
+```
+{% endif %}
+{% endif %}

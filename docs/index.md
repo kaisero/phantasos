@@ -19,6 +19,28 @@ phantasos sdk build prisma-browser    # SDK from products/prisma-browser/
 phantasos cli build prisma-browser    # matching CLI from the built SDK
 ```
 
+## Generate SDK documentation
+
+Generated SDKs can ship their own documentation site — guides for authentication,
+pagination, and CRUD, plus an API reference auto-generated from the emitted
+docstrings. Opt in by adding a `docs:` block to the product's `sdk.yml`:
+
+```yaml
+docs:
+  showcase_resource: applications   # the resource whose CRUD drives the examples
+```
+
+`phantasos sdk build <product>` then scaffolds the site inside the generated SDK.
+Build it from the SDK directory:
+
+```bash
+cd ../my-product-sdk
+uv run nox -s docs        # strict mkdocs build
+```
+
+See **[Authoring a product → `docs:`](authoring.md#docs)** for the full field
+reference.
+
 ## Where to next
 
 - **[Architecture](architecture.md)** — what phantasos is, its scope, and how the
@@ -26,3 +48,5 @@ phantasos cli build prisma-browser    # matching CLI from the built SDK
 - **[Authoring a product](authoring.md)** — create a `products/<name>/` directory
   and configure a build, end to end.
 - **[CLI reference](cli-reference.md)** — the host commands and their flags.
+- **[Development](development.md)** — contribute to phantasos: branching, tests,
+  CI/CD, and running the nox task runner.

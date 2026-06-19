@@ -272,3 +272,86 @@ def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     assert loaded.context["distribution"] == "acme-sdk"
     assert loaded.context["repo_url"] == "https://github.com/x/acme-sdk"
     assert loaded.context["license"] == "Apache-2.0"
+
+
+from phantasos.productconfig import DocsConfig  # noqa: E402
+
+
+def test_docs_config_defaults() -> None:
+    d = DocsConfig(showcase_resource="applications")
+    assert d.showcase_resource == "applications"
+    assert d.site_name is None
+    assert d.operations is None
+
+
+def test_docs_operations_override_parsed() -> None:
+    d = DocsConfig.model_validate(
+        {
+            "showcase_resource": "applications",
+            "operations": {
+                "create": "create_application",
+                "read": "get_application_by_id",
+            },
+        }
+    )
+    assert d.operations is not None
+    assert d.operations.create == "create_application"
+    assert d.operations.read == "get_application_by_id"
+    assert d.operations.list is None
+
+
+def test_product_config_docs_absent_is_none() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.docs is None
+
+
+def test_product_config_docs_present() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "p",
+            "output": "o",
+            "base_url": "https://x",
+            "docs": {"showcase_resource": "applications"},
+        }
+    )
+    assert cfg.docs is not None
+    assert cfg.docs.showcase_resource == "applications"
+
+
+def test_has_docs_in_context(tmp_path: Path) -> None:
+    # Minimal product dir: sdk.yml + empty openapi.yml
+    import textwrap
+
+    (tmp_path / "openapi.yml").write_text("info: {title: T, version: '1'}\n")
+    (tmp_path / "sdk.yml").write_text(
+        textwrap.dedent("""
+        package: p
+        output: ./out
+        base_url: https://x
+        docs: {showcase_resource: applications}
+        project: {distribution: p, author: A, author_email: a@b.c, repo_url: https://h/p}
+    """)
+    )
+    from phantasos.productconfig import load_product
+
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["has_docs"] is True
+
+
+def test_docs_examples_and_variant_parse() -> None:
+    from phantasos.productconfig import DocsConfig
+
+    cfg = DocsConfig.model_validate(
+        {
+            "showcase_resource": "applications",
+            "showcase_variant": "CustomApplicationInput",
+            "examples": {
+                "create": "created = client.applications.create_application(...)"
+            },
+        }
+    )
+    assert cfg.showcase_variant == "CustomApplicationInput"
+    assert cfg.examples is not None
+    assert cfg.examples.create is not None
+    assert cfg.examples.create.startswith("created =")
+    assert cfg.examples.read is None

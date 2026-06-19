@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `config set <key> <value>` and `config unset <key>` for generated CLIs: write/remove options in `config.yml` (aliases `loglevel`/`logfile`; values coerced by type; unknown keys and invalid values exit `2`). NOTE: writing `config.yml` strips the comments that `config init` wrote — run `config init --force` to restore the commented template.
 - Generated CLIs with an auth component now support named environments: stored in `~/.{distribution}/environments.yml` (top-level `environments:` and `default_environment:` keys, with `${VAR}` references resolved at read time), an `--environment/-e` flag, and a `{PREFIX}_ENVIRONMENT` selector. Per-field credential env vars override the active environment.
 - Top-level `environment` command group (auth CLIs only; shown in the `--help` "CLI" panel beside `config`): `create` (per-credential-field options built dynamically from the auth component; secrets prompted with input hidden and stored verbatim, including `${VAR}` references), `activate`, `show` (names only — never values/secrets; marks the active environment), and `delete` (`--force` required to remove the active environment). The first environment created is auto-activated.
+- Generated SDKs can now ship a complete Material for MkDocs site (Getting Started,
+  Architecture, authentication/pagination/CRUD how-to guides, and an mkdocstrings API
+  reference). Opt in per product via a `docs:` block naming a `showcase_resource`; the
+  guides are tailored to that resource via a scoped, build-time introspection. The site
+  builds under `mkdocs build --strict`. Products without a `docs:` block emit no docs
+  (and no longer ship the previously non-building mkdocs shell).
+- Generated SDK docs now render each pydantic model's full field surface (via
+  `griffe-pydantic`), document oneOf wrapper types as links to their variant
+  models, and emit real-shaped CRUD examples synthesized from the schema.
+- `sdk.yml` `docs:` gains `showcase_variant` (choose the oneOf variant used in
+  the example) and `examples.<slot>` (verbatim per-operation example override).
 
 ### Changed
 

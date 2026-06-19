@@ -157,7 +157,14 @@ def smoke(session: nox.Session) -> None:
     your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
     the default session list. Each SDK is written to a sibling dir of its product dir.
     """
+    from phantasos.productconfig import sdk_runtime_deps
+
     _sync(session)
+    # `phantasos sdk build` of a docs:-enabled product (prisma-browser) introspects
+    # the freshly generated package in-process (build_docs_context), which imports the
+    # SDK's runtime deps (e.g. python-dateutil). Pre-install them so the build's
+    # introspect step can import the package. Mirrors the `live`/`sdk-docs` sessions.
+    session.install(*sdk_runtime_deps())
     session.run("phantasos", "sdk", "build", "prisma-browser")
     session.run("phantasos", "sdk", "build", "adem")
 
@@ -179,9 +186,81 @@ def live(session: nox.Session) -> None:
             if stripped and not stripped.startswith("#") and "=" in stripped:
                 key, _, value = stripped.partition("=")
                 session.env.setdefault(key.strip(), value.strip().strip('"'))
-    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
-    from phantasos.productconfig import load_product
+    from phantasos.productconfig import load_product, sdk_runtime_deps
 
+    # Pre-install the SDK's stable runtime deps so the in-process introspect step
+    # (triggered by docs context build during sdk build) can import the SDK package.
+    # introspect() adds the SDK dir to sys.path; we only need the deps in the venv.
+    session.install(*sdk_runtime_deps())
+    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
     out_dir = load_product("prisma-browser").output_dir
     session.install(str(out_dir))
     session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
+
+
+@nox.session(name="sdk-docs", venv_backend="uv")
+def sdk_docs(session: nox.Session) -> None:
+    """Build the prisma-browser SDK + its docs and run ``mkdocs build --strict``.
+
+    Integration gate (opt-in; needs the OAG JRE + network, self-provisioned like
+    ``smoke``). NOT added to nox.options.sessions, so the default ``nox``/CI run is
+    unaffected and phantasos's own ``docs`` session stays intact.
+    """
+    from phantasos.productconfig import load_product, sdk_runtime_deps
+
+    _sync(session)
+    out = load_product("prisma-browser").output_dir
+    # Wipe any stale mkdocs site/ tree left by a previous run — setuptools's flat
+    # layout discovery would otherwise see both `site/` and the SDK package as
+    # top-level packages and refuse to build.
+    stale_site = out / "site"
+    if stale_site.exists():
+        import shutil
+
+        shutil.rmtree(stale_site)
+    # Pre-install the SDK's known stable runtime deps.  We install them directly
+    # (rather than via the SDK's own pyproject.toml) so this step is robust to
+    # partially-built SDK state — e.g. when the OAG-generated pyproject.toml is
+    # present instead of the phantasos-scaffolded one, installing the whole project
+    # would fail (wrong build backend / flat-layout discovery collision with
+    # site/).  The dep set is stable across regenerations; introspect() adds the
+    # SDK dir to sys.path itself, so the package is importable without pip install.
+    session.install(*sdk_runtime_deps())
+    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
+    session.chdir(str(out))
+    # Isolate this `uv run` to a DEDICATED project env. It would otherwise inherit
+    # UV_PROJECT_ENVIRONMENT (commonly the offline-gate venv, per CLAUDE.md) and
+    # editable-install the generated SDK there — which makes prisma_browser
+    # resolvable to mypy and breaks the gate's real-SDK tests. A separate env dir
+    # keeps the shared gate env clean.
+    # Dedicated build env dir (the session venv path + "-build"), kept off the
+    # shared/gate env so the SDK is not editable-installed there.
+    build_env = session.virtualenv.location + "-build"
+    docs_env = {**os.environ, "UV_PROJECT_ENVIRONMENT": build_env}
+    session.run(
+        "uv",
+        "run",
+        "--group",
+        "docs",
+        "mkdocs",
+        "build",
+        "--strict",
+        external=True,
+        env=docs_env,
+    )
+    site = out / "site"
+    if not (site / "reference").exists():
+        session.error("reference pages were not generated")
+    # (A) griffe-pydantic surfaces field descriptions on a leaf model page
+    leaf = site / "reference/models/custom_application_input/index.html"
+    if not (leaf.exists() and "Name of the application" in leaf.read_text()):
+        session.error("model field descriptions did not render (griffe-pydantic)")
+    # (B) oneOf wrapper page links its variant models
+    wrapper = site / "reference/models/create_or_replace_app_input/index.html"
+    if not (wrapper.exists() and "CustomApplicationInput" in wrapper.read_text()):
+        session.error("oneOf wrapper page is missing variant links")
+    # (C) the curated CRUD example rendered (not the opaque placeholder)
+    crud = site / "guides/crud/index.html"
+    txt = crud.read_text() if crud.exists() else ""
+    if "Acme Wiki" not in txt or "CreateOrReplaceAppInput(...)" in txt:
+        session.error("CRUD create example did not render the curated body")

@@ -164,6 +164,82 @@ passes all other fields as template variables.
 
 ---
 
+## `docs:`
+
+Opt-in. Add a `docs:` block and the build emits a complete documentation site
+*inside the generated SDK* — guides for authentication, pagination, and CRUD, plus
+an API reference auto-generated from the emitted docstrings. **Omit the block and
+no docs are scaffolded.** The only required field is `showcase_resource`.
+
+```yaml
+docs:
+  showcase_resource: applications
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `showcase_resource` | string | — (required) | The resource (facade attribute) whose CRUD operations drive the worked examples on the home and CRUD pages. Must match a discovered resource. |
+| `showcase_variant` | string | `null` | Optional variant name passed to the example synthesizer, selecting an alternate set of synthesized request bodies. |
+| `site_name` | string | project `distribution` | Title of the generated site. Defaults to the project's `distribution` name. |
+| `operations` | block | auto-classified | Per-verb override of which SDK method maps to each CRUD slot (see below). |
+| `examples` | block | auto-synthesized | Per-slot verbatim replacement of a generated example code block (see below). |
+
+### `operations:`
+
+By default phantasos classifies the showcase resource's methods into the five CRUD
+slots automatically. Override any slot by naming the exact SDK method:
+
+```yaml
+docs:
+  showcase_resource: applications
+  operations:
+    create: create_application
+    read: get_application_by_id
+    list: list_applications
+    update: patch_application_by_type_and_id
+    delete: delete_application_by_id
+```
+
+Each key is optional; an unset slot keeps the auto-classified method (or is omitted
+if the resource has no such operation).
+
+### `examples:`
+
+For any slot, supply a verbatim code block to render instead of the
+auto-synthesized example. Use this when the synthesized body cannot capture a
+realistic payload:
+
+```yaml
+docs:
+  showcase_resource: applications
+  examples:
+    create: |
+      app = client.applications.create_application(
+          type="web",
+          create_or_replace_app_input=CreateOrReplaceAppInput(name="Acme"),
+      )
+```
+
+Each key (`create`, `read`, `list`, `update`, `delete`) is optional and overrides
+only that slot's example.
+
+### Building the generated SDK's docs
+
+The generated SDK ships its own `noxfile.py` and docs workflow. Build its site
+from inside the generated SDK directory:
+
+```bash
+cd ../my-product-sdk
+uv run nox -s docs        # strict mkdocs build
+uv run nox -s docs-serve  # live-reload preview
+```
+
+phantasos's own `nox -s sdk-docs` session is an integration check that builds the
+`prisma-browser` SDK and its docs end-to-end; see
+[Development](development.md#getting-started-with-nox).
+
+---
+
 ## `transforms:`
 
 Declarative spec pre-processing applied before OpenAPI Generator runs.
