@@ -1,9 +1,11 @@
 # CLI on the clean resource wrapper — design spec
 
-> Status: **grilling complete — all decisions (D1–D11) LOCKED; ready for user
-> review.** Captured 2026-06-19 on branch `feature/sdk-cleanup` off `develop`.
-> Next: user review of this spec → `writing-plans` → expert peer review → build.
-> Do not implement until the spec is reviewed and a plan exists.
+> Status: **R1 revisions LOCKED (2026-06-20).** Original D1–D11 grilled 2026-06-19;
+> 2× python-pro peer review of the first plan → NO-GO; re-grilled the four
+> foundational gaps → **Revisions RA–RD below supersede the conflicting D-items.**
+> Branch `feature/sdk-cleanup` off `develop`. Next: REVISE the plan per RA–RD +
+> the plan-level fixes → re-run peer review → build. Read the Revisions section
+> first; it overrides D1/D3/D4/D7/D9/D11 where they conflict.
 
 ## Goal
 
@@ -30,6 +32,100 @@ existing CLI behaviour**.
    without per-product hand-coding.
 5. **Approach:** generated **typed** wrapper code (build-time), not a runtime
    reflection shim — preserves static types / IDE / mypy. (Approach 2.)
+
+## Revisions — R1 (post-peer-review re-grill, 2026-06-20)
+
+Two adversarial python-pro reviews returned NO-GO; verified against the real
+prisma-browser SDK. The following supersede the original D-items where they
+conflict.
+
+### RA — Wrapper granularity = classified OBJECT, not `*Api` class — **LOCKED**
+
+`client.<X>` keys by the **classified object** (`client.access_and_data_rule`,
+`client.access_and_data_section`, `client.access_and_data_policy`), NOT the OAG
+`*Api` attribute. One `*Api` class backs several object-wrappers. Verified:
+prisma-browser → **21 objects**, each mapping to exactly one api class (no object
+spans >1 api class). This supersedes the `client.<resource>` wording in D1/D3/D9.
+- **Wrapper-gen groups ops by classified object** (not `op.resource`).
+- **Facade:** construct each `*Api` once (from `_RESOURCES`), then bind each
+  `client.<object>` to a wrapper holding the shared `*Api` instance + that
+  object's op subset (`client.access_and_data_rule._api is
+  client.access_and_data_section._api`). Attribute is the object in **snake_case**.
+- **`_RESOURCES` contract kept** (raw api-class map, needed to build the shared
+  instances); ADD an object-keyed wrapper map (`_WRAPPERS`) as the CLI's
+  introspection target (D9-a now sees the right objects → granularity bug gone).
+- **Cross-api-class object collision** (same object noun on two api classes —
+  none today, possible in SCM) → **build fails loudly** ("disambiguate via
+  `sdk.yml operations`"), consistent with the completeness gate.
+
+### RB — Multi-binding for ALL verbs; two-level dispatch — **LOCKED**
+
+Supersedes D3's "flat one-method-per-op, only `.get` collapses".
+- **Within a verb → the wrapper.** Each verb method (`get`/`list`/`delete`/
+  `update`/`create`) takes the union of its bindings' params (all optional) and
+  dispatches to the most-specific binding whose required params are all present
+  (today's `_pick_binding` max-`len(requires)` rule, moved INTO the wrapper).
+  Uniform return per verb (gets→Item, deletes→None, lists→envelope) → no overloads.
+- **Across verbs (CLI `show` = get + list) → the CLI runtime.** `.get` and `.list`
+  are separate wrapper methods; the `show` command binds both and chooses:
+  **`--id` present → `.get`; otherwise → `.list`** (`--type`/`--name`/`--folder`
+  are filters passed to whichever is chosen, NOT get-triggers). This fixes the
+  bare-`show`→list regression. `delete`/`update`/`create` become single-binding
+  CLI commands (their multi-binding now lives in the wrapper). The wrapper's
+  `.get(name=…)` single-fetch (D3) is an SDK convenience; the CLI's `show --name`
+  keeps listing-with-filter, as today.
+
+### RC — Key by `resource.raw_method`; the `_bindings` op-model — **LOCKED**
+
+Supersedes D11's operationId keying and D4's "just `_serialize`"; softens D9-a.
+- **Key everything by `resource.raw_method`** (api-class attr + raw SDK method name
+  — the only stable id in the inventory; exactly what `cli.yml` already uses).
+  `cli.yml` keys stay UNCHANGED (no migration). `sdk.yml operations` keys the same
+  way. Drop the operationId/path+method claim from D11 (no data source) and the
+  no-op `resolve_overrides` set expression.
+- **`cli.yml` semantics are per-binding** — `hide`/`defaults`/etc. apply to the
+  specific raw op (e.g. `defaults: applications.list_applications` only when that
+  binding is selected, not `list_applications_by_type`). Preserves today's behaviour.
+- **The `_bindings` op-model (new).** Each wrapper class carries
+  `_bindings: ClassVar[dict[verb, list[Binding]]]` where `Binding =
+  {raw_method, requires, serialize_name}`. ONE structure that (a) drives the
+  wrapper's own multi-binding dispatch, (b) lets the CLI resolve `cli.yml`'s
+  raw-method keys + build its IR keyed by `resource.raw_method`, (c) lets dry-run
+  re-run present-args selection then serialize the right op. **Drift-safe:**
+  `_bindings` is the SOURCE of the wrapper's actual dispatch (executed from), not a
+  parallel copy — so the CLI reading it cannot disagree with wrapper behaviour.
+  This replaces D4's `_serialize(verb)` (now `_serialize` reads `_bindings`); the
+  CLI reads `_bindings` in addition to introspecting signatures (D9-a softened).
+
+### RD — None-classified ops: expose all, deterministic names — **LOCKED**
+
+The completeness gate means the wrapper exposes EVERY op. Deterministic naming:
+- **PUT `update_*` → `.replace`** (always; distinct from PATCH's `.update`).
+  `update_device_group` → `client.device_group.replace(...)`.
+- **Other non-CRUD → verb-phrase with the object noun stripped.**
+  `suspend_devices` → `client.device.suspend()`; `bulk_create_applications` →
+  `client.application.bulk_create()` (keep `bulk_*` faithful, no `*_many` guess);
+  `revoke_user_request` → `client.user_request.revoke()`.
+- **Ambiguous object/verb** (e.g. `update_access_and_data_positions`) →
+  `sdk.yml operations` override (the manual fallback). **Collision → build fails.**
+- **CLI side unaffected/independent:** `cli.yml request:`/`hide:` (keyed by
+  `resource.raw_method`, per RC) still drives CLI presentation. So
+  `request: devices.suspend_devices` → CLI `request device suspend` while the SDK
+  user calls `client.device.suspend()`; `hide: device_groups.update_device_group`
+  keeps the PUT out of the CLI while the SDK still exposes `.replace()`.
+
+### Plan-level fixes also required (from peer review, not design forks)
+
+Captured in the plan's "Peer review outcome"; the revised plan MUST address:
+`list(all_pages=True)` reuses the real page envelope (`page.model_copy(update=
+{"data": items})`), NOT a hard-coded `total/offset/limit` literal; the dry-run
+`_serialize` seam performs the enum coercion + `body`→raw-param-name translation
+the current runtime does; the golden oracle compares a **stable projection**
+(command paths/flags/columns/variants — excluding raw `sdk_method`), not raw
+`cli discover` text; `test_cli_emitted_real.py`'s raw-method assertions are
+rewritten to the wrapper surface (recorded oracle changes); the facade renders in
+**two passes** (raw-only `_RESOURCES` facade for mid-build introspection, full
+facade with `_WRAPPERS` after wrapper-gen) to avoid the import cycle.
 
 ## Why OpenAPI-Generator alone can't do it
 
