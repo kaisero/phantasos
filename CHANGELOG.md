@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`page.model_copy(update={"data": items})`); the runtime passes `--all` as
   `all_pages=True`. Raw `*Api` classes are no longer reachable from `client.<object>`.
 - User-facing docs: a new **Architecture** page (intent, scope, and three-layer + build-pipeline Mermaid diagrams); the Home page rewritten with a minimal first-build; the authoring guide renamed to `authoring.md` with a quickstart on top.
+- Contributor tooling: product enrollment for the `smoke`/`live`/`sdk-docs` nox sessions now lives in a root `nox.toml` (per-stage `products` lists + per-product `sdk-docs` content assertions) instead of being hardcoded in `noxfile.py`. The new **posture** product is now gated by both `smoke` and `sdk-docs`.
 
 ### Fixed
 
@@ -89,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published-site nav entry is dropped (a fresh architecture page belongs to the
   user-facing docs rework).
 - The mkdocstrings-generated API reference (replaced by a hand-written CLI reference page) and `docs/ONBOARDING.md` (folded into the authoring quickstart).
+- `sdk.yml` `docs.operations` (the per-verb showcase method override) — dead config after CRUD verbs became wrapper-canonical (it was never consumed).
 
 ## [0.1.0a1] - 2026-06-13
 
