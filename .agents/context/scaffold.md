@@ -35,7 +35,7 @@ Characterised by category — not enumerated exhaustively:
 |----------|-------|
 | Project metadata | `pyproject.toml.jinja`, `CHANGELOG.md.jinja`, `CONTRIBUTING.md.jinja`, `SECURITY.md.jinja`, `LICENSE.jinja` |
 | Dev tooling | `noxfile.py.jinja`, `.pre-commit-config.yaml`, `.editorconfig`, `.gitignore` |
-| Docs | `mkdocs.yml.jinja` |
+| Docs | `mkdocs.yml.jinja`, `docs/_hooks.py.jinja`, `docs/index.md.jinja`, `docs/getting-started.md.jinja`, `docs/architecture.md.jinja`, `docs/guides/authentication.md.jinja`, `docs/guides/pagination.md.jinja`, `docs/guides/crud.md.jinja`, `docs/scripts/gen_ref_pages.py.jinja` |
 | GitHub Actions (6 workflows) | `.github/workflows/ci.yml.jinja`, `release.yml.jinja`, `audit.yml.jinja`, `secrets.yml.jinja`, `codeql.yml.jinja`, `docs.yml.jinja` |
 | CLI env example | `.env.example.jinja` |
 | Gated component tests | `tests/conftest.py.jinja`, `tests/test_auth.py.jinja`, `tests/test_errors.py.jinja`, `tests/test_facade.py.jinja`, `tests/test_pagination.py.jinja`, `tests/test_retry.py.jinja` |
@@ -63,6 +63,7 @@ Characterised by category — not enumerated exhaustively:
 - **Whitespace-only gate** — component test templates render to empty when the relevant boolean flag (`has_auth`, `has_pagination`, `has_errors`, `has_facade`, `has_retry`) is falsy. No stub files are emitted; the gate is purely render-time.
 - **Non-Jinja files are copied verbatim** — `.pre-commit-config.yaml`, `.editorconfig`, and `.gitignore` have no `.jinja` suffix and are byte-copied; overrides can replace them with per-product versions.
 - **`overrides/README.md.jinja` is mandatory for SDK builds** — `generator/sdk/build.py` checks for its existence and raises `ValueError` before calling `render_scaffold` if it is missing.
+- **Docs templates are `has_docs`-gated** — all templates under `docs/` and `docs/guides/` wrap their content in `{% if has_docs | default(false) %}`.  The `| default(false)` guard is mandatory because the scaffold engine uses `StrictUndefined`.  When `has_docs` is false the files render to whitespace and `render_scaffold` skips them silently, so non-docs products emit no MkDocs artefacts.  The `docs/scripts/gen_ref_pages.py.jinja` script additionally emits oneOf variant-link pages and is consumed by the `gen-files` MkDocs plugin; `mkdocs.yml.jinja` enables the `griffe_pydantic` extension (with an aggressive `filters:` blocklist hiding OAG scaffolding internals) so pydantic field descriptions from the OAS spec surface in the reference pages.
 - **The scaffold is idempotent** — `render_scaffold` overwrites existing output files unconditionally; re-running a build is safe.
 
 ## See also

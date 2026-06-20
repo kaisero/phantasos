@@ -7,13 +7,33 @@
     "action": null,
     "flags": [
       {
+        "name": "--access",
+        "kind": "json",
+        "required": true
+      },
+      {
         "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--data-controls",
         "kind": "json",
         "required": false
       },
       {
         "name": "--description",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--login-controls",
+        "kind": "json",
         "required": false
       },
       {
@@ -30,6 +50,11 @@
         "name": "--scope",
         "kind": "json",
         "required": false
+      },
+      {
+        "name": "--tracking",
+        "kind": "json",
+        "required": true
       }
     ],
     "columns": [
@@ -352,6 +377,41 @@
     ]
   },
   {
+    "key": "create:cloud-storage-provider",
+    "verb": "create",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--display-name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--enabled",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--google",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--microsoft",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      }
+    ],
+    "columns": []
+  },
+  {
     "key": "create:customization-rule",
     "verb": "create",
     "object": "customization-rule",
@@ -362,6 +422,11 @@
         "name": "--additional-properties",
         "kind": "json",
         "required": false
+      },
+      {
+        "name": "--controls",
+        "kind": "json",
+        "required": true
       },
       {
         "name": "--description",
@@ -713,6 +778,21 @@
       "id",
       "application_id"
     ]
+  },
+  {
+    "key": "delete:cloud-storage-provider",
+    "verb": "delete",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": []
   },
   {
     "key": "delete:customization-rule",
@@ -1427,6 +1507,11 @@
         "required": false
       },
       {
+        "name": "--include-catalog-attributes",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--limit",
         "kind": "scalar",
         "required": false
@@ -1546,6 +1631,21 @@
       "id",
       "application_id"
     ]
+  },
+  {
+    "key": "show:cloud-storage-provider",
+    "verb": "show",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": []
   },
   {
     "key": "show:customization-policy",
@@ -2153,7 +2253,22 @@
     "action": null,
     "flags": [
       {
+        "name": "--access",
+        "kind": "json",
+        "required": false
+      },
+      {
         "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--data-controls",
         "kind": "json",
         "required": false
       },
@@ -2168,6 +2283,11 @@
         "required": true
       },
       {
+        "name": "--login-controls",
+        "kind": "json",
+        "required": false
+      },
+      {
         "name": "--mode",
         "kind": "enum",
         "required": false
@@ -2179,6 +2299,11 @@
       },
       {
         "name": "--scope",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--tracking",
         "kind": "json",
         "required": false
       }
@@ -2513,6 +2638,11 @@
     "flags": [
       {
         "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--controls",
         "kind": "json",
         "required": false
       },

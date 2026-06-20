@@ -7,11 +7,15 @@ so existing imports continue to work unchanged.
 from __future__ import annotations
 
 from ..opmodel.introspect import (
+    _enum_values,
     _response_info,
+    _unwrap_optional,
     introspect,
 )
 
 __all__ = [
+    "_enum_values",
     "_response_info",
+    "_unwrap_optional",
     "introspect",
 ]

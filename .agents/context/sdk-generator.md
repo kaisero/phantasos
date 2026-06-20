@@ -50,6 +50,15 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    `scaffold.render_scaffold()` (in the sibling `scaffold` module,
    `phantasos/scaffold.py` — not this package) lays down the project scaffold,
    with `products/<name>/overrides/` winning over the built-in templates.
+
+   > **Docs stage (deferred — Phase 2 of the develop-merge plan).** `develop`
+   > carries a config-gated docs stage (`generator/sdk/docs.py`,
+   > `examples.py` synthesizer, the `scripts/gen_ref_pages.py.jinja` reference
+   > generator, the `docs:` `sdk.yml` block) that introspected the *raw* `*Api`
+   > surface. It is currently OFF on every product (no `docs:` block is active)
+   > because the wrapper rebase replaced that surface with
+   > `client.<object>.<clean_verb>(...)`. Phase 2 re-realizes the docs stage on
+   > the wrapper and re-enables it; this narrative is rewritten then.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
@@ -117,6 +126,8 @@ op, since each binding's `param_map` is its own accepted surface), and
 
 <!-- GENERATED:module-map -->
 - `build.py` — SDK build orchestrator: preprocess -> generate -> patch -> vendor -> scaffold.
+- `docs.py` — Scoped introspect + verb classification + docs context for generated SDKs.
+- `examples.py` — Synthesize illustrative constructor examples from live pydantic models.
 - `generate.py` — Run OpenAPI Generator (python) — jar fetch/verify + invocation.
 - `patches.py` — Generic codegen-bug patches for OpenAPI Generator (python) output.
 - `preprocess.py` — Spec preprocessing — generic transforms + parameterized spec-specific helpers.
@@ -131,6 +142,12 @@ op, since each binding's `param_map` is its own accepted surface), and
 <!-- GENERATED:api -->
 - `build.py`
   - `build(loaded, run_smoke)`
+- `docs.py`
+  - `classify_operations(operations, resource, overrides)` — Map each CRUD slot to its canonical OperationInfo (present slots only).
+  - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination, resolve, variant, examples)`
+  - `build_docs_context(loaded, project_dir)` — Scoped introspect of the showcase resource -> docs context dict.
+- `examples.py`
+  - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.

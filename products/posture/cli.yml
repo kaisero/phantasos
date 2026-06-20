@@ -1,0 +1,39 @@
+# CLI config for posture-cli — declarative deltas over the auto-classifier.
+# Consumed by `phantasos cli build posture`. The classifier always runs over the
+# built SDK; this file only supplies what it can't infer.
+
+# --- project metadata for the generated CLI project (scaffold context) ---
+project:
+  distribution: posture-cli
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/posture-cli
+  description: Command-line interface for the Palo Alto Networks Posture Management & Assessment APIs
+
+# --- non-CRUD actions → the `request` namespace (`request <object> <action>`) ---
+# CRUD (list/get/create/update/delete posture-check) is auto-classified; the PUT
+# update maps via the `update_` verb prefix. These remaining ops have no CRUD prefix:
+#   - clone:  POST /v1/{id}:clone        (id + optional --name)
+#   - batch-upsert/-delete: array bodies (--checks JSON / --ids), object-wrapped so
+#     they introspect (unlike a bare-array bulk body)
+#   - bpa upload: POST /reports/config-file-upload (initiate; returns task_id+url).
+#     The BPA result poll (GET /reports/{id}/bpa-result) auto-classifies as
+#     `show bpa-result --id`.
+request:
+  posture_checks.clone_posture_checks_by_id: {object: posture-check, action: clone}
+  posture_checks.batch_upsert_posture_checks: {object: posture-check, action: batch-upsert}
+  posture_checks.batch_delete_posture_checks: {object: posture-check, action: batch-delete}
+  config_file_upload.initiate_config_upload: {object: bpa, action: upload}
+
+# --- per-object curated table columns ---
+# datetime fields (created_at/updated_at) introspect as kind "json" so they are
+# excluded from auto defaults; list explicitly here only if desired (omitted: the
+# scalar/enum set below is the useful at-a-glance view).
+columns:
+  posture-check:
+    - id
+    - name
+    - object_type
+    - type
+    - severity
+    - management_type

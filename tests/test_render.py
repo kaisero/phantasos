@@ -1,6 +1,9 @@
 """Unit tests for the vendor/render step."""
 
 import ast
+import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -10,6 +13,126 @@ from phantasos.productconfig import load_product
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 _PKG = _SDK / "prisma_browser"
+
+_EXC_NAMES = (
+    "ApiException",
+    "BadRequestException",
+    "UnauthorizedException",
+    "ForbiddenException",
+    "NotFoundException",
+    "RateLimitException",
+    "ServiceException",
+)
+
+
+def _render_list_error(**overrides: str) -> str:
+    env = render._env()
+    params: dict[str, str] = {
+        "errors_field": "_errors",
+        "message_field": "message",
+        "code_field": "code",
+        "request_id_field": "_request_id",
+    }
+    params.update(overrides)
+    return env.get_template("errors/list_error.py.jinja").render(**params)
+
+
+def _exec_extras_errors(src: str) -> types.ModuleType:
+    """Exec a rendered ``extras/errors.py`` inside a stub package so its
+    ``from ..exceptions import ...`` resolves; return the module."""
+    pkg = types.ModuleType("_le_pkg")
+    pkg.__path__ = []
+    extras = types.ModuleType("_le_pkg.extras")
+    extras.__path__ = []
+    exc = types.ModuleType("_le_pkg.exceptions")
+    for name in _EXC_NAMES:
+        setattr(exc, name, type(name, (Exception,), {"body": None, "data": None}))
+    sys.modules.update(
+        {"_le_pkg": pkg, "_le_pkg.extras": extras, "_le_pkg.exceptions": exc}
+    )
+    try:
+        mod = types.ModuleType("_le_pkg.extras.errors")
+        mod.__package__ = "_le_pkg.extras"
+        exec(compile(src, "errors.py", "exec"), mod.__dict__)  # noqa: S102
+        return mod
+    finally:
+        for key in ("_le_pkg", "_le_pkg.extras", "_le_pkg.exceptions"):
+            sys.modules.pop(key, None)
+
+
+def test_list_error_reexports_full_surface() -> None:
+    src = _render_list_error()
+    for name in (*_EXC_NAMES, "error_message"):
+        assert name in src  # F6: extras/__init__.py imports this fixed name list
+
+
+def test_list_error_message_formats_single_entry() -> None:
+    mod = _exec_extras_errors(_render_list_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps(
+        {
+            "_errors": [{"code": "API_I00035", "message": "Invalid Request Payload"}],
+            "_request_id": "eb18eb0c",
+        }
+    )
+    # code: message, and the request_id is NOT leaked into the human line
+    assert mod.error_message(exc) == "API_I00035: Invalid Request Payload"
+
+
+def test_list_error_message_joins_multiple_and_handles_missing_code() -> None:
+    mod = _exec_extras_errors(_render_list_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps(
+        {"_errors": [{"code": "A", "message": "first"}, {"message": "second"}]}
+    )
+    assert mod.error_message(exc) == "A: first; second"
+
+
+def test_list_error_message_falls_back_to_top_level() -> None:
+    mod = _exec_extras_errors(_render_list_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps({"message": "top-level message"})
+    assert mod.error_message(exc) == "top-level message"
+
+
+def test_list_error_message_ignores_gateway_msg() -> None:
+    # C3: the SCM gateway's {"msg": ...} 403 is a transport shape, NOT posture's
+    # documented `_errors[]` schema — so the list_error component does NOT surface
+    # it (the CLI's generic fallback tier owns `msg`). It falls through to reason.
+    mod = _exec_extras_errors(_render_list_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps({"msg": "Access denied"})
+    assert mod.error_message(exc) == "request failed"
+
+
+def _render_nested_error(**overrides: object) -> str:
+    env = render._env()
+    params: dict[str, object] = {
+        "error_field": "error",
+        "message_field": "message",
+        "code_field": "code",
+        "wrappers": ["errorResponse", "error_response"],
+    }
+    params.update(overrides)
+    return env.get_template("errors/nested_error.py.jinja").render(**params)
+
+
+def test_nested_error_unwraps_configured_wrapper() -> None:
+    # The wrapper is now documented config; the SDK helper unwraps it too (fixing
+    # the prior CLI/SDK divergence where only the CLI peeled errorResponse).
+    mod = _exec_extras_errors(_render_nested_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps(
+        {"errorResponse": {"error": {"code": "E1", "message": "boom"}}}
+    )
+    assert mod.error_message(exc) == "E1: boom"
+
+
+def test_nested_error_without_wrapper_still_works() -> None:
+    mod = _exec_extras_errors(_render_nested_error())
+    exc = mod.ApiException()
+    exc.body = json.dumps({"error": {"message": "plain"}})
+    assert mod.error_message(exc) == "plain"
 
 
 def _make_pkg(tmp_path: Path) -> Path:

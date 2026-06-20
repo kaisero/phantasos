@@ -1,0 +1,74 @@
+{% if has_docs | default(false) %}"""Generate the API Reference: one mkdocstrings page per api/ and models/ module."""
+
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+from types import UnionType
+from typing import Union, get_args, get_origin
+
+import mkdocs_gen_files
+from pydantic import BaseModel
+
+PACKAGE = "{{ package }}"
+SUBPACKAGES = ("api", "models")
+
+# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
+# is the SDK root (scripts -> docs -> root) where the package directory lives.
+src = Path(__file__).resolve().parents[2] / PACKAGE
+assert src.is_dir(), src  # fail loudly if the package path drifts
+
+
+def _public_model(module_name: str) -> type[BaseModel] | None:
+    """The pydantic model a models/ module defines, matched by file<->class name."""
+    mod = importlib.import_module(module_name)
+    want = module_name.rsplit(".", 1)[-1].replace("_", "").lower()
+    for name in dir(mod):
+        obj = getattr(mod, name)
+        if (isinstance(obj, type) and issubclass(obj, BaseModel)
+                and obj.__module__ == module_name and name.replace("_", "").lower() == want):
+            return obj
+    return None
+
+
+def _oneof_variants(model: type[BaseModel]) -> list[type[BaseModel]]:
+    """Variant classes of an openapi-generator oneOf wrapper (else [])."""
+    field = model.model_fields.get("actual_instance")
+    if field is None:
+        return []
+    inner = field.annotation
+    if get_origin(inner) in (Union, UnionType):
+        return [a for a in get_args(inner)
+                if isinstance(a, type) and issubclass(a, BaseModel) and a is not type(None)]
+    return []
+
+
+nav = mkdocs_gen_files.Nav()
+for sub in SUBPACKAGES:
+    for path in sorted((src / sub).rglob("*.py")):
+        module = path.relative_to(src).with_suffix("")
+        parts = tuple(module.parts)
+        if parts[-1] == "__init__" or parts[-1].startswith("_"):
+            continue
+        doc_path = Path(*parts).with_suffix(".md")
+        full = Path("reference", doc_path)
+        nav[parts] = doc_path.as_posix()
+        dotted = ".".join((PACKAGE, *parts))
+        variants: list[type[BaseModel]] = []
+        if sub == "models":
+            model = _public_model(dotted)
+            if model is not None:
+                variants = _oneof_variants(model)
+        with mkdocs_gen_files.open(full, "w") as fd:
+            fd.write(f"::: {dotted}\n")
+            if variants:
+                fd.write("\nOne of the following variants:\n\n")
+                # Variant pages are siblings of the wrapper page (both under
+                # models/), so a bare "<module>.md" relative link resolves.
+                for v in variants:
+                    fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
+        mkdocs_gen_files.set_edit_path(full, path)
+
+with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as fd:
+    fd.writelines(nav.build_literate_nav())
+{% endif %}

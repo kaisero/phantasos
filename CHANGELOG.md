@@ -24,7 +24,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed `client.<object>.<verb>(...)` resource wrappers in generated SDKs; the
   generated CLI now dispatches through them. New `sdk.yml operations:` naming override
   block for declarative per-op `resource`/`method`/`verb` overrides (keyed by
-  `api_attr.raw_method`; validated at build).
+  `api_attr.raw_method`; validated at build) — including a per-op `hide: true` that
+  drops an op from the wrapper entirely (SDK analog of `cli.yml hide:`).
+- Generated SDKs can now ship a complete Material for MkDocs site (Getting Started,
+  Architecture, authentication/pagination/CRUD how-to guides, and an mkdocstrings API
+  reference). Opt in per product via a `docs:` block naming a `showcase_resource`; the
+  guides are tailored to that resource via a scoped, build-time introspection. The site
+  builds under `mkdocs build --strict`. Products without a `docs:` block emit no docs
+  (and no longer ship the previously non-building mkdocs shell).
+- Generated SDK docs now render each pydantic model's full field surface (via
+  `griffe-pydantic`), document oneOf wrapper types as links to their variant
+  models, and emit real-shaped CRUD examples synthesized from the schema.
+- `sdk.yml` `docs:` gains `showcase_variant` (choose the oneOf variant used in
+  the example) and `examples.<slot>` (verbatim per-operation example override).
+- New **posture** product (Palo Alto Networks Posture Management & Assessment —
+  BPA config upload + Custom Posture Checks): generates a working SDK and CLI
+  (`posture-sdk` / `posture-cli`). Full CLI surface — CRUD on `posture-check`,
+  `request posture-check clone|batch-upsert|batch-delete`, `request bpa upload`,
+  and `show bpa-result`. Vendor spec is read-only; a `hooks.py` preprocess promotes
+  the non-standard `ExternalTags` block to a standard root `tags:` array, renames
+  the tag to `Posture Checks` (→ `client.posture_checks`), injects the missing
+  bearer `securitySchemes`/`security` so the SDK attaches the SCM OAuth token, and
+  adds illustrative create/update examples.
+- New **offset/limit pagination** component (`pagination: {type: offset}`): a
+  `paginate()` helper that walks `limit`/`offset` pages (owning a `default_page_size`
+  since the runtime forwards neither flag unless set), stopping on a short page or
+  `offset >= total`. Complements the existing `cursor` strategy.
+- New **list-style error** component (`errors: {type: list_error}`): formats the
+  `{"_errors": [{"code", "message"}, ...]}` envelope as `code: message` (joined).
+- Generated CLI error rendering is now **config-driven**: each error component
+  contributes an `ErrorEnvelope` descriptor (`error_fields()`) that `render_cli`
+  threads onto the IR (like `auth.credential_fields`), so the emitted
+  `diagnostics._error_headline` peels the product's configured `wrappers` →
+  `error_field` → `errors_field`, then a product-AGNOSTIC `fallback_keys` set. The
+  generic CLI template carries NO product-specific error keys (a product's envelope
+  shape never leaks into another product's CLI); the SCM gateway's `{"msg": …}` 403
+  shape rides the generic fallback tier, so a denied request reads
+  `error: 403 Forbidden — Access denied`. The `nested` component's `errorResponse`
+  wrapper is now documented config (`NestedError.wrappers`) and the SDK helper unwraps
+  it too (previously only the CLI did — a latent divergence).
+- CLI classifier now recognizes **PUT full-replace updates** (`update_*` →
+  `update <object>`, sub_verb `put`): unlike PATCH, a PUT keeps the model's required
+  body fields required (omitting one would wipe it server-side). A command merging
+  both a PATCH and a PUT binding relaxes to optional (PATCH offers partial updates).
 
 ### Changed
 

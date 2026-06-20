@@ -63,6 +63,7 @@ def test_cli_build_emits_full_project(
         output_dir = tmp_path / "fakesdk-sdk"
         context = sdk_ctx
         auth = type("A", (), {"scope_env": "SCOPE", "base_url_env": "FAKE_BASE_URL"})()
+        errors = None  # no error component -> generic error envelope
 
     monkeypatch.setattr(climod, "load_product", lambda name: _Loaded())
     rc = main(["cli", "build", "fakesdk"])

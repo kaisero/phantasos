@@ -22,8 +22,10 @@ from ..opmodel.classify import (
     Classification,
     _singularize,
     _strip_id_suffix,
-    classify_name,
     detect_id_param,
+)
+from ..opmodel.classify import (
+    classify_name as _opmodel_classify_name,
 )
 from ..opmodel.introspect import introspect
 from .cliconfig import CliConfig, RequestMapping, VariantMap
@@ -45,6 +47,46 @@ __all__ = [
     "resolve_variants",
     "select_method_for_verb",
 ]
+
+# (prefix, verb, sub_verb) — CLI-LOCAL classification prefixes. Mirrors the shared
+# opmodel `_VERB_PREFIXES` but ADDS the PUT `update_` row. The shared map must NOT
+# carry `update_` (the SDK wrapper needs `classify_name("update_*") -> None` so a
+# PUT full-replace routes to `.replace`; see opmodel/classify.py + the contract
+# tests in test_opmodel_classify.py). The CLI, however, needs `update_*` to surface
+# a live `update` command (verb=update, sub_verb=put) — posture's ONLY update is a
+# PUT with no PATCH twin, so without this its `update posture-check` command would
+# vanish. This local map is the decouple point: SDK `.replace` AND CLI `update` both
+# preserved.
+_CLI_VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
+    ("create_", "create", "create"),
+    ("patch_", "update", "patch"),
+    ("update_", "update", "put"),  # PUT full-replace; body stays required (see below)
+    ("delete_", "delete", "delete"),
+    ("get_", "show", "get"),
+    ("list_", "show", "list"),
+]
+
+
+def classify_name(method: str) -> Classification | None:
+    """CLI-local prefix classification: ADDS the PUT `update_*` -> (update, put) case.
+
+    The shared `opmodel.classify_name` returns None for `update_*` (so the SDK
+    wrapper routes PUTs to `.replace`). The CLI needs the `update` command, so this
+    local variant classifies `update_*` first, then falls back to the shared helper
+    for every other prefix. Importing modules (the SDK wrapper, contract tests) keep
+    using `opmodel.classify_name` directly; only `cli.classify` (and its consumers /
+    `test_cli_classify.py`) see the PUT case.
+    """
+    if any(frag in method for frag in _SKIP_FRAGMENTS):
+        return None
+    for prefix, verb, sub_verb in _CLI_VERB_PREFIXES:
+        if method.startswith(prefix):
+            noun = _strip_id_suffix(method[len(prefix) :])
+            noun = _singularize(noun)
+            return Classification(
+                verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
+            )
+    return _opmodel_classify_name(method)
 
 
 def cli_operations(
@@ -425,13 +467,6 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             for f in cmd.path_params:
                 if f.kind == "id":
                     f.required = True
-        # PATCH semantics: no body field should ever be mandatory for update.
-        # For SDKs with a proper all-optional patch model this is a no-op; for
-        # SDKs that reuse the create model (required fields) it corrects semantics.
-        # PUT-fallback (required body fields) is deferred and handled separately.
-        if verb == "update":
-            for f in cmd.body_flags:
-                f.required = False
 
     for op in inv.operations:
         key0 = f"{op.resource}.{op.method}"
@@ -462,6 +497,18 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 )
         else:
             _emit(verb, obj, None, op, cls.sub_verb, None)
+
+    # ---- Update body requiredness (per-command, post-merge: order-independent).
+    # PATCH is partial → no body field should be mandatory. A PUT-only update is a
+    # full replace → the model's required fields STAY required (omitting one would
+    # wipe it server-side). A command that merges BOTH (a `patch_` + an `update_`
+    # PUT on one object) is relaxed because PATCH offers a valid partial update.
+    # Deciding from the final binding set (not per-binding in `_emit`) avoids the
+    # emit-order sensitivity a per-binding gate would have.
+    for cmd in groups.values():
+        if cmd.verb == "update" and any(b.sub_verb == "patch" for b in cmd.bindings):
+            for f in cmd.body_flags:
+                f.required = False
 
     # ---- get-by-id-only show commands.
     # A `show` with a single get-by-id binding and NO list operation can only

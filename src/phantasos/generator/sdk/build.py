@@ -89,13 +89,17 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
         )
 
     from ... import scaffold
+    from . import docs as docs_stage
 
     overrides = loaded.base_dir / "overrides"
+    context = dict(loaded.context)
+    if loaded.config.docs is not None:
+        context.update(docs_stage.build_docs_context(loaded, project_dir))
     scaffold.render_scaffold(
         scaffold.builtin_dir(),
         overrides if overrides.is_dir() else None,
         project_dir,
-        loaded.context,
+        context,
     )
 
     # 5. provenance

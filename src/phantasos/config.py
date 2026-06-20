@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from phantasos.generator.cli.ir import CredentialField
+from phantasos.generator.cli.ir import CredentialField, ErrorEnvelope
 
 
 class _Component(BaseModel):
@@ -76,13 +76,57 @@ class CursorPagination(_Component):
     template: str = "pagination/cursor.py.jinja"
 
 
+class OffsetPagination(_Component):
+    """Offset/limit pagination: items under `data_field`, `total_field` optional.
+
+    The runtime forwards a query kwarg only when the user passed the flag, so under
+    a bare ``--all`` neither limit nor offset is present — the template OWNS the
+    defaults (`default_page_size`, offset 0).
+    """
+
+    data_field: str = "data"
+    limit_field: str = "limit"
+    offset_field: str = "offset"
+    total_field: str = "total"
+    default_page_size: int = 100
+    template: str = "pagination/offset.py.jinja"
+
+
 class NestedError(_Component):
     """Error message at ``body[error_field][message_field]`` (+ optional code)."""
 
     error_field: str = "error"
     message_field: str = "message"
     code_field: str = "code"
+    # Outer envelope keys peeled before reading error_field (e.g. SASE's
+    # `{"errorResponse": {"error": {...}}}`). Documented config, not a magic string.
+    wrappers: tuple[str, ...] = ("errorResponse", "error_response")
     template: str = "errors/nested_error.py.jinja"
+
+    def error_fields(self) -> ErrorEnvelope:
+        return ErrorEnvelope(
+            wrappers=self.wrappers,
+            error_field=self.error_field,
+            message_field=self.message_field,
+            code_field=self.code_field,
+        )
+
+
+class ListError(_Component):
+    """Errors as a list under ``body[errors_field]``; each entry {code, message}."""
+
+    errors_field: str = "_errors"
+    message_field: str = "message"
+    code_field: str = "code"
+    request_id_field: str = "_request_id"
+    template: str = "errors/list_error.py.jinja"
+
+    def error_fields(self) -> ErrorEnvelope:
+        return ErrorEnvelope(
+            errors_field=self.errors_field,
+            message_field=self.message_field,
+            code_field=self.code_field,
+        )
 
 
 class Facade(_Component):
@@ -110,12 +154,17 @@ class OperationOverride(BaseModel):
     resource: str | None = None
     method: str | None = None
     verb: Literal["create", "update", "delete", "show", "request"] | None = None
+    # Drop the op from the generated wrapper entirely (no wrapper method emitted,
+    # and the anchorless None-classified gate is NOT tripped for it). The SDK-side
+    # analog of ``cli.yml hide:`` — used for ops the SDK should not surface (e.g.
+    # multipart file uploads with no introspectable body, or full-replace PUTs).
+    hide: bool = False
 
 
 # Built-in strategy registries: category -> {type name: model}. The loader uses
 # these to dispatch a YAML block's `type` to the right model (or a custom path).
 BUILTIN_AUTH = {"scm_oauth": ScmOAuth}
-BUILTIN_PAGINATION = {"cursor": CursorPagination}
-BUILTIN_ERRORS = {"nested": NestedError}
+BUILTIN_PAGINATION = {"cursor": CursorPagination, "offset": OffsetPagination}
+BUILTIN_ERRORS = {"nested": NestedError, "list_error": ListError}
 BUILTIN_FACADE = {"default": Facade}
 BUILTIN_RETRY = {"default": RetryConfig}

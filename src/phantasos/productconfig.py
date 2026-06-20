@@ -26,6 +26,16 @@ _BASE_DEPS = [
 ]
 
 
+def sdk_runtime_deps() -> list[str]:
+    """The OAG-fixed runtime deps every generated SDK requires.
+
+    Stable across regenerations; exposed so callers (e.g. the ``sdk-docs`` /
+    ``live`` nox sessions) can pre-install them without depending on a built
+    SDK's ``pyproject.toml``.
+    """
+    return list(_BASE_DEPS)
+
+
 class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     distribution: str
@@ -38,6 +48,39 @@ class ProjectConfig(BaseModel):
         default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"]
     )
     dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
+
+
+class DocsOperations(BaseModel):
+    """Optional per-verb override of the showcase resource's CRUD methods."""
+
+    model_config = ConfigDict(extra="forbid")
+    create: str | None = None
+    read: str | None = None
+    list: str | None = None
+    update: str | None = None
+    delete: str | None = None
+
+
+class DocsExamples(BaseModel):
+    """Optional per-slot verbatim override of the showcase CRUD example block."""
+
+    model_config = ConfigDict(extra="forbid")
+    create: str | None = None
+    read: str | None = None
+    list: str | None = None
+    update: str | None = None
+    delete: str | None = None
+
+
+class DocsConfig(BaseModel):
+    """Opt-in user-documentation generation (sdk.yml `docs:` block)."""
+
+    model_config = ConfigDict(extra="forbid")
+    showcase_resource: str
+    showcase_variant: str | None = None
+    site_name: str | None = None
+    operations: DocsOperations | None = None
+    examples: DocsExamples | None = None
 
 
 class Hoist(BaseModel):
@@ -92,6 +135,7 @@ class ProductConfig(BaseModel):
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    docs: DocsConfig | None = None
 
 
 class CustomComponent(BaseModel):
@@ -159,6 +203,7 @@ _AUTO_EXPOSED = {
     "license",
     "python_versions",
     "dependencies",
+    "has_docs",
 }
 
 
@@ -213,6 +258,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_errors": errors is not None,
         "has_facade": facade is not None,
         "has_retry": retry is not None,
+        "has_docs": cfg.docs is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
     }
     if cfg.project is not None:

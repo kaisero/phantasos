@@ -9,6 +9,24 @@ auth:
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
+# NOTE: the `docs:` block is intentionally OFF until Phase 2 of the develop-merge
+# plan re-realizes #30's generated docs on the wrapper surface (the examples below
+# teach the raw `client.applications.create_application(...)` surface, which the
+# wrapper rebase replaced with `client.application.create(body=...)`). Re-enabled
+# in Phase 2.5 against the wrapper.
+# docs:
+#   showcase_resource: applications
+#   showcase_variant: CustomApplicationInput
+#   examples:
+#     create: |
+#       created = client.applications.create_application(
+#           type="custom",
+#           create_or_replace_app_input=CustomApplicationInput(
+#               name="Acme Wiki",
+#               type="custom",
+#               urls=[UrlInput(url="https://wiki.acme.com/*")],
+#           ),
+#       )
 transforms:
   hoist:
     - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
@@ -20,6 +38,14 @@ transforms:
     - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
+    # Cloud-storage providers ship without operationIds, so OAG auto-names them
+    # seb_api_v1_* (unclassifiable). Give them CRUD-friendly operationIds so the
+    # CLI classifier maps them to show/create/delete cloud-storage-provider.
+    # (The full-replace PUT is intentionally left raw + hidden below.)
+    - {path: /seb-api/v1/integrations/cloud-storage, method: get, operation_id: ListCloudStorageProviders, tag: Integrations}
+    - {path: /seb-api/v1/integrations/cloud-storage, method: post, operation_id: CreateCloudStorageProvider, tag: Integrations}
+    - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: get, operation_id: GetCloudStorageProviderById, tag: Integrations}
+    - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: delete, operation_id: DeleteCloudStorageProviderById, tag: Integrations}
 
 # --- anchorless None-classified ops → an explicit (object, method) decision ---
 # Mirrors cli.yml's `request:` block. These 6 ops classify to None AND have no CRUD
@@ -29,6 +55,12 @@ transforms:
 # (kebab, == classify_name(...).object). The 5 `*-section` targets are EXISTING CRUD
 # objects (reorder/reorder_patch attach to them — distinct method names, no collision);
 # `configuration` is a NEW single-method object the override is allowed to create.
+#
+# `hide: true` rows drop an op from the wrapper entirely (no wrapper method, and the
+# anchorless-gate is NOT tripped). The cloud-storage full-PUT (full-replace, all
+# fields required each call) and the 4 multipart/form-data asset uploads (the
+# introspector sees an empty body — no file-upload flow yet) are SDK-suppressed here,
+# mirroring their cli.yml `hide:` entries so neither surface emits them.
 operations:
   access_and_data_policy.update_access_and_data_positions:
     {resource: access-and-data-section, method: reorder}
@@ -40,6 +72,11 @@ operations:
   sign_in_policy.update_sign_in_positions: {resource: sign-in-section, method: reorder}
   configuration_management.publish_draft_configuration:
     {resource: configuration, method: publish}
+  integrations.seb_api_v1_integrations_cloud_storage_provider_id_put: {hide: true}
+  assets.upload_background_image: {hide: true}
+  assets.upload_browser_icon: {hide: true}
+  assets.upload_company_logo: {hide: true}
+  assets.upload_pac_file: {hide: true}
 
 project:
   distribution: prisma-browser-sdk

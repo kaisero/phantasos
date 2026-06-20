@@ -67,6 +67,16 @@ hide:
   - security_policy.update_security_section_by_id
   - sign_in_policy.update_sign_in_section_by_id
   - user_groups.update_user_group
+  # Cloud-storage full-PUT (credential rotation; all fields required each call):
+  # full-replace semantics, deferred like the other update_* PUTs above.
+  - integrations.seb_api_v1_integrations_cloud_storage_provider_id_put
+  # Assets: multipart/form-data file uploads — the introspector sees empty
+  # body_fields (raw form-data file field), so there's no CLI file flag yet.
+  # Hide until the generator gains a file-path → bytes upload flow.
+  - assets.upload_background_image
+  - assets.upload_browser_icon
+  - assets.upload_company_logo
+  - assets.upload_pac_file
 
 # --- per-object curated table columns ---
 # Bare strings: header == path (snake_case field names from model_dump).

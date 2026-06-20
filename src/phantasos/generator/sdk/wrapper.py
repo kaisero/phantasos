@@ -607,6 +607,15 @@ def build_wrapper_context(
     obj_api: dict[str, str] = {}
     obj_verb: dict[tuple[str, str], str] = {}
     for op in inv.operations:
+        # `sdk.yml operations: <op>: {hide: true}` drops the op from the wrapper.
+        # This `continue` MUST run BEFORE `_clean_verb_and_method` → `_resolve_object`,
+        # which raises synchronously for a None-classified anchorless op: a hidden op
+        # (e.g. a multipart upload with no body, or a full-replace PUT) is precisely
+        # the kind that would otherwise trip that gate, so suppressing it here lets it
+        # be dropped silently instead of failing the build.
+        op_ov = overrides.get(f"{op.resource}.{op.method}")
+        if op_ov is not None and op_ov.hide:
+            continue
         obj_attr, verb, method = _clean_verb_and_method(op, overrides, crud_objs)
         if obj_attr in obj_api and obj_api[obj_attr] != op.resource:
             raise ValueError(

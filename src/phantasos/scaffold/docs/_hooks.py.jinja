@@ -1,0 +1,33 @@
+{% if has_docs | default(false) %}"""MkDocs hook: silence griffe's benign duplicate-parameter warnings.
+
+OpenAPI Generator documents each parameter in BOTH the sphinx docstring and the
+`Annotated[..., Field(description=...)]` annotation; griffe flags the overlap as
+'Duplicate parameter information'. It is cosmetic, but `--strict` aborts on any
+WARNING. Drop just those records so strict still catches real problems.
+"""
+
+from __future__ import annotations
+
+import logging
+
+_NEEDLE = "Duplicate parameter information"
+
+
+class _DropDuplicateParam(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return _NEEDLE not in record.getMessage()
+
+
+_FILTER = _DropDuplicateParam()
+
+
+def on_startup(**_kwargs: object) -> None:
+    names = set(logging.root.manager.loggerDict) | {
+        "griffe", "mkdocs.plugins.griffe", "mkdocs.plugins.mkdocstrings",
+    }
+    for name in names:
+        if "griffe" in name or "mkdocstrings" in name:
+            logging.getLogger(name).addFilter(_FILTER)
+    for handler in logging.root.handlers:
+        handler.addFilter(_FILTER)
+{% endif %}

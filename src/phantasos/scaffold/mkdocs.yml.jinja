@@ -1,5 +1,5 @@
-site_name: {{ distribution }}
-site_description: {{ description }}
+{% if has_docs | default(false) %}site_name: {{ site_name | tojson }}
+site_description: {{ description | tojson }}
 repo_url: {{ repo_url }}
 repo_name: {{ repo_url | replace("https://github.com/", "") }}
 
@@ -15,33 +15,76 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
+      toggle: {icon: material/brightness-7, name: Switch to dark mode}
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+      toggle: {icon: material/brightness-4, name: Switch to light mode}
 
 nav:
   - Home: index.md
-  - API Reference: reference.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Guides:
+{% if has_auth %}      - Authentication: guides/authentication.md
+{% endif %}{% if show_pagination_guide %}      - Pagination: guides/pagination.md
+{% endif %}      - CRUD operations: guides/crud.md
+  - API Reference: reference/
+
+exclude_docs: |
+  _hooks.py
+  scripts/
+
+hooks:
+  - docs/_hooks.py
 
 plugins:
   - search
+  - gen-files:
+      scripts: [docs/scripts/gen_ref_pages.py]
+  - literate-nav:
+      nav_file: SUMMARY.md
   - mkdocstrings:
       handlers:
         python:
+          paths: ["."]
+          inventories:
+            - https://docs.python.org/3/objects.inv
+            - https://docs.pydantic.dev/latest/objects.inv
           options:
-            docstring_style: google
-            show_source: true
+            docstring_style: sphinx
+            extensions:
+              - griffe_pydantic
+            show_if_no_docstring: true
+            filters:
+              - "!^_"
+              - "!_with_http_info$"
+              - "!_without_preload_content$"
+              - "!_serialize$"
+              - "!^to_str$"
+              - "!^to_json$"
+              - "!^to_dict$"
+              - "!^from_json$"
+              - "!^from_dict$"
+              - "!^model_config$"
+              - "!^additional_properties$"
+              - "!^actual_instance$"
+              - "!^one_of_schemas$"
+              - "!^oneof_schema_"
+              - "!^discriminator_value_class_map$"
+            show_bases: false
+            show_source: false
             show_root_heading: true
+            show_docstring_parameters: false
             members_order: source
 
 markdown_extensions:
   - admonition
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - toc:
       permalink: true
+{% endif %}
