@@ -1,6 +1,6 @@
 # product-config
 
-Validated against 50c1e34 on 2026-06-14 · Purpose: how a product's `sdk.yml` (and optional `cli.yml`, `hooks.py`, `overrides/`) is declared, loaded, and converted into a `LoadedProduct` that drives every downstream build stage.
+Validated against 81e8207 on 2026-06-20 · Purpose: how a product's `sdk.yml` (and optional `cli.yml`, `hooks.py`, `overrides/`) is declared, loaded, and converted into a `LoadedProduct` that drives every downstream build stage.
 
 ## Purpose & responsibilities
 
@@ -87,6 +87,7 @@ files are optional.
 | `vars` | no | `{}` | Extra Jinja context; must not shadow auto-exposed names |
 | `include` | no | `{}` | Extra templates → `extras/<dest>` |
 | `project` | no | omitted | Required for scaffold; drives `pyproject.toml`, workflows |
+| `operations` | no | `{}` | Per-op wrapper override: `resource.method` → `{resource, method, verb}`; keyed by `api_attr.raw_method`; validated at build (unknown key → fail) |
 
 ### Built-in component types (from `config.py`)
 
@@ -126,6 +127,20 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
   - class `LoadedProduct`
   - `load_product(name_or_path)`
 <!-- /GENERATED:api -->
+
+### `sdk.yml operations:` block
+
+The `operations:` map (new; `ProductConfig.operations`) holds per-op wrapper
+overrides keyed by `"<api_attr>.<raw_method>"` (the same key `cli.yml` already
+uses). Each entry is an `OperationOverride` (`config.py`) with optional `resource`
+(target object attr, kebab OK), `method` (clean wrapper method name), and `verb`
+(CRUD verb classification). This is the escape hatch for ops the auto-classifier
+cannot resolve — for example: anchorless None-classified ops (e.g.
+`publish_draft_configuration` which has no CRUD object on its api class) and
+deliberate renamings. Unknown keys (no matching raw op) fail the build loudly;
+overrides that would create a method-name collision on the same object also fail
+the build. The override is applied in the shared `generator/opmodel/` classifier
+and flows through to both the SDK wrapper names and the CLI's command tree.
 
 ## Gotchas / invariants
 

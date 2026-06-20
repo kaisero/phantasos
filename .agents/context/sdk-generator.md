@@ -1,6 +1,6 @@
 # sdk-generator
 
-Validated against 23ec64a on 2026-06-14 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
+Validated against 81e8207 on 2026-06-20 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
 
 ## Purpose & responsibilities
 
@@ -37,18 +37,35 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    A product `hooks.py::patch(pkg_dir)` runs after.
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
-   `<package>/extras/`. When the facade is enabled it ALSO emits
-   `extras/resources.py` — the object-granular typed resource wrappers — as the
-   final step (after every other extra exists on disk, because building that
-   context import-walks the freshly-vendored package). Then
-   `scaffold.render_scaffold()` (in the sibling
-   `scaffold` module, `phantasos/scaffold.py` — not this package) lays down the
-   project scaffold, with
-   `products/<name>/overrides/` winning over the built-in templates.
+   `<package>/extras/`. When the facade is enabled, vendoring happens in **two
+   passes**: pass 1 emits a raw-only `facade.py` (exposes only `_RESOURCES`, no
+   wrapper imports) so the package is importable by `introspect()`; then
+   `_vendor_resources()` introspects the pass-1 package via `generator/opmodel/`
+   to build the wrapper context (`build_wrapper_context`), renders
+   `extras/resources.py` (the object-granular typed resource wrappers); finally
+   pass 2 re-renders `facade.py` in full — binding `client.<object>` to the typed
+   wrappers via `_WRAPPERS`, while retaining `_RESOURCES` for backward
+   compatibility. `_invalidate_pkg_modules` drops stale pass-1 module objects from
+   `sys.modules` so the next import re-reads the pass-2 facade from disk. Then
+   `scaffold.render_scaffold()` (in the sibling `scaffold` module,
+   `phantasos/scaffold.py` — not this package) lays down the project scaffold,
+   with `products/<name>/overrides/` winning over the built-in templates.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
    `run=False`) import-walks every module in an isolated `pip install`ed venv.
+
+**Shared op-model (`generator/opmodel/`).** The classifier core and introspector
+that both SDK-gen and CLI-gen consume live in a stage-agnostic sibling package
+(`generator/opmodel/`), NOT inside `generator/cli/`. It provides:
+`classify.classify_name` (prefix-heuristic: `create_` / `patch_` / `delete_` /
+`get_` / `list_` → verb + sub_verb + singularized object), `classify.OBJECT_OF`
+(CRUD object for a raw method, never guesses for non-CRUD ops),
+`classify.detect_id_param`, `introspect.introspect` (import-walks an
+`*Api`-registry and returns an `OperationInventory`), and the `inventory` types
+(`OperationInfo`, `ParamInfo`, `FieldInfo`, `OperationInventory`). The
+`generator/cli/introspect.py` and `generator/cli/inventory.py` modules are now
+thin backward-compatibility shims that re-export from `generator/opmodel/`.
 
 **Typed wrapper context (`wrapper.py`).** Building on the `operations:` override
 validator, `wrapper.build_wrapper_context(inv, overrides, discovered)` produces the
@@ -175,6 +192,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 
 ## See also
 
-- Specs: `docs/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`
+- Specs: `docs/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`,
+  `docs/specs/2026-06-19-cli-on-clean-resource-wrapper-design.md`
 - Decisions: (added in the scale increment) `decisions.md`
 - Rules: `CLAUDE.md`

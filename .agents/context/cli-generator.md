@@ -1,6 +1,6 @@
 # cli-generator
 
-Validated against 50c1e34 on 2026-06-14 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
+Validated against 81e8207 on 2026-06-20 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
 
 ## Purpose & responsibilities
 
@@ -19,28 +19,34 @@ union variants, hidden ops, table columns, query defaults). The emitted
 Host commands live in `phantasos/cli.py` (`cli_discover`, `cli_build`) — NOT in
 this package. They wire the three pipeline stages together:
 
-1. **Introspect** — `introspect.introspect(package, sdk_path)` in `introspect.py`
-   imports the built SDK, reads `extras.facade._RESOURCES`, and walks each
-   resource class's public methods via reflection (signatures, type hints,
-   docstrings, pydantic model fields). It produces an `OperationInventory`
-   (`inventory.py`: `OperationInfo` / `ParamInfo` / `FieldInfo`), classifying each
-   param as path / query / body and capturing the response model + list-envelope
-   `items_field` for table columns. The `body_fields` map records oneOf-variant
-   model fields. For a oneOf **list** item, `_item_fields` reports the union
-   (superset) of the variant models' fields — not the wrapper scaffolding — so
-   default and curated columns resolve against real variant fields (bare names,
-   no `actual_instance.` prefix).
-   `classify.cli_operations(package, sdk_path)` is the wrapper-rebased entry: it
-   walks `extras.facade._WRAPPERS` (object attr → wrapper class + backing `*Api`
-   attr) and each wrapper's `_bindings` (clean verb → raw ops), emitting one
-   `OperationInfo` PER BINDING. Each record reuses the raw-method introspection
-   verbatim — so the command tree still classifies off `api_resource.raw_method`
-   and every `cli.yml` key resolves unchanged — and stamps three dispatch-routing
-   fields onto it: `object_attr` (the `client.<object>` target → `Command.sdk_resource`),
-   `clean_method` (the typed wrapper verb → `MethodBinding.sdk_method`), and
-   `has_body` (so the body is sent under the wrapper method's `body` kwarg). When
-   those fields are unset (the legacy `_RESOURCES` path), `build_cli_ir` falls back
-   to the api attr + raw method, so both paths share one classifier.
+1. **Introspect** — The pure introspection and classification helpers
+   (`introspect`, `classify_name`, `detect_id_param`, the `OperationInventory`
+   types) now live in the stage-agnostic `generator/opmodel/` package, shared with
+   the SDK wrapper generator. `generator/cli/introspect.py` and
+   `generator/cli/inventory.py` are thin backward-compatibility shims that
+   re-export from there. `introspect(package, sdk_path)` imports the built SDK,
+   reads `extras.facade._RESOURCES`, and walks each raw `*Api` class's public
+   methods via reflection (signatures, type hints, docstrings, pydantic model
+   fields). It produces an `OperationInventory` (`OperationInfo` / `ParamInfo` /
+   `FieldInfo`), classifying each param as path / query / body and capturing the
+   response model + list-envelope `items_field` for table columns. The
+   `body_fields` map records oneOf-variant model fields. For a oneOf **list** item,
+   `_item_fields` reports the union (superset) of the variant models' fields — not
+   the wrapper scaffolding — so default and curated columns resolve against real
+   variant fields (bare names, no `actual_instance.` prefix).
+   `classify.cli_operations(package, sdk_path)` is the wrapper-rebased entry
+   (default for `cli build`): it walks `extras.facade._WRAPPERS` (object attr →
+   wrapper class + backing `*Api` attr) and each wrapper's `_bindings` (clean verb
+   → list of raw-op dicts), emitting one `OperationInfo` PER BINDING keyed by the
+   RAW `(api_resource, raw_method)`. Each record reuses the raw-method
+   introspection verbatim — so the command tree still classifies off
+   `api_resource.raw_method` and every `cli.yml` key resolves unchanged — and
+   stamps three dispatch-routing fields onto it: `object_attr` (the
+   `client.<object>` target → `Command.sdk_resource`), `clean_method` (the typed
+   wrapper verb → `MethodBinding.sdk_method`), and `has_body` (so the body is
+   sent under the wrapper method's `body` kwarg). When those fields are unset (the
+   legacy `_RESOURCES` path), `build_cli_ir` falls back to the api attr + raw
+   method, so both paths share one classifier.
 2. **Classify** — `classify.build_cli_ir(inv, cfg)` in `classify.py` turns the
    inventory + `cli.yml` (`CliConfig`) into a `CliIR` plus a list of unmapped ops.
    Precedence: `cli.yml` `hide` > `request` > `override`/`variants` >
@@ -262,12 +268,28 @@ keys / param names / objects fail the build loudly.
   uses it to print `'show <object>' has no list operation` + an `--id` hint when no
   binding matches, rather than the generic no-match diagnostic. Computed strictly
   (`requires == [id]`), so a `show` whose get also needs a discriminator is not flagged.
+- **`show` get-vs-list dispatch.** On the wrapper surface a `show` command binds
+  BOTH the object wrapper's `.get` and `.list` methods (two separate `MethodBinding`
+  entries). The runtime dispatches between them based on whether `--id` is present:
+  `--id` present → `.get(...)` (single-item fetch); otherwise → `.list(...)` (with
+  any filter flags forwarded). Flags like `--name`/`--type`/`--folder` are NOT
+  get-triggers — they are query filters passed to whichever branch is selected. The
+  `--all` flag maps to `all_pages=True` on the `.list` call; the wrapper's
+  `list(all_pages=True)` handles pagination internally and returns a full-envelope
+  response so the table renderer is unchanged.
+- **CLI dispatches through wrappers, not raw `*Api`.** The runtime calls
+  `client.<object>.<clean_method>(...)` (the typed wrapper verb), never a raw
+  `*Api` method directly. The dry-run seam is `resource._serialize(verb, **kwargs)`
+  on the wrapper; HTTP capture wraps `client.api_client.call_api` at the facade
+  level. Raw `*Api` method names appear only inside `_bindings` — they are not
+  visible to the CLI runtime.
 
 ## See also
 
-- Specs: `docs/specs/2026-06-09-cli-generator-design.md` (design), plus the WP
-  specs listed under *Emitted features*.
+- Specs: `docs/specs/2026-06-09-cli-generator-design.md` (design),
+  `docs/specs/2026-06-19-cli-on-clean-resource-wrapper-design.md` (wrapper surface
+  + CLI-on-wrappers), plus the WP specs listed under *Emitted features*.
 - Recipe: `CLAUDE.md` → "Adding a CLI configuration option (generated CLIs)".
-- Adjacent docs: `sdk-generator.md` (the SDK this consumes),
-  `product-config.md` (`productconfig.py` loader), `components.md` (component
-  param models).
+- Adjacent docs: `sdk-generator.md` (the SDK this consumes, incl. `generator/opmodel/`),
+  `product-config.md` (`productconfig.py` loader, incl. the `operations:` override block),
+  `components.md` (component param models, incl. the facade two-pass render).

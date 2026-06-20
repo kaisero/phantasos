@@ -1,6 +1,6 @@
 # components
 
-Validated against 50c1e34 on 2026-06-14 · Purpose: reusable, Jinja-templated SDK extras selected per-product and vendored into `<package>/extras/`.
+Validated against 81e8207 on 2026-06-20 · Purpose: reusable, Jinja-templated SDK extras selected per-product and vendored into `<package>/extras/`.
 
 ## Purpose & responsibilities
 
@@ -97,14 +97,29 @@ without mapping through a registry; path-escape out of `extras/` raises
 
 - **Registry key:** `default`
 - **Param model:** `Facade` — no user-settable params beyond `type`.
-- **Template:** `facade/client.py.jinja`
-- **Renders:** `extras/facade.py` — `Client` class whose constructor binds each
-  discovered `*Api` class as `self.<resource>`. Resources are discovered at
-  build time from `api/__init__.py` import lines by `_discover_resources()` in
-  `render.py` (strips trailing `_api` suffix for the attribute name). Exposes
-  `from_env()` / `from_credentials()` classmethods when `has_auth`; adds
-  `paginate()` method when `has_pagination`; wires `default_retry()` when
-  `has_retry`.
+- **Templates:** `facade/client.py.jinja` (the `Client` facade) and
+  `facade/resource.py.jinja` (the per-object typed wrappers).
+- **Renders:** `extras/facade.py` + `extras/resources.py` — emitted in **two
+  passes** (see `sdk-generator.md` Render step for the full flow):
+  - **Pass 1:** a raw-only `extras/facade.py` exposing only `_RESOURCES` (the
+    `{api_attr: *Api class}` map) so the package is importable for the wrapper
+    build step.
+  - **`extras/resources.py`:** the object-granular typed resource wrappers
+    (`<Object>Resource` classes). Each class carries `_bindings: ClassVar[dict]`
+    (verb → list of raw-op dicts) and typed clean methods (`get`/`list`/`create`/
+    `update`/`delete`/non-CRUD) that delegate to generic `_select`/`_to_raw`/
+    `_call`/`_fetch`/`_list` helpers. `list(all_pages=True)` paginates internally
+    via the vendored `paginate(...)` and returns `page.model_copy(update={"data":
+    items})`. `_serialize(verb, **kwargs)` is the dry-run twin (no HTTP send).
+  - **Pass 2:** a full `extras/facade.py` adding `_WRAPPERS` (the
+    `{object_attr: (WrapperClass, api_attr)}` map) and wiring each `client.<object>`
+    to a wrapper instance that SHARES a single `*Api` instance per backing api
+    class. Raw `*Api` instances are not reachable from the public `client.<object>`
+    surface. Exposes `from_env()` / `from_credentials()` classmethods when
+    `has_auth`; wires `default_retry()` when `has_retry`; still exposes
+    `api_client` for HTTP capture. The old `paginate()` method is retained when
+    `has_pagination` for backward compatibility, but the wrapper's `all_pages=True`
+    is the preferred path.
 
 ### retry
 
