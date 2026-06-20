@@ -15,6 +15,7 @@ from .config import (
     BUILTIN_FACADE,
     BUILTIN_PAGINATION,
     BUILTIN_RETRY,
+    OperationOverride,
 )
 
 _BASE_DEPS = [
@@ -90,6 +91,7 @@ class ProductConfig(BaseModel):
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
+    operations: dict[str, OperationOverride] = Field(default_factory=dict)
 
 
 class CustomComponent(BaseModel):

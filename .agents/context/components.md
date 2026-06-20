@@ -144,6 +144,7 @@ without mapping through a registry; path-escape out of `extras/` raises
   - class `NestedError` — Error message at ``body[error_field][message_field]`` (+ optional code).
   - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.
   - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
+  - class `OperationOverride` — Declarative rename of a single SDK operation (keyed by ``resource.method``).
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants

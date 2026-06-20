@@ -6,7 +6,7 @@ loader against a registry) and the config the matching Jinja template needs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -101,6 +101,15 @@ class RetryConfig(_Component):
     statuses: list[int] = [408, 429, 500, 502, 503, 504]
     respect_retry_after: bool = True
     template: str = "retry/jittered_retry.py.jinja"
+
+
+class OperationOverride(BaseModel):
+    """Declarative rename of a single SDK operation (keyed by ``resource.method``)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource: str | None = None
+    method: str | None = None
+    verb: Literal["create", "update", "delete", "show", "request"] | None = None
 
 
 # Built-in strategy registries: category -> {type name: model}. The loader uses

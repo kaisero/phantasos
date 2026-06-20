@@ -62,6 +62,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
 - `render.py` — Vendor step: render selected component templates into the SDK's extras/.
 - `smoke.py` — Smoke check: import every generated module (in isolation) and count operations.
+- `wrapper.py` — SDK operation-override helpers.
 <!-- /GENERATED:module-map -->
 
 ## Public API
@@ -98,6 +99,8 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.
+- `wrapper.py`
+  - `validate_override_keys(inv, overrides)` — Raise ``ValueError`` if any override key is not a valid ``resource.method``.
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants
