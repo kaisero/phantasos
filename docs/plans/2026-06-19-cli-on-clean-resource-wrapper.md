@@ -27,7 +27,9 @@
 
 **New:** `src/phantasos/generator/opmodel/{__init__,classify,introspect,inventory}.py`; `src/phantasos/generator/sdk/wrapper.py`; `src/phantasos/generator/sdk/components/facade/resource.py.jinja`; `tests/{test_opmodel_classify,test_sdk_operations_override,test_sdk_wrapper,test_cli_discover_golden,test_cli_dispatch_matrix}.py`; `tests/golden/prisma-browser.tree.json`.
 
-**Modified:** `cli/classify.py` (re-export + `build_cli_ir` reads `_bindings`); `cli/introspect.py` (shim); `components/facade/client.py.jinja` (two-pass, `_RESOURCES`+`_WRAPPERS`); `generator/sdk/render.py` (vendor resource template + two-pass facade); `generator/sdk/build.py` (introspect→classify→wrapper sub-step); `config.py` (`OperationOverride`); `templates/_generated/runtime.py.jinja` (dispatch/dry-run/capture/all_pages); `tests/test_cli_emitted_real.py` (rewrite raw-name assertions).
+**Modified:** `cli/classify.py` (re-export + `build_cli_ir` reads `_bindings`); `cli/introspect.py` (shim); `components/facade/client.py.jinja` (two-pass, `_RESOURCES`+`_WRAPPERS`); `generator/sdk/render.py` (vendor resource template + two-pass facade); `generator/sdk/build.py` (introspect→classify→wrapper sub-step); `config.py` (`OperationOverride`); `templates/_generated/runtime.py.jinja` (dispatch/dry-run/capture/all_pages); `tests/test_cli_emitted_real.py` AND `tests/test_cli_emitted.py` (rewrite raw-name assertions — see Task 5.0); `tests/fixtures/fakesdk/**` (regenerate the wrapper surface — Task 5.0).
+
+> **NO `Command` field rename.** `Command.sdk_resource` is KEPT (no `sdk_object` rename) to avoid touching every reader (`discover.py`, `render_cli.py`, `app.py.jinja`, `ir.py`, and the `Command(sdk_resource=…)` tests). Post-rewrite it semantically holds the **object** attribute (`client.<object>`), the dispatch target; readers are unchanged because the field name is unchanged. `render_cli.py` now groups one command-module per object (finer — fine); `app.py`'s `getattr(client, sdk_resource)` resolves the object wrapper.
 
 ---
 
@@ -126,13 +128,19 @@ Move the pure helpers (`classify_name`, `_strip_id_suffix`, `_singularize`, `det
 
 ```python
 # opmodel/classify.py
-def OBJECT_OF(method: str) -> str:
-    """Object noun (kebab) for a raw method name, even when classify_name is None."""
+def OBJECT_OF(method: str) -> str | None:
+    """Object noun (kebab) for a CRUD-prefixed raw method, else None.
+
+    ONLY handles classifiable (verb-prefixed) methods. For None-classified ops the
+    object is NOT reliably derivable from the method alone (the verb phrase may be
+    1+ tokens: `suspend`, `bulk_create`, `publish_draft`), so those are mapped to an
+    existing CRUD object on the same api class in build_wrapper_context (Task 3.1),
+    or fail the build demanding an sdk.yml operations entry. Never guess here.
+    """
     for prefix, _, _ in _VERB_PREFIXES:
         if method.startswith(prefix):
             return _singularize(_strip_id_suffix(method[len(prefix):])).replace("_", "-")
-    # non-CRUD: strip nothing reliably — caller supplies via sdk.yml or verb-phrase rule
-    return _singularize(method).replace("_", "-")
+    return None
 ```
 ```python
 # opmodel/introspect.py
@@ -161,9 +169,11 @@ def test_classify_unchanged():
     assert (c.verb, c.object) == ("create", "application")
     assert classify_name("suspend_devices") is None
 
-def test_object_of_for_none_classified():
+def test_object_of_crud_only():
     assert OBJECT_OF("get_application_by_type_and_id") == "application"
     assert OBJECT_OF("delete_access_and_data_rule_by_id") == "access-and-data-rule"
+    assert OBJECT_OF("suspend_devices") is None        # non-CRUD -> derived in wrapper-gen
+    assert OBJECT_OF("update_device_group") is None     # PUT -> handled in wrapper-gen
 ```
 
 - [ ] **Step 4: Gate (proves the move broke nothing) + commit**
@@ -246,7 +256,7 @@ git commit -m "feat(sdk): sdk.yml operations override keyed by resource.method +
   - `ParamView{name:str, raw_name:str, py_annotation:str, import_from:tuple[str,str]|None, optional:bool, default_repr:str, location:str, is_enum:bool, enum_cls:str|None}`
   - `Binding{raw_method:str, requires:tuple[str,...], serialize_name:str}`
   - `MethodView{name:str, verb:str, params:list[ParamView], body:ParamView|None, return_model:str, return_import:tuple[str,str]|None, bindings:list[Binding], is_list:bool, get_unwrap:bool}`
-  - `ObjectView{attr:str, classname:str, api_cls:str, api_module:str, methods:list[MethodView], imports:set[tuple[str,str]]}`
+  - `ObjectView{attr:str, classname:str, api_cls:str, api_module:str, api_attr:str, methods:list[MethodView], imports:set[tuple[str,str]]}` (`api_attr` = the backing `_RESOURCES` key, for facade pass-2 + `_WRAPPERS`)
   - `build_wrapper_context(inv, overrides, discovered) -> list[ObjectView]`
 
 - [ ] **Step 1: Failing test against the real SDK (object granularity + multi-binding + none-classified)**
@@ -274,15 +284,26 @@ def test_object_granularity_and_multibinding():
     assert m["get"].bindings and len(m["get"].bindings) == 2      # by-id + by-type-and-id
     assert len(m["list"].bindings) == 2 and m["list"].is_list
     assert len(m["delete"].bindings) == 2
-    # RD: PUT -> replace; action -> verb phrase
-    dgs = {x.name for x in views["device_group"].methods}
-    assert "replace" in dgs                                       # update_device_group (PUT)
-    assert "suspend" in {x.name for x in views["device"].methods} # suspend_devices
+    assert "bulk_create" in m                                     # bulk_create_applications -> application
+    # RD: PUT -> replace + verb-phrase actions attach to the EXISTING CRUD object (no junk objects)
+    assert "replace" in {x.name for x in views["device_group"].methods}      # update_device_group (PUT)
+    assert "suspend" in {x.name for x in views["device"].methods}            # suspend_devices
+    assert "revoke" in {x.name for x in views["user_request"].methods}       # revoke_user_request
+    assert "update_device_group" not in views and "suspend_device" not in views  # NO junk objects
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_none_classified_without_crud_anchor_fails():
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+    from phantasos.generator.opmodel.inventory import OperationInfo, OperationInventory
+    inv = OperationInventory(sdk_package="p", sdk_version="0",
+        operations=[OperationInfo(resource="ops", method="publish_draft_configuration")])
+    with pytest.raises(ValueError, match="maps to no CRUD object"):
+        build_wrapper_context(inv, {}, [{"attr": "ops", "module": "api.ops_api", "cls": "OpsApi"}])
 
 @pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
 def test_collision_fails():
     from phantasos.generator.sdk.wrapper import _gate_collisions, ObjectView, MethodView
-    ov = ObjectView(attr="x", classname="X", api_cls="A", api_module="a", methods=[
+    ov = ObjectView(attr="x", classname="X", api_cls="A", api_module="a", api_attr="xs", methods=[
         MethodView("get","show",[],None,"I",None,[],False,False),
         MethodView("get","show",[],None,"I",None,[],False,False)], imports=set())
     with pytest.raises(ValueError, match="method name collision"):
@@ -298,8 +319,7 @@ Run: `UV_PROJECT_ENVIRONMENT=/tmp/phantasos-sdkcleanup uv run pytest tests/test_
 ```python
 # generator/sdk/wrapper.py  (excerpt — full impl)
 from dataclasses import dataclass, field
-from .._render_types import ...   # (use plain dataclasses below)
-from ..opmodel.classify import classify_name, OBJECT_OF, detect_id_param
+from ..opmodel.classify import classify_name, OBJECT_OF, detect_id_param, _strip_id_suffix
 from ..opmodel.inventory import OperationInfo, OperationInventory, ParamInfo
 
 _PUT_PREFIX = "update_"   # OAG names PUT full-replace as update_*; classify_name returns None for it
@@ -309,55 +329,131 @@ class Binding:
     raw_method: str
     requires: tuple[str, ...]
     serialize_name: str
-# ParamView/MethodView/ObjectView as in Interfaces (mutable dataclasses)
+# ParamView/MethodView/ObjectView as in Interfaces (mutable dataclasses); ObjectView carries `api_attr`.
 
-def _clean_verb_and_method(op, overrides) -> tuple[str, str, str]:
-    """Return (object_attr_snake, verb, clean_method_name)."""
-    key = f"{op.resource}.{op.method}"
-    ov = overrides.get(key)
+def _crud_objects_by_api(inv) -> dict[str, set[str]]:
+    """Per api-class, the CRUD object attrs (snake) — anchors that non-CRUD ops attach to."""
+    out: dict[str, set[str]] = {}
+    for op in inv.operations:
+        o = OBJECT_OF(op.method)                       # None for non-CRUD
+        if o is not None:
+            out.setdefault(op.resource, set()).add(o.replace("-", "_"))
+    return out
+
+def _resolve_object(op, crud_objs, ov) -> str:
+    """Object attr (snake) for ANY op. Override wins; CRUD via OBJECT_OF; non-CRUD by
+    longest-suffix match against a CRUD object on the SAME api class; else BUILD-FAIL."""
+    if ov and ov.resource:
+        return ov.resource.replace("-", "_")
+    o = OBJECT_OF(op.method)
+    if o is not None:
+        return o.replace("-", "_")
+    stem = _strip_id_suffix(op.method)
+    for cobj in sorted(crud_objs.get(op.resource, ()), key=len, reverse=True):
+        if stem.endswith("_" + cobj) or stem.endswith("_" + cobj + "s") \
+                or stem.endswith("_" + cobj[:-1] + "ies" if cobj.endswith("y") else False):
+            return cobj
+    raise ValueError(
+        f"None-classified op {op.resource}.{op.method!r} maps to no CRUD object on its api "
+        f"class (candidates: {sorted(crud_objs.get(op.resource, ()))}). Add `sdk.yml "
+        f"operations: {{'{op.resource}.{op.method}': {{resource: <object>, method: <verb>}}}}`."
+    )
+
+def _verb_phrase(method: str, obj_snake: str) -> str:
+    """Clean method for a non-CRUD op. PUT `update_*` -> 'replace'; else strip the trailing
+    object noun (and the `_by_id`/`_by_type_and_id` tail) from the method.
+    suspend_devices/device -> 'suspend'; bulk_create_applications/application -> 'bulk_create';
+    revoke_user_request/user_request -> 'revoke'; publish_draft_configuration/configuration ->
+    'publish_draft'; update_security_section_by_id/security_section -> 'replace' (PUT)."""
+    if method.startswith(_PUT_PREFIX):
+        return "replace"
+    stem = _strip_id_suffix(method)
+    for tail in ("_" + obj_snake + "s", "_" + obj_snake,
+                 ("_" + obj_snake[:-1] + "ies") if obj_snake.endswith("y") else "_\x00"):
+        if stem.endswith(tail):
+            return stem[: -len(tail)]
+    return stem
+
+def _clean_verb_and_method(op, overrides, crud_objs) -> tuple[str, str, str]:
+    """Return (object_attr_snake, cli_verb, clean_method_name). NO KeyError: branch on verb."""
+    ov = overrides.get(f"{op.resource}.{op.method}")
+    obj = _resolve_object(op, crud_objs, ov)
     c = classify_name(op.method)
     if c is not None:
-        obj = (ov.object if ov and getattr(ov, 'object', None) else c.object)
-        verb = (ov.verb if ov and ov.verb else c.verb)
-        method = {"create":"create","update":"update","delete":"delete",
-                  "show":{"get":"get","list":"list"}[c.sub_verb]}[verb]
-        return obj.replace("-","_"), verb, (ov.method if ov and ov.method else method)
-    # None-classified (RD): PUT -> replace; else verb-phrase (strip object noun)
-    obj = OBJECT_OF(op.method).replace("-","_") if not (ov and ov.resource) else ov.resource.replace("-","_")
-    if op.method.startswith(_PUT_PREFIX):
-        method = "replace"
-    else:
-        # strip the object noun tokens from the method to get the verb phrase
-        method = _verb_phrase(op.method, OBJECT_OF(op.method))
-    if ov and ov.method: method = ov.method
-    if ov and ov.resource: obj = ov.resource.replace("-","_")
-    return obj, "request", method
+        verb = ov.verb if (ov and ov.verb) else c.verb
+        base = {"get": "get", "list": "list"}[c.sub_verb] if verb == "show" else verb
+        method = ov.method if (ov and ov.method) else base
+        return obj, verb, method
+    # None-classified (RD)
+    method = ov.method if (ov and ov.method) else _verb_phrase(op.method, obj)
+    verb = ov.verb if (ov and ov.verb) else "request"
+    return obj, verb, method
 
 def build_wrapper_context(inv, overrides, discovered) -> list:
     validate_override_keys(inv, overrides)
-    by_attr_module = {d["attr"]: d for d in discovered}     # attr -> {module, cls}
+    by_attr = {d["attr"]: d for d in discovered}            # api attr -> {module, cls}
+    crud_objs = _crud_objects_by_api(inv)
     objects: dict[str, ObjectView] = {}
-    # group ops -> (object_attr, verb, method) ; bindings accumulate per (object, method)
-    method_ops: dict[tuple[str,str], list[tuple[OperationInfo,str]]] = {}
-    obj_api: dict[str, str] = {}                             # object_attr -> api resource attr
+    method_ops: dict[tuple[str, str], list[OperationInfo]] = {}
+    obj_api: dict[str, str] = {}                            # object attr -> api resource attr
+    obj_verb: dict[tuple[str, str], str] = {}
     for op in inv.operations:
-        obj_attr, verb, method = _clean_verb_and_method(op, overrides)
+        obj_attr, verb, method = _clean_verb_and_method(op, overrides, crud_objs)
         if obj_attr in obj_api and obj_api[obj_attr] != op.resource:
             raise ValueError(f"object '{obj_attr}' spans api classes "
                              f"{obj_api[obj_attr]} and {op.resource} — disambiguate via sdk.yml operations")
         obj_api[obj_attr] = op.resource
-        method_ops.setdefault((obj_attr, method), []).append((op, verb))
+        method_ops.setdefault((obj_attr, method), []).append(op)
+        obj_verb[(obj_attr, method)] = verb
     for (obj_attr, method), ops in method_ops.items():
-        api_attr = obj_api[obj_attr]
-        d = by_attr_module[api_attr]
+        d = by_attr[obj_api[obj_attr]]
         ov = objects.setdefault(obj_attr, ObjectView(
             attr=obj_attr, classname=_classname(obj_attr), api_cls=d["cls"],
-            api_module=d["module"], methods=[], imports=set()))
-        ov.methods.append(_build_method(obj_attr, method, ops))
+            api_module=d["module"], api_attr=obj_api[obj_attr], methods=[], imports=set()))
+        ov.methods.append(_build_method(method, obj_verb[(obj_attr, method)], ops))
     _gate_collisions(list(objects.values()))
     return list(objects.values())
 ```
-Implement `_build_method` (union params across the method's ops into `ParamView`s — each `optional=True`; build `Binding` per op with `requires` = required path-param names sorted, `serialize_name=f"_{op.method}_serialize"`; `is_list = method=='list'`; render-ready `py_annotation` + `import_from` from `ParamInfo.annotation` via a small `_render_annotation(ParamInfo) -> (expr, import_or_None)` that maps `Optional[X]`→`X | None`, strips module path to the class name, and returns `(module, ClassName)` for model imports; body param renamed to `body`, `raw_name` kept; `return_model`+`return_import` from the op's `return_model`). Implement `_verb_phrase`, `_classname` (snake→PascalCase), `_gate_collisions` (raise on duplicate method name within an ObjectView).
+**`_build_method(method, verb, ops)`** — union the params across the method's `ops` into
+`ParamView`s (each `optional=True`), one `Binding` per op (`requires` = required path-param
+names sorted; `serialize_name=f"_{op.method}_serialize"`); `is_list = method=='list'`. Build
+each `ParamView`'s `py_annotation`+`import_from` from the **LIVE introspected type** (NOT
+`ParamInfo.annotation`, which is a debug repr like `<enum '...'>` / nested `Annotated`):
+
+```python
+import inspect, typing
+def _render_annotation(live_type) -> tuple[str, tuple[str, str] | None]:
+    """From a real type object -> (render-ready expr, import or None). Unwrap Annotated/Optional."""
+    tp = live_type
+    if typing.get_origin(tp) is typing.Annotated:           # Annotated[T, ...]
+        tp = typing.get_args(tp)[0]
+    optional = False
+    if typing.get_origin(tp) in (typing.Union, __import__("types").UnionType):
+        args = [a for a in typing.get_args(tp) if a is not type(None)]
+        optional = len(args) < len(typing.get_args(tp))
+        tp = args[0] if len(args) == 1 else tp
+    if isinstance(tp, type) and tp.__module__.startswith(("prisma_browser", "<pkg>")):
+        expr = tp.__qualname__ + (" | None" if optional else "")
+        return expr, (tp.__module__.split(".", 1)[1], tp.__qualname__)   # ("models.x", "X")
+    base = {str: "str", int: "int", bool: "bool", float: "float"}.get(tp, "str")
+    return (base + " | None") if optional else base, None
+```
+Wrapper-gen already imports the SDK, so resolve live types via
+`typing.get_type_hints(getattr(api_cls, raw_method), include_extras=False)` (keyed by the
+raw param name) — the wrapper imports the model class, then `get_type_hints` on the EMITTED
+wrapper resolves cleanly for the CLI/dry-run. Rename the body param to `body` (keep
+`raw_name`); `return_model`/`return_import` from the op's return type the same way.
+
+**`_to_raw(verb, kwargs)`** (emitted per object) — translate the wrapper call back to the raw
+op's kwargs for dry-run/serialize: rename `body`→the selected op's raw body-param name;
+rename `id`→the op's real path-param name (e.g. `device_group_id`); and coerce enum **strings
+→ enum members** via the wrapper method's resolved annotations (the OAG `_serialize` twin does
+`type.value` and raises `AttributeError` on a plain `str`). It uses the same `_select(verb,
+present)` to know which op (hence which raw names/enums) applies.
+
+**`_verb_phrase`/`_classname`/`_gate_collisions`** as above (`_classname`: snake→PascalCase;
+`_gate_collisions`: raise `ValueError("…method name collision…")` on a duplicate method name
+within one ObjectView).
 
 - [ ] **Step 4: Run the test — passes**
 
@@ -396,14 +492,11 @@ class {{ o.classname }}Resource:
         self._api = api
 {% for m in o.methods %}
     def {{ m.name }}(self, {{ m.sig }}) -> {{ m.return_expr }}:
-{% if m.is_list %}        page = self._api.{{ m.bindings[0].raw_method }}({{ m.call_first }})
-        if not all_pages:
-            return page
-        items = list(paginate(self._api.{{ m.bindings[0].raw_method }}, {{ m.call_kw }}))
-        return page.model_copy(update={"data": items})
-{% else %}        b = self._select("{{ m.name }}")
-{% for line in m.dispatch_lines %}        {{ line }}
-{% endfor %}{% endif %}
+{% if m.is_list %}        present = {{ m.present_expr }}
+        return self._list("{{ m.name }}", present, all_pages, {{ m.call_dict }})
+{% elif m.dispatch_lines %}{% for line in m.dispatch_lines %}        {{ line }}
+{% endfor %}{% else %}        return self._api.{{ m.bindings[0].raw_method }}({{ m.call_single }})
+{% endif %}
 {% endfor %}
     def _select(self, verb: str, present: set[str] | None = None) -> dict[str, Any]:
         cands = [b for b in self._bindings[verb] if set(b["requires"]) <= (present or set())]
@@ -411,11 +504,21 @@ class {{ o.classname }}Resource:
             raise ValueError(f"{verb}: missing required arg(s)")
         return max(cands, key=lambda b: len(b["requires"]))
 
+    def _list(self, verb: str, present: set[str], all_pages: bool, kwargs: dict) -> Any:
+        b = self._select(verb, present)                  # multi-binding: type-present -> *_by_type
+        fn = getattr(self._api, b["raw_method"])
+        raw = self._to_raw(verb, kwargs, b)              # routes `type` to path vs query per chosen op
+        page = fn(**raw)
+        if not all_pages:
+            return page
+        items = list(paginate(fn, **raw))                # re-walks from page 1 (cheap; first call = captured page 1)
+        return page.model_copy(update={"data": items})
+
     def _serialize(self, verb: str, **kwargs: Any) -> tuple:
         present = {k for k, v in kwargs.items() if v is not None}
         b = self._select(verb, present)
         fn = getattr(self._api, b["serialize_name"])
-        raw = self._to_raw(verb, kwargs)
+        raw = self._to_raw(verb, kwargs, b)
         params = {k: (0 if k == "_host_index" else None) for k in inspect.signature(fn).parameters}
         params.update(raw)
         return fn(**params)
@@ -569,7 +672,7 @@ git commit -m "feat(sdk): generate object wrappers during the build (facade pass
 
 - [ ] **Step 1: Introspect `_WRAPPERS`; read `_bindings`**
 
-Add a helper `cli_operations(package, sdk_path)` that imports the facade, walks `_WRAPPERS`, and for each object emits per-binding records `{object, clean_method, verb, raw_method, requires, params(from wrapper method sig), body_model, return_model}` by combining `inspect.signature(wrapper_method)` with the class `_bindings`. `build_cli_ir` consumes these; cli.yml keys resolve via `api_resource.raw_method`.
+Add a helper `cli_operations(package, sdk_path)` that imports the facade, walks `_WRAPPERS`, and for each object emits per-binding records `{object, clean_method, verb, raw_method, requires, params(from wrapper method sig), body_param, body_model, body_wrapper, return_model}` by combining `inspect.signature(wrapper_method)` with the class `_bindings`. **Body metadata (D6 variants):** extract `body_param="body"`, `body_model`, and `body_wrapper` (the oneOf wrapper class, e.g. `CreateOrReplaceAppInput`) from the wrapper method's `body` `ParamView` — the runtime's variant injection + `_build_body` need `body_wrapper` to wrap the variant, else `create application custom` sends a bare `CustomApplicationInput`. `build_cli_ir` consumes these; cli.yml keys resolve via `api_resource.raw_method`.
 
 - [ ] **Step 2: Test — IR keys/commands reproduce the golden, cli.yml still applies**
 
@@ -605,32 +708,50 @@ git commit -m "feat(cli): build IR from _WRAPPERS/_bindings; key by resource.raw
 - [ ] **Step 1: Dispatch through the wrapper; list via `all_pages`**
 
 ```python
-api = getattr(client, cmd.sdk_object)            # the object wrapper (was sdk_resource)
+api = getattr(client, cmd.sdk_resource)          # field KEPT (no rename); now holds the object attr
 method = getattr(api, binding.sdk_method)         # clean name
 if binding.sub_verb == "list":
     result = method(**kwargs, all_pages=paginate_all)
+    # RETAIN today's --all JSON shape (array, not the envelope object): for list
+    # verbs, json/yaml output renders the items, not the synthesized envelope.
+    if paginate_all and output in ("json", "yaml"):
+        result = getattr(result, cmd.items_field) if cmd.items_field else result
 else:
     result = method(**kwargs)
 ```
-Delete the `client.paginate(...)` composition (runtime.py:530-532).
+Delete the `client.paginate(...)` composition (runtime.py:530-532). (Table rendering
+already unwraps `items_field`, so it is unaffected; only json/yaml needed the unwrap.)
 
-- [ ] **Step 2: `show` get-vs-list selection (RB)**
+- [ ] **Step 2: `show` get-vs-list selection (RB) + get-only diagnostic**
 
-In `run()` binding selection: for a `show` command with both `.get` and `.list` bindings, choose `.get` iff `--id` is present, else `.list`:
+`_pick_binding` is RETAINED for this selection and the get-only diagnostic
+(`_SUBVERB_PRIORITY` stays with it). Select by the detected id-param name (NOT a
+literal `"id"` — many objects use `device_group_id` etc.). Bare `show` (no id flag)
+→ `.list`; id present → `.get`; a get-only object with no `--id` keeps today's clean
+"has no list operation" diagnostic instead of raising `StopIteration`:
 ```python
 if cmd.verb == "show":
-    has_id = path.get("id") is not None
-    binding = next(b for b in cmd.bindings if (b.sub_verb == "get") == has_id)
+    id_names = {f.param for f in cmd.path_params if f.kind == "id"}
+    has_id = any(path.get(n) is not None for n in id_names)
+    cands = [b for b in cmd.bindings if (b.sub_verb == "get") == has_id]
+    if not cands:                       # get-only object, --id omitted
+        if cmd.get_by_id_only:
+            _diag.fail(f"'{cmd.verb} {cmd.object}' has no list operation", code=2,
+                       hint=f"fetch one by id, e.g. '{cmd.verb} {cmd.object} --id <id>'")
+        _diag.fail(f"no operation for '{cmd.key}' matches the given arguments", code=2)
+    binding = cands[0]
 else:
     binding = cmd.bindings[0]            # single-binding commands post-collapse
 ```
+This preserves `test_show_id_only_reports_no_list_operation` (SystemExit code 2 +
+"has no list operation").
 
 - [ ] **Step 3: Dry-run via the wrapper seam**
 
 ```python
 def _dry_run(cmd, binding, kwargs):
     client = facade.Client(_credential_free_api_client())
-    api = getattr(client, cmd.sdk_object)
+    api = getattr(client, cmd.sdk_resource)
     method, url, _h, body, *_ = api._serialize(binding.sdk_method, **kwargs)
     _output.render_dry_run(method, url, body)
 ```
@@ -640,19 +761,37 @@ def _dry_run(cmd, binding, kwargs):
 
 `api_client = getattr(client, "api_client", None)` (facade). `_accepted_params`: `getattr(facade._WRAPPERS[object][0], sdk_method)` signature (wrapper method accepts `sort`/`order`/`all_pages` for list).
 
-- [ ] **Step 5: Run emitted suites**
+- [ ] **Step 5: Rewrite the `fakesdk` fixture + `test_cli_emitted.py` to the wrapper surface**
+
+This runtime change makes the emitted CLI dispatch the wrapper, so the fixture and
+the 149-test suite (which both encode the RAW `*Api` surface) MUST be updated in the
+SAME task to keep the gate green — they are NOT "stay green". Two parts:
+
+1. **Fixture** (`tests/fixtures/fakesdk/fakesdk/extras/`): add the wrapper surface so
+   `introspect("fakesdk", …, registry_attr="_WRAPPERS")` works. Either run wrapper-gen
+   over the fixture, or hand-author: `resources.py` with one `*Resource` per object
+   (`widget`, `gizmo`, `thing`), each with clean methods + a `_bindings` `ClassVar`
+   + `_serialize`; add `_WRAPPERS` to `facade.py`; make `paginate` envelope-aware.
+   Keep `_RESOURCES` (raw) for back-compat.
+2. **Suite + `_fake_client`** (`tests/test_cli_emitted.py`): rewrite every raw-surface
+   assertion to the wrapper surface — `_fake_client` exposes `client.<object>` (singular)
+   with clean methods recording calls; assertions like `calls[0][0] == "create_widget"`
+   → the wrapper `create` was called with `body=`; `kw["create_gizmo_input"]` →
+   `body=` is the wrapped variant; `sdk_method == "widgets.get_widget_by_id"` →
+   `widget.get`. Keep behavioural intent; version the method-name assertions explicitly
+   (recorded oracle change).
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/tmp/phantasos-sdkcleanup uv run pytest tests/test_cli_emitted.py -v
 ```
-Expected: PASS (the raw-name-asserting `test_cli_emitted_real.py` is rewritten in T5).
+Expected: PASS after the rewrite.
 
 - [ ] **Step 6: Gate + commit**
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/tmp/phantasos-sdkcleanup uv run nox -s gate
-git add src/phantasos/generator/cli/templates/_generated/runtime.py.jinja
-git commit -m "feat(cli): runtime dispatches object wrappers; show get-vs-list by --id; dry-run seam; facade capture; all_pages"
+git add src/phantasos/generator/cli/templates/_generated/runtime.py.jinja tests/fixtures/fakesdk tests/test_cli_emitted.py
+git commit -m "feat(cli): runtime dispatches object wrappers; show get-vs-list by --id; dry-run seam; facade capture; all_pages; rewrite fakesdk+emitted suite to wrapper surface"
 ```
 
 ---
@@ -670,11 +809,16 @@ Enumerate and rewrite each assertion that mocks/asserts a raw method (`get_appli
 ```python
 # tests/test_cli_dispatch_matrix.py — fake client records which raw op fires
 def test_show_dispatch(monkeypatch, emitted):
-    # show application --id X        -> get_application_by_id
+    # show application --id X          -> get_application_by_id
     # show application --id X --type T -> get_application_by_type_and_id
-    # show application (bare)         -> list_applications
-    # show application --type T       -> list_applications_by_type
+    # show application (bare)          -> list_applications
+    # show application --type T        -> list_applications_by_type   (list-by-type, NOT get)
     ...  # assert the raw op recorded by a fake *Api for each arg combo
+
+def test_delete_dispatch(monkeypatch, emitted):
+    # delete application --id X          -> delete_application_by_id
+    # delete application --id X --type T -> delete_application_by_type_and_id
+    ...  # cover EVERY multi-binding object/verb, not just show
 ```
 
 - [ ] **Step 3: Dry-run parity + `--all` multi-page tests**
@@ -734,5 +878,6 @@ git commit -m "test(cli): rewrite raw-name oracles to wrapper surface; add dispa
 
 - **Spec coverage:** RA → T3.1/T3.3 (object grouping, `_WRAPPERS`, shared api, cross-api gate); RB → T3.1/T3.2 (`_bindings`, dispatch chains) + T4.2 Step 2 (show get-vs-list); RC → T2 (key set fix) + T3.1/T3.2 (`_bindings`) + T4.1 (`resource.raw_method`, cli.yml unchanged); RD → T3.1 (`replace`/verb-phrase) + T2 override. Plan-level fixes: envelope `model_copy` (T3.2), dry-run coercion/translation (T3.2/T4.2), stable-projection oracle (T0), two-pass facade (T3.3), real-SDK test rewrite + dispatch-matrix/dry-run/all-pages tests (T5). D5 capture → T4.2 Step 4.
 - **Placeholder scan:** the `_render_annotation`, `_to_raw`, `_verb_phrase`, `dispatch_lines` builders are specified by inputs/outputs with worked examples (not "TBD"); all test code is concrete. No "similar to Task N".
-- **Type consistency:** `ParamView`/`Binding`/`MethodView`/`ObjectView` defined in T3.1, consumed T3.2/T3.3/T3.4; `_bindings` literal (T3.2) ↔ `cli_operations`/`build_cli_ir` reader (T4.1); `sdk_object` used consistently T4.1/T4.2 (rename from `sdk_resource` — update `Command` field accordingly in T4.1).
+- **Type consistency:** `ParamView`/`Binding`/`MethodView`/`ObjectView` defined in T3.1, consumed T3.2/T3.3/T3.4; `_bindings` literal (T3.2) ↔ `cli_operations`/`build_cli_ir` reader (T4.1). `Command.sdk_resource` field name is KEPT (no rename — see the top note); it now semantically holds the object attr, so all existing readers (`runtime`, `discover`, `render_cli`, `app.py`, tests) are unchanged.
+- **Retain coverage:** the golden tree (T0) pins the static command surface; T5's dispatch-matrix pins runtime routing for EVERY multi-binding object/verb; dry-run-parity + `--all`-multipage pin the seams; the `fakesdk` fixture + `test_cli_emitted.py` are rewritten to the wrapper surface (T4.2 Steps 5–6), not assumed green.
 </content>
