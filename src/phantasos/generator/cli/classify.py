@@ -2,6 +2,9 @@
 
 Precedence (applied in build_cli_ir): cli.yml hide/skip > cli.yml override/request >
 prefix heuristic. classify_name implements only the prefix heuristic + skip rules.
+
+Pure helpers (classify_name, detect_id_param, Classification, etc.) live in
+generator.opmodel.classify and are re-exported here for backward compatibility.
 """
 
 from __future__ import annotations
@@ -10,76 +13,33 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from ..opmodel.classify import (
+    _SKIP_FRAGMENTS,
+    _VERB_PREFIXES,
+    Classification,
+    _singularize,
+    _strip_id_suffix,
+    classify_name,
+    detect_id_param,
+)
 from .cliconfig import CliConfig, RequestMapping, VariantMap
 from .columns import default_columns, resolve_columns
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
 from .ir import CliIR, ColumnSpec, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
 
-# (prefix, verb, sub_verb) — ORDER MATTERS: longer/compound prefixes first.
-_VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [
-    ("create_", "create", "create"),
-    ("patch_", "update", "patch"),
-    ("delete_", "delete", "delete"),
-    ("get_", "show", "get"),
-    ("list_", "show", "list"),
+__all__ = [
+    "_SKIP_FRAGMENTS",
+    "_VERB_PREFIXES",
+    "Classification",
+    "_singularize",
+    "_strip_id_suffix",
+    "build_cli_ir",
+    "classify_name",
+    "detect_id_param",
+    "fields_to_flags",
+    "resolve_variants",
+    "select_method_for_verb",
 ]
-
-# Method-name fragments that mark non-CRUD ops to skip even if a verb prefix matches.
-_SKIP_FRAGMENTS = ("_positions",)
-
-
-class Classification(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    verb: Verb
-    sub_verb: SubVerb
-    object: str  # kebab-case noun
-
-
-def _strip_id_suffix(noun: str) -> str:
-    for suffix in ("_by_type_and_id", "_by_id", "_by_type"):
-        if noun.endswith(suffix):
-            return noun[: -len(suffix)]
-    return noun
-
-
-def _singularize(noun: str) -> str:
-    if noun.endswith("ies"):
-        return noun[:-3] + "y"
-    if noun.endswith("ses"):
-        return noun[:-2]
-    if noun.endswith("s") and not noun.endswith("ss"):
-        return noun[:-1]
-    return noun
-
-
-def classify_name(method: str) -> Classification | None:
-    """Prefix-heuristic classification. Returns None for unmapped/skip ops."""
-    if any(frag in method for frag in _SKIP_FRAGMENTS):
-        return None
-    for prefix, verb, sub_verb in _VERB_PREFIXES:
-        if method.startswith(prefix):
-            noun = _strip_id_suffix(method[len(prefix) :])
-            noun = _singularize(noun)
-            return Classification(
-                verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
-            )
-    return None
-
-
-def detect_id_param(params: list[ParamInfo]) -> ParamInfo | None:
-    """The id is the single required path param that is not a discriminator enum.
-
-    Works before SDK id-name harmonization lands (handles id, device_group_id, etc.).
-    """
-    candidates = [p for p in params if p.location == "path" and not p.enum_values]
-    if not candidates:
-        return None
-    # Prefer an exactly-named "id"; else the first non-enum path param.
-    for p in candidates:
-        if p.name == "id":
-            return p
-    return candidates[0]
 
 
 def select_method_for_verb(methods: list[str]) -> str:

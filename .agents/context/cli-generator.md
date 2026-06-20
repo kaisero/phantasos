@@ -178,8 +178,8 @@ keys / param names / objects fail the build loudly.
 - `cliconfig.py` — The per-product cli.yml model — declarative deltas only; the classifier always runs.
 - `columns.py` — Table-column resolution: model-derived defaults + cli.yml validation.
 - `discover.py` — Render the classification table and a cli.yml stub from a CliIR.
-- `introspect.py` — Import a built SDK and produce a typed OperationInventory.
-- `inventory.py` — Typed output of SDK introspection (the input to classification).
+- `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
+- `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
 - `ir.py` — The CLI intermediate representation: the fully-resolved command tree.
 - `render_cli.py` — Emit a Typer CLI project from a CliIR (static codegen via Jinja).
 - `scaffold_context.py` — Build the scaffold context for an emitted CLI project (reuses the SDK scaffold).
@@ -189,9 +189,6 @@ keys / param names / objects fail the build loudly.
 
 <!-- GENERATED:api -->
 - `classify.py`
-  - class `Classification`
-  - `classify_name(method)` — Prefix-heuristic classification. Returns None for unmapped/skip ops.
-  - `detect_id_param(params)` — The id is the single required path param that is not a discriminator enum.
   - `select_method_for_verb(methods)` — Return the preferred method when multiple share the same verb.
   - `fields_to_flags(fields)`
   - class `ResolvedVariant`
@@ -211,13 +208,6 @@ keys / param names / objects fail the build loudly.
 - `discover.py`
   - `render_table(ir, unmapped)`
   - `render_stub(ir, unmapped)` — A cli.yml stub: TODO entries for unmapped ops. CRUD is auto-classified, so the
-- `introspect.py`
-  - `introspect(package, sdk_path)`
-- `inventory.py`
-  - class `ParamInfo`
-  - class `FieldInfo`
-  - class `OperationInfo`
-  - class `OperationInventory`
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
   - class `Flag`
