@@ -5,7 +5,6 @@ from __future__ import annotations
 {% if ir.credential_fields -%}
 import contextvars
 {% endif -%}
-import enum
 import functools
 import importlib
 import inspect
@@ -152,12 +151,16 @@ def _sdk_exc() -> type[BaseException]:
 
 
 def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
-    """Param names the bound SDK method accepts, or None if undeterminable /
+    """Param names the bound wrapper method accepts, or None if undeterminable /
     **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
-    facade's API class, never an instantiated client."""
+    facade's typed wrapper class, never an instantiated client. The wrapper verb
+    accepts the clean param surface (e.g. ``sort``/``order``/``all_pages`` for a
+    list), so cli.yml-injected defaults are filtered against it, not the raw
+    ``*Api`` signature."""
     try:
         facade = importlib.import_module(_ir().facade_module)
-        fn = getattr(facade._RESOURCES[resource], sdk_method)
+        wrapper_cls = facade._WRAPPERS[resource][0]
+        fn = getattr(wrapper_cls, sdk_method)
         sig = inspect.signature(fn)
     except Exception:
         # fail-open: dropping nothing preserves pre-feature behavior, and the
@@ -335,9 +338,12 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
 
 
 def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> None:
-    """Print the HTTP request that would be sent, via the SDK's <method>_serialize
-    (no request performed, no credentials needed). Falls back to a call reference
-    if the SDK lacks the serialize convention."""
+    """Print the HTTP request that would be sent, via the typed wrapper's
+    ``_serialize`` seam (no request performed, no credentials needed). The
+    wrapper selects the right backing op, renames ``body``/enum params to the
+    raw surface, and delegates to the generated ``<method>_serialize`` — so the
+    dry-run sees the exact request the live call would build. Falls back to a
+    call reference if the wrapper lacks the serialize seam (test fakes)."""
     try:
         pkg = _ir().sdk_package
         api_client_mod = importlib.import_module(f"{pkg}.api_client")
@@ -345,34 +351,10 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
         facade = importlib.import_module(_ir().facade_module)
         client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
         api = getattr(client, cmd.sdk_resource)
-        serialize = getattr(api, f"_{binding.sdk_method}_serialize", None)
+        serialize = getattr(api, "_serialize", None)
         if serialize is None:
-            raise AttributeError(f"no _{binding.sdk_method}_serialize")
-        # Build complete kwargs: all params default to None (_host_index=0),
-        # then overlay the domain kwargs we already have.
-        sig = inspect.signature(serialize)
-        complete: dict[str, Any] = {
-            k: (0 if k == "_host_index" else None)
-            for k in sig.parameters
-        }
-        complete.update(kwargs)
-        # Coerce string values to enum types where the public method expects them.
-        # The _serialize methods have no type hints; use the public method's hints.
-        pub = getattr(api, binding.sdk_method, None)
-        if pub is not None:
-            try:
-                hints = typing.get_type_hints(pub)
-            except Exception:
-                hints = {}
-            for k, v in list(complete.items()):
-                hint = hints.get(k)
-                if typing.get_origin(hint) is typing.Union:
-                    inner = [a for a in typing.get_args(hint) if a is not type(None)]
-                    hint = inner[0] if len(inner) == 1 else None
-                if (hint is not None and isinstance(hint, type)
-                        and issubclass(hint, enum.Enum) and isinstance(v, str)):
-                    complete[k] = hint(v)
-        method, url, _headers, body, *_rest = serialize(**complete)
+            raise AttributeError("wrapper has no _serialize seam")
+        method, url, _headers, body, *_rest = serialize(binding.sdk_method, **kwargs)
     except Exception:  # dry-run must never fail hard
         print(f"DRY-RUN {cmd.key} -> {cmd.sdk_resource}.{binding.sdk_method}(...)")
         return
@@ -509,14 +491,19 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             _dry_run(cmd, binding, kwargs)
             return
         client = _client(verbose=verbose)
+        # Dispatch through the typed object wrapper: `client.<object>` is the
+        # resource wrapper, `binding.sdk_method` is its clean verb (e.g. `get`,
+        # `list`, `create`). The wrapper translates `body`/enum params to the raw
+        # `*Api` surface internally.
         api = getattr(client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
         # Observe the actual outgoing request: every generated SDK method routes
         # through api_client.call_api(method, url, ...) with the query string
-        # already appended to url. Wrap it for the duration of the call (first
-        # invocation wins under --all; restored in finally). Non-OAG clients
-        # (test fakes) lack the shape -> fields simply absent.
-        api_client = getattr(api, "api_client", None)
+        # already appended to url. Wrap it at the FACADE level (the wrappers share
+        # one api_client) for the duration of the call (first invocation wins
+        # under --all; restored in finally). Non-OAG clients (test fakes) lack the
+        # shape -> fields simply absent.
+        api_client = getattr(client, "api_client", None)
         original_call = getattr(api_client, "call_api", None)
         if callable(original_call):
             def _capturing_call(*args: Any, **kw: Any) -> Any:
@@ -527,9 +514,15 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             api_client.call_api = _capturing_call
         started = time.monotonic()
         try:
-            if binding.sub_verb == "list" and paginate_all:
-                pg = getattr(client, "paginate", None)
-                result = list(pg(method, **kwargs)) if pg else method(**kwargs)
+            if binding.sub_verb == "list":
+                # The wrapper list method paginates internally via `all_pages`;
+                # the synthesized envelope carries every item under items_field.
+                result = method(**kwargs, all_pages=paginate_all)
+                # RETAIN today's --all JSON/YAML shape: render the items array, not
+                # the synthesized envelope object (table already unwraps via
+                # items_field). A single page keeps its envelope.
+                if paginate_all and output in ("json", "yaml"):
+                    result = getattr(result, cmd.items_field) if cmd.items_field else result
             else:
                 result = method(**kwargs)
         finally:

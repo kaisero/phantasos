@@ -307,7 +307,9 @@ def test_fixture_client_from_env_and_wrapper() -> None:
         from fakesdk.models import CreateGizmoInput, SimpleGizmoInput
 
         c = Client.from_env()
-        assert hasattr(c, "widgets") and hasattr(c, "paginate")
+        # wrapper surface: object attrs (singular), not the raw `*Api` attrs
+        assert hasattr(c, "widget") and hasattr(c, "paginate")
+        assert hasattr(c, "gizmo") and hasattr(c, "thing")
         wrapped = CreateGizmoInput(SimpleGizmoInput(name="x"))
         assert isinstance(wrapped.actual_instance, SimpleGizmoInput)
     finally:

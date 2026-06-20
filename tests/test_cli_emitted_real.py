@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from phantasos.generator.cli.classify import build_cli_ir
+from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
 from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
@@ -30,7 +30,7 @@ def real_cli(tmp_path: Path) -> Iterator[Path]:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
@@ -79,7 +79,7 @@ def test_show_by_type_and_id_dispatch(
 
     mock = _patch_client(monkeypatch)
     # Give the mock a JSON-serializable return so the output renderer doesn't error.
-    mock.applications.get_application_by_type_and_id.return_value = {
+    mock.application.get.return_value = {
         "id": "APP-123",
         "type": "custom",
         "name": "Test App",
@@ -99,8 +99,9 @@ def test_show_by_type_and_id_dispatch(
         ],
     )
     assert res.exit_code == 0, res.output
-    # real facade: get_application_by_type_and_id(type="custom", id="APP-123")
-    call = mock.applications.get_application_by_type_and_id
+    # wrapper surface: client.application.get(type="custom", id="APP-123") — the
+    # wrapper selects the by-type-and-id binding from the present args internally.
+    call = mock.application.get
     assert call.called
     kwargs = call.call_args.kwargs
     assert kwargs.get("type") == "custom" and kwargs.get("id") == "APP-123"
@@ -112,12 +113,12 @@ def test_set_constructs_real_model(
     # Build a `set device-group` with the two required flat scalar fields: name (str)
     # and platform (DeviceGroupPlatform enum with value "Desktop Browser").
     # Asserts that the REAL DeviceGroupRequest model is constructed and passed to
-    # create_device_group — proving model build + dispatch end-to-end.
+    # the wrapper's create (under `body=`) — proving model build + dispatch e2e.
     from prisma_browser.models.device_group_request import DeviceGroupRequest
     from typer.testing import CliRunner
 
     mock = _patch_client(monkeypatch)
-    mock.device_groups.create_device_group.return_value = {
+    mock.device_group.create.return_value = {
         "id": "DG-1",
         "name": "Kiosks",
         "platform": "Desktop Browser",
@@ -139,12 +140,12 @@ def test_set_constructs_real_model(
     )
     assert res.exit_code == 0, res.output
 
-    # find the create_device_group call on the mock and assert a real model was passed
-    create_call = mock.device_groups.create_device_group
-    assert create_call.called, "create_device_group was not called"
+    # the wrapper create was called with the real model under the `body` kwarg
+    create_call = mock.device_group.create
+    assert create_call.called, "device_group.create was not called"
     call_kwargs = create_call.call_args.kwargs
-    body = call_kwargs.get("device_group_request")
-    assert body is not None, f"device_group_request kwarg missing; got: {call_kwargs}"
+    body = call_kwargs.get("body")
+    assert body is not None, f"body kwarg missing; got: {call_kwargs}"
     assert isinstance(body, DeviceGroupRequest), (
         f"Expected DeviceGroupRequest, got {type(body)}"
     )
@@ -158,7 +159,7 @@ def test_set_application_variant_constructs_wrapped_body(
     from typer.testing import CliRunner
 
     mock = _patch_client(monkeypatch)
-    mock.applications.create_application.return_value = {
+    mock.application.create.return_value = {
         "id": "APP-1",
         "type": "custom",
         "name": "MyApp",
@@ -179,11 +180,11 @@ def test_set_application_variant_constructs_wrapped_body(
         ],
     )
     assert res.exit_code == 0, res.output
-    call = mock.applications.create_application
+    call = mock.application.create
     assert call.called
     kwargs = call.call_args.kwargs
     assert kwargs.get("type") == "custom"  # top-level path param
-    body = kwargs.get("create_or_replace_app_input")
+    body = kwargs.get("body")  # wrapper takes the request body under `body`
     assert isinstance(body, models.CreateOrReplaceAppInput)  # wrapped (H3)
     inner = body.actual_instance
     assert isinstance(inner, models.CustomApplicationInput)
@@ -202,7 +203,7 @@ def test_set_private_application_bool_flag_takes_value(
     from typer.testing import CliRunner
 
     mock = _patch_client(monkeypatch)
-    mock.applications.create_application.return_value = {"id": "APP-2"}
+    mock.application.create.return_value = {"id": "APP-2"}
     main = importlib.import_module("prisma_browser_cli.main")
     res = CliRunner().invoke(
         main.app,
@@ -223,9 +224,7 @@ def test_set_private_application_bool_flag_takes_value(
         ],
     )
     assert res.exit_code == 0, res.output
-    body = mock.applications.create_application.call_args.kwargs[
-        "create_or_replace_app_input"
-    ]
+    body = mock.application.create.call_args.kwargs["body"]
     inner = body.actual_instance
     assert isinstance(inner, models.PrivateApplicationInput)
     assert inner.route_to_prisma is False  # coerced str -> real bool
@@ -348,7 +347,7 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped() -> None:
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(f"SDK runtime deps unavailable: {exc}")
     cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
@@ -387,7 +386,7 @@ def test_real_request_commands_dispatch(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(f"SDK runtime deps unavailable: {exc}")
     cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
@@ -408,20 +407,20 @@ def test_real_request_commands_dispatch(
         import prisma_browser.extras.facade as facade
 
         mock = MagicMock(name="Client")
-        mock.user_requests.revoke_user_request.return_value = {
+        mock.user_request.revoke.return_value = {
             "id": "REQ-1",
             "status": "revoked",
         }
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: mock))
         # request user-request revoke --id REQ-1
-        # (id + body; revoke body field is optional)
+        # (id + body; revoke body field is optional) -> wrapper user_request.revoke
         res = CliRunner().invoke(
             main.app,
             ["request", "user-request", "revoke", "--id", "REQ-1", "--output", "json"],
         )
         assert res.exit_code == 0, res.output
-        assert mock.user_requests.revoke_user_request.called
-        kw = mock.user_requests.revoke_user_request.call_args.kwargs
+        assert mock.user_request.revoke.called
+        kw = mock.user_request.revoke.call_args.kwargs
         assert kw.get("id") == "REQ-1"
     finally:
         sys.path.remove(str(tmp_path))
@@ -442,7 +441,7 @@ def test_real_create_api_error_is_pretty(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
@@ -467,7 +466,7 @@ def test_real_create_api_error_is_pretty(
         except TypeError:
             err = pexc.ApiException(status=400, reason="Bad Request", body=real_body)
         client = MagicMock(name="Client")
-        client.device_groups.create_device_group.side_effect = err
+        client.device_group.create.side_effect = err
         monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
 
         runner = CliRunner()
@@ -525,7 +524,7 @@ def test_real_create_update_delete_device_group(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, unmapped = build_cli_ir(
@@ -577,9 +576,10 @@ def test_real_create_update_delete_device_group(
             ],
         )
         assert res_dry.exit_code == 0
-        # SUCCESSFUL partial PATCH dispatch — only the supplied field (model_construct)
+        # SUCCESSFUL partial PATCH dispatch — only the supplied field (model_construct).
+        # PATCH backs the wrapper's `update` verb.
         client.reset_mock()
-        client.device_groups.patch_device_group.return_value = {
+        client.device_group.update.return_value = {
             "id": "DG-1",
             "name": "renamed",
         }
@@ -597,8 +597,8 @@ def test_real_create_update_delete_device_group(
             ],
         )
         assert res.exit_code == 0, res.output
-        assert client.device_groups.patch_device_group.called
-        call = client.device_groups.patch_device_group.call_args
+        assert client.device_group.update.called
+        call = client.device_group.update.call_args
         # the id is passed; patch body carries the supplied name (kwargs/args)
         flat = {**call.kwargs}
         assert call.args or flat  # something was passed
@@ -632,7 +632,7 @@ def test_real_show_device_help_panels(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
@@ -653,15 +653,6 @@ def test_real_show_device_help_panels(
             del sys.modules[n]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "mid-migration: Task 3.3 made client.<resource> the wrapper (raw *Api "
-        "hidden), so the old runtime's raw _<method>_serialize dry-run path falls "
-        "back to the stub. Task 4.2 rebases dry-run onto the wrapper _serialize "
-        "seam; Task 5 rewrites this test. Remove the marker when 4.2 lands."
-    ),
-    strict=False,
-)
 def test_real_dry_run_shows_http_request(
     real_cli: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -712,15 +703,6 @@ def test_real_dry_run_shows_http_request(
     assert "POST" in r3.output and "MyApp" in r3.output
 
 
-@pytest.mark.xfail(
-    reason=(
-        "mid-migration: dry-run via raw _<method>_serialize falls back to the stub "
-        "now that client.<resource> is the wrapper (Task 3.3). Task 4.2 rebases "
-        "dry-run onto the wrapper _serialize seam; Task 5 rewrites it. Remove the "
-        "marker when 4.2 lands."
-    ),
-    strict=False,
-)
 def test_real_dry_run_with_enum_query_flag(real_cli: Path) -> None:
     from typer.testing import CliRunner
 
@@ -793,7 +775,7 @@ def test_real_ir_carries_columns() -> None:
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
 
@@ -824,15 +806,38 @@ def test_real_ir_carries_columns() -> None:
 
 
 @pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
+def test_real_ir_dispatch_targets_wrapper_object_and_clean_verb() -> None:
+    """The wrapper-rebase delta is live on the production IR: a command's
+    sdk_resource is the `client.<object>` dispatch target (the object attr, e.g.
+    `access_and_data_rule` — NOT the backing api-class attr `access_and_data_policy`),
+    and its get binding's sdk_method is the clean wrapper verb `get` (NOT the raw
+    `get_access_and_data_rule_by_id`)."""
+    from phantasos.generator.cli.cliconfig import load_cli_config
+
+    try:
+        inv = cli_operations("prisma_browser", REAL_SDK)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
+    cfg = load_cli_config(
+        Path(__file__).parent.parent / "products" / "prisma-browser" / "cli.yml"
+    )
+    ir, _ = build_cli_ir(inv, cfg)
+
+    show_rule = next(c for c in ir.commands if c.key == "show:access-and-data-rule")
+    assert show_rule.sdk_resource == "access_and_data_rule"
+    get_binding = next(b for b in show_rule.bindings if b.sub_verb == "get")
+    assert get_binding.sdk_method == "get"
+
+
+@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_real_ir_carries_query_defaults() -> None:
     """The shipped defaults: make application --all pagination work (server
     honors cursors only under an explicit sort)."""
-    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.cliconfig import load_cli_config
-    from phantasos.generator.cli.introspect import introspect
 
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", REAL_SDK)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
 
@@ -908,7 +913,7 @@ def test_real_history_records_and_shows(
         sys, "argv", ["prisma-browser-cli", "show", "device-group", "--id", "DG1"]
     )
     mock = _patch_client(monkeypatch)
-    mock.device_groups.get_device_group_by_id.return_value = {"id": "DG1", "name": "x"}
+    mock.device_group.get.return_value = {"id": "DG1", "name": "x"}
     main = importlib.import_module("prisma_browser_cli.main")
     r = CliRunner()
     assert r.invoke(main.app, ["show", "device-group", "--id", "DG1"]).exit_code == 0
