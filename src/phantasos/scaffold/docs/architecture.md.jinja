@@ -20,7 +20,7 @@ graph TD
     C --> W["Resource wrappers<br/>client.&lt;object&gt;.&lt;verb&gt;(...)"]
     W --> API_CLIENT[Shared api client]
     API_CLIENT --> RAW[Generated *Api<br/>internal]
-    RAW --> H[{{ library }} transport]
+    RAW --> H[{{ library | default("urllib3") }} transport]
     H --> REST[{{ spec_title or "REST API" }}]
 ```
 

@@ -290,7 +290,7 @@ def test_docs_context_slots_are_real_wrapper_methods() -> None:
 
     loaded = load_product("prisma-browser")
     ctx = build_docs_context(loaded, _SDK)
-    showcase = ctx["showcase"]
+    showcase: dict[str, Any] = ctx["showcase"]  # type: ignore[assignment]
     obj = showcase["attr"]
     assert obj == "application"  # singular wrapper-object key, not the plural resource
 

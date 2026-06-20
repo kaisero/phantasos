@@ -56,14 +56,22 @@ def _body(name: str, model: str) -> dict[str, Any]:
 # The wrapper view of the application object: clean verbs, multi-binding get/list/
 # delete (id-only vs type+id). `cli_operations` emits one op per binding.
 APPLICATION = [
-    _op("create_application", "create", [_path("type"), _body("b", "CreateApp")],
-        has_body=True),
+    _op(
+        "create_application",
+        "create",
+        [_path("type"), _body("b", "CreateApp")],
+        has_body=True,
+    ),
     _op("get_application_by_id", "get", [_path("id")]),
     _op("get_application_by_type_and_id", "get", [_path("type"), _path("id")]),
     _op("list_applications", "list", []),
     _op("list_applications_by_type", "list", [_path("type")]),
-    _op("patch_application_by_type_and_id", "update",
-        [_path("type"), _path("id"), _body("b", "PatchApp")], has_body=True),
+    _op(
+        "patch_application_by_type_and_id",
+        "update",
+        [_path("type"), _path("id"), _body("b", "PatchApp")],
+        has_body=True,
+    ),
     _op("delete_application_by_id", "delete", [_path("id")]),
     _op("delete_application_by_type_and_id", "delete", [_path("type"), _path("id")]),
     # bulk_create/bulk_delete are clean verbs `bulk_create`/`bulk_delete`, NOT CRUD
@@ -108,8 +116,12 @@ def test_classify_ignores_other_objects() -> None:
 
 def test_classify_partial_crud_omits_missing() -> None:
     ops = [
-        _op("create_application", "create", [_path("type"), _body("b", "B")],
-            has_body=True),
+        _op(
+            "create_application",
+            "create",
+            [_path("type"), _body("b", "B")],
+            has_body=True,
+        ),
         _op("list_applications", "list", []),
     ]
     slots = classify_operations(ops, "application")
@@ -173,8 +185,13 @@ def test_shape_context_synthesizes_body_code_and_override() -> None:
         sdk_package="p",
         sdk_version="1",
         operations=[
-            _op("create_app", "create",
-                [_body("body", "AppInput")], obj="app", has_body=True)
+            _op(
+                "create_app",
+                "create",
+                [_body("body", "AppInput")],
+                obj="app",
+                has_body=True,
+            )
         ],
     )
     ctx: dict[str, Any] = shape_context(
@@ -201,8 +218,13 @@ def test_shape_context_falls_back_without_resolver() -> None:
         sdk_package="p",
         sdk_version="1",
         operations=[
-            _op("create_app", "create",
-                [_body("body", "AppInput")], obj="app", has_body=True)
+            _op(
+                "create_app",
+                "create",
+                [_body("body", "AppInput")],
+                obj="app",
+                has_body=True,
+            )
         ],
     )
     ctx: dict[str, Any] = shape_context(

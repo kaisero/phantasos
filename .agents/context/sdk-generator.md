@@ -51,14 +51,32 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    `phantasos/scaffold.py` — not this package) lays down the project scaffold,
    with `products/<name>/overrides/` winning over the built-in templates.
 
-   > **Docs stage (deferred — Phase 2 of the develop-merge plan).** `develop`
-   > carries a config-gated docs stage (`generator/sdk/docs.py`,
-   > `examples.py` synthesizer, the `scripts/gen_ref_pages.py.jinja` reference
-   > generator, the `docs:` `sdk.yml` block) that introspected the *raw* `*Api`
-   > surface. It is currently OFF on every product (no `docs:` block is active)
-   > because the wrapper rebase replaced that surface with
-   > `client.<object>.<clean_verb>(...)`. Phase 2 re-realizes the docs stage on
-   > the wrapper and re-enables it; this narrative is rewritten then.
+   > **Docs stage (config-gated; wrapper-driven).** When a product's `sdk.yml`
+   > carries a `docs:` block, `build()` runs a docs stage between vendor and
+   > scaffold (`build.py:~97`, only if `cfg.docs is not None`): it calls
+   > `docs.build_docs_context(loaded, project_dir)` and merges the result into the
+   > render context, so the gated `scaffold/docs/*.jinja` templates emit a
+   > strictly-building MkDocs-Material site (Home, Getting-Started, Architecture,
+   > Guides {auth, pagination, CRUD}, mkdocstrings Reference). The whole site
+   > teaches the **wrapper surface** `client.<object>.<clean_verb>(...)`, never the
+   > raw `*Api`. `build_docs_context` introspects the SDK's `_WRAPPERS` registry
+   > via `cli_operations` (which stamps each op with its
+   > `object_attr`/`clean_method`/`has_body` routing); the author-named
+   > `docs.showcase_resource` is a **singular wrapper-object key** (e.g.
+   > `application`, validated against `_WRAPPERS`, fail-fast). `classify_operations`
+   > maps each op's CLEAN verb to a CRUD slot directly (create/get→read/list/
+   > update/delete) — no raw-prefix verb heuristic — picking the fewest-path-params
+   > binding per verb; `_op_dict` emits the wrapper call shape (request body under
+   > the `body` kwarg + required path params). The `examples.py` synthesizer
+   > (surface-independent) turns each body model into a real-shaped constructor;
+   > `docs.examples.<slot>` can override a slot verbatim. The API Reference
+   > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
+   > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
+   > raw `api/` classes or the `extras` helpers (those are taught in the guides).
+   > Per-method wrapper docstrings (threaded from each op `summary`) render on the
+   > reference pages; the `!^_` filter hides wrapper internals
+   > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
+   > real prisma-browser SDK with docs ON and asserts `mkdocs build --strict`.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
@@ -126,7 +144,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 
 <!-- GENERATED:module-map -->
 - `build.py` — SDK build orchestrator: preprocess -> generate -> patch -> vendor -> scaffold.
-- `docs.py` — Scoped introspect + verb classification + docs context for generated SDKs.
+- `docs.py` — Wrapper-driven docs context for generated SDKs.
 - `examples.py` — Synthesize illustrative constructor examples from live pydantic models.
 - `generate.py` — Run OpenAPI Generator (python) — jar fetch/verify + invocation.
 - `patches.py` — Generic codegen-bug patches for OpenAPI Generator (python) output.
@@ -143,9 +161,9 @@ op, since each binding's `param_map` is its own accepted surface), and
 - `build.py`
   - `build(loaded, run_smoke)`
 - `docs.py`
-  - `classify_operations(operations, resource, overrides)` — Map each CRUD slot to its canonical OperationInfo (present slots only).
-  - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination, resolve, variant, examples)`
-  - `build_docs_context(loaded, project_dir)` — Scoped introspect of the showcase resource -> docs context dict.
+  - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
+  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples)`
+  - `build_docs_context(loaded, project_dir)` — Wrapper introspect of the showcase object -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
 - `generate.py`

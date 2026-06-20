@@ -91,9 +91,7 @@ def _op_dict(
                 {"name": p.name, "kind": "path", "placeholder": str(placeholder)}
             )
     if op.has_body:
-        body_param = next(
-            (p for p in op.params if p.location == "body"), None
-        )
+        body_param = next((p for p in op.params if p.location == "body"), None)
         body_model = body_param.body_model if body_param else None
         cls = resolve(body_model) if (resolve and body_model) else None
         body_code = (
@@ -177,7 +175,7 @@ def _wrapper_objects(package: str, project_dir: Path) -> list[str]:
         sys.path.insert(0, str(project_dir))
     try:
         facade = importlib.import_module(f"{package}.extras.facade")
-        return list(getattr(facade, "_WRAPPERS"))
+        return list(facade._WRAPPERS)
     finally:
         if added and str(project_dir) in sys.path:
             sys.path.remove(str(project_dir))
