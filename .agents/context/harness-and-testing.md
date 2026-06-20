@@ -61,6 +61,10 @@ The freeze hook fails *closed*; the fast-gate fails *open*. The asymmetry is int
 
 The fast_gate hook defaults `UV_PROJECT_ENVIRONMENT` to a stable per-checkout path under `$TMPDIR` so the gate runs against a persistent venv rather than re-creating it each stop.
 
+### Product enrollment — nox.toml
+
+Product enrollment for the product-parametrized sessions (`smoke`, `live`, `sdk-docs`) lives in the root `nox.toml`, not in `noxfile.py`: each stage lists its `products`, and `sdk-docs` carries optional per-product `[[sdk-docs.assert]]` content checks (`file` relative to the built `site/`, plus `contains`/`not_contains`). The noxfile reads it via stdlib `tomllib` and runs each stage generically over its products; an unknown product name fails fast. Add a product to a stage there once it is ready to be gated. (phantasos's own `docs` site is separate and not governed by `nox.toml`.)
+
 ### nox -s live — real-tenant CRUD (phase boundaries + CI)
 
 `live` in `noxfile.py` runs the full live validation: build the prisma-browser SDK (`phantasos sdk build prisma-browser --no-smoke`), install the generated project, then run `pytest` against the generated project's `tests/test_sdk_crud_live.py`. Exit status of that pytest run is the oracle verdict.
