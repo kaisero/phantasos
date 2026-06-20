@@ -30,6 +30,17 @@ this package. They wire the three pipeline stages together:
    (superset) of the variant models' fields — not the wrapper scaffolding — so
    default and curated columns resolve against real variant fields (bare names,
    no `actual_instance.` prefix).
+   `classify.cli_operations(package, sdk_path)` is the wrapper-rebased entry: it
+   walks `extras.facade._WRAPPERS` (object attr → wrapper class + backing `*Api`
+   attr) and each wrapper's `_bindings` (clean verb → raw ops), emitting one
+   `OperationInfo` PER BINDING. Each record reuses the raw-method introspection
+   verbatim — so the command tree still classifies off `api_resource.raw_method`
+   and every `cli.yml` key resolves unchanged — and stamps three dispatch-routing
+   fields onto it: `object_attr` (the `client.<object>` target → `Command.sdk_resource`),
+   `clean_method` (the typed wrapper verb → `MethodBinding.sdk_method`), and
+   `has_body` (so the body is sent under the wrapper method's `body` kwarg). When
+   those fields are unset (the legacy `_RESOURCES` path), `build_cli_ir` falls back
+   to the api attr + raw method, so both paths share one classifier.
 2. **Classify** — `classify.build_cli_ir(inv, cfg)` in `classify.py` turns the
    inventory + `cli.yml` (`CliConfig`) into a `CliIR` plus a list of unmapped ops.
    Precedence: `cli.yml` `hide` > `request` > `override`/`variants` >
@@ -189,6 +200,7 @@ keys / param names / objects fail the build loudly.
 
 <!-- GENERATED:api -->
 - `classify.py`
+  - `cli_operations(package, sdk_path, registry_attr)` — Inventory built from the SDK's typed wrappers (`_WRAPPERS`/`_bindings`).
   - `select_method_for_verb(methods)` — Return the preferred method when multiple share the same verb.
   - `fields_to_flags(fields)`
   - class `ResolvedVariant`

@@ -55,6 +55,15 @@ class OperationInfo(BaseModel):
     return_model: str | None = None
     items_field: str | None = None
     response_fields: list[FieldInfo] = []
+    # Wrapper-rebase dispatch routing (set only by cli_operations, which walks the
+    # facade's `_WRAPPERS`/`_bindings`). `object_attr` is the snake `client.<object>`
+    # dispatch target (drives Command.sdk_resource); `clean_method` is the typed
+    # wrapper verb (drives MethodBinding.sdk_method). `has_body` records whether the
+    # backing binding carries a request body, so build_cli_ir can set body_param to
+    # the wrapper method's `body` kwarg. None on the raw-`*Api` introspection path.
+    object_attr: str | None = None
+    clean_method: str | None = None
+    has_body: bool = False
 
 
 class OperationInventory(BaseModel):

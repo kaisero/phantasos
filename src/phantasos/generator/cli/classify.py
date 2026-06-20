@@ -9,6 +9,9 @@ generator.opmodel.classify and are re-exported here for backward compatibility.
 
 from __future__ import annotations
 
+import importlib
+import sys
+from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
@@ -22,6 +25,7 @@ from ..opmodel.classify import (
     classify_name,
     detect_id_param,
 )
+from ..opmodel.introspect import introspect
 from .cliconfig import CliConfig, RequestMapping, VariantMap
 from .columns import default_columns, resolve_columns
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
@@ -35,11 +39,80 @@ __all__ = [
     "_strip_id_suffix",
     "build_cli_ir",
     "classify_name",
+    "cli_operations",
     "detect_id_param",
     "fields_to_flags",
     "resolve_variants",
     "select_method_for_verb",
 ]
+
+
+def cli_operations(
+    package: str, sdk_path: Path, *, registry_attr: str = "_WRAPPERS"
+) -> OperationInventory:
+    """Inventory built from the SDK's typed wrappers (`_WRAPPERS`/`_bindings`).
+
+    The CLI's command tree is still classified off the RAW operation names, so
+    cli.yml keeps resolving by the UNCHANGED `api_resource.raw_method` key. This
+    walks the facade's `_WRAPPERS` (object attr -> (wrapper class, backing `*Api`
+    attr)) and, for every binding in each wrapper's `_bindings` (clean verb ->
+    list of `{raw_method, requires, body, ...}`), emits one `OperationInfo` keyed
+    `resource=api_resource`, `method=raw_method` — reusing the raw-method
+    introspection verbatim (identical params/body_fields/response columns) and
+    stamping the wrapper-rebase routing fields onto it:
+
+    - `object_attr` — the `client.<object>` dispatch target (Command.sdk_resource).
+    - `clean_method` — the typed wrapper verb (MethodBinding.sdk_method).
+    - `has_body` — whether the binding carries a request body, so build_cli_ir
+      sends it under the wrapper method's `body` kwarg.
+
+    The raw `(api_resource, raw_method)` set covered by `_bindings` is exactly the
+    set the legacy `_RESOURCES` introspection enumerates (one binding per raw op),
+    so the projected command tree is unchanged — only dispatch is re-pointed at
+    the wrappers.
+    """
+    inv = introspect(package, sdk_path, registry_attr="_RESOURCES")
+    by_raw: dict[tuple[str, str], OperationInfo] = {
+        (op.resource, op.method): op for op in inv.operations
+    }
+
+    added = str(sdk_path) not in sys.path
+    if added:
+        sys.path.insert(0, str(sdk_path))
+    try:
+        facade = importlib.import_module(f"{package}.extras.facade")
+        wrappers: dict[str, tuple[type[Any], str]] = getattr(facade, registry_attr)
+    finally:
+        if added and str(sdk_path) in sys.path:
+            sys.path.remove(str(sdk_path))
+
+    operations: list[OperationInfo] = []
+    for obj_attr, (wrapper_cls, api_attr) in wrappers.items():
+        bindings: dict[str, list[dict[str, Any]]] = wrapper_cls._bindings
+        for clean_method, blist in bindings.items():
+            for b in blist:
+                raw_method = b["raw_method"]
+                base = by_raw.get((api_attr, raw_method))
+                if base is None:
+                    # A binding with no matching raw-`*Api` introspection record
+                    # (no public method / excluded suffix). Skip — there is no
+                    # operation surface for the CLI to mount.
+                    continue
+                operations.append(
+                    base.model_copy(
+                        update={
+                            "object_attr": obj_attr,
+                            "clean_method": clean_method,
+                            "has_body": b.get("body") is not None,
+                        }
+                    )
+                )
+
+    return OperationInventory(
+        sdk_package=inv.sdk_package,
+        sdk_version=inv.sdk_version,
+        operations=operations,
+    )
 
 
 def select_method_for_verb(methods: list[str]) -> str:
@@ -184,6 +257,19 @@ def _body_param_info(op: OperationInfo) -> ParamInfo | None:
     return None
 
 
+def _dispatch_body_param(op: OperationInfo, body_info: ParamInfo | None) -> str | None:
+    """The runtime kwarg carrying the request body for THIS op's dispatch target.
+
+    Wrapper-backed ops (cli_operations) dispatch through `client.<object>.<verb>`,
+    whose body parameter is always named `body` — so the body is sent under
+    `"body"` regardless of the raw `*Api` body-param name. On the raw-`*Api` path
+    the body keeps its raw parameter name. Returns None when the op has no body.
+    """
+    if op.clean_method is not None:
+        return "body" if op.has_body else None
+    return body_info.name if body_info else None
+
+
 def _command_key(verb: str, obj: str, variant: str | None) -> str:
     return f"{verb}:{obj}" + (f":{variant}" if variant else "")
 
@@ -207,10 +293,12 @@ def _emit_request(
     body_info = _body_param_info(op)
     body_model = body_info.body_model if body_info else None
     binding = MethodBinding(
-        sdk_method=op.method,
+        # Dispatch through the typed wrapper verb when the op was discovered via
+        # `_WRAPPERS` (cli_operations); else the raw method name (raw-`*Api` path).
+        sdk_method=op.clean_method or op.method,
         sub_verb="action",
         requires=_required_path_names(op.params),
-        body_param=body_info.name if body_info else None,
+        body_param=_dispatch_body_param(op, body_info),
         body_model=body_model,
         body_wrapper=None,
     )
@@ -223,7 +311,7 @@ def _emit_request(
             variant=None,
             variant_param=None,
             key=key,
-            sdk_resource=op.resource,
+            sdk_resource=op.object_attr or op.resource,
             path_params=_path_flags(op.params, id_param),
             body_flags=_body_flags_for(op, body_model),
             query_flags=_query_flags(op.params, defaults),
@@ -244,8 +332,19 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
     unmapped: list[str] = []
 
     # cli.yml defaults: validate op keys and param names up front (build fails
-    # on a typo rather than silently ignoring it).
+    # on a typo rather than silently ignoring it). Keyed by the UNCHANGED raw
+    # `api_resource.raw_method` (cli.yml keys + classification key off this).
     ops_index = {f"{op.resource}.{op.method}": op for op in inv.operations}
+    # Column resolution looks an op up by a command's DISPATCH key
+    # (`sdk_resource.sdk_method`) — the object attr + clean verb on the wrapper
+    # path, the api attr + raw method otherwise. Several raw ops can collapse onto
+    # one wrapper verb (e.g. get-by-id + get-by-type-and-id -> `get`); first record
+    # carrying response fields wins, matching the raw-path lookup.
+    dispatch_index: dict[str, OperationInfo] = {}
+    for op in inv.operations:
+        dkey = f"{op.object_attr or op.resource}.{op.clean_method or op.method}"
+        if op.response_fields or dkey not in dispatch_index:
+            dispatch_index[dkey] = op
     for op_key, params_map in cfg.defaults.items():
         op_info = ops_index.get(op_key)
         if op_info is None:
@@ -287,10 +386,11 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
             bp_model = None
             bp_wrapper = None
         binding = MethodBinding(
-            sdk_method=op.method,
+            # Wrapper verb for `_WRAPPERS`-discovered ops; raw method otherwise.
+            sdk_method=op.clean_method or op.method,
             sub_verb=sub_verb,
             requires=_required_path_names(op.params),
-            body_param=body_info.name if body_info else None,
+            body_param=_dispatch_body_param(op, body_info),
             body_model=bp_model,
             body_wrapper=bp_wrapper,
         )
@@ -303,7 +403,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 variant=variant,
                 variant_param=variant_param,
                 key=key,
-                sdk_resource=op.resource,
+                sdk_resource=op.object_attr or op.resource,
                 path_params=_path_flags(op.params, id_param),
                 body_flags=_body_flags_for(op, body_model),
                 query_flags=_query_flags(op.params, op_defaults),
@@ -392,7 +492,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
 
     def _rep_op(cmd: Command) -> OperationInfo | None:
         for b in sorted(cmd.bindings, key=lambda b: rank.get(b.sub_verb, 9)):
-            op = ops_index.get(f"{cmd.sdk_resource}.{b.sdk_method}")
+            op = dispatch_index.get(f"{cmd.sdk_resource}.{b.sdk_method}")
             if op is not None and op.response_fields:
                 return op
         return None

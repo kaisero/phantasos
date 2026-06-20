@@ -3,9 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from phantasos.generator.cli.classify import build_cli_ir
+from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import load_cli_config
-from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.ir import CliIR
 
 REAL = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
@@ -34,7 +33,7 @@ def project_tree(ir: CliIR) -> list[dict[str, object]]:
 
 
 def _build_ir() -> CliIR:
-    inv = introspect("prisma_browser", REAL)  # raw-*Api today; _WRAPPERS after T4
+    inv = cli_operations("prisma_browser", REAL)  # walks _WRAPPERS/_bindings (T4.1)
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
     return ir
 
