@@ -1,4 +1,13 @@
 # tests/test_cli_docs.py
+"""Unit tests for the WRAPPER-driven docs context (generator.sdk.docs).
+
+The docs context is built from the SDK's typed wrappers (`cli_operations`, which
+stamps each op with `object_attr`/`clean_method`/`has_body`). `classify_operations`
+reads the clean verbs directly — no raw-prefix verb heuristic. These tests feed
+wrapper-stamped `OperationInfo`s and assert the showcase slots are the clean verbs
+on the object, with the body under the `body` kwarg.
+"""
+
 from typing import Any
 
 import pytest
@@ -11,11 +20,22 @@ from phantasos.generator.cli.inventory import (
 from phantasos.generator.sdk.docs import classify_operations
 
 
-def _op(method: str, params: list[dict[str, Any]]) -> OperationInfo:
+def _op(
+    raw_method: str,
+    clean_method: str,
+    params: list[dict[str, Any]],
+    *,
+    obj: str = "application",
+    has_body: bool = False,
+) -> OperationInfo:
+    """A wrapper-stamped op, as `cli_operations` would emit it."""
     return OperationInfo(
         resource="applications",
-        method=method,
+        method=raw_method,
         params=[ParamInfo(**p) for p in params],
+        object_attr=obj,
+        clean_method=clean_method,
+        has_body=has_body,
     )
 
 
@@ -33,119 +53,108 @@ def _body(name: str, model: str) -> dict[str, Any]:
     }
 
 
-APPLICATIONS = [
-    _op("bulk_create_applications", [_path("type")]),
-    _op(
-        "create_application",
-        [
-            _path("type"),
-            _body("create_or_replace_app_input", "CreateOrReplaceAppInput"),
-        ],
-    ),
-    _op("get_application_by_id", [_path("id")]),
-    _op("get_application_by_type_and_id", [_path("type"), _path("id")]),
-    _op("list_applications", []),
-    _op("list_applications_by_type", [_path("type")]),
-    _op("list_application_categories", []),
-    _op(
-        "patch_application_by_type_and_id",
-        [
-            _path("type"),
-            _path("id"),
-            _body("patch_app_input", "PatchAppInput"),
-        ],
-    ),
-    _op("delete_application_by_id", [_path("id")]),
-    _op("delete_application_by_type_and_id", [_path("type"), _path("id")]),
-    _op("bulk_delete_applications", []),
+# The wrapper view of the application object: clean verbs, multi-binding get/list/
+# delete (id-only vs type+id). `cli_operations` emits one op per binding.
+APPLICATION = [
+    _op("create_application", "create", [_path("type"), _body("b", "CreateApp")],
+        has_body=True),
+    _op("get_application_by_id", "get", [_path("id")]),
+    _op("get_application_by_type_and_id", "get", [_path("type"), _path("id")]),
+    _op("list_applications", "list", []),
+    _op("list_applications_by_type", "list", [_path("type")]),
+    _op("patch_application_by_type_and_id", "update",
+        [_path("type"), _path("id"), _body("b", "PatchApp")], has_body=True),
+    _op("delete_application_by_id", "delete", [_path("id")]),
+    _op("delete_application_by_type_and_id", "delete", [_path("type"), _path("id")]),
+    # bulk_create/bulk_delete are clean verbs `bulk_create`/`bulk_delete`, NOT CRUD
+    # slots — they must never populate create/delete.
+    _op("bulk_create_applications", "bulk_create", [_path("type")]),
+    _op("bulk_delete_applications", "bulk_delete", []),
+    # a different object backed by the same api class: must be ignored for `application`
+    _op("list_application_categories", "list", [], obj="application_category"),
 ]
 
 
-def test_classify_picks_canonical_ops() -> None:
-    slots = classify_operations(APPLICATIONS, "applications", None)
-    assert slots["create"].method == "create_application"
+def test_classify_maps_clean_verbs_to_slots() -> None:
+    slots = classify_operations(APPLICATION, "application")
+    assert slots["create"].clean_method == "create"
+    assert slots["read"].clean_method == "get"
+    assert slots["list"].clean_method == "list"
+    assert slots["update"].clean_method == "update"
+    assert slots["delete"].clean_method == "delete"
+
+
+def test_classify_picks_fewest_path_params_binding() -> None:
+    slots = classify_operations(APPLICATION, "application")
+    # get/list/delete each have an id-only and a type+id binding; the minimal one wins
     assert slots["read"].method == "get_application_by_id"
     assert slots["list"].method == "list_applications"
-    assert slots["update"].method == "patch_application_by_type_and_id"
     assert slots["delete"].method == "delete_application_by_id"
 
 
-def test_classify_rejects_different_noun() -> None:
-    slots = classify_operations(APPLICATIONS, "applications", None)
-    # list_application_categories is a different noun -> never chosen for "list"
-    assert slots["list"].method != "list_application_categories"
+def test_classify_ignores_non_crud_verbs() -> None:
+    slots = classify_operations(APPLICATION, "application")
+    # bulk_create/bulk_delete are not create/delete slots
+    assert slots["create"].clean_method == "create"
+    assert slots["delete"].clean_method == "delete"
+    assert "bulk_create" not in slots and "bulk_delete" not in slots
 
 
-def test_classify_excludes_bulk() -> None:
-    slots = classify_operations(APPLICATIONS, "applications", None)
-    assert not slots["create"].method.startswith("bulk_")
+def test_classify_ignores_other_objects() -> None:
+    slots = classify_operations(APPLICATION, "application")
+    # list_application_categories belongs to application_category, not application
+    assert slots["list"].method == "list_applications"
 
 
-def test_classify_partial_crud_omits_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_classify_partial_crud_omits_missing() -> None:
     ops = [
-        _op("create_application", [_path("type"), _body("b", "B")]),
-        _op("list_applications", []),
+        _op("create_application", "create", [_path("type"), _body("b", "B")],
+            has_body=True),
+        _op("list_applications", "list", []),
     ]
-    slots = classify_operations(ops, "applications", None)
+    slots = classify_operations(ops, "application")
     assert set(slots) == {"create", "list"}
 
 
-def test_classify_honours_override() -> None:
-    from phantasos.productconfig import DocsOperations
-
-    ov = DocsOperations(read="get_application_by_type_and_id")
-    slots = classify_operations(APPLICATIONS, "applications", ov)
-    assert slots["read"].method == "get_application_by_type_and_id"
-
-
-def test_classify_raises_on_unknown_override() -> None:
-    from phantasos.productconfig import DocsOperations
-
-    ov = DocsOperations(create="does_not_exist")
-    with pytest.raises(ValueError, match=r"does_not_exist.*applications"):
-        classify_operations(APPLICATIONS, "applications", ov)
-
-
-def test_shape_context_shapes_showcase_and_credentials() -> None:
+def test_shape_context_shapes_wrapper_showcase_and_credentials() -> None:
     from phantasos.config import ScmOAuth
     from phantasos.generator.sdk.docs import shape_context
 
     inv = OperationInventory(
-        sdk_package="prisma_browser", sdk_version="1.0.0", operations=APPLICATIONS
+        sdk_package="prisma_browser", sdk_version="1.0.0", operations=APPLICATION
     )
     ctx: dict[str, Any] = shape_context(
         inv,
-        resource="applications",
+        obj="application",
         site_name="Demo",
         auth=ScmOAuth(type="scm_oauth"),
-        overrides=None,
         has_pagination=True,
     )
     assert ctx["has_docs"] is True
     assert ctx["site_name"] == "Demo"
     sc: dict[str, Any] = ctx["showcase"]
-    assert sc["attr"] == "applications"
+    # the showcase attr is the SINGULAR object (client.<object>), not the resource
+    assert sc["attr"] == "application"
     assert sc["has_create"] and sc["has_list"]
-    assert sc["operations"]["create"]["method"] == "create_application"
-    # create requires the `type` path arg + the body model
+    # the slot method is the CLEAN verb, not the raw method
+    assert sc["operations"]["create"]["method"] == "create"
+    # create requires the `type` path arg + the body under the `body` kwarg
     create_args: list[dict[str, Any]] = sc["operations"]["create"]["required_args"]
     assert any(a["name"] == "type" and a["kind"] == "path" for a in create_args)
-    assert any(
-        a["kind"] == "body" and a["body_model"] == "CreateOrReplaceAppInput"
-        for a in create_args
-    )
+    body = next(a for a in create_args if a["kind"] == "body")
+    assert body["name"] == "body"  # wrapper body kwarg, not the raw body-param name
+    assert body["body_model"] == "CreateApp"
     # credentials come from the auth descriptor
     creds: list[dict[str, Any]] = ctx["credentials"]
     names = {c["env_var"] for c in creds}
     assert {"CLIENT_ID", "CLIENT_SECRET", "SCOPE"} <= names
 
 
-def test_build_docs_context_unknown_resource(tmp_path: Any) -> None:
+def test_build_docs_context_unknown_object_fails_fast() -> None:
     from phantasos.generator.sdk import docs
 
-    inv = OperationInventory(sdk_package="p", sdk_version="1", operations=APPLICATIONS)
-    with pytest.raises(ValueError, match=r"nope.*applications"):
-        docs._validate_resource(inv, "nope")
+    with pytest.raises(ValueError, match=r"nope.*application"):
+        docs._validate_object(["application", "device"], "nope")
 
 
 def test_shape_context_synthesizes_body_code_and_override() -> None:
@@ -153,11 +162,6 @@ def test_shape_context_synthesizes_body_code_and_override() -> None:
 
     from pydantic import BaseModel, Field, StrictStr
 
-    from phantasos.generator.cli.inventory import (
-        OperationInfo,
-        OperationInventory,
-        ParamInfo,
-    )
     from phantasos.generator.sdk.docs import shape_context
     from phantasos.productconfig import DocsExamples
 
@@ -165,32 +169,19 @@ def test_shape_context_synthesizes_body_code_and_override() -> None:
         name: StrictStr = Field(description="Name")
         created_at: datetime.datetime
 
-    # OperationInventory requires sdk_package/sdk_version (no defaults, extra="forbid").
     inv = OperationInventory(
         sdk_package="p",
         sdk_version="1",
         operations=[
-            OperationInfo(
-                resource="apps",
-                method="create_app",
-                params=[
-                    ParamInfo(
-                        name="body",
-                        annotation="AppInput",
-                        location="body",
-                        required=True,
-                        body_model="AppInput",
-                    )
-                ],
-            )
+            _op("create_app", "create",
+                [_body("body", "AppInput")], obj="app", has_body=True)
         ],
     )
     ctx: dict[str, Any] = shape_context(
         inv,
-        resource="apps",
+        obj="app",
         site_name="x",
         auth=None,
-        overrides=None,
         has_pagination=False,
         resolve={"AppInput": AppInput}.get,
         variant=None,
@@ -204,38 +195,21 @@ def test_shape_context_synthesizes_body_code_and_override() -> None:
 
 
 def test_shape_context_falls_back_without_resolver() -> None:
-    from phantasos.generator.cli.inventory import (
-        OperationInfo,
-        OperationInventory,
-        ParamInfo,
-    )
     from phantasos.generator.sdk.docs import shape_context
 
     inv = OperationInventory(
         sdk_package="p",
         sdk_version="1",
         operations=[
-            OperationInfo(
-                resource="apps",
-                method="create_app",
-                params=[
-                    ParamInfo(
-                        name="body",
-                        annotation="AppInput",
-                        location="body",
-                        required=True,
-                        body_model="AppInput",
-                    )
-                ],
-            )
+            _op("create_app", "create",
+                [_body("body", "AppInput")], obj="app", has_body=True)
         ],
     )
     ctx: dict[str, Any] = shape_context(
         inv,
-        resource="apps",
+        obj="app",
         site_name="x",
         auth=None,
-        overrides=None,
         has_pagination=False,
     )
     body = next(

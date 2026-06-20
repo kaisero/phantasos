@@ -1,8 +1,20 @@
 # tests/test_sdk_docs_emitted.py
+"""Behavioral tests for the emitted docs site — WRAPPER surface.
+
+The docs feature teaches `client.<object>.<clean_verb>(...)` (the typed resource
+wrapper), never the raw `client.<resource>.<raw_method>()`. These tests render the
+scaffold with a wrapper-shaped showcase context (object attr, clean verbs, `body=`
+kwarg) and assert the emitted Markdown is wrapper-correct.
+"""
+
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from phantasos import scaffold
+
+_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 
 def _ctx(**over: Any) -> dict[str, Any]:
@@ -43,22 +55,25 @@ def _ctx(**over: Any) -> dict[str, Any]:
             },
         ],
         "show_pagination_guide": True,
+        # Wrapper showcase: `attr` is the singular object; each slot's `method` is
+        # the CLEAN verb; the body arg is the literal `body` kwarg (has_update
+        # False -> partial CRUD, no update example rendered).
         "showcase": {
-            "attr": "applications",
+            "attr": "application",
             "has_create": True,
             "has_read": True,
             "has_list": True,
             "has_update": False,
             "has_delete": True,
-            "list": {"method": "list_applications"},
+            "list": {"method": "list"},
             "operations": {
                 "create": {
-                    "method": "create_application",
+                    "method": "create",
                     "example_override": None,
                     "required_args": [
-                        {"name": "type", "kind": "path", "placeholder": "WEB"},
+                        {"name": "type", "kind": "path", "placeholder": "custom"},
                         {
-                            "name": "create_or_replace_app_input",
+                            "name": "body",
                             "kind": "body",
                             "body_model": "CreateOrReplaceAppInput",
                             "body_code": (
@@ -68,15 +83,15 @@ def _ctx(**over: Any) -> dict[str, Any]:
                     ],
                 },
                 "read": {
-                    "method": "get_application_by_id",
+                    "method": "get",
                     "example_override": None,
                     "required_args": [
                         {"name": "id", "kind": "path", "placeholder": "<id>"}
                     ],
                 },
-                "list": {"method": "list_applications", "required_args": []},
+                "list": {"method": "list", "required_args": []},
                 "delete": {
-                    "method": "delete_application_by_id",
+                    "method": "delete",
                     "example_override": None,
                     "required_args": [
                         {"name": "id", "kind": "path", "placeholder": "<id>"}
@@ -89,19 +104,52 @@ def _ctx(**over: Any) -> dict[str, Any]:
     return base
 
 
-def test_docs_emitted_when_has_docs(tmp_path: Path) -> None:
+def test_docs_emitted_wrapper_surface(tmp_path: Path) -> None:
     scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
     crud = (tmp_path / "docs/guides/crud.md").read_text()
-    assert "create_application" in crud
-    assert "get_application_by_id" in crud
-    assert "delete_application_by_id" in crud
-    # update omitted (has_update False) -> no patch example
+    # Clean verbs on the object wrapper, with body=/id= kwargs.
+    assert "client.application.create(" in crud
+    assert "client.application.get(" in crud
+    assert "client.application.delete(" in crud
+    assert "    id=" in crud
+    assert "    body=CustomApplicationInput(" in crud
+    # NO raw-surface patterns may survive.
+    assert "create_application" not in crud
+    assert "get_application_by_id" not in crud
+    assert "delete_application_by_id" not in crud
+    assert "client.applications." not in crud
+    # update omitted (has_update False) -> partial CRUD, no patch example
     assert "## Update" not in crud
     assert (tmp_path / "mkdocs.yml").exists()
     assert "docstring_style: sphinx" in (tmp_path / "mkdocs.yml").read_text()
     assert (tmp_path / "docs/_hooks.py").exists()
     auth = (tmp_path / "docs/guides/authentication.md").read_text()
     assert "CLIENT_SECRET" in auth
+
+
+def test_pagination_uses_all_pages_not_paginate(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    pag = (tmp_path / "docs/guides/pagination.md").read_text()
+    # The wrapper's built-in pagination, NOT the old client.paginate(...) helper.
+    assert "client.application.list(all_pages=True).data" in pag
+    assert "client.paginate(" not in pag
+
+
+def test_getting_started_first_call_is_wrapper_list(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    gs = (tmp_path / "docs/getting-started.md").read_text()
+    assert "client.application.list()" in gs
+    assert "list_applications" not in gs
+
+
+def test_architecture_teaches_wrapper_not_raw(tmp_path: Path) -> None:
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
+    arch = (tmp_path / "docs/architecture.md").read_text()
+    assert "client.<object>" in arch
+    # raw *Api is described as internal; the public surface is the wrapper.
+    assert "Resource wrappers" in arch
+    # the old raw "client.<resource>.<operation>" component row is gone.
+    assert "client.<resource>.<operation>" not in arch
 
 
 def test_no_docs_when_flag_false(tmp_path: Path) -> None:
@@ -119,11 +167,10 @@ def test_no_docs_when_flag_false(tmp_path: Path) -> None:
 def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     # A showcase with no list op falls back to the read op in Getting Started; if
     # that read op has a body arg, the template must render its synthesized
-    # body_code (here "ThingQuery()") — and must not crash on a missing
-    # 'placeholder' key (body args carry body_code, not placeholder) under
-    # StrictUndefined.
+    # body_code — and must not crash on a missing 'placeholder' key (body args
+    # carry body_code, not placeholder) under StrictUndefined.
     showcase: dict[str, Any] = {
-        "attr": "things",
+        "attr": "thing",
         "has_create": False,
         "has_read": True,
         "has_list": False,
@@ -132,12 +179,12 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
         "list": None,
         "operations": {
             "read": {
-                "method": "query_thing",
+                "method": "get",
                 "example_override": None,
                 "required_args": [
                     {"name": "id", "kind": "path", "placeholder": "<id>"},
                     {
-                        "name": "thing_query",
+                        "name": "body",
                         "kind": "body",
                         "body_model": "ThingQuery",
                         "body_code": "ThingQuery()",
@@ -153,8 +200,8 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
         _ctx(showcase=showcase, show_pagination_guide=False, has_pagination=False),
     )
     gs = (tmp_path / "docs/getting-started.md").read_text()
-    assert "query_thing(" in gs
-    assert "thing_query=ThingQuery()" in gs
+    assert "client.thing.get(" in gs
+    assert "body=ThingQuery()" in gs
 
 
 def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
@@ -162,10 +209,9 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
     mk = (tmp_path / "mkdocs.yml").read_text()
     assert "griffe_pydantic" in mk
     assert "show_if_no_docstring: true" in mk
-    # boilerplate the aggressive filter must hide. NB: mkdocstrings filters are
-    # re.search patterns, so the unanchored-tail "!^oneof_schema_" matches every
-    # oneof_schema_<n>_validator member — and avoids a backslash that would not
-    # survive the verbatim YAML round-trip.
+    # The aggressive filter hides boilerplate AND the wrapper internals
+    # (_bindings/_serialize/_select/_to_raw/_call/_fetch/_list) via the "!^_" rule.
+    assert "!^_" in mk
     for pat in (
         "!^to_dict$",
         "!^model_config$",
@@ -178,12 +224,18 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
     assert "griffe-pydantic" in pp
 
 
-def test_gen_ref_pages_handles_oneof_wrappers(tmp_path: Path) -> None:
+def test_gen_ref_pages_walks_wrapper_resources(tmp_path: Path) -> None:
     scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx())
     script = (tmp_path / "docs/scripts/gen_ref_pages.py").read_text()
-    # detection + variant-link rendering must be present in the emitted script
+    # The reference walks the wrapper resources (via _WRAPPERS) + models, NOT the
+    # raw api/ classes.
+    assert "_WRAPPERS" in script
+    assert "extras.resources" in script
+    # oneOf wrapper variant-link rendering is preserved for models.
     assert "actual_instance" in script
     assert "One of the following variants" in script
+    # the raw api/ subpackage is no longer walked.
+    assert 'SUBPACKAGES = ("api", "models")' not in script
 
 
 def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
@@ -213,9 +265,50 @@ def test_crud_renders_synthesized_body_code(tmp_path: Path) -> None:
 def test_crud_uses_manual_override_verbatim(tmp_path: Path) -> None:
     ctx = _ctx()
     ctx["showcase"]["operations"]["create"]["example_override"] = (
-        "created = client.applications.create_application(MAGIC)"
+        "created = client.application.create(MAGIC)"
     )
     scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, ctx)
     crud = (tmp_path / "docs/guides/crud.md").read_text()
     assert "MAGIC" in crud
     assert 'name="example"' not in crud  # override replaced the whole call
+
+
+@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
+def test_docs_context_slots_are_real_wrapper_methods() -> None:
+    """The emitted CRUD slots must reference REAL wrapper methods.
+
+    Dispatch-style guard: build the docs context from the REAL built SDK and
+    cross-check every slot's clean verb against the wrapper class's actual methods
+    in `_WRAPPERS[object]`. A future raw-surface regression (a slot naming a raw
+    `*Api` method, or a non-existent verb) fails here.
+    """
+    import importlib
+    import sys
+
+    from phantasos.generator.sdk.docs import build_docs_context
+    from phantasos.productconfig import load_product
+
+    loaded = load_product("prisma-browser")
+    ctx = build_docs_context(loaded, _SDK)
+    showcase = ctx["showcase"]
+    obj = showcase["attr"]
+    assert obj == "application"  # singular wrapper-object key, not the plural resource
+
+    added = str(_SDK) not in sys.path
+    if added:
+        sys.path.insert(0, str(_SDK))
+    try:
+        facade = importlib.import_module("prisma_browser.extras.facade")
+        wrapper_cls = facade._WRAPPERS[obj][0]
+    finally:
+        if added and str(_SDK) in sys.path:
+            sys.path.remove(str(_SDK))
+
+    assert obj in facade._WRAPPERS  # the object is a real wrapper key
+    for slot, op in showcase["operations"].items():
+        verb = op["method"]
+        # the slot's method is a genuine, public wrapper method (a clean verb)
+        assert callable(getattr(wrapper_cls, verb, None)), (slot, verb)
+        assert not verb.startswith("_")
+        # and it is NOT a raw *Api method name leaking through
+        assert "_by_id" not in verb and "_application" not in verb
