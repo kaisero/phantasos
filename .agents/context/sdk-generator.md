@@ -46,6 +46,24 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
    `run=False`) import-walks every module in an isolated `pip install`ed venv.
 
+**Typed wrapper context (`wrapper.py`).** Building on the `operations:` override
+validator, `wrapper.build_wrapper_context(inv, overrides, discovered)` produces the
+in-memory render context for the typed `client.<object>.<verb>(...)` wrappers
+(template rendering lands later). It groups ops by their **classified object**
+(`classify_name(...).object`), not by the raw `op.resource` api-class attr — one
+`*Api` class backs several objects — and resolves each object's backing api class by
+joining `op.resource` against `render._discover_resources()`. Each `(object, method)`
+unions the params of every backing raw op into one `MethodView` with a list of
+`Binding`s (multi-binding: e.g. `application.get` collapses `get_application_by_id` +
+`get_application_by_type_and_id`); every unioned non-body param is forced optional and
+the body param is renamed to `body`. `ParamView` annotations come from the **live
+introspected types** (`typing.get_type_hints(method, include_extras=False)`), never
+from the unparseable `ParamInfo.annotation` repr. None-classified ops (PUT `update_*`
+-> `replace`; verb-phrase actions like `suspend_devices` -> `device.suspend`) attach to
+an EXISTING CRUD object via verb-token stripping — or, when anchorless (`*_positions`,
+`publish_draft_configuration`), require an explicit `sdk.yml operations:` override or the
+build fails. `_gate_collisions` rejects a duplicate method name within one object.
+
 ## Build / run pointers
 
 - Build the example SDKs: `uv run nox -s smoke` (auto-provisions JRE; needs network).
@@ -62,7 +80,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
 - `render.py` — Vendor step: render selected component templates into the SDK's extras/.
 - `smoke.py` — Smoke check: import every generated module (in isolation) and count operations.
-- `wrapper.py` — SDK operation-override helpers.
+- `wrapper.py` — SDK operation-override helpers + object-granular wrapper render context.
 <!-- /GENERATED:module-map -->
 
 ## Public API
@@ -101,6 +119,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.
 - `wrapper.py`
   - `validate_override_keys(inv, overrides)` — Raise ``ValueError`` if any override key is not a valid ``resource.method``.
+  - class `ParamView` — One render-ready parameter of a wrapper method.
+  - class `Binding` — One raw op backing a (possibly multi-binding) wrapper method.
+  - class `MethodView` — One typed wrapper method on an object (``client.<object>.<name>(...)``).
+  - class `ObjectView` — A typed wrapper class for one classified object.
+  - `build_wrapper_context(inv, overrides, discovered)` — Build the object-granular wrapper render context for a built SDK.
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants

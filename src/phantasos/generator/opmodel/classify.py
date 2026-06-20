@@ -87,7 +87,14 @@ def OBJECT_OF(method: str) -> str | None:  # noqa: N802
     1+ tokens: `suspend`, `bulk_create`, `publish_draft`), so those are mapped to an
     existing CRUD object on the same api class in build_wrapper_context (Task 3.1),
     or fail the build demanding an sdk.yml operations entry. Never guess here.
+
+    A method carrying a ``_SKIP_FRAGMENTS`` substring (e.g. ``*_positions``) is a
+    non-CRUD op even when it begins with a verb prefix; return None so a junk object
+    (``security-position``) can never be laundered out of it — mirrors the skip check
+    in ``classify_name``.
     """
+    if any(frag in method for frag in _SKIP_FRAGMENTS):
+        return None
     for prefix, _, _ in _VERB_PREFIXES:
         if method.startswith(prefix):
             return _singularize(_strip_id_suffix(method[len(prefix) :])).replace(

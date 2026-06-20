@@ -20,6 +20,27 @@ transforms:
     - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
     - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
+
+# --- anchorless None-classified ops → an explicit (object, method) decision ---
+# Mirrors cli.yml's `request:` block. These 6 ops classify to None AND have no CRUD
+# anchor on their api class to attach to (verb-token stripping can't find an existing
+# object), so the wrapper-context build FAILS unless an override names the target.
+# `resource`/`method` use the classified-object FORM the wrapper views are keyed by
+# (kebab, == classify_name(...).object). The 5 `*-section` targets are EXISTING CRUD
+# objects (reorder/reorder_patch attach to them — distinct method names, no collision);
+# `configuration` is a NEW single-method object the override is allowed to create.
+operations:
+  access_and_data_policy.update_access_and_data_positions:
+    {resource: access-and-data-section, method: reorder}
+  customization_policy.update_customization_positions:
+    {resource: customization-section, method: reorder}
+  security_policy.update_security_positions: {resource: security-section, method: reorder}
+  security_policy.patch_security_positions:
+    {resource: security-section, method: reorder_patch}
+  sign_in_policy.update_sign_in_positions: {resource: sign-in-section, method: reorder}
+  configuration_management.publish_draft_configuration:
+    {resource: configuration, method: publish}
+
 project:
   distribution: prisma-browser-sdk
   description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs

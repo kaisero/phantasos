@@ -15,3 +15,7 @@ def test_object_of_crud_only() -> None:
     assert OBJECT_OF("delete_access_and_data_rule_by_id") == "access-and-data-rule"
     assert OBJECT_OF("suspend_devices") is None  # non-CRUD -> derived in wrapper-gen
     assert OBJECT_OF("update_device_group") is None  # PUT -> handled in wrapper-gen
+    # _SKIP_FRAGMENTS guard: a `*_positions` op must NOT launder a junk object even
+    # though it begins with a verb prefix (`patch_`).
+    assert OBJECT_OF("patch_security_positions") is None
+    assert OBJECT_OF("update_security_positions") is None
