@@ -9,24 +9,23 @@ auth:
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
-# NOTE: the `docs:` block is intentionally OFF until Phase 2 of the develop-merge
-# plan re-realizes #30's generated docs on the wrapper surface (the examples below
-# teach the raw `client.applications.create_application(...)` surface, which the
-# wrapper rebase replaced with `client.application.create(body=...)`). Re-enabled
-# in Phase 2.5 against the wrapper.
-# docs:
-#   showcase_resource: applications
-#   showcase_variant: CustomApplicationInput
-#   examples:
-#     create: |
-#       created = client.applications.create_application(
-#           type="custom",
-#           create_or_replace_app_input=CustomApplicationInput(
-#               name="Acme Wiki",
-#               type="custom",
-#               urls=[UrlInput(url="https://wiki.acme.com/*")],
-#           ),
-#       )
+# Opt-in user docs (mkdocs), tailored to the `application` wrapper object. The
+# guides teach the wrapper surface `client.application.<verb>(...)`; the showcase
+# variant pins the oneOf create body to CustomApplicationInput. The `examples.create`
+# override supplies a domain-rich body in place of the generic synthesized one.
+docs:
+  showcase_resource: application
+  showcase_variant: CustomApplicationInput
+  examples:
+    create: |
+      created = client.application.create(
+          type="custom",
+          body=CustomApplicationInput(
+              name="Acme Wiki",
+              type="custom",
+              urls=[UrlInput(url="https://wiki.acme.com/*")],
+          ),
+      )
 transforms:
   hoist:
     - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
