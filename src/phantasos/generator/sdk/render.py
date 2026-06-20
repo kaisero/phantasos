@@ -43,7 +43,20 @@ def _discover_resources(pkg_dir: Path) -> list[dict[str, str]]:
     return out
 
 
-def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
+def vendor(
+    pkg_dir: Path,
+    loaded: LoadedProduct,
+    *,
+    wrapper_objects: list[Any] | None = None,
+) -> list[str]:
+    """Render the selected component templates into ``<pkg>/extras/``.
+
+    When the facade is enabled the object-granular typed resource wrappers are
+    also emitted (``extras/resources.py``). *wrapper_objects* may supply a
+    pre-built ``build_wrapper_context`` result (the stub-package component tests
+    pass ``[]`` to opt out of live introspection); otherwise the freshly
+    generated package is introspected to build it.
+    """
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     extras = pkg_dir / "extras"
@@ -102,4 +115,48 @@ def vendor(pkg_dir: Path, loaded: LoadedProduct) -> list[str]:
         builtin_env.get_template("extras_init.py.jinja").render(**ctx), encoding="utf-8"
     )
     written.append("__init__.py")
+
+    # Resources are vendored LAST: introspecting the package imports `extras`
+    # (and through it auth/errors/facade/retry/pagination), all of which must
+    # already exist on disk.
+    if loaded.facade:
+        _vendor_resources(
+            pkg_dir, loaded, extras, builtin_env, written, wrapper_objects
+        )
     return written
+
+
+def _vendor_resources(
+    pkg_dir: Path,
+    loaded: LoadedProduct,
+    extras: Path,
+    env: Environment,
+    written: list[str],
+    wrapper_objects: list[Any] | None,
+) -> None:
+    """Render the object-granular typed resource wrappers into ``resources.py``.
+
+    Uses *wrapper_objects* when supplied; otherwise introspects the
+    freshly-vendored package (``facade.py`` — and thus ``_RESOURCES`` — is
+    already written) to build the context. The per-object imports are merged +
+    sorted for a stable, ruff-clean import block.
+    """
+    objects = wrapper_objects
+    if objects is None:
+        from ..opmodel import introspect
+        from .wrapper import build_wrapper_context
+
+        inv = introspect(loaded.config.package, pkg_dir.parent)
+        objects = build_wrapper_context(
+            inv, loaded.config.operations, _discover_resources(pkg_dir)
+        )
+    imports: set[tuple[str, str]] = set()
+    for o in objects:
+        imports |= o.imports
+    src = env.get_template("facade/resource.py.jinja").render(
+        objects=objects,
+        imports=sorted(imports),
+        has_pagination=loaded.pagination is not None,
+    )
+    (extras / "resources.py").write_text(src, encoding="utf-8")
+    written.append("resources.py")

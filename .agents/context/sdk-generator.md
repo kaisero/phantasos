@@ -37,7 +37,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    A product `hooks.py::patch(pkg_dir)` runs after.
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
-   `<package>/extras/`. Then `scaffold.render_scaffold()` (in the sibling
+   `<package>/extras/`. When the facade is enabled it ALSO emits
+   `extras/resources.py` — the object-granular typed resource wrappers — as the
+   final step (after every other extra exists on disk, because building that
+   context import-walks the freshly-vendored package). Then
+   `scaffold.render_scaffold()` (in the sibling
    `scaffold` module, `phantasos/scaffold.py` — not this package) lays down the
    project scaffold, with
    `products/<name>/overrides/` winning over the built-in templates.
@@ -63,6 +67,28 @@ from the unparseable `ParamInfo.annotation` repr. None-classified ops (PUT `upda
 an EXISTING CRUD object via verb-token stripping — or, when anchorless (`*_positions`,
 `publish_draft_configuration`), require an explicit `sdk.yml operations:` override or the
 build fails. `_gate_collisions` rejects a duplicate method name within one object.
+
+Beyond the structural `MethodView`/`Binding` fields, `build_wrapper_context`
+precomputes the **render-ready strings** the resource template interpolates
+verbatim (the template stays a dumb interpolator): per `MethodView` a typed `sig`
+(every param optional; `list` adds `*, all_pages: bool = False`), a `return_expr`,
+a `present_expr` (the `{...}` set of non-None args, driving binding selection) and
+a `call_dict`; per `ObjectView` a `bindings_literal` — the `_bindings` class-var
+dict (`verb -> [binding-dict]`) where each binding records its `raw_method`,
+`serialize_name`, `requires`, the wrapper→raw `param_map`, the raw `body` param
+name, and the `enums` (wrapper-name → enum class) to coerce. `_classname` emits
+`<PascalObject>Resource` (e.g. `ApplicationResource`). The emitted
+`components/facade/resource.py.jinja` builds one `<Object>Resource` per object
+whose clean typed methods delegate to generic `_select`/`_to_raw`/`_call`/`_fetch`/
+`_list` helpers: `_select` picks the most-specific binding whose `requires ⊆
+present` (so `list`/`get`/`delete` dispatch by which args are present, never
+`bindings[0]`), `_to_raw` renames + enum-coerces onto the chosen op's raw params
+(routing a discriminator like `type` to path on `*_by_type` vs query on the plain
+op, since each binding's `param_map` is its own accepted surface), and
+`list(all_pages=True)` paginates via the vendored `paginate(...)` and returns
+`page.model_copy(update={"data": items})`. Raw method names appear only inside
+`_bindings`. `_serialize(verb, **kwargs)` is the dry-run twin (calls the op's
+`*_serialize`).
 
 ## Build / run pointers
 
@@ -113,7 +139,7 @@ build fails. `_gate_collisions` rejects a duplicate method name within one objec
   - `cache_dir()` — Shared on-disk cache for the OAG jar and the managed JRE.
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
-  - `vendor(pkg_dir, loaded)`
+  - `vendor(pkg_dir, loaded, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.

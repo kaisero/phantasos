@@ -172,6 +172,13 @@ def live(session: nox.Session) -> None:
     Needs network + Java (auto-provisioned, like ``smoke``).
     """
     _sync(session, "test")
+    # `sdk build` now introspects the freshly-generated package in-process (to
+    # vendor the typed resource wrappers), which import-walks the SDK — so its
+    # base runtime deps must be importable in THIS venv before the build, not
+    # only after `session.install(out_dir)` below.
+    from phantasos.productconfig import _BASE_DEPS
+
+    session.install(*_BASE_DEPS)
     env_file = Path(".env")
     if env_file.exists():
         for line in env_file.read_text().splitlines():

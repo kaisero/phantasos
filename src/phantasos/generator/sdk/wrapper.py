@@ -98,16 +98,48 @@ class ParamView:
 
 @dataclass(frozen=True)
 class Binding:
-    """One raw op backing a (possibly multi-binding) wrapper method."""
+    """One raw op backing a (possibly multi-binding) wrapper method.
+
+    The render-prep fields below let the emitted ``_to_raw``/``_select`` stay
+    dumb: they describe — for THIS op specifically — how a wrapper call maps onto
+    the raw generated method.
+
+    - ``param_map``: ordered ``(wrapper_name, raw_name)`` for every non-body param
+      this op accepts. Because a discriminator like ``type`` routes to *path* on
+      ``*_by_type`` but *query* on the plain op, the accepted set differs per
+      binding — so the routing is captured here, not on the unioned ``ParamView``.
+    - ``body_raw``: the op's raw body-param name (``create_or_replace_app_input``),
+      so the generated code can rename the wrapper's ``body`` kwarg.
+    - ``enum_map``: ``(wrapper_name, EnumClassName)`` for the op's enum params, so
+      the generated ``_to_raw`` can coerce a passed enum-string to the enum.
+    """
 
     raw_method: str
     requires: tuple[str, ...]
     serialize_name: str
+    param_map: tuple[tuple[str, str], ...] = ()
+    body_raw: str | None = None
+    enum_map: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
 class MethodView:
-    """One typed wrapper method on an object (``client.<object>.<name>(...)``)."""
+    """One typed wrapper method on an object (``client.<object>.<name>(...)``).
+
+    The structural fields (``params``/``body``/``bindings``…) are produced by
+    Task 3.1's assembly; the render-prep strings below are computed once (in
+    ``_compute_method_prep``) so the template is a dumb interpolator:
+
+    - ``sig``: the full typed parameter list (every param optional; list adds
+      ``*, all_pages: bool = False``).
+    - ``return_expr``: the method's annotated return type (``None`` for a
+      non-returning op like ``delete``).
+    - ``present_expr``: a ``{...}`` set of the wrapper params non-None at call
+      time — drives ``_select`` (most-specific binding whose ``requires`` ⊆
+      present); single- and multi-binding share this path.
+    - ``call_dict``: a ``{...}`` dict of every wrapper param (forwarded to the
+      generic ``_call``/``_fetch``/``_list`` helper, which renames + coerces).
+    """
 
     name: str
     verb: str
@@ -118,6 +150,10 @@ class MethodView:
     bindings: list[Binding]
     is_list: bool
     get_unwrap: bool
+    sig: str = ""
+    return_expr: str = "None"
+    present_expr: str = "set()"
+    call_dict: str = "{}"
 
 
 @dataclass
@@ -135,6 +171,7 @@ class ObjectView:
     api_attr: str
     methods: list[MethodView]
     imports: set[tuple[str, str]]
+    bindings_literal: str = "{}"
 
 
 # --------------------------------------------------------------------------- #
@@ -354,11 +391,30 @@ def _build_method(
     for op in ops:
         api_cls = api_by_attr[api_attr_of[op.resource]]
         hints = _hints_for(api_cls, op.method)
+        # Per-op mapping wrapper-name -> raw-name + which params are enums + the
+        # raw body-param name (THIS op's accepted surface — discriminator routing
+        # to path-vs-query is implicit, since the raw method takes every accepted
+        # param by keyword regardless of its OpenAPI location).
+        op_param_map: list[tuple[str, str]] = []
+        op_enum_map: list[tuple[str, str]] = []
+        op_body_raw: str | None = None
+        for op_param in op.params:
+            if op_param.location == "body":
+                op_body_raw = op_param.name
+                continue
+            op_param_map.append((op_param.name, op_param.name))
+            if op_param.enum_values:
+                _, imp, _ = _render_annotation(hints.get(op_param.name), package)
+                if imp:
+                    op_enum_map.append((op_param.name, imp[1]))
         bindings.append(
             Binding(
                 raw_method=op.method,
                 requires=_required_path_params(op),
                 serialize_name=f"_{op.method}_serialize",
+                param_map=tuple(op_param_map),
+                body_raw=op_body_raw,
+                enum_map=tuple(op_enum_map),
             )
         )
         # return model/import from the first op that has one.
@@ -400,7 +456,94 @@ def _build_method(
         is_list=is_list,
         get_unwrap=method == "get",
     )
+    _compute_method_prep(mv)
     return mv, imports
+
+
+# --------------------------------------------------------------------------- #
+# Render-prep: precomputed strings the template interpolates verbatim
+# --------------------------------------------------------------------------- #
+
+
+def _wrapper_param_names(mv: MethodView) -> list[str]:
+    """Every wrapper-call param name (scalar params + ``body`` when present)."""
+    names = [p.name for p in mv.params]
+    if mv.body is not None:
+        names.append("body")
+    return names
+
+
+def _sig_str(mv: MethodView) -> str:
+    """The typed parameter list (no leading ``self``).
+
+    Every param is optional with a ``None`` default so the uniform ``_to_raw``
+    filter (drop ``None`` kwargs) works; a ``list`` method also appends the
+    keyword-only ``all_pages`` toggle.
+    """
+    parts = [f"{p.name}: {p.py_annotation} = None" for p in mv.params]
+    if mv.body is not None:
+        ann = mv.body.py_annotation
+        if not ann.endswith(" | None"):
+            ann = ann + " | None"
+        parts.append(f"body: {ann} = None")
+    if mv.is_list:
+        parts.append("*, all_pages: bool = False")
+    return ", ".join(parts)
+
+
+def _present_expr(mv: MethodView) -> str:
+    """A ``{...}`` set literal of the wrapper params that are non-None at call time.
+
+    Drives ``_select`` (most-specific binding whose ``requires`` are all present).
+    """
+    names = _wrapper_param_names(mv)
+    inner = ", ".join(f'"{n}": {n}' for n in names)
+    return "{k for k, v in {" + inner + "}.items() if v is not None}"
+
+
+def _call_kwargs(mv: MethodView) -> str:
+    """A ``{...}`` dict literal mapping wrapper-param name -> its local value."""
+    names = _wrapper_param_names(mv)
+    return "{" + ", ".join(f'"{n}": {n}' for n in names) + "}"
+
+
+def _compute_method_prep(mv: MethodView) -> None:
+    """Populate the render-ready strings on *mv* (mutates in place).
+
+    Every method body is a uniform one-line delegation keyed on the precomputed
+    ``present_expr`` (non-None wrapper args) + ``call_dict`` (all wrapper args);
+    the emitted ``_select`` resolves the most-specific binding (single- AND
+    multi-binding share this path — a single binding is just a one-candidate
+    select). ``list`` adds the ``all_pages`` toggle; ``get`` unwraps via
+    ``_fetch``.
+    """
+    mv.sig = _sig_str(mv)
+    mv.return_expr = mv.return_model if mv.return_model else "None"
+    mv.present_expr = _present_expr(mv)
+    mv.call_dict = _call_kwargs(mv)
+
+
+def _binding_dict_repr(b: Binding) -> str:
+    """A ``repr``-able dict literal for one binding (used in ``_bindings``)."""
+    return repr(
+        {
+            "raw_method": b.raw_method,
+            "serialize_name": b.serialize_name,
+            "requires": list(b.requires),
+            "param_map": dict(b.param_map),
+            "body": b.body_raw,
+            "enums": dict(b.enum_map),
+        }
+    )
+
+
+def _bindings_literal(methods: list[MethodView]) -> str:
+    """The ``_bindings`` class-var dict literal: ``verb -> [binding-dict, ...]``."""
+    items = []
+    for mv in methods:
+        binds = ", ".join(_binding_dict_repr(b) for b in mv.bindings)
+        items.append(f'    "{mv.name}": [{binds}],')
+    return "{\n" + "\n".join(items) + "\n    }"
 
 
 # --------------------------------------------------------------------------- #
@@ -409,8 +552,12 @@ def _build_method(
 
 
 def _classname(attr_snake: str) -> str:
-    """snake_case object attr -> PascalCase wrapper class name (+ ``Wrapper``)."""
-    return "".join(part.title() for part in attr_snake.split("_")) + "Wrapper"
+    """snake_case object attr -> PascalCase resource class name (+ ``Resource``).
+
+    e.g. ``application`` -> ``ApplicationResource``, ``device_group`` ->
+    ``DeviceGroupResource``. The emitted class is ``<Object>Resource``.
+    """
+    return "".join(part.title() for part in attr_snake.split("_")) + "Resource"
 
 
 def _gate_collisions(objects: list[ObjectView]) -> None:
@@ -505,5 +652,9 @@ def build_wrapper_context(
         ov.methods.append(mv)
         ov.imports |= imports
 
-    _gate_collisions(list(objects.values()))
-    return list(objects.values())
+    result = list(objects.values())
+    _gate_collisions(result)
+    for ov in result:
+        ov.methods.sort(key=lambda m: m.name)
+        ov.bindings_literal = _bindings_literal(ov.methods)
+    return result
