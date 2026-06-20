@@ -8,13 +8,20 @@
 requests — the first call mints an auth token that is then reused, so creating a client
 per request is wasteful.
 
+Each object is exposed as a typed **resource wrapper** attribute: `client.<object>`
+(for example `client.{{ showcase.attr }}`). A wrapper exposes clean, verb-named methods —
+`create(body=…)`, `get(id=…)`, `list(…)`, `update(id=…, body=…)`, `delete(id=…)` — that
+return typed models. Several wrappers may share one backing API client under the hood;
+the raw generated `*Api` classes are an internal detail you never call directly.
+
 ```mermaid
 graph TD
     ENV[Environment / credentials] --> C[Client.from_env]
-    C --> R[Resource APIs<br/>client.&lt;resource&gt;]
-    R --> OP[Typed operations]
-    OP --> H[urllib3 transport]
-    H --> API[{{ spec_title or "REST API" }}]
+    C --> W["Resource wrappers<br/>client.&lt;object&gt;.&lt;verb&gt;(...)"]
+    W --> API_CLIENT[Shared api client]
+    API_CLIENT --> RAW[Generated *Api<br/>internal]
+    RAW --> H[{{ library }} transport]
+    H --> REST[{{ spec_title or "REST API" }}]
 ```
 
 ## Components
@@ -23,15 +30,16 @@ This SDK is assembled from these components:
 
 | Component | Role |
 |-----------|------|
-| Resource facade | `client.<resource>.<operation>(...)` — every API resource as an attribute |
+| Resource wrappers | `client.<object>.<verb>(...)` — every object as a typed attribute with clean CRUD methods |
 {% if has_auth %}| Authentication | Injects credentials and refreshes the access token automatically |
-{% endif %}{% if has_pagination %}| Pagination | `client.paginate(list_method, **filters)` iterates cursor pages |
+{% endif %}{% if has_pagination %}| Pagination | `client.<object>.list(all_pages=True).data` walks every cursor page for you |
 {% endif %}{% if has_retry %}| Retry | Automatic retries with jittered backoff on transient failures |
 {% endif %}{% if has_errors %}| Errors | Normalised error messages extracted from API error bodies |
 {% endif %}
 
-## Resources and operations
+## Objects and operations
 
-Each resource is a typed `*Api` class exposed as `client.<resource>`. Browse the full
-surface in the **[API Reference](reference/)**.
+Each object is a typed wrapper exposed as `client.<object>`. Its methods are the clean
+verbs for that object; the wrapper translates each call onto the appropriate backing
+operation. Browse the full surface in the **[API Reference](reference/)**.
 {% endif %}
