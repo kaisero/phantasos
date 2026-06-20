@@ -1,4 +1,11 @@
-{% if has_docs | default(false) %}"""Generate the API Reference: one mkdocstrings page per api/ and models/ module."""
+{% if has_docs | default(false) %}"""Generate the API Reference.
+
+One mkdocstrings page per **resource wrapper** (`extras/resources.py`'s
+`<Object>Resource` classes — the user-facing operation surface, keyed by the
+facade's `_WRAPPERS`) and per `models/` module. The raw generated `api/` classes,
+and the `extras` helpers (facade/auth/pagination), are deliberately NOT autodoc'd
+— they are taught in the guides, not the reference.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +18,6 @@ import mkdocs_gen_files
 from pydantic import BaseModel
 
 PACKAGE = "{{ package }}"
-SUBPACKAGES = ("api", "models")
 
 # This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
 # is the SDK root (scripts -> docs -> root) where the package directory lives.
@@ -44,30 +50,40 @@ def _oneof_variants(model: type[BaseModel]) -> list[type[BaseModel]]:
 
 
 nav = mkdocs_gen_files.Nav()
-for sub in SUBPACKAGES:
-    for path in sorted((src / sub).rglob("*.py")):
-        module = path.relative_to(src).with_suffix("")
-        parts = tuple(module.parts)
-        if parts[-1] == "__init__" or parts[-1].startswith("_"):
-            continue
-        doc_path = Path(*parts).with_suffix(".md")
-        full = Path("reference", doc_path)
-        nav[parts] = doc_path.as_posix()
-        dotted = ".".join((PACKAGE, *parts))
-        variants: list[type[BaseModel]] = []
-        if sub == "models":
-            model = _public_model(dotted)
-            if model is not None:
-                variants = _oneof_variants(model)
-        with mkdocs_gen_files.open(full, "w") as fd:
-            fd.write(f"::: {dotted}\n")
-            if variants:
-                fd.write("\nOne of the following variants:\n\n")
-                # Variant pages are siblings of the wrapper page (both under
-                # models/), so a bare "<module>.md" relative link resolves.
-                for v in variants:
-                    fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
-        mkdocs_gen_files.set_edit_path(full, path)
+
+# --- Resource wrappers: one page per <Object>Resource class (the public op surface).
+facade = importlib.import_module(f"{PACKAGE}.extras.facade")
+resources_mod = f"{PACKAGE}.extras.resources"
+for obj_attr, (wrapper_cls, _api_attr) in facade._WRAPPERS.items():
+    parts = ("resources", obj_attr)
+    doc_path = Path(*parts).with_suffix(".md")
+    full = Path("reference", doc_path)
+    nav[parts] = doc_path.as_posix()
+    with mkdocs_gen_files.open(full, "w") as fd:
+        fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
+    mkdocs_gen_files.set_edit_path(full, src / "extras" / "resources.py")
+
+# --- Models: one page per models/ module (oneOf wrappers link their variants).
+for path in sorted((src / "models").rglob("*.py")):
+    module = path.relative_to(src).with_suffix("")
+    parts = tuple(module.parts)
+    if parts[-1] == "__init__" or parts[-1].startswith("_"):
+        continue
+    doc_path = Path(*parts).with_suffix(".md")
+    full = Path("reference", doc_path)
+    nav[parts] = doc_path.as_posix()
+    dotted = ".".join((PACKAGE, *parts))
+    model = _public_model(dotted)
+    variants = _oneof_variants(model) if model is not None else []
+    with mkdocs_gen_files.open(full, "w") as fd:
+        fd.write(f"::: {dotted}\n")
+        if variants:
+            fd.write("\nOne of the following variants:\n\n")
+            # Variant pages are siblings of the wrapper page (both under
+            # models/), so a bare "<module>.md" relative link resolves.
+            for v in variants:
+                fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
+    mkdocs_gen_files.set_edit_path(full, path)
 
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as fd:
     fd.writelines(nav.build_literate_nav())
