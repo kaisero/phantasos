@@ -94,6 +94,8 @@ def vendor(
     if loaded.errors:
         write_component("errors.py", loaded.errors)
     if loaded.facade:
+        # Pass 1: raw-`*Api` facade (exposes `_RESOURCES`, NO wrapper imports) so
+        # the package is importable and introspect(...) can read `_RESOURCES`.
         write_component(
             "facade.py", loaded.facade, resources=_discover_resources(pkg_dir)
         )
@@ -120,10 +122,44 @@ def vendor(
     # (and through it auth/errors/facade/retry/pagination), all of which must
     # already exist on disk.
     if loaded.facade:
-        _vendor_resources(
+        objects = _vendor_resources(
             pkg_dir, loaded, extras, builtin_env, written, wrapper_objects
         )
+        # Pass 2: RE-render the facade in full now that `resources.py` exists —
+        # bind `client.<object>` to the typed wrappers (sharing one `*Api`
+        # instance per backing class), keep `_RESOURCES`, add `_WRAPPERS`.
+        write_component(
+            "facade.py",
+            loaded.facade,
+            resources=_discover_resources(pkg_dir),
+            wrappers=True,
+            objects=objects,
+        )
+        # Pass 1's introspection imported `<pkg>`, `<pkg>.extras`,
+        # `<pkg>.extras.facade` (and possibly `.resources`) into THIS process's
+        # `sys.modules`. Pass 2 just rewrote `facade.py` on disk, so any later
+        # in-process import would resurrect the STALE pass-1 facade (no
+        # `_WRAPPERS`). Drop those entries so the next import re-reads disk.
+        _invalidate_pkg_modules(loaded.config.package)
     return written
+
+
+def _invalidate_pkg_modules(package: str) -> None:
+    """Drop the vendored package's cached modules from this process's import cache.
+
+    Removes ``<package>``, ``<package>.extras`` and any ``<package>.extras.*``
+    (e.g. ``facade``/``resources``) so a later import re-reads the rewritten
+    pass-2 ``facade.py`` instead of the stale pass-1 module object.
+    """
+    import sys
+
+    for name in list(sys.modules):
+        if (
+            name == package
+            or name == f"{package}.extras"
+            or name.startswith(f"{package}.extras.")
+        ):
+            del sys.modules[name]
 
 
 def _vendor_resources(
@@ -133,13 +169,14 @@ def _vendor_resources(
     env: Environment,
     written: list[str],
     wrapper_objects: list[Any] | None,
-) -> None:
+) -> list[Any]:
     """Render the object-granular typed resource wrappers into ``resources.py``.
 
     Uses *wrapper_objects* when supplied; otherwise introspects the
-    freshly-vendored package (``facade.py`` — and thus ``_RESOURCES`` — is
-    already written) to build the context. The per-object imports are merged +
-    sorted for a stable, ruff-clean import block.
+    freshly-vendored package (the pass-1 ``facade.py`` — and thus ``_RESOURCES``
+    — is already written) to build the context. The per-object imports are merged
+    + sorted for a stable, ruff-clean import block. Returns the ``ObjectView``
+    list so the caller can drive the pass-2 facade re-render.
     """
     objects = wrapper_objects
     if objects is None:
@@ -160,3 +197,4 @@ def _vendor_resources(
     )
     (extras / "resources.py").write_text(src, encoding="utf-8")
     written.append("resources.py")
+    return objects
