@@ -139,6 +139,9 @@ class MethodView:
       present); single- and multi-binding share this path.
     - ``call_dict``: a ``{...}`` dict of every wrapper param (forwarded to the
       generic ``_call``/``_fetch``/``_list`` helper, which renames + coerces).
+    - ``docstring``: one-line summary for the emitted method docstring; for
+      single-binding methods taken from the op summary; for multi-binding methods
+      synthesized from the verb + object name (e.g. ``"Get a device group."``).
     """
 
     name: str
@@ -154,6 +157,7 @@ class MethodView:
     return_expr: str = "None"
     present_expr: str = "set()"
     call_dict: str = "{}"
+    docstring: str = ""
 
 
 @dataclass
@@ -365,6 +369,46 @@ def _param_view(
     )
 
 
+def _article(word: str) -> str:
+    """Return ``"an"`` when *word* starts with a vowel sound, else ``"a"``."""
+    return "an" if word[:1].lower() in "aeiou" else "a"
+
+
+def _method_docstring(method: str, obj_attr: str, ops: list[OperationInfo]) -> str:
+    """One-line docstring for the emitted wrapper method.
+
+    For a single-binding method the op's own summary is used verbatim (if
+    non-empty). For multi-binding methods — or when the single op has no
+    summary — a sensible one-liner is synthesized from the verb + object noun
+    (e.g. ``"Get a device group."``).
+
+    The canonical verbs ``get``/``list``/``delete``/``create``/``update``/
+    ``replace`` produce natural English phrases; all other verbs (custom
+    verb-phrase actions) capitalise the method name.
+    """
+    # Single-binding with a non-empty op summary: use it directly.
+    if len(ops) == 1 and ops[0].summary:
+        s = ops[0].summary.strip()
+        return s if s.endswith(".") else s + "."
+
+    # Synthesize from verb + object noun.
+    obj_human = obj_attr.replace("_", " ")
+    art = _article(obj_human)
+    verb_phrases: dict[str, str] = {
+        "get": f"Get {art} {obj_human}.",
+        "list": f"List {obj_human}s.",
+        "create": f"Create {art} {obj_human}.",
+        "update": f"Update {art} {obj_human}.",
+        "delete": f"Delete {art} {obj_human}.",
+        "replace": f"Replace {art} {obj_human}.",
+    }
+    if method in verb_phrases:
+        return verb_phrases[method]
+    # Generic fallback: capitalise the method name and append the object.
+    readable = method.replace("_", " ")
+    return f"{readable.capitalize()} {obj_human}."
+
+
 def _build_method(
     method: str,
     verb: str,
@@ -372,6 +416,7 @@ def _build_method(
     api_by_attr: dict[str, type[Any]],
     api_attr_of: dict[str, str],
     package: str,
+    obj_attr: str = "",
 ) -> tuple[MethodView, set[tuple[str, str]]]:
     """Union the params across *ops* into one MethodView; one Binding per op.
 
@@ -455,6 +500,7 @@ def _build_method(
         bindings=bindings,
         is_list=is_list,
         get_unwrap=method == "get",
+        docstring=_method_docstring(method, obj_attr, ops),
     )
     _compute_method_prep(mv)
     return mv, imports
@@ -657,6 +703,7 @@ def build_wrapper_context(
             api_by_attr,
             api_attr_of,
             inv.sdk_package,
+            obj_attr,
         )
         ov.methods.append(mv)
         ov.imports |= imports

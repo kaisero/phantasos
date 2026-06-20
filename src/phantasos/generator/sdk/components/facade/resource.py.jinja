@@ -28,6 +28,7 @@ class {{ o.classname }}:
         self._api = api
 {% for m in o.methods %}
     def {{ m.name }}(self, {{ m.sig }}) -> {{ m.return_expr }}:
+        """{{ m.docstring }}"""
 {% if m.is_list %}        return self._list("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }}, all_pages)
 {% elif m.get_unwrap %}        return self._fetch("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }})
 {% else %}        return self._call("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }})

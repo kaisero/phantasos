@@ -422,6 +422,8 @@ def test_resources_emitted(tmp_path: Path) -> None:
     assert "def get_application_by_id" not in src
     assert "def list_applications" not in src
     assert "'raw_method': 'get_application_by_id'" in src
+    # Every generated method carries a one-line docstring.
+    assert '"""Get a' in src or '"""List' in src or '"""Create' in src
     # Parses clean.
     ast.parse(src)
 
