@@ -93,9 +93,23 @@ def test_context_groups_by_object_and_gates_guides() -> None:
 
 
 def test_showcase_variant_threaded() -> None:
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="gizmo",
+                variant="simple",
+                key="create:gizmo:simple",
+                sdk_resource="gizmos",
+                body_flags=[_flag("--name")],
+            )
+        ],
+    )
     ctx = build_cli_docs_context(
-        _ir(),
-        CliDocsConfig(showcase_object="widget", showcase_variant="simple"),
+        ir,
+        CliDocsConfig(showcase_object="gizmo", showcase_variant="simple"),
         distribution="acmecli",
         site_name="x",
     )
@@ -180,6 +194,30 @@ def test_unknown_showcase_object_raises() -> None:
         build_cli_docs_context(
             _ir(),
             CliDocsConfig(showcase_object="nope"),
+            distribution="acmecli",
+            site_name="x",
+        )
+
+
+def test_unknown_showcase_variant_raises() -> None:
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="gizmo",
+                variant="simple",
+                key="create:gizmo:simple",
+                sdk_resource="gizmos",
+                body_flags=[_flag("--name")],
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="not a variant"):
+        build_cli_docs_context(
+            ir,
+            CliDocsConfig(showcase_object="gizmo", showcase_variant="nope"),
             distribution="acmecli",
             site_name="x",
         )

@@ -7,7 +7,7 @@ from phantasos.generator.cli.cliconfig import CliConfig, CliDocsConfig
 from phantasos.generator.cli.render_cli import cli_overrides_dir
 from phantasos.generator.cli.scaffold_context import build_cli_scaffold_context
 
-SCAFFOLD = Path("src/phantasos/scaffold")
+SCAFFOLD = Path(__file__).parent.parent.parent / "src" / "phantasos" / "scaffold"
 
 
 def _render(template_dir: Path, template: str, ctx: dict[str, Any]) -> str:

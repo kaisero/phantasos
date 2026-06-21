@@ -65,8 +65,6 @@ def _command_view(
         "filter_flags": [_flag_row(f) for f in filters],
         "pagination_flags": [_flag_row(f) for f in pagination],
         "example": render_invocation(c, distribution=distribution, override=override),
-        "paginated": c.paginated,
-        "get_by_id_only": c.get_by_id_only,
         "columns": [{"header": col.header, "path": col.path} for col in c.columns],
     }
 
@@ -102,6 +100,21 @@ def build_cli_docs_context(
             f"docs.showcase_object {docs.showcase_object!r} is not a CLI object; "
             f"available objects: {objects}"
         )
+    if docs.showcase_variant is not None:
+        # Fail loud like showcase_object (D6): a typo here would otherwise silently
+        # drop the Quickstart's create example.
+        variants = sorted(
+            {
+                c.variant
+                for c in ir.commands
+                if c.object == docs.showcase_object and c.variant
+            }
+        )
+        if docs.showcase_variant not in variants:
+            raise ValueError(
+                f"docs.showcase_variant {docs.showcase_variant!r} is not a variant of "
+                f"{docs.showcase_object!r}; available variants: {variants}"
+            )
     grouped: list[dict[str, object]] = [
         {
             "object": obj,
