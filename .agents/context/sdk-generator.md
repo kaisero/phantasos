@@ -166,6 +166,8 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `build_docs_context(loaded, project_dir)` — Wrapper introspect of the showcase object -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
+  - `reference_example(attr, method, path_args, body_model, variant, override)` — The `**Example:**` block for one wrapper op (always returns a block here).
+  - `assemble_reference_docstring(summary, example)` — Combine the one-line summary with an example block into a docstring body.
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
@@ -201,7 +203,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - class `Binding` — One raw op backing a (possibly multi-binding) wrapper method.
   - class `MethodView` — One typed wrapper method on an object (``client.<object>.<name>(...)``).
   - class `ObjectView` — A typed wrapper class for one classified object.
-  - `build_wrapper_context(inv, overrides, discovered)` — Build the object-granular wrapper render context for a built SDK.
+  - `build_wrapper_context(inv, overrides, discovered, docs)` — Build the object-granular wrapper render context for a built SDK.
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants
