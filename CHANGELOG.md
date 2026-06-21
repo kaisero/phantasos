@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated CLIs can now emit a documentation site — opt-in via a `docs:` block in
+  `cli.yml` (`showcase_object`, optional `showcase_variant` / `site_name` /
+  `examples`). `cli build` renders a standalone MkDocs-Material site (Home with a
+  verb-model explainer, Quickstart, a per-object command reference with full flag
+  tables and synthesized examples, and Output / Pagination / Authentication / Errors
+  guides) directly from the CLI IR — no mkdocstrings and no CLI import needed at docs
+  build. Built strict in CI via a new `cli-docs` nox session; enabled for
+  prisma-browser and posture.
 - Generated SDK reference docs now render typed wrapper signatures with clickable
   request-body model links, and a synthesized copy-pasteable example under every
   operation (all-optional update bodies render `body=Model()  # all fields optional`).
