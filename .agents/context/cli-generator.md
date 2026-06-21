@@ -259,7 +259,7 @@ keys / param names / objects fail the build loudly.
   - class `CliIR`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->

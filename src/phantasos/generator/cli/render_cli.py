@@ -13,6 +13,8 @@ from typing import cast
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from . import ir as _ir_module
+from .cliconfig import CliDocsConfig
+from .docs import build_cli_docs_context
 from .flags import dedupe_flags
 from .flags import leaf as _leaf
 from .flags import query_panel as _query_panel
@@ -285,6 +287,10 @@ def render_cli(
     distribution: str | None = None,
     auth: object | None = None,
     errors: object | None = None,
+    docs: CliDocsConfig | None = None,
+    docs_site_name: str | None = None,
+    docs_repo_url: str | None = None,
+    docs_description: str = "",
 ) -> list[str]:
     reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
     if reserved:
@@ -392,6 +398,30 @@ def render_cli(
         dest = pkg / rel
         if not dest.exists():
             render(f"{rel}.jinja", dest)
+
+    if docs is not None:
+        dist = distribution or package
+        site_name = docs.site_name or docs_site_name or dist
+        doc_ctx = build_cli_docs_context(
+            ir,
+            docs,
+            distribution=dist,
+            site_name=site_name,
+            repo_url=docs_repo_url,
+            description=docs_description,
+        )
+        merged = {**ctx, **doc_ctx}
+
+        def render_doc(template: str, rel: str, **extra: object) -> None:
+            dest = out_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(
+                env.get_template(template).render(**merged, **extra), encoding="utf-8"
+            )
+            written.append(rel)
+
+        render_doc("docs/index.md.jinja", "docs/index.md")
+        render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

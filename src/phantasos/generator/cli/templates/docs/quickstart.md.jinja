@@ -1,0 +1,54 @@
+# Quickstart
+
+## 1. Install
+
+```bash
+uv tool install {{ distribution }}
+```
+
+{% if has_auth %}## 2. Configure credentials
+
+```bash
+{% for c in credentials %}export {{ c.env_var }}={% if c.secret %}<{{ c.name }}>{% else %}your-{{ c.name }}{% endif %}
+{% endfor %}```
+
+Or use a named environment:
+
+```bash
+{{ distribution }} config environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
+
+{{ distribution }} show {{ showcase.object }} --environment prod
+```
+
+{% endif %}## {% if has_auth %}3{% else %}2{% endif %}. Run your first commands
+
+{% set ns = namespace(show=none, create=none) %}
+{%- for obj in objects if obj.object == showcase.object %}
+{%- for cmd in obj.commands %}
+{%- if cmd.key.startswith("show:") and ns.show is none %}{% set ns.show = cmd %}{% endif %}
+{%- if cmd.key.startswith("create:") %}
+{%- if showcase.variant and cmd.key.endswith(":" ~ showcase.variant) %}{% set ns.create = cmd %}
+{%- elif not showcase.variant and ns.create is none %}{% set ns.create = cmd %}{% endif %}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+{% if ns.show and showcase.has_show %}List or fetch {{ showcase.object }}s:
+
+```bash
+{{ ns.show.example }}
+```
+
+{% endif %}{% if ns.create and showcase.has_create %}Create a {{ showcase.object }}:
+
+```bash
+{{ ns.create.example }}
+```
+
+{% endif %}## {% if has_auth %}4{% else %}3{% endif %}. Choose an output format
+
+```bash
+{{ distribution }} show {{ showcase.object }} --output json
+{{ distribution }} show {{ showcase.object }} --output table
+```
+
+See [Output & formatting](guides/output.md).
