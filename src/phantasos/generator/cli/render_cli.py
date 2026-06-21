@@ -436,6 +436,7 @@ def render_cli(
             )
         if doc_ctx["show_pagination_guide"]:
             render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
+        render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

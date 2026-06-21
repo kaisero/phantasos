@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from pathlib import Path
 
+import yaml
+
 from phantasos.generator.cli.cliconfig import CliDocsConfig
 
 
@@ -61,3 +63,25 @@ def test_quickstart_honors_showcase_variant(emit_cli: Callable[..., Path]) -> No
     quickstart = (out / "docs" / "quickstart.md").read_text()
     assert "fakesdk create gizmo complex" in quickstart
     assert "fakesdk create gizmo simple" not in quickstart
+
+
+def test_mkdocs_yml_nav(emit_cli: Callable[..., Path]) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
+    assert cfg["site_name"] == "Fakesdk CLI"
+    assert cfg["theme"]["name"] == "material"
+    # plain static markdown site — none of the SDK-docs plugins (D2/D13)
+    plugin_names = [p if isinstance(p, str) else next(iter(p)) for p in cfg["plugins"]]
+    for forbidden in ("mkdocstrings", "gen-files", "literate-nav", "griffe"):
+        assert forbidden not in plugin_names
+    # explicit IR-generated nav has a Command Reference entry per object
+    ref = next(s["Command Reference"] for s in cfg["nav"] if "Command Reference" in s)
+    assert {"widget": "reference/widget.md"} in ref
+
+
+def test_mkdocs_yml_nav_with_auth(emit_cli: Callable[..., Path]) -> None:
+    # the has_auth=True nav branch must also be valid YAML and list the auth guide
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
+    cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
+    guides = next(s["Guides"] for s in cfg["nav"] if "Guides" in s)
+    assert {"Authentication & environments": "guides/authentication.md"} in guides
