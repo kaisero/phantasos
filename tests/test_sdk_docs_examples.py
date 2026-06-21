@@ -113,6 +113,7 @@ def test_enum_first_value_with_quote_is_escaped() -> None:
     out = synthesize_body(Body)
     # must be valid Python — the quote is escaped, not raw
     import ast
+
     ast.parse(out)
     assert r'"say \"hi\""' in out or "'say \"hi\"'" in out
 
@@ -143,19 +144,22 @@ def test_reference_example_create_includes_body_and_client_path() -> None:
 
 def test_reference_example_path_only_op_shows_client_call() -> None:
     ex = reference_example(
-        attr="custom_app", method="get",
-        path_args=[("id", "<id>")], body_model=None,
+        attr="custom_app",
+        method="get",
+        path_args=[("id", "<id>")],
+        body_model=None,
     )
     assert ex == (
-        "**Example:**\n\n```python\n"
-        'client.custom_app.get(\n    id="<id>",\n)\n'
-        "```"
+        '**Example:**\n\n```python\nclient.custom_app.get(\n    id="<id>",\n)\n```'
     )
 
 
 def test_reference_example_list_no_args() -> None:
     ex = reference_example(
-        attr="custom_app", method="list", path_args=[], body_model=None,
+        attr="custom_app",
+        method="list",
+        path_args=[],
+        body_model=None,
     )
     assert ex == "**Example:**\n\n```python\nclient.custom_app.list()\n```"
 
@@ -164,8 +168,10 @@ def test_reference_example_all_optional_body_shows_nav_line_with_hint() -> None:
     # D2 (updated): an empty all-optional body is NOT suppressed — show the nav
     # line + an empty, valid body + an optionality hint.
     ex = reference_example(
-        attr="custom_app", method="update",
-        path_args=[("id", "<id>")], body_model=AllOptional,
+        attr="custom_app",
+        method="update",
+        path_args=[("id", "<id>")],
+        body_model=AllOptional,
     )
     assert ex is not None
     assert "client.custom_app.update(" in ex
@@ -174,6 +180,7 @@ def test_reference_example_all_optional_body_shows_nav_line_with_hint() -> None:
     assert "# all fields optional" in ex
     # the empty body must be valid Python (strip the markdown fence, then parse)
     import ast
+
     code = ex.split("```python\n", 1)[1].rsplit("\n```", 1)[0]
     ast.parse(code)
 
@@ -181,12 +188,14 @@ def test_reference_example_all_optional_body_shows_nav_line_with_hint() -> None:
 def test_reference_example_override_is_used_verbatim() -> None:
     # D6: an authored override is shown even when the synthesized body would be empty.
     override = (
-        'updated = client.custom_app.update('
-        'id="abc", body=AllOptional(name="x"))'
+        'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))'
     )
     ex = reference_example(
-        attr="custom_app", method="update", path_args=[("id", "<id>")],
-        body_model=AllOptional, override=override,
+        attr="custom_app",
+        method="update",
+        path_args=[("id", "<id>")],
+        body_model=AllOptional,
+        override=override,
     )
     assert ex == (
         "**Example:**\n\n```python\n"
