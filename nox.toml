@@ -46,3 +46,29 @@ contains = "Acme Wiki"                         # curated CRUD example body rende
 product = "prisma-browser"
 file = "guides/crud/index.html"
 not_contains = "CreateOrReplaceAppInput(...)"  # not the opaque oneOf placeholder
+
+[cli-docs]
+products = ["prisma-browser", "posture"]
+# adem: PENDING — its 13 ops are all non-CRUD telemetry GETs, so `cli build` emits 0
+# commands (no documentable surface). Enroll once those ops are request-mapped in cli.yml.
+
+# Per-product content guards (relative to the built CLI's site/ dir; use_directory_urls).
+[[cli-docs.assert]]
+product = "prisma-browser"
+file = "index.html"
+contains = "Command model"
+
+[[cli-docs.assert]]
+product = "prisma-browser"
+file = "reference/application/index.html"
+contains = "[OPTIONS]"
+
+[[cli-docs.assert]]
+product = "posture"
+file = "reference/posture-check/index.html"
+contains = "[OPTIONS]"
+
+[[cli-docs.assert]]
+product = "posture"
+file = "index.html"
+contains = "Command model"
