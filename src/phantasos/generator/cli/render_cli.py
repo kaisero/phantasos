@@ -428,6 +428,14 @@ def render_cli(
                 f"docs/reference/{obj['object']}.md",
                 obj=obj,
             )
+        render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
+        render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
+        if doc_ctx["has_auth"]:
+            render_doc(
+                "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
+            )
+        if doc_ctx["show_pagination_guide"]:
+            render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

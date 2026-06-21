@@ -48,18 +48,24 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
         defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
     )
 
+    calls = {"n": 0}
+
     def _emit(*, docs: CliDocsConfig | None = None, auth: bool = False) -> Path:
+        # Render each call into its own subdir so a test can compare two emits
+        # (e.g. auth-on vs auth-off) without one clobbering the other.
+        calls["n"] += 1
+        out = tmp_path / f"emit{calls['n']}"
         ir = build_cli_ir(cli_operations("fakesdk", fixture), config)[0]
         render_cli(
             ir,
             package="fakesdk_cli",
-            out_dir=tmp_path,
+            out_dir=out,
             env_prefix="FAKESDK",
             distribution="fakesdk",
             auth=ScmOAuth(type="scm_oauth") if auth else None,
             docs=docs,
             docs_site_name="Fakesdk CLI",
         )
-        return tmp_path
+        return out
 
     return _emit

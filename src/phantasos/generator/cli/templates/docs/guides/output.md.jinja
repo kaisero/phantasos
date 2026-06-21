@@ -1,0 +1,18 @@
+# Output & formatting
+
+Every command supports an output format and a column selection.
+
+```bash
+{{ distribution }} show <object> --output json     # machine-readable JSON
+{{ distribution }} show <object> --output yaml      # YAML
+{{ distribution }} show <object> --output table     # human-readable table (default)
+```
+
+Pick table columns with a JMESPath per column:
+
+```bash
+{{ distribution }} show <object> --columns '{"ID":"id","Name":"name"}'
+```
+
+Long output is paged automatically when stdout is a TTY; disable with `--no-pager`
+(or `{{ distribution }} config set pager.enabled false`).

@@ -152,6 +152,29 @@ def test_query_flags_split_filters_vs_pagination() -> None:
     assert _flag_names(show["filter_flags"]) == {"--name"}
 
 
+def test_show_pagination_guide_false_without_paginated_command() -> None:
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="widget",
+                key="create:widget",
+                sdk_resource="widgets",
+                body_flags=[_flag("--name")],
+            )
+        ],
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    assert ctx["show_pagination_guide"] is False
+
+
 def test_unknown_showcase_object_raises() -> None:
     with pytest.raises(ValueError, match="not a CLI object"):
         build_cli_docs_context(

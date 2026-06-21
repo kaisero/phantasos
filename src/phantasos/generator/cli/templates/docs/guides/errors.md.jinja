@@ -1,0 +1,44 @@
+# Errors & diagnostics
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | success |
+| `1` | the operation failed (server/API error, authentication failure, or a file-write error) |
+| `2` | bad input or usage error (invalid flag value, unknown config key, no matching operation; also argument-parse errors) |
+
+## Diagnostics
+
+Errors and warnings print to **stderr** as a styled line (`✖` error, `⚠` warning,
+`ℹ` info), falling back to plain text when piped or when `NO_COLOR` is set.
+
+- `--verbose` prints the full Python traceback for an unexpected error.
+- `--quiet` suppresses everything below errors.
+
+{% if error_envelope.error_field or error_envelope.errors_field or error_envelope.wrappers %}## API error messages
+
+Error responses are reduced to a one-line headline by reading
+{% if error_envelope.wrappers %}(after peeling {% for w in error_envelope.wrappers %}`{{ w }}`{% if not loop.last %}/{% endif %}{% endfor %}) {% endif %}{% if error_envelope.error_field %}the `{{ error_envelope.error_field }}.{{ error_envelope.message_field }}` field{% elif error_envelope.errors_field %}the first entry of the `{{ error_envelope.errors_field }}` list{% endif %}. If absent, these keys are tried in order: {% for k in error_envelope.fallback_keys %}`{{ k }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+
+{% endif %}## Command history
+
+```bash
+{{ distribution }} show cli history            # recent commands (id, time, command, status)
+{{ distribution }} show cli history --entry 3   # one entry as full JSON
+```
+
+History is stored at `~/.{{ distribution }}/history.jsonl`; authentication headers are
+never recorded.
+
+## Logs
+
+Structured JSON-Lines logs (rotated, gzipped) are written to
+`~/.{{ distribution }}/logs/{{ distribution }}.jsonl`.
+
+```bash
+{{ distribution }} config set logging.level debug
+{{ distribution }} config set logging.file /path/to/log.jsonl
+```
+
+(or `{{ env_prefix }}_LOGGING_LEVEL` / `{{ env_prefix }}_LOGGING_FILE`.)
