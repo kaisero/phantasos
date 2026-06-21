@@ -192,3 +192,73 @@ def test_no_examples_when_docs_disabled() -> None:
         for m in obj.methods:
             assert "**Example:**" not in m.docstring
             assert "\n" not in m.docstring  # stays one line
+
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_showcase_reference_honors_variant() -> None:
+    from phantasos.generator.opmodel.introspect import introspect
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+    from phantasos.productconfig import DocsConfig
+
+    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+    inv = introspect("prisma_browser", sdk)
+    # application.create has a oneOf body. Use a NON-default variant so the test
+    # actually proves variant threading: `CustomApplicationInput` is the FIRST
+    # (default) variant, so asserting it would pass even if the variant arg were
+    # dropped. `PrivateApplicationInput` is only emitted when the variant is honored.
+    docs = DocsConfig(
+        showcase_resource="application",
+        showcase_variant="PrivateApplicationInput",
+    )
+    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+    app = next(o for o in objects if o.classname == "ApplicationResource")
+    create = next(m for m in app.methods if m.name == "create")
+    assert "PrivateApplicationInput(" in create.docstring
+    assert "CustomApplicationInput(" not in create.docstring  # default did NOT win
+
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_discriminated_patch_update_still_shows_example() -> None:
+    # Refined D2/D3: an all-optional PATCH is suppressed, BUT a oneOf PATCH whose
+    # variant has a required discriminator synthesizes a NON-empty body, so it is
+    # NOT suppressed. `application.update` (oneOf PatchAppInput) is the real case.
+    from phantasos.generator.opmodel.introspect import introspect
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+    from phantasos.productconfig import DocsConfig
+
+    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+    inv = introspect("prisma_browser", sdk)
+    objects = build_wrapper_context(
+        inv,
+        _overrides(),
+        _discover(sdk),
+        docs=DocsConfig(showcase_resource="application"),
+    )
+    app = next(o for o in objects if o.classname == "ApplicationResource")
+    update = next(m for m in app.methods if m.name == "update")
+    assert "**Example:**" in update.docstring  # NOT suppressed
+    assert "client.application.update(" in update.docstring
+    assert "body=" in update.docstring  # carries the discriminated variant
+
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_showcase_override_used_verbatim_even_for_update() -> None:
+    from phantasos.generator.opmodel.introspect import introspect
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+    from phantasos.productconfig import DocsConfig, DocsExamples
+
+    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+    inv = introspect("prisma_browser", sdk)
+    docs = DocsConfig(
+        showcase_resource="access_and_data_rule",
+        examples=DocsExamples(
+            update='updated = client.access_and_data_rule.update(id="abc")'
+        ),
+    )
+    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+    rule = next(o for o in objects if o.classname == "AccessAndDataRuleResource")
+    update = next(m for m in rule.methods if m.name == "update")
+    # D6: an authored override is shown even though synthesized update bodies are
+    # suppressed.
+    assert "**Example:**" in update.docstring
+    assert 'updated = client.access_and_data_rule.update(id="abc")' in update.docstring
