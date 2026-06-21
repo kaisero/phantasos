@@ -25,7 +25,7 @@ def type_check(session: nox.Session) -> None:
 def tests(session: nox.Session) -> None:
     session.install(".", "pytest", "pytest-cov")
     session.run("pytest", "--cov={{ package }}", *session.posargs)
-{% if has_docs | default(false) %}
+{% if (has_docs | default(false)) or (cli_docs | default(false)) %}
 
 @nox.session
 def docs(session: nox.Session) -> None:
