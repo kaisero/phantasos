@@ -75,13 +75,12 @@ git commit -m "fix(adem): classify non-CRUD ops so the CLI builds (cli-docs prer
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/cli/test_docs_config.py
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from phantasos.generator.cli.cliconfig import CliConfig, CliDocsConfig, load_cli_config
+from phantasos.generator.cli.cliconfig import CliDocsConfig, load_cli_config
 
 
 def test_cli_config_parses_docs_block(tmp_path: Path) -> None:
