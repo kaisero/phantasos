@@ -61,12 +61,12 @@ contains = "Command model"
 [[cli-docs.assert]]
 product = "prisma-browser"
 file = "reference/application/index.html"
-contains = "[OPTIONS]"
+contains = "show application"          # lean per-command heading
 
 [[cli-docs.assert]]
 product = "posture"
 file = "reference/posture-check/index.html"
-contains = "[OPTIONS]"
+contains = "show posture-check"        # lean per-command heading
 
 [[cli-docs.assert]]
 product = "posture"

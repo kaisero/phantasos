@@ -8,10 +8,20 @@ reused (see docs/adr/0001-cli-docs-ir-driven-generate-time.md).
 
 from __future__ import annotations
 
+import re
+
 from .cliconfig import CliDocsConfig
 from .examples import render_invocation
 from .flags import dedupe_flags, leaf, query_panel
 from .ir import CliIR, Command, Flag
+
+# openapi-generator docstrings append a Sphinx block (:param:/:type:/:return:/...)
+# after the prose. The per-parameter details are already rendered in the flag tables
+# (from each Flag's `help`), so the block is pure redundancy + SDK-internal noise
+# (_request_timeout/_headers/...). Drop everything from the first directive onward.
+_SPHINX_BLOCK = re.compile(
+    r"^[ \t]*:(?:param|type|return|rtype|raises)\b", re.MULTILINE
+)
 
 CONTEXT_KEYS = frozenset(
     {
@@ -30,13 +40,24 @@ CONTEXT_KEYS = frozenset(
 )
 
 
-def _usage(c: Command, distribution: str) -> str:
-    parts = [distribution, c.verb, c.object]
+def _usage(c: Command) -> str:
+    """Lean reference heading: ``verb object [leaf]`` — no distribution prefix and no
+    ``[OPTIONS]``. The flag tables document the options; the synthesized example shows
+    the full runnable command."""
+    parts = [c.verb, c.object]
     third = leaf(c)
     if third:
         parts.append(third)
-    parts.append("[OPTIONS]")
     return " ".join(parts)
+
+
+def _clean_description(text: str) -> str:
+    """Keep only the human prose of a command description, dropping the trailing
+    openapi-generator Sphinx block (see _SPHINX_BLOCK)."""
+    if not text:
+        return ""
+    match = _SPHINX_BLOCK.search(text)
+    return (text[: match.start()] if match else text).strip()
 
 
 def _flag_row(f: Flag) -> dict[str, object]:
@@ -57,9 +78,9 @@ def _command_view(
     pagination = [f for f in query if query_panel(f) == "Pagination"]
     return {
         "key": c.key,
-        "usage": _usage(c, distribution),
+        "usage": _usage(c),
         "summary": c.summary,
-        "description": c.description,
+        "description": _clean_description(c.description),
         "path_flags": [_flag_row(f) for f in c.path_params],
         "body_flags": [_flag_row(f) for f in body],
         "filter_flags": [_flag_row(f) for f in filters],

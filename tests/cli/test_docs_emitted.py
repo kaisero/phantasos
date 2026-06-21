@@ -26,7 +26,9 @@ def test_home_and_quickstart_emitted(emit_cli: Callable[..., Path]) -> None:
 def test_reference_page_per_object(emit_cli: Callable[..., Path]) -> None:
     out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
     text = (out / "docs" / "reference" / "widget.md").read_text()
-    assert "fakesdk create widget [OPTIONS]" in text  # usage line
+    assert "## `create widget`" in text  # lean heading (no dist prefix, no [OPTIONS])
+    assert "[OPTIONS]" not in text  # the verbose usage suffix is gone
+    assert ":param" not in text  # no raw Sphinx docstring block leaks in
     # the flag-table header is FLUSH (no leading spaces) so Markdown renders a table
     assert "\n| Flag | Type | Required | Description |\n" in text
     assert "`--name`" in text

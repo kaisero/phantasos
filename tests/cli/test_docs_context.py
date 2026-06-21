@@ -84,8 +84,10 @@ def test_context_groups_by_object_and_gates_guides() -> None:
     assert ctx["has_auth"] is True
     assert ctx["show_pagination_guide"] is True
     create = _commands(_objects(ctx)[0])[0]
-    assert create["usage"] == "acmecli create widget [OPTIONS]"
-    assert create["example"] == 'acmecli create widget --name "example"'
+    assert create["usage"] == "create widget"  # lean heading: no dist, no [OPTIONS]
+    assert (
+        create["example"] == 'acmecli create widget --name "example"'
+    )  # full runnable
     showcase = cast("dict[str, object]", ctx["showcase"])
     assert showcase["object"] == "widget"
     assert showcase["has_create"] is True
@@ -187,6 +189,40 @@ def test_show_pagination_guide_false_without_paginated_command() -> None:
         site_name="x",
     )
     assert ctx["show_pagination_guide"] is False
+
+
+def test_command_description_strips_sphinx_block() -> None:
+    # openapi-generator appends a :param:/:type:/:return: block; keep only the prose.
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="show",
+                object="widget",
+                key="show:widget",
+                sdk_resource="widgets",
+                summary="Get a widget.",
+                description=(
+                    "Returns a specific widget by id.\n\n"
+                    ":param id: The widget ID. (required)\n"
+                    ":type id: str\n"
+                    ":param _request_timeout: timeout setting for this request.\n"
+                    ":return: Returns the result object."
+                ),
+            )
+        ],
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    cmd = _commands(_objects(ctx)[0])[0]
+    # Exact equality proves the entire :param/:type/:return block — including the
+    # SDK-internal _request_timeout noise — was stripped, keeping only the prose.
+    assert cmd["description"] == "Returns a specific widget by id."
 
 
 def test_unknown_showcase_object_raises() -> None:
