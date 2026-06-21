@@ -220,6 +220,15 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
         "!^oneof_schema_",
     ):
         assert pat in mk, pat
+    # Tier 0: render the body model type in the signature, as a clickable
+    # cross-reference to its own reference page (turns `create(body=None)` into
+    # `create(body: CreateXRequest | None = None)` with CreateXRequest linked).
+    for key in (
+        "show_signature_annotations: true",
+        "separate_signature: true",
+        "signature_crossrefs: true",
+    ):
+        assert key in mk, key
     pp = (tmp_path / "pyproject.toml").read_text()
     assert "griffe-pydantic" in pp
 

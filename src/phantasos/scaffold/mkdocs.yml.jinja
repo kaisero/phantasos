@@ -76,6 +76,11 @@ plugins:
             show_root_heading: true
             show_docstring_parameters: false
             members_order: source
+            # Render the typed signature as a separate, cross-linked code block
+            # so each param's model type links to its own reference page.
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
 
 markdown_extensions:
   - admonition
