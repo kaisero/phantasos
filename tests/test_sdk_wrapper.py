@@ -139,3 +139,56 @@ def test_collision_fails() -> None:
     )
     with pytest.raises(ValueError, match="method name collision"):
         _gate_collisions([ov])
+
+
+def _discover(sdk: Path) -> list[dict[str, str]]:
+    from phantasos.generator.sdk.render import _discover_resources
+
+    return _discover_resources(sdk / "prisma_browser")
+
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_reference_examples_emitted_into_docstrings() -> None:
+    from phantasos.generator.opmodel.introspect import introspect
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+    from phantasos.productconfig import DocsConfig
+
+    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+    inv = introspect("prisma_browser", sdk)
+    docs = DocsConfig(showcase_resource="application")
+    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+
+    rule = next(o for o in objects if o.classname == "AccessAndDataRuleResource")
+    create = next(m for m in rule.methods if m.name == "create")
+    update = next(m for m in rule.methods if m.name == "update")
+    get = next(m for m in rule.methods if m.name == "get")
+
+    # create-style body -> synthesized example with the client path + body model
+    assert "**Example:**" in create.docstring
+    assert "client.access_and_data_rule.create(" in create.docstring
+    assert "body=CreateAccessAndDataRuleRequest(" in create.docstring
+    # path-only op -> client-path call with required id. Assert on substrings,
+    # NOT an exact multi-line literal: `assemble_reference_docstring` re-indents
+    # every continuation line by 8 spaces (so the call sits at 8, `id=` at 12),
+    # and that indentation is an implementation detail of the assembler.
+    assert "client.access_and_data_rule.get(" in get.docstring
+    assert 'id="<id>"' in get.docstring
+    # plain all-optional PATCH body -> nav line + empty body + optionality hint (D2)
+    assert "**Example:**" in update.docstring
+    assert "client.access_and_data_rule.update(" in update.docstring
+    assert "# all fields optional" in update.docstring
+
+
+@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
+def test_no_examples_when_docs_disabled() -> None:
+    # D5 inverse: docs=None -> one-line docstrings, no example block leaks in.
+    from phantasos.generator.opmodel.introspect import introspect
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+
+    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+    inv = introspect("prisma_browser", sdk)
+    objects = build_wrapper_context(inv, _overrides(), _discover(sdk))  # no docs=
+    for obj in objects:
+        for m in obj.methods:
+            assert "**Example:**" not in m.docstring
+            assert "\n" not in m.docstring  # stays one line

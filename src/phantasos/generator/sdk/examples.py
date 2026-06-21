@@ -185,11 +185,7 @@ def reference_example(
     if body_code is not None:
         body_expr = _continuation_indent(body_code, _INDENT)
         lines.append(f"    body={body_expr},{body_comment}")
-    code = (
-        f"client.{attr}.{method}()"
-        if len(lines) == 1
-        else "\n".join(lines) + "\n)"
-    )
+    code = f"client.{attr}.{method}()" if len(lines) == 1 else "\n".join(lines) + "\n)"
     return _example_block(code)
 
 

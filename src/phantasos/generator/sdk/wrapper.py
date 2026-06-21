@@ -27,11 +27,14 @@ from dataclasses import dataclass
 from types import UnionType
 from typing import TYPE_CHECKING, Any
 
+from ..cli.introspect import _unwrap_optional
 from ..opmodel.classify import (
     OBJECT_OF,
     _strip_id_suffix,
     classify_name,
 )
+from .docs import _VERB_SLOT
+from .examples import assemble_reference_docstring, reference_example
 
 if TYPE_CHECKING:
     from phantasos.config import OperationOverride
@@ -39,6 +42,8 @@ if TYPE_CHECKING:
         OperationInfo,
         OperationInventory,
     )
+
+    from ...productconfig import DocsConfig
 
 # OpenAPI Generator names a PUT full-replace as ``update_*`` (no PATCH twin); these
 # classify to None, and their cleaned wrapper method is always ``replace``.
@@ -409,6 +414,46 @@ def _method_docstring(method: str, obj_attr: str, ops: list[OperationInfo]) -> s
     return f"{readable.capitalize()} {obj_human}."
 
 
+def _req_path_param_count(op: OperationInfo) -> int:
+    """Count required PATH params (distinct from the existing ``_required_path_params``,
+    which returns the tuple of names — this returns the count for ``min(...)`` keying).
+    """
+    return sum(1 for p in op.params if p.location == "path" and p.required)
+
+
+def _reference_example_for(
+    method: str,
+    obj_attr: str,
+    ops: list[OperationInfo],
+    body_model: type[Any] | None,
+    docs: DocsConfig,
+) -> str | None:
+    """Compute the reference-example block for one wrapper method, or None."""
+    # Illustrate the binding with the fewest required path params (the minimal call).
+    example_op = min(ops, key=_req_path_param_count)
+    path_args: list[tuple[str, str]] = [
+        (p.name, p.enum_values[0] if p.enum_values else f"<{p.name}>")
+        for p in example_op.params
+        if p.location == "path" and p.required
+    ]
+    # Showcase: honor the configured variant + per-slot verbatim override (D4/D6).
+    is_showcase = obj_attr == docs.showcase_resource
+    variant = docs.showcase_variant if is_showcase else None
+    override = None
+    if is_showcase and docs.examples is not None:
+        slot = _VERB_SLOT.get(method)
+        if slot is not None:
+            override = getattr(docs.examples, slot, None)
+    return reference_example(
+        attr=obj_attr,
+        method=method,
+        path_args=path_args,
+        body_model=body_model,
+        variant=variant,
+        override=override,
+    )
+
+
 def _build_method(
     method: str,
     verb: str,
@@ -417,6 +462,8 @@ def _build_method(
     api_attr_of: dict[str, str],
     package: str,
     obj_attr: str = "",
+    *,
+    docs: DocsConfig | None = None,
 ) -> tuple[MethodView, set[tuple[str, str]]]:
     """Union the params across *ops* into one MethodView; one Binding per op.
 
@@ -432,6 +479,7 @@ def _build_method(
     bindings: list[Binding] = []
     return_model = ""
     return_import: tuple[str, str] | None = None
+    body_model_live: type[Any] | None = None
 
     for op in ops:
         api_cls = api_by_attr[api_attr_of[op.resource]]
@@ -472,6 +520,11 @@ def _build_method(
         for op_param in op.params:
             live_type = hints.get(op_param.name)
             if op_param.location == "body":
+                if body_model_live is None:
+                    _unwrapped = _unwrap_optional(live_type)
+                    body_model_live = (
+                        _unwrapped if isinstance(_unwrapped, type) else None
+                    )
                 pv = _param_view(
                     "body", op_param, live_type, package, force_optional=False
                 )
@@ -490,6 +543,12 @@ def _build_method(
                 imports.add(pv.import_from)
             params.append(pv)
 
+    summary = _method_docstring(method, obj_attr, ops)
+    docstring = summary
+    if docs is not None:
+        example = _reference_example_for(method, obj_attr, ops, body_model_live, docs)
+        docstring = assemble_reference_docstring(summary, example)
+
     mv = MethodView(
         name=method,
         verb=verb,
@@ -500,7 +559,7 @@ def _build_method(
         bindings=bindings,
         is_list=is_list,
         get_unwrap=method == "get",
-        docstring=_method_docstring(method, obj_attr, ops),
+        docstring=docstring,
     )
     _compute_method_prep(mv)
     return mv, imports
@@ -627,6 +686,8 @@ def build_wrapper_context(
     inv: OperationInventory,
     overrides: dict[str, OperationOverride],
     discovered: list[dict[str, str]],
+    *,
+    docs: DocsConfig | None = None,
 ) -> list[ObjectView]:
     """Build the object-granular wrapper render context for a built SDK.
 
@@ -640,6 +701,8 @@ def build_wrapper_context(
         overrides: ``sdk.yml`` ``operations:`` block (``resource.method`` ->
             OperationOverride). May create/target an object with no CRUD anchor.
         discovered: ``_discover_resources`` output: ``[{attr, module, cls}]``.
+        docs: When provided, every ``MethodView.docstring`` is extended with a
+            synthesized ``**Example:**`` block via ``assemble_reference_docstring``.
 
     Raises:
         ValueError: unknown override key; a None-classified anchorless op with no
@@ -704,6 +767,7 @@ def build_wrapper_context(
             api_attr_of,
             inv.sdk_package,
             obj_attr,
+            docs=docs,
         )
         ov.methods.append(mv)
         ov.imports |= imports

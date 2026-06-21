@@ -185,7 +185,10 @@ def _vendor_resources(
 
         inv = introspect(loaded.config.package, pkg_dir.parent)
         objects = build_wrapper_context(
-            inv, loaded.config.operations, _discover_resources(pkg_dir)
+            inv,
+            loaded.config.operations,
+            _discover_resources(pkg_dir),
+            docs=loaded.config.docs,
         )
     imports: set[tuple[str, str]] = set()
     for o in objects:
