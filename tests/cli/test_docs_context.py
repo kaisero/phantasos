@@ -225,6 +225,32 @@ def test_command_description_strips_sphinx_block() -> None:
     assert cmd["description"] == "Returns a specific widget by id."
 
 
+def test_unknown_example_key_raises() -> None:
+    with pytest.raises(ValueError, match="matching no command"):
+        build_cli_docs_context(
+            _ir(),
+            CliDocsConfig(showcase_object="widget", examples={"create:nope": "x"}),
+            distribution="acmecli",
+            site_name="x",
+        )
+
+
+def test_example_override_applied_for_valid_key() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(
+            showcase_object="widget",
+            examples={"create:widget": "acmecli create widget --name Engineering"},
+        ),
+        distribution="acmecli",
+        site_name="x",
+    )
+    create = next(
+        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget"
+    )
+    assert create["example"] == "acmecli create widget --name Engineering"
+
+
 def test_unknown_showcase_object_raises() -> None:
     with pytest.raises(ValueError, match="not a CLI object"):
         build_cli_docs_context(

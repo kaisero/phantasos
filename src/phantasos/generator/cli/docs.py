@@ -136,6 +136,15 @@ def build_cli_docs_context(
                 f"docs.showcase_variant {docs.showcase_variant!r} is not a variant of "
                 f"{docs.showcase_object!r}; available variants: {variants}"
             )
+    command_keys = {c.key for c in ir.commands}
+    unknown_examples = sorted(set(docs.examples) - command_keys)
+    if unknown_examples:
+        # Fail loud (like the showcase fields): a typo'd example key would otherwise be
+        # silently ignored, leaving the synthesized example in place.
+        raise ValueError(
+            f"docs.examples has keys matching no command: {unknown_examples}; "
+            f"valid command keys: {sorted(command_keys)}"
+        )
     grouped: list[dict[str, object]] = [
         {
             "object": obj,
