@@ -35,6 +35,10 @@ def test_reference_page_per_object(emit_cli: Callable[..., Path]) -> None:
     assert "fakesdk create widget --name" in text  # synthesized example
     # a page is emitted per object, not just the showcase
     assert (out / "docs" / "reference" / "gizmo.md").exists()
+    # the universal Common options are documented once per object page (D9)
+    assert "## Common options" in text
+    assert "`--output`" in text
+    assert "`--environment`" not in text  # no auth in this build
 
 
 def test_guides_always_present_and_auth_gating(emit_cli: Callable[..., Path]) -> None:
@@ -43,9 +47,19 @@ def test_guides_always_present_and_auth_gating(emit_cli: Callable[..., Path]) ->
     assert (g / "output.md").exists()
     assert (g / "errors.md").exists()
     assert not (g / "authentication.md").exists()  # gated OFF without credentials
+    # --columns documents the CLI's real HEADER=expr syntax, not a JSON object
+    output_md = (g / "output.md").read_text()
+    assert "--columns 'ID=id,Name=name'" in output_md
+    assert '{"ID"' not in output_md
 
     with_auth = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
-    assert (with_auth / "docs" / "guides" / "authentication.md").exists()
+    auth_md = (with_auth / "docs" / "guides" / "authentication.md").read_text()
+    # `environment` is a root command group with a `show` lister — NOT `config
+    # environment ... list` (which would be a "No such command" error).
+    assert "environment create" in auth_md
+    assert "environment show" in auth_md
+    assert "config environment" not in auth_md
+    assert "config init" in auth_md  # config init is documented
 
 
 def test_errors_guide_documents_exit_codes(emit_cli: Callable[..., Path]) -> None:

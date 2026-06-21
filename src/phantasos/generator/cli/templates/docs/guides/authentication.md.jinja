@@ -11,9 +11,9 @@
 ## Named environments
 
 ```bash
-{{ distribution }} config environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
+{{ distribution }} environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
 
-{{ distribution }} config environment list
+{{ distribution }} environment show
 {{ distribution }} show <object> --environment prod
 ```
 
@@ -23,7 +23,8 @@ Settings resolve in order (later wins): packaged defaults →
 `~/.{{ distribution }}/config.yml` → `.env` / shell env → per-command flags.
 
 ```bash
-{{ distribution }} config show          # effective merged config + its sources
+{{ distribution }} config init           # write a commented config.yml to edit
+{{ distribution }} config show           # effective merged config + its sources
 {{ distribution }} config set output.format json
 {{ distribution }} config unset output.format
 ```

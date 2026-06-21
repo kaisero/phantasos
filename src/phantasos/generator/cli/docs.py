@@ -23,21 +23,73 @@ _SPHINX_BLOCK = re.compile(
     r"^[ \t]*:(?:param|type|return|rtype|raises)\b", re.MULTILINE
 )
 
+# The universal "Common" help-panel flags injected into EVERY emitted command at
+# code-emit time (templates/_generated/commands.py.jinja). They are not in the CliIR,
+# so they are listed statically here to keep the reference's flag surface complete
+# (D9). `test_docs_common_flags_match_emitted` guards this set against the template so
+# the two cannot drift. `--all` is intentionally absent — it sits in the Pagination
+# panel, not Common.
+_COMMON_FLAGS: list[dict[str, object]] = [
+    {
+        "name": "--output",
+        "auth_only": False,
+        "help": "Output format: json, yaml, or table.",
+    },
+    {
+        "name": "--columns",
+        "auth_only": False,
+        "help": "Table columns as `HEADER=expr` pairs (implies --output table).",
+    },
+    {
+        "name": "--dry-run",
+        "auth_only": False,
+        "help": "Print the HTTP request without sending it.",
+    },
+    {
+        "name": "--verbose",
+        "auth_only": False,
+        "help": "Show full tracebacks for unexpected errors.",
+    },
+    {
+        "name": "--quiet",
+        "auth_only": False,
+        "help": "Suppress everything below errors (also `-q`).",
+    },
+    {
+        "name": "--pager",
+        "auth_only": False,
+        "help": "Page output taller than the terminal (`--no-pager` to disable).",
+    },
+    {
+        "name": "--environment",
+        "auth_only": True,
+        "help": "Named environment to use for this command (also `-e`).",
+    },
+]
+
 CONTEXT_KEYS = frozenset(
     {
-        "cli_docs",
         "site_name",
         "distribution",
         "repo_url",
         "description",
+        "sdk_package",
+        "env_prefix",
         "objects",
         "showcase",
         "has_auth",
         "show_pagination_guide",
         "credentials",
         "error_envelope",
+        "common_flags",
     }
 )
+
+
+def _cell(text: str) -> str:
+    """Escape a value for a GitHub-flavored-markdown table cell: a literal ``|`` would
+    end the cell and a newline would break the row."""
+    return text.replace("|", "\\|").replace("\n", " ").strip() if text else ""
 
 
 def _usage(c: Command) -> str:
@@ -65,8 +117,8 @@ def _flag_row(f: Flag) -> dict[str, object]:
         "name": f.name,
         "type": f.py_type,
         "required": f.required,
-        "choices": f.choices,
-        "help": f.help,
+        "choices": [_cell(c) for c in f.choices] if f.choices else None,
+        "help": _cell(f.help),
     }
 
 
@@ -101,8 +153,6 @@ def _showcase(
         "variant": variant,
         "has_create": "create" in verbs,
         "has_show": "show" in verbs,
-        "has_update": "update" in verbs,
-        "has_delete": "delete" in verbs,
     }
 
 
@@ -112,6 +162,7 @@ def build_cli_docs_context(
     *,
     distribution: str,
     site_name: str,
+    env_prefix: str = "",
     repo_url: str | None = None,
     description: str = "",
 ) -> dict[str, object]:
@@ -122,19 +173,20 @@ def build_cli_docs_context(
             f"available objects: {objects}"
         )
     if docs.showcase_variant is not None:
-        # Fail loud like showcase_object (D6): a typo here would otherwise silently
-        # drop the Quickstart's create example.
+        # Fail loud like showcase_object (D6). Validate against CREATE variants only:
+        # the Quickstart shows the create example, so a variant that exists only on
+        # (say) update would otherwise pass here yet silently drop the example.
         variants = sorted(
             {
                 c.variant
                 for c in ir.commands
-                if c.object == docs.showcase_object and c.variant
+                if c.object == docs.showcase_object and c.verb == "create" and c.variant
             }
         )
         if docs.showcase_variant not in variants:
             raise ValueError(
-                f"docs.showcase_variant {docs.showcase_variant!r} is not a variant of "
-                f"{docs.showcase_object!r}; available variants: {variants}"
+                f"docs.showcase_variant {docs.showcase_variant!r} is not a create "
+                f"variant of {docs.showcase_object!r}; available: {variants}"
             )
     command_keys = {c.key for c in ir.commands}
     unknown_examples = sorted(set(docs.examples) - command_keys)
@@ -158,17 +210,20 @@ def build_cli_docs_context(
         }
         for obj in objects
     ]
+    has_auth = bool(ir.credential_fields)
     env = ir.error_envelope
     return {
-        "cli_docs": True,
         "site_name": site_name,
         "distribution": distribution,
         "repo_url": repo_url,
         "description": description,
+        "sdk_package": ir.sdk_package,
+        "env_prefix": env_prefix,
         "objects": grouped,
         "showcase": _showcase(ir.commands, docs.showcase_object, docs.showcase_variant),
-        "has_auth": bool(ir.credential_fields),
+        "has_auth": has_auth,
         "show_pagination_guide": any(c.paginated for c in ir.commands),
+        "common_flags": [f for f in _COMMON_FLAGS if has_auth or not f["auth_only"]],
         "credentials": [
             {
                 "name": f.name,

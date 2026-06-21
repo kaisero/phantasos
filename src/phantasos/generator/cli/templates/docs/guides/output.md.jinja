@@ -8,10 +8,10 @@ Every command supports an output format and a column selection.
 {{ distribution }} show <object> --output table     # human-readable table (default)
 ```
 
-Pick table columns with a JMESPath per column:
+Pick table columns as comma-separated `HEADER=expr` pairs (each `expr` is a JMESPath):
 
 ```bash
-{{ distribution }} show <object> --columns '{"ID":"id","Name":"name"}'
+{{ distribution }} show <object> --columns 'ID=id,Name=name'
 ```
 
 Long output is paged automatically when stdout is a TTY; disable with `--no-pager`

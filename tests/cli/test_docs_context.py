@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -78,7 +79,6 @@ def test_context_groups_by_object_and_gates_guides() -> None:
         distribution="acmecli",
         site_name="Acme CLI",
     )
-    assert ctx["cli_docs"] is True
     assert ctx["site_name"] == "Acme CLI"
     assert [o["object"] for o in _objects(ctx)] == ["widget"]
     assert ctx["has_auth"] is True
@@ -251,6 +251,80 @@ def test_example_override_applied_for_valid_key() -> None:
     assert create["example"] == "acmecli create widget --name Engineering"
 
 
+def test_showcase_variant_must_be_a_create_variant() -> None:
+    # A variant that exists only on a non-create verb must NOT pass validation: the
+    # Quickstart shows the create example, so it would otherwise go silently missing.
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="update",
+                object="gizmo",
+                variant="simple",
+                key="update:gizmo:simple",
+                sdk_resource="gizmos",
+                path_params=[_flag("--id")],
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="not a create variant"):
+        build_cli_docs_context(
+            ir,
+            CliDocsConfig(showcase_object="gizmo", showcase_variant="simple"),
+            distribution="acmecli",
+            site_name="x",
+        )
+
+
+def test_common_flags_match_emitted_template() -> None:
+    """Guard: the static _COMMON_FLAGS set matches the Common help-panel flags emitted
+    in commands.py.jinja, so the reference 'Common options' section can't drift."""
+    from phantasos.generator.cli.docs import _COMMON_FLAGS
+
+    tmpl = (
+        Path(__file__).parent.parent.parent
+        / "src/phantasos/generator/cli/templates/_generated/commands.py.jinja"
+    ).read_text()
+    assert tmpl.count('rich_help_panel="Common"') == len(_COMMON_FLAGS)
+    for f in _COMMON_FLAGS:
+        assert f'"{f["name"]}' in tmpl, f["name"]
+
+
+def test_flag_help_pipe_escaped_for_markdown_table() -> None:
+    flag = Flag(
+        name="--mode",
+        param="mode",
+        py_type="str",
+        kind="scalar",
+        required=False,
+        help="pick a | b\nor c",
+    )
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="widget",
+                key="create:widget",
+                sdk_resource="widgets",
+                body_flags=[flag],
+            )
+        ],
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[
+        0
+    ]
+    assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
+
+
 def test_unknown_showcase_object_raises() -> None:
     with pytest.raises(ValueError, match="not a CLI object"):
         build_cli_docs_context(
@@ -276,7 +350,7 @@ def test_unknown_showcase_variant_raises() -> None:
             )
         ],
     )
-    with pytest.raises(ValueError, match="not a variant"):
+    with pytest.raises(ValueError, match="not a create variant"):
         build_cli_docs_context(
             ir,
             CliDocsConfig(showcase_object="gizmo", showcase_variant="nope"),

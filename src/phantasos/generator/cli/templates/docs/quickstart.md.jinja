@@ -15,7 +15,7 @@ uv tool install {{ distribution }}
 Or use a named environment:
 
 ```bash
-{{ distribution }} config environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
+{{ distribution }} environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
 
 {{ distribution }} show {{ showcase.object }} --environment prod
 ```

@@ -407,6 +407,7 @@ def render_cli(
             docs,
             distribution=dist,
             site_name=site_name,
+            env_prefix=resolved_prefix,
             repo_url=docs_repo_url,
             description=docs_description,
         )

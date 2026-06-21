@@ -39,3 +39,13 @@
 ```
 
 {% endfor %}
+{% if common_flags %}## Common options
+
+Every command above also accepts these global flags:
+
+| Flag | Description |
+| --- | --- |
+{% for f in common_flags -%}
+| `{{ f.name }}` | {{ f.help }} |
+{% endfor -%}
+{% endif %}
