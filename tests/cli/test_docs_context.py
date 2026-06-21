@@ -1,0 +1,162 @@
+from typing import cast
+
+import pytest
+
+from phantasos.generator.cli.cliconfig import CliDocsConfig
+from phantasos.generator.cli.docs import CONTEXT_KEYS, build_cli_docs_context
+from phantasos.generator.cli.ir import CliIR, Command, CredentialField, Flag, FlagKind
+
+# _command_view is private but imported deliberately: the drift guard (D2) must compare
+# the docs flag set against the REAL emitted-CLI grouping. Update this if it's renamed.
+from phantasos.generator.cli.render_cli import _command_view
+
+
+def _flag(
+    name: str,
+    *,
+    py_type: str = "str",
+    kind: FlagKind = "scalar",
+    required: bool = True,
+    choices: list[str] | None = None,
+) -> Flag:
+    return Flag(
+        name=name,
+        param=name.lstrip("-").replace("-", "_"),
+        py_type=py_type,
+        kind=kind,
+        required=required,
+        choices=choices,
+    )
+
+
+def _ir() -> CliIR:
+    return CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        credential_fields=[CredentialField(name="token", env_var="ACME_TOKEN")],
+        commands=[
+            Command(
+                verb="create",
+                object="widget",
+                key="create:widget",
+                sdk_resource="widgets",
+                summary="Create a widget.",
+                body_flags=[_flag("--name")],
+            ),
+            Command(
+                verb="show",
+                object="widget",
+                key="show:widget",
+                sdk_resource="widgets",
+                summary="List widgets.",
+                paginated=True,
+                query_flags=[
+                    _flag("--limit", py_type="int", required=False),
+                    _flag("--name", required=False),
+                ],
+            ),
+        ],
+    )
+
+
+def _objects(ctx: dict[str, object]) -> list[dict[str, object]]:
+    return cast("list[dict[str, object]]", ctx["objects"])
+
+
+def _commands(obj: dict[str, object]) -> list[dict[str, object]]:
+    return cast("list[dict[str, object]]", obj["commands"])
+
+
+def _flag_names(flags: object) -> set[object]:
+    return {cast("dict[str, object]", f)["name"] for f in cast("list[object]", flags)}
+
+
+def test_context_groups_by_object_and_gates_guides() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="Acme CLI",
+    )
+    assert ctx["cli_docs"] is True
+    assert ctx["site_name"] == "Acme CLI"
+    assert [o["object"] for o in _objects(ctx)] == ["widget"]
+    assert ctx["has_auth"] is True
+    assert ctx["show_pagination_guide"] is True
+    create = _commands(_objects(ctx)[0])[0]
+    assert create["usage"] == "acmecli create widget [OPTIONS]"
+    assert create["example"] == 'acmecli create widget --name "example"'
+    showcase = cast("dict[str, object]", ctx["showcase"])
+    assert showcase["object"] == "widget"
+    assert showcase["has_create"] is True
+    assert showcase["variant"] is None  # not configured -> None
+
+
+def test_showcase_variant_threaded() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget", showcase_variant="simple"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    showcase = cast("dict[str, object]", ctx["showcase"])
+    assert showcase["variant"] == "simple"
+
+
+def test_context_key_set_is_the_documented_contract() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    assert set(ctx) == CONTEXT_KEYS
+
+
+def test_docs_flags_match_emitted_help() -> None:
+    """D2 guard: the reference flag set per command equals the emitted CLI's."""
+    ir = _ir()
+    variant_groups: set[tuple[str, str]] = {
+        (c.verb, c.object) for c in ir.commands if c.variant or c.action
+    }
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    docs_by_key = {
+        cast("str", cmd["key"]): cmd for o in _objects(ctx) for cmd in _commands(o)
+    }
+    for c in ir.commands:
+        emitted = _flag_names(_command_view(c, variant_groups)["all_flags"])
+        d = docs_by_key[c.key]
+        rendered: set[object] = set()
+        for grp in ("path_flags", "body_flags", "filter_flags", "pagination_flags"):
+            rendered |= _flag_names(d[grp])
+        assert rendered == emitted, c.key
+
+
+def test_query_flags_split_filters_vs_pagination() -> None:
+    """D16/D9 guard: the Filters/Pagination split (not just membership) is correct."""
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    show = next(
+        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "show:widget"
+    )
+    assert _flag_names(show["pagination_flags"]) == {"--limit"}
+    assert _flag_names(show["filter_flags"]) == {"--name"}
+
+
+def test_unknown_showcase_object_raises() -> None:
+    with pytest.raises(ValueError, match="not a CLI object"):
+        build_cli_docs_context(
+            _ir(),
+            CliDocsConfig(showcase_object="nope"),
+            distribution="acmecli",
+            site_name="x",
+        )
