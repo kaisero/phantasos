@@ -121,7 +121,14 @@ def tests(session: nox.Session) -> None:
     ``addopts``) so ad-hoc ``pytest`` runs stay fast and matrix runs don't
     contend over a shared ``.coverage`` file.
     """
+    from phantasos.productconfig import sdk_runtime_deps
+
     _sync(session, "test")
+    # Tests that build a `facade:` SDK introspect the emitted package, whose
+    # vendored facade imports the SDK's runtime deps (urllib3 via retry, etc.).
+    # Pre-install them so the build's wrapper-vendoring import works — mirrors
+    # the `smoke` session.
+    session.install(*sdk_runtime_deps())
     session.run("pytest", "--cov", "--cov-report=term-missing", *session.posargs)
 
 
