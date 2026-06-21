@@ -422,6 +422,12 @@ def render_cli(
 
         render_doc("docs/index.md.jinja", "docs/index.md")
         render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
+        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+            render_doc(
+                "docs/reference_object.md.jinja",
+                f"docs/reference/{obj['object']}.md",
+                obj=obj,
+            )
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

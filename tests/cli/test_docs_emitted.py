@@ -21,6 +21,18 @@ def test_home_and_quickstart_emitted(emit_cli: Callable[..., Path]) -> None:
     assert "fakesdk create widget" in quickstart  # showcase create example
 
 
+def test_reference_page_per_object(emit_cli: Callable[..., Path]) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    text = (out / "docs" / "reference" / "widget.md").read_text()
+    assert "fakesdk create widget [OPTIONS]" in text  # usage line
+    # the flag-table header is FLUSH (no leading spaces) so Markdown renders a table
+    assert "\n| Flag | Type | Required | Description |\n" in text
+    assert "`--name`" in text
+    assert "fakesdk create widget --name" in text  # synthesized example
+    # a page is emitted per object, not just the showcase
+    assert (out / "docs" / "reference" / "gizmo.md").exists()
+
+
 def test_quickstart_honors_showcase_variant(emit_cli: Callable[..., Path]) -> None:
     # D6: a oneOf-create showcase picks the configured variant for the Quickstart.
     out = emit_cli(
