@@ -78,13 +78,14 @@ def _func_name(c: Command) -> str:
 
 _SUBVERB_PRIORITY = {
     "patch": 0,
-    "create": 1,
-    "update": 2,
-    "delete": 3,
-    "get": 4,
-    "list": 5,
-    "bulk_create": 6,
-    "bulk_delete": 7,
+    "put": 1,
+    "create": 2,
+    "update": 3,
+    "delete": 4,
+    "get": 5,
+    "list": 6,
+    "bulk_create": 7,
+    "bulk_delete": 8,
 }
 
 
@@ -318,6 +319,7 @@ def render_cli(
     env_prefix: str | None = None,
     distribution: str | None = None,
     auth: object | None = None,
+    errors: object | None = None,
 ) -> list[str]:
     reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
     if reserved:
@@ -346,6 +348,11 @@ def render_cli(
     # leaving the caller's ir untouched.
     if auth is not None and hasattr(auth, "credential_fields"):
         ir = ir.model_copy(update={"credential_fields": list(auth.credential_fields())})
+        ctx["ir"] = ir
+    # Likewise enrich the IR with the error-envelope descriptor from the error
+    # component, so the emitted diagnostics carries NO product-specific error keys.
+    if errors is not None and hasattr(errors, "error_fields"):
+        ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
         ctx["ir"] = ir
     written: list[str] = []
 

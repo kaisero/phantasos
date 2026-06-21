@@ -947,9 +947,51 @@ def test_enum_flag_accepts_unlisted_value(
     assert res.exit_code == 0, res.output  # unlisted value passes through
 
 
+_DEFAULT_FALLBACK = ["error", "message", "msg", "detail", "title", "description"]
+_NESTED_ENV = {
+    "wrappers": ["errorResponse", "error_response"],
+    "error_field": "error",
+    "errors_field": None,
+    "message_field": "message",
+    "code_field": "code",
+    "fallback_keys": _DEFAULT_FALLBACK,
+}
+_LIST_ENV = {
+    "wrappers": [],
+    "error_field": None,
+    "errors_field": "_errors",
+    "message_field": "message",
+    "code_field": "code",
+    "fallback_keys": _DEFAULT_FALLBACK,
+}
+
+
 def test_error_headline_extraction(emitted: Path) -> None:
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    # prisma-style nested envelope -> the specific `error` field
+
+    # --- the fakesdk CLI has NO error component, so only the generic, product-
+    #     AGNOSTIC fallback vocabulary applies (the default _ERROR_ENVELOPE) ---
+    assert d._error_headline({"message": "boom"}) == "boom"
+    # RFC 7807: detail preferred over title
+    assert (
+        d._error_headline({"title": "Bad Request", "detail": "x out of range"})
+        == "x out of range"
+    )
+    # gateway/transport `msg` lives in the generic tier
+    assert d._error_headline({"msg": "Access denied"}) == "Access denied"
+    assert d._error_headline({"error": "flat string"}) == "flat string"
+    assert d._error_headline({"foo": 1}) is None
+    assert d._error_headline("not a dict") is None
+    # structured PRODUCT shapes are NOT recognized without a configured envelope
+    assert d._error_headline({"_errors": [{"message": "x"}]}) is None
+    assert d._error_headline({"errorResponse": {"error": "x"}}) is None
+
+    # --- the generic template carries NO product-specific keys (the C2 guard) ---
+    src = (emitted / "fakesdk_cli" / "_generated" / "diagnostics.py").read_text()
+    assert "errorResponse" not in src
+    assert '"_errors"' not in src
+
+    # --- a NESTED envelope (config) drives wrapper-peel + nested-object extraction ---
     assert (
         d._error_headline(
             {
@@ -957,22 +999,30 @@ def test_error_headline_extraction(emitted: Path) -> None:
                     "error": "group name already exists",
                     "message": "failed to create device group",
                 }
-            }
+            },
+            _NESTED_ENV,
         )
-        == "group name already exists"
+        == "group name already exists"  # `error` string preferred via fallback order
     )
-    # flat message
-    assert d._error_headline({"message": "boom"}) == "boom"
-    # RFC7807-ish: detail preferred over title
+    assert d._error_headline({"error": {"message": "nested"}}, _NESTED_ENV) == "nested"
     assert (
-        d._error_headline({"title": "Bad Request", "detail": "x out of range"})
-        == "x out of range"
+        d._error_headline({"error": {"code": "X", "message": "Y"}}, _NESTED_ENV)
+        == "X: Y"
     )
-    # error-as-object
-    assert d._error_headline({"error": {"message": "nested"}}) == "nested"
-    # nothing usable
-    assert d._error_headline({"foo": 1}) is None
-    assert d._error_headline("not a dict") is None
+
+    # --- a LIST envelope (config) drives _errors[] extraction ---
+    assert (
+        d._error_headline(
+            {"_errors": [{"code": "API_I00035", "message": "Invalid Request Payload"}]},
+            _LIST_ENV,
+        )
+        == "API_I00035: Invalid Request Payload"
+    )
+    assert (
+        d._error_headline({"_errors": [{"message": "no code here"}]}, _LIST_ENV)
+        == "no code here"
+    )
+    assert d._error_headline({"_errors": []}, _LIST_ENV) is None
 
 
 def test_render_error_api_exception_to_stderr(

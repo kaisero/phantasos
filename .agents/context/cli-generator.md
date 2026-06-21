@@ -33,8 +33,12 @@ this package. They wire the three pipeline stages together:
 2. **Classify** — `classify.build_cli_ir(inv, cfg)` in `classify.py` turns the
    inventory + `cli.yml` (`CliConfig`) into a `CliIR` plus a list of unmapped ops.
    Precedence: `cli.yml` `hide` > `request` > `override`/`variants` >
-   `classify_name` prefix heuristic (`create_`/`patch_`/`delete_`/`get_`/`list_`
-   → verb + sub_verb + singularized kebab object). It detects the id path param,
+   `classify_name` prefix heuristic (`create_`/`patch_`/`update_`/`delete_`/`get_`/`list_`
+   → verb + sub_verb + singularized kebab object). `patch_` and `update_` both map to
+   the `update` verb but with distinct sub_verbs (`patch` vs `put`): a post-loop pass
+   relaxes update body flags to optional ONLY when the command has a `patch` binding
+   (PATCH is partial); a PUT-only `update` keeps the model's required body fields
+   required (full-replace). It detects the id path param,
    builds path/body/query `Flag`s, resolves union variants to variant subcommands,
    and resolves per-OBJECT table columns (see the comment block in `classify.py` —
    columns resolve per object via the show command's item model, never per
@@ -52,7 +56,12 @@ this package. They wire the three pipeline stages together:
    BEFORE any template render or the `ir.json` write, so templates, `spec.py`, and
    the serialized IR all see the same enriched copy. That field gates the
    auth-only emissions (`environment_commands.py`, the `environment` app, the
-   credential pre-flight). It `ruff`-formats only the files it wrote, then emits
+   credential pre-flight). The `errors` parameter (`loaded.errors`) is enriched the
+   same way: its `error_fields()` populates `ir.error_envelope`, so the emitted
+   `diagnostics._error_headline` is config-driven (peel `wrappers` → `error_field` →
+   `errors_field` → product-AGNOSTIC `fallback_keys`) and carries NO product-specific
+   error keys; with no error component the default generic envelope applies. It
+   `ruff`-formats only the files it wrote, then emits
    the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
    the sibling `scaffold` module, using
@@ -220,6 +229,7 @@ keys / param names / objects fail the build loudly.
   - class `OperationInventory`
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
+  - class `ErrorEnvelope` — Config-driven description of a product's error body, threaded onto the IR so
   - class `Flag`
   - class `MethodBinding`
   - class `ColumnSpec` — One table column: a header + a JMESPath evaluated against each row dict
@@ -227,7 +237,7 @@ keys / param names / objects fail the build loudly.
   - class `CliIR`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->

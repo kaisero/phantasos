@@ -1,0 +1,33 @@
+package: posture
+output: ../../../posture-sdk
+base_url: https://api.strata.paloaltonetworks.com
+auth:
+  type: scm_oauth
+  scope_env: SCOPE
+  base_url_env: POSTURE_BASE_URL
+  config_class_name: PostureConfiguration
+pagination: {type: offset}
+errors: {type: list_error}
+facade: true
+hooks: ./hooks.py
+docs:
+  showcase_resource: posture_checks
+  examples:
+    create: |
+      created = client.posture_checks.create_posture_checks(
+          posture_check_create_request=PostureCheckCreateRequest(
+              name="Security Rule has logging enabled",
+              object_type="security_rule",
+              severity="High",
+              data={
+                  "operator": "and",
+                  "conditions": [{"field": "log-setting", "operator": "is-not-empty"}],
+              },
+          ),
+      )
+project:
+  distribution: posture-sdk
+  description: Python SDK for the Palo Alto Networks Posture Management & Assessment APIs
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/posture-sdk
