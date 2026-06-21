@@ -204,6 +204,7 @@ keys / param names / objects fail the build loudly.
 - `cliconfig.py` — The per-product cli.yml model — declarative deltas only; the classifier always runs.
 - `columns.py` — Table-column resolution: model-derived defaults + cli.yml validation.
 - `discover.py` — Render the classification table and a cli.yml stub from a CliIR.
+- `examples.py` — Synthesize illustrative CLI invocations from the resolved command IR.
 - `flags.py` — Shared flag-grouping helpers for the CLI generator.
 - `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
 - `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
@@ -238,6 +239,9 @@ keys / param names / objects fail the build loudly.
 - `discover.py`
   - `render_table(ir, unmapped)`
   - `render_stub(ir, unmapped)` — A cli.yml stub: TODO entries for unmapped ops. CRUD is auto-classified, so the
+- `examples.py`
+  - `example_value(flag)` — A shell-safe example value token for one flag.
+  - `render_invocation(command, distribution, override)` — A one-line invocation example (required flags only) or the verbatim override.
 - `flags.py`
   - `query_panel(f)`
   - `leaf(c)` — The third command segment: a oneOf variant OR a request action (mutually
