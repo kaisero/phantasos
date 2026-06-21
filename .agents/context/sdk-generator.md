@@ -73,8 +73,16 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
    > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
    > raw `api/` classes or the `extras` helpers (those are taught in the guides).
-   > Per-method wrapper docstrings (threaded from each op `summary`) render on the
-   > reference pages; the `!^_` filter hides wrapper internals
+   > Per-method wrapper docstrings carry, beyond each op `summary`, a synthesized
+   > `**Example:**` block (`examples.reference_example`, threaded via `wrapper.py`'s
+   > `_reference_example_for`, gated on `docs`): the `client.<object>.<verb>(...)`
+   > call with required path args + a `body=` from `synthesize_body`. An empty
+   > all-optional body renders `body=Model()  # all fields optional` (not suppressed);
+   > the showcase resource honors `docs.showcase_variant` and `docs.examples.<slot>`
+   > (shown verbatim, even for `update`). The reference pages also render the typed
+   > signature with clickable request-body model cross-refs via three `mkdocs.yml`
+   > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
+   > `signature_crossrefs`). The `!^_` filter hides wrapper internals
    > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
    > real prisma-browser SDK with docs ON and asserts `mkdocs build --strict`.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,

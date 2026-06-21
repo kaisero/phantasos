@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated SDK reference docs now render typed wrapper signatures with clickable
+  request-body model links, and a synthesized copy-pasteable example under every
+  operation (all-optional update bodies render `body=Model()  # all fields optional`).
+  The showcase resource honors `docs.showcase_variant` / `docs.examples` on its
+  reference page.
 - Agent-facing context docs (`.agents/context/`) — a modular, on-demand technical
   doc set for in-repo coding agents: an `index.md` system map, per-subsystem
   deep-dives (sdk-generator, cli-generator, components, product-config, scaffold,
