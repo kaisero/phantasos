@@ -228,6 +228,7 @@ keys / param names / objects fail the build loudly.
   - class `VariantMap`
   - class `ColumnEntry`
   - class `CustomPointer`
+  - class `CliDocsConfig` — Opt-in CLI documentation generation (cli.yml `docs:` block).
   - class `CliConfig`
   - `load_cli_config(path)` — Load cli.yml; return an empty CliConfig if the file is absent.
 - `columns.py`

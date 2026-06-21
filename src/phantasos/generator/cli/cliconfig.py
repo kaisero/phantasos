@@ -52,6 +52,23 @@ class CustomPointer(BaseModel):
     commands: list[str] = []
 
 
+class CliDocsConfig(BaseModel):
+    """Opt-in CLI documentation generation (cli.yml `docs:` block).
+
+    Independent of the SDK's sdk.yml `docs:` block. `showcase_object` is a CLI
+    command object (validated against the CliIR at build time). `examples` maps a
+    command key ("verb:object[:variant_or_action]") to a verbatim invocation that
+    overrides the synthesized example for that command. (A bare `= {}` default is
+    safe here: pydantic v2 deep-copies field defaults per instance.)
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    showcase_object: str
+    showcase_variant: str | None = None
+    site_name: str | None = None
+    examples: dict[str, str] = {}
+
+
 class CliConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -68,6 +85,7 @@ class CliConfig(BaseModel):
     # flags (user-overridable; e.g. a default sort that makes cursor pagination
     # work on endpoints that require one). Query params only.
     defaults: dict[str, dict[str, Any]] = {}
+    docs: CliDocsConfig | None = None
 
 
 def load_cli_config(path: Path) -> CliConfig:
