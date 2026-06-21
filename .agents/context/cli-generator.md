@@ -283,7 +283,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `render_table(ir, unmapped)`
   - `render_stub(ir, unmapped)` — A cli.yml stub: TODO entries for unmapped ops. CRUD is auto-classified, so the
 - `docs.py`
-  - `build_cli_docs_context(ir, docs, distribution, site_name, repo_url, description)`
+  - `build_cli_docs_context(ir, docs, distribution, site_name, env_prefix, repo_url, description)`
 - `examples.py`
   - `example_value(flag)` — A shell-safe example value token for one flag.
   - `render_invocation(command, distribution, override)` — A one-line invocation example (required flags only) or the verbatim override.
