@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime
 import enum
+import json
+import re
 from types import UnionType
 from typing import Union, get_args, get_origin
 
@@ -71,7 +73,7 @@ def _enum_literal(base: type) -> str:
         members = list(base)
         if members and not isinstance(members[0].value, str):
             return first  # int/other enum -> bare literal
-    return f'"{first}"'
+    return json.dumps(first)
 
 
 def _value(tp: object, seen: frozenset[type]) -> str:
@@ -122,3 +124,86 @@ def synthesize_body(model: type[BaseModel], *, variant: str | None = None) -> st
             return _model_expr(chosen, frozenset({model}))
         return f"{model.__name__}(...)"
     return _model_expr(model, frozenset())
+
+
+# ---------------------------------------------------------------------------
+# Tier 1: reference_example + assemble_reference_docstring
+# ---------------------------------------------------------------------------
+
+# `Name()` / `Name(\n)` — an empty constructor: a plain all-optional PATCH body.
+# These are NOT suppressed; they render as `body=Name()  # all fields optional`.
+# A discriminated PATCH renders `Name(\n    type="x",\n)` (non-empty) and is not
+# matched — it shows its body verbatim.
+_EMPTY_CTOR = re.compile(r"^\w+\(\s*\)\Z")
+_DOC_INDENT = " " * 8  # method-body docstring indentation
+
+
+def _example_block(code: str) -> str:
+    """Wrap a code snippet as the Markdown example block griffe renders."""
+    return f"**Example:**\n\n```python\n{code}\n```"
+
+
+def reference_example(
+    *,
+    attr: str,
+    method: str,
+    path_args: list[tuple[str, str]],
+    body_model: type[BaseModel] | None,
+    variant: str | None = None,
+    override: str | None = None,
+) -> str | None:
+    """The `**Example:**` block for one wrapper op (always returns a block here).
+
+    - `override` (showcase only) is used verbatim — author-written, not
+      synthesized — so it wins even for an all-optional body (D6).
+    - An empty synthesized body (a plain all-optional PATCH) is NOT suppressed:
+      it renders as `body=Name()  # all fields optional` so the client path +
+      model are visible and the user fills the fields (D2).
+    - The call always shows the client navigation path `client.<attr>.<method>`
+      plus required path args; the body kwarg is appended when present (D3).
+
+    (`None` is reserved for future "truly nothing to show" cases; with current
+    policy every op yields a block.)
+    """
+    if override is not None:
+        return _example_block(override.strip())
+    body_code: str | None = None
+    body_comment = ""
+    if body_model is not None:
+        synthesized = synthesize_body(body_model, variant=variant)
+        if _EMPTY_CTOR.match(synthesized):
+            # All-optional body: show the actually-constructed type (the model, or
+            # a chosen oneOf variant) as an empty, valid call + an optionality hint.
+            ctor = synthesized.split("(", 1)[0]
+            body_code = f"{ctor}()"
+            body_comment = "  # all fields optional"
+        else:
+            body_code = synthesized
+    lines = [f"client.{attr}.{method}("]
+    for name, placeholder in path_args:
+        lines.append(f'    {name}="{placeholder}",')
+    if body_code is not None:
+        body_expr = _continuation_indent(body_code, _INDENT)
+        lines.append(f"    body={body_expr},{body_comment}")
+    code = (
+        f"client.{attr}.{method}()"
+        if len(lines) == 1
+        else "\n".join(lines) + "\n)"
+    )
+    return _example_block(code)
+
+
+def assemble_reference_docstring(summary: str, example: str | None) -> str:
+    """Combine the one-line summary with an example block into a docstring body.
+
+    The summary stays flush (it follows the opening triple-quote); every
+    non-blank continuation line is indented to the method-body level so the
+    emitted ``\"\"\"{{ m.docstring }}\"\"\"`` is valid Python. griffe's docstring
+    cleaner dedents it before rendering.
+    """
+    if example is None:
+        return summary
+    body = f"{summary}\n\n{example}"
+    head, _, tail = body.partition("\n")
+    cont = "\n".join(_DOC_INDENT + ln if ln else "" for ln in tail.split("\n"))
+    return f"{head}\n{cont}"
