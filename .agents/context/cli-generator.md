@@ -204,6 +204,7 @@ keys / param names / objects fail the build loudly.
 - `cliconfig.py` — The per-product cli.yml model — declarative deltas only; the classifier always runs.
 - `columns.py` — Table-column resolution: model-derived defaults + cli.yml validation.
 - `discover.py` — Render the classification table and a cli.yml stub from a CliIR.
+- `flags.py` — Shared flag-grouping helpers for the CLI generator.
 - `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
 - `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
 - `ir.py` — The CLI intermediate representation: the fully-resolved command tree.
@@ -237,6 +238,10 @@ keys / param names / objects fail the build loudly.
 - `discover.py`
   - `render_table(ir, unmapped)`
   - `render_stub(ir, unmapped)` — A cli.yml stub: TODO entries for unmapped ops. CRUD is auto-classified, so the
+- `flags.py`
+  - `query_panel(f)`
+  - `leaf(c)` — The third command segment: a oneOf variant OR a request action (mutually
+  - `dedupe_flags(c)` — Return (body, query) flags deduped against path params (path wins), then
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
   - class `ErrorEnvelope` — Config-driven description of a product's error body, threaded onto the IR so

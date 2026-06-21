@@ -13,6 +13,9 @@ from typing import cast
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from . import ir as _ir_module
+from .flags import dedupe_flags
+from .flags import leaf as _leaf
+from .flags import query_panel as _query_panel
 from .ir import CliIR, Command, Flag
 
 _TEMPLATES = Path(__file__).parent / "templates"
@@ -34,40 +37,12 @@ _RESERVED = {
     "quiet",
 }
 
-# Well-known pagination/sort query params → their own help panel (the rest of the
-# query params are filters). Matched on the SDK param name (snake_case).
-_PAGINATION_PARAMS = frozenset(
-    {
-        "limit",
-        "offset",
-        "cursor",
-        "page",
-        "page_size",
-        "per_page",
-        "sort",
-        "order",
-        "sort_by",
-        "order_by",
-        "sort_order",
-    }
-)
-
-
-def _query_panel(f: Flag) -> str:
-    return "Pagination" if f.param in _PAGINATION_PARAMS else "Filters"
-
 
 def _py_name(param: str) -> str:
     ident = param if param.isidentifier() else "p_" + re.sub(r"\W", "_", param)
     if keyword.iskeyword(ident) or ident in _RESERVED:
         ident += "_"
     return ident
-
-
-def _leaf(c: Command) -> str | None:
-    """The third command segment: a oneOf variant OR a request action (mutually
-    exclusive)."""
-    return c.variant or c.action
 
 
 def _func_name(c: Command) -> str:
@@ -225,19 +200,9 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
-    # Deduplicate all_flags: path params take priority; body/query flags whose
-    # param name already appears in path_params are suppressed (avoids duplicate
-    # argument errors when an SDK body model field shares a name with a path param
-    # — e.g. the `type` discriminator that appears both as a path param and as a
-    # field of the request body).
-    path_param_names = {f.param for f in c.path_params}
-    deduped_body = [f for f in c.body_flags if f.param not in path_param_names]
-    deduped_query = [
-        f
-        for f in c.query_flags
-        if f.param not in path_param_names
-        and f.param not in {b.param for b in deduped_body}
-    ]
+    # Dedup flags via the shared helper so the docs command reference can't drift
+    # from the emitted flag set (design D2): path wins over body, body over query.
+    deduped_body, deduped_query = dedupe_flags(c)
     return {
         "key": c.key,
         "func_name": _func_name(c),
