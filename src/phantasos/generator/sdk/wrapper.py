@@ -430,6 +430,11 @@ def _reference_example_for(
 ) -> str | None:
     """Compute the reference-example block for one wrapper method, or None."""
     # Illustrate the binding with the fewest required path params (the minimal call).
+    # `body_model` comes from the FIRST op carrying a body (captured in
+    # `_build_method`), which may differ from `example_op` for a hypothetical
+    # multi-binding method that both takes a body AND varies path params across
+    # bindings. No such op exists in current products (multi-binding methods are
+    # bodyless); revisit this pairing if one appears.
     example_op = min(ops, key=_req_path_param_count)
     path_args: list[tuple[str, str]] = [
         (p.name, p.enum_values[0] if p.enum_values else f"<{p.name}>")
