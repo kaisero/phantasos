@@ -352,7 +352,7 @@ def _synth(
     if model_name is None or model_name not in models or model_name in path:
         return {}
     schema = models[model_name]
-    here = path + (model_name,)
+    here = (*path, model_name)  # tuple unpack (ruff RUF005), not path + (x,)
     if schema.is_oneof:
         # A top-level oneOf BODY never reaches here (such bodies are pre-split into
         # per-variant commands → a body flag's model is always a concrete variant);
@@ -1296,7 +1296,7 @@ def _schema_rows(models, name, *, _path=()):
     schema = models.get(name)
     if schema is None or name in _path:
         return []
-    path = _path + (name,)
+    path = (*_path, name)  # tuple unpack (ruff RUF005), not _path + (x,)
     rows = []
     for mf in schema.fields:
         tabs = None
