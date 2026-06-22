@@ -252,6 +252,7 @@ autodoc Python; the CLI's user surface is the command tree). See
 - `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
 - `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
 - `ir.py` — The CLI intermediate representation: the fully-resolved command tree.
+- `modelschema.py` — Walk live SDK body models into the deduped CliIR model registry.
 - `render_cli.py` — Emit a Typer CLI project from a CliIR (static codegen via Jinja).
 - `scaffold_context.py` — Build the scaffold context for an emitted CLI project (reuses the SDK scaffold).
 <!-- /GENERATED:module-map -->
@@ -302,6 +303,9 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `ModelSchema` — A body model's field surface, stored deduped under a key in `CliIR.models`.
   - class `CliIR`
   - `synth_skeleton(models, model_name, full)` — Synthesize a JSON skeleton for ``model_name`` from the registry.
+- `modelschema.py`
+  - `registry_from_models(roots)` — Deduped registry of every model reachable from ``roots``.
+  - `build_model_registry(package, sdk_path, inv)`
 - `render_cli.py`
   - `cli_overrides_dir()`
   - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`
