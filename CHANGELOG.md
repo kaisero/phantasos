@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated CLIs now carry a deduped nested-schema model registry in the CLI IR
+  (`CliIR.models` + per-flag `Flag.model_ref`), recovering the full structure of
+  complex (`json`-kind) body fields that previously collapsed to an empty `TEXT`
+  flag with a `'{}'` example. One registry-driven skeleton synthesizer (shipped
+  verbatim to the runtime) powers four surfaces: progressive-disclosure docs
+  (collapsible per-flag schema tables, `oneOf` tabs, and a copy-&-fill full-body
+  skeleton on each command's reference page); a `[json: <Model>] e.g. {…}` `--help`
+  annotation carrying a real, minimal, valid skeleton; that same skeleton in the
+  docs one-line invocation (replacing `'{}'`); and a debug-adaptive JSON skeleton
+  in input-error messages (the full body under debug logging, an always-valid
+  minimal body otherwise). All-optional models still emit one representative field,
+  so the suggested body is never an API-rejected `{}`.
 - Generated CLIs can now emit a documentation site — opt-in via a `docs:` block in
   `cli.yml` (`showcase_object`, optional `showcase_variant` / `site_name` /
   `examples`). `cli build` renders a standalone MkDocs-Material site (Home with a
