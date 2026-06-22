@@ -264,10 +264,10 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `classify_name(method)` — CLI-local prefix classification: ADDS the PUT `update_*` -> (update, put) case.
   - `cli_operations(package, sdk_path, registry_attr)` — Inventory built from the SDK's typed wrappers (`_WRAPPERS`/`_bindings`).
   - `select_method_for_verb(methods)` — Return the preferred method when multiple share the same verb.
-  - `fields_to_flags(fields)`
+  - `fields_to_flags(fields, schema)`
   - class `ResolvedVariant`
   - `resolve_variants(op, vmap)` — Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
-  - `build_cli_ir(inv, cfg)`
+  - `build_cli_ir(inv, cfg, models)`
 - `cliconfig.py`
   - class `RequestMapping`
   - class `Override`

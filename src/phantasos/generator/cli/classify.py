@@ -31,7 +31,17 @@ from ..opmodel.introspect import introspect
 from .cliconfig import CliConfig, RequestMapping, VariantMap
 from .columns import default_columns, resolve_columns
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
-from .ir import CliIR, ColumnSpec, Command, Flag, FlagKind, MethodBinding, SubVerb, Verb
+from .ir import (
+    CliIR,
+    ColumnSpec,
+    Command,
+    Flag,
+    FlagKind,
+    MethodBinding,
+    ModelSchema,
+    SubVerb,
+    Verb,
+)
 
 __all__ = [
     "_SKIP_FRAGMENTS",
@@ -171,7 +181,14 @@ def _flag_name(param: str) -> str:
     return "--" + param.replace("_", "-")
 
 
-def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
+def fields_to_flags(
+    fields: list[FieldInfo], schema: ModelSchema | None = None
+) -> list[Flag]:
+    # When a ModelSchema is supplied (the deepened path), stamp each json body
+    # flag's model_ref by FIELD NAME (FieldInfo.name == ModelField.name; both are
+    # python field names, NOT aliases). Without a schema (models=None) every
+    # model_ref stays None — backward-compatible with the un-deepened path.
+    refmap = {mf.name: mf for mf in schema.fields} if schema else {}
     flags: list[Flag] = []
     for f in fields:
         # Enum flags stay permissive: emit str + completer choices, never a
@@ -185,6 +202,7 @@ def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
             py_type = f.scalar_type
         else:
             py_type = "str"
+        mf = refmap.get(f.name)
         flags.append(
             Flag(
                 name=_flag_name(f.name),
@@ -195,6 +213,7 @@ def fields_to_flags(fields: list[FieldInfo]) -> list[Flag]:
                 default=f.default,
                 help=f.description,
                 choices=f.enum_values,
+                model_ref=(mf.model_ref if mf else None),
             )
         )
     return flags
@@ -241,12 +260,15 @@ def _query_flags(
     ]
 
 
-def _body_flags_for(op: OperationInfo, model: str | None) -> list[Flag]:
+def _body_flags_for(
+    op: OperationInfo, model: str | None, models: dict[str, ModelSchema] | None
+) -> list[Flag]:
+    reg = models or {}
     if model and model in op.body_fields:
-        return fields_to_flags(op.body_fields[model])
+        return fields_to_flags(op.body_fields[model], reg.get(model))
     # single (non-union) body model
-    for fields in op.body_fields.values():
-        return fields_to_flags(fields)
+    for name, fields in op.body_fields.items():
+        return fields_to_flags(fields, reg.get(name))
     return []
 
 
@@ -329,6 +351,7 @@ def _emit_request(
     op: OperationInfo,
     mapping: RequestMapping,
     defaults: dict[str, Any] | None = None,
+    models: dict[str, ModelSchema] | None = None,
 ) -> None:
     key = _command_key("request", mapping.object, mapping.action)
     id_param = detect_id_param(op.params)
@@ -355,7 +378,7 @@ def _emit_request(
             key=key,
             sdk_resource=op.object_attr or op.resource,
             path_params=_path_flags(op.params, id_param),
-            body_flags=_body_flags_for(op, body_model),
+            body_flags=_body_flags_for(op, body_model, models),
             query_flags=_query_flags(op.params, defaults),
             summary=op.summary,
             description=op.description,
@@ -364,12 +387,17 @@ def _emit_request(
         groups[key] = cmd
     else:
         _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
-        _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
+        _merge_flags(cmd.body_flags, _body_flags_for(op, body_model, models))
         _merge_flags(cmd.query_flags, _query_flags(op.params, defaults))
     cmd.bindings.append(binding)
 
 
-def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[str]]:
+def build_cli_ir(
+    inv: OperationInventory,
+    cfg: CliConfig,
+    *,
+    models: dict[str, ModelSchema] | None = None,
+) -> tuple[CliIR, list[str]]:
     groups: dict[str, Command] = {}
     unmapped: list[str] = []
 
@@ -447,7 +475,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
                 key=key,
                 sdk_resource=op.object_attr or op.resource,
                 path_params=_path_flags(op.params, id_param),
-                body_flags=_body_flags_for(op, body_model),
+                body_flags=_body_flags_for(op, body_model, models),
                 query_flags=_query_flags(op.params, op_defaults),
                 summary=op.summary,
                 description=op.description,
@@ -457,7 +485,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         else:
             cmd.paginated = cmd.paginated or sub_verb == "list"
             _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
-            _merge_flags(cmd.body_flags, _body_flags_for(op, body_model))
+            _merge_flags(cmd.body_flags, _body_flags_for(op, body_model, models))
             _merge_flags(cmd.query_flags, _query_flags(op.params, op_defaults))
         cmd.bindings.append(binding)
         # --id is semantically required for update and delete: the operation targets
@@ -473,7 +501,7 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         if key0 in cfg.hide:
             continue
         if key0 in cfg.request:
-            _emit_request(groups, op, cfg.request[key0], cfg.defaults.get(key0))
+            _emit_request(groups, op, cfg.request[key0], cfg.defaults.get(key0), models)
             continue
         ov = cfg.override.get(key0)
         cls = classify_name(op.method)
@@ -578,5 +606,6 @@ def build_cli_ir(inv: OperationInventory, cfg: CliConfig) -> tuple[CliIR, list[s
         sdk_version=inv.sdk_version,
         facade_module=f"{inv.sdk_package}.extras.facade",
         commands=list(groups.values()),
+        models=models or {},
     )
     return ir, unmapped

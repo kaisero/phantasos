@@ -538,3 +538,23 @@ def test_defaults_validation_errors() -> None:
 
     with pytest.raises(ValueError, match="not a query param"):
         build_cli_ir(inv, CliConfig(defaults={"widgets.list_widgets": {"bogus": "x"}}))
+
+
+def test_build_cli_ir_sets_model_ref_and_registry() -> None:
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = cli_operations("fakesdk", fixture)
+    models = build_model_registry("fakesdk", fixture, inv)
+    ir, _ = build_cli_ir(inv, CliConfig(), models=models)
+
+    # WidgetInput.profile is the nested model field added in Task 5.
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    profile = next(f for f in create.body_flags if f.param == "profile")
+    assert profile.kind == "json"
+    assert profile.model_ref == "WidgetProfile"
+    assert "WidgetProfile" in ir.models

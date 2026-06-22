@@ -33,7 +33,12 @@ _FAKESDK_CLI_CONFIG = CliConfig(
 @pytest.fixture
 def emitted(tmp_path: Path) -> Iterator[Path]:
     """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     sys.path.insert(0, str(tmp_path))
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
@@ -92,7 +97,12 @@ def emitted_auth(tmp_path: Path) -> Iterator[Path]:
     """Like `emitted`, but rendered WITH an auth component so the IR carries
     credential_fields (client_id/client_secret/scope/base_url). Importable as
     `fakesdk_cli` (env_prefix FAKESDK)."""
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(
         ir,
         package="fakesdk_cli",
@@ -895,6 +905,8 @@ def test_scalar_body_flags_use_real_types(emitted: Path, tmp_path: Path) -> None
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
+    # intentionally exercises the un-deepened (models=None) path: this asserts only
+    # on scalar body-flag typing (name/priority/enabled), not skeletons/model_ref.
     ir, _ = build_cli_ir(inv, CliConfig())
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
@@ -1185,6 +1197,8 @@ def test_show_flags_grouped_into_panels(emitted: Path, tmp_path: Path) -> None:
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
+    # intentionally exercises the un-deepened (models=None) path: this asserts only
+    # on show-command path/query flag panels, not body skeletons/model_ref.
     ir, _ = build_cli_ir(inv, _FAKESDK_CLI_CONFIG)
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
@@ -1465,7 +1479,12 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     ruff = shutil.which("ruff")
     if ruff is None:
         pytest.skip("ruff not on PATH")
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     gen = tmp_path / "fakesdk_cli" / "_generated"
     res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
