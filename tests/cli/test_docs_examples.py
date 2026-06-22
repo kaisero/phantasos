@@ -1,5 +1,11 @@
 from phantasos.generator.cli.examples import example_value, render_invocation
-from phantasos.generator.cli.ir import Command, Flag, FlagKind
+from phantasos.generator.cli.ir import (
+    Command,
+    Flag,
+    FlagKind,
+    ModelField,
+    ModelSchema,
+)
 
 
 def _flag(
@@ -31,6 +37,48 @@ def test_example_value_by_type() -> None:
     assert example_value(_flag("--body", kind="json")) == "'{}'"
     assert example_value(_flag("--file", kind="file")) == "./file"
     assert example_value(_flag("--id", kind="id")) == '"example"'
+
+
+def test_example_value_renders_minimal_skeleton_for_json() -> None:
+    models = {
+        "P": ModelSchema(
+            fields=[
+                ModelField(
+                    name="contact",
+                    alias="contact",
+                    py_type="str",
+                    kind="json",
+                    required=False,
+                    model_ref="C",
+                ),
+            ]
+        ),
+        "C": ModelSchema(
+            fields=[
+                ModelField(
+                    name="name",
+                    alias="name",
+                    py_type="str",
+                    kind="scalar",
+                    required=True,
+                ),
+            ]
+        ),
+    }
+    f = Flag(
+        name="--profile",
+        param="profile",
+        py_type="str",
+        kind="json",
+        required=True,
+        model_ref="P",
+    )
+    assert example_value(f, models) == '\'{"contact":{"name":"string"}}\''
+
+
+def test_example_value_anonymous_json_falls_back() -> None:
+    f = Flag(name="--spec", param="spec", py_type="str", kind="json", required=True)
+    assert example_value(f, {}) == "'{}'"
 
 
 def test_render_invocation_required_only() -> None:

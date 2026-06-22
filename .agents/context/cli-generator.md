@@ -286,8 +286,8 @@ autodoc Python; the CLI's user surface is the command tree). See
 - `docs.py`
   - `build_cli_docs_context(ir, docs, distribution, site_name, env_prefix, repo_url, description)`
 - `examples.py`
-  - `example_value(flag)` — A shell-safe example value token for one flag.
-  - `render_invocation(command, distribution, override)` — A one-line invocation example (required flags only) or the verbatim override.
+  - `example_value(flag, models)` — A shell-safe example value token for one flag.
+  - `render_invocation(command, distribution, override, models)` — A one-line invocation example (required flags only) or the verbatim override.
 - `flags.py`
   - `query_panel(f)`
   - `leaf(c)` — The third command segment: a oneOf variant OR a request action (mutually

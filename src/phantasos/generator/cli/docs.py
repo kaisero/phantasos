@@ -13,7 +13,7 @@ import re
 from .cliconfig import CliDocsConfig
 from .examples import render_invocation
 from .flags import dedupe_flags, leaf, query_panel
-from .ir import CliIR, Command, Flag
+from .ir import CliIR, Command, Flag, ModelSchema
 
 # openapi-generator docstrings append a Sphinx block (:param:/:type:/:return:/...)
 # after the prose. The per-parameter details are already rendered in the flag tables
@@ -123,7 +123,11 @@ def _flag_row(f: Flag) -> dict[str, object]:
 
 
 def _command_view(
-    c: Command, *, distribution: str, override: str | None
+    c: Command,
+    *,
+    distribution: str,
+    override: str | None,
+    models: dict[str, ModelSchema] | None = None,
 ) -> dict[str, object]:
     body, query = dedupe_flags(c)
     filters = [f for f in query if query_panel(f) == "Filters"]
@@ -137,7 +141,9 @@ def _command_view(
         "body_flags": [_flag_row(f) for f in body],
         "filter_flags": [_flag_row(f) for f in filters],
         "pagination_flags": [_flag_row(f) for f in pagination],
-        "example": render_invocation(c, distribution=distribution, override=override),
+        "example": render_invocation(
+            c, distribution=distribution, override=override, models=models
+        ),
         "columns": [{"header": col.header, "path": col.path} for col in c.columns],
     }
 
@@ -202,7 +208,10 @@ def build_cli_docs_context(
             "object": obj,
             "commands": [
                 _command_view(
-                    c, distribution=distribution, override=docs.examples.get(c.key)
+                    c,
+                    distribution=distribution,
+                    override=docs.examples.get(c.key),
+                    models=ir.models,
                 )
                 for c in ir.commands
                 if c.object == obj
