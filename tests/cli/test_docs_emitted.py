@@ -101,3 +101,50 @@ def test_mkdocs_yml_nav_with_auth(emit_cli: Callable[..., Path]) -> None:
     cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
     guides = next(s["Guides"] for s in cfg["nav"] if "Guides" in s)
     assert {"Authentication & environments": "guides/authentication.md"} in guides
+
+
+def test_reference_page_renders_nested_schema_disclosure(
+    emit_cli: Callable[..., Path],
+) -> None:
+    # emit_cli + CliDocsConfig are the existing conftest fixture + import (already in
+    # tests/cli/test_docs_emitted.py); _emit:58 must thread models= (Task 6).
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    text = (out / "docs" / "reference" / "widget.md").read_text()
+    assert '??? note "`--profile` schema"' in text  # collapsed details block
+    assert "Full body" in text  # copy & fill skeleton block
+    # The nested table MUST be indented (4 spaces) so it stays INSIDE the ??? block.
+    # Catches the indent(first=True) bug structurally — runs even when mkdocs is absent.
+    lines = text.splitlines()
+    i = next(k for k, ln in enumerate(lines) if ln.startswith("??? note"))
+    # first non-blank line after the header
+    body = next(ln for ln in lines[i + 1 :] if ln.strip())
+    assert body.startswith("    "), f"schema body escaped the ??? block: {body!r}"
+
+
+def test_mkdocs_enables_details_and_tabbed(emit_cli: Callable[..., Path]) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
+    exts = cfg["markdown_extensions"]
+    flat = [e if isinstance(e, str) else next(iter(e)) for e in exts]
+    assert "pymdownx.details" in flat
+    assert "attr_list" in flat
+    assert any("tabbed" in (e if isinstance(e, str) else next(iter(e))) for e in exts)
+
+
+def test_emitted_docs_build_strict(emit_cli: Callable[..., Path]) -> None:
+    import shutil
+    import subprocess
+
+    mkdocs = shutil.which("mkdocs")
+    if mkdocs is None:
+        import pytest
+
+        pytest.skip("mkdocs not installed; strict build is enforced in Task 11")
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    res = subprocess.run(  # noqa: S603 — trusted `mkdocs` binary (shutil.which)
+        [mkdocs, "build", "--strict"],
+        cwd=str(out),
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr

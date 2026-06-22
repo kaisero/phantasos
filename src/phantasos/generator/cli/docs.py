@@ -8,12 +8,13 @@ reused (see docs/adr/0001-cli-docs-ir-driven-generate-time.md).
 
 from __future__ import annotations
 
+import json
 import re
 
 from .cliconfig import CliDocsConfig
 from .examples import render_invocation
 from .flags import dedupe_flags, leaf, query_panel
-from .ir import CliIR, Command, Flag, ModelSchema
+from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
 
 # openapi-generator docstrings append a Sphinx block (:param:/:type:/:return:/...)
 # after the prose. The per-parameter details are already rendered in the flag tables
@@ -112,13 +113,64 @@ def _clean_description(text: str) -> str:
     return (text[: match.start()] if match else text).strip()
 
 
-def _flag_row(f: Flag) -> dict[str, object]:
+def _schema_rows(
+    models: dict[str, ModelSchema],
+    name: str,
+    *,
+    _path: tuple[str, ...] = (),
+) -> list[dict[str, object]]:
+    """Recursive rows for a model.
+
+    Each row: {name, type, required, help, choices, children, tabs}.
+    """
+    schema = models.get(name)
+    if schema is None or name in _path:
+        return []
+    path = (*_path, name)  # tuple unpack (ruff RUF005), not _path + (x,)
+    rows: list[dict[str, object]] = []
+    for mf in schema.fields:
+        tabs = None
+        children = None
+        if mf.variant_refs:
+            tabs = [
+                {"name": v, "rows": _schema_rows(models, v, _path=path)}
+                for v in mf.variant_refs
+            ]
+        elif mf.model_ref:
+            children = _schema_rows(models, mf.model_ref, _path=path)
+        rows.append(
+            {
+                "name": mf.alias,
+                "type": (
+                    f"list[{mf.model_ref}]"
+                    if mf.model_ref_list
+                    else mf.model_ref or mf.py_type
+                ),
+                "required": mf.required,
+                "help": _cell(mf.description),
+                "choices": (
+                    [_cell(c) for c in mf.enum_values] if mf.enum_values else None
+                ),
+                "children": children,
+                "tabs": tabs,
+            }
+        )
+    return rows
+
+
+def _flag_row(
+    f: Flag, models: dict[str, ModelSchema] | None = None
+) -> dict[str, object]:
+    schema = None
+    if f.kind == "json" and f.model_ref and models:
+        schema = _schema_rows(models, f.model_ref)
     return {
         "name": f.name,
-        "type": f.py_type,
+        "type": (f.model_ref or f.py_type),
         "required": f.required,
         "choices": [_cell(c) for c in f.choices] if f.choices else None,
         "help": _cell(f.help),
+        "schema": schema,
     }
 
 
@@ -132,18 +184,28 @@ def _command_view(
     body, query = dedupe_flags(c)
     filters = [f for f in query if query_panel(f) == "Filters"]
     pagination = [f for f in query if query_panel(f) == "Pagination"]
+    body_skeleton = (
+        {
+            f.param: synth_skeleton(models, f.model_ref, full=True)
+            for f in body
+            if f.kind == "json" and f.model_ref
+        }
+        if models
+        else {}
+    )
     return {
         "key": c.key,
         "usage": _usage(c),
         "summary": c.summary,
         "description": _clean_description(c.description),
-        "path_flags": [_flag_row(f) for f in c.path_params],
-        "body_flags": [_flag_row(f) for f in body],
-        "filter_flags": [_flag_row(f) for f in filters],
-        "pagination_flags": [_flag_row(f) for f in pagination],
+        "path_flags": [_flag_row(f, models) for f in c.path_params],
+        "body_flags": [_flag_row(f, models) for f in body],
+        "filter_flags": [_flag_row(f, models) for f in filters],
+        "pagination_flags": [_flag_row(f, models) for f in pagination],
         "example": render_invocation(
             c, distribution=distribution, override=override, models=models
         ),
+        "body_skeleton": json.dumps(body_skeleton, indent=2) if body_skeleton else "",
         "columns": [{"header": col.header, "path": col.path} for col in c.columns],
     }
 
