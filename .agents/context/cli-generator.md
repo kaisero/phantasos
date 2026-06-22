@@ -301,6 +301,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `ModelField` — One field of a body model, captured for the CLI payload-helper skeleton.
   - class `ModelSchema` — A body model's field surface, stored deduped under a key in `CliIR.models`.
   - class `CliIR`
+  - `synth_skeleton(models, model_name, full)` — Synthesize a JSON skeleton for ``model_name`` from the registry.
 - `render_cli.py`
   - `cli_overrides_dir()`
   - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`

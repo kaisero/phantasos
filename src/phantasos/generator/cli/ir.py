@@ -221,3 +221,71 @@ class CliIR(BaseModel):
     # and ModelFields reference entries here via `model_ref` / `variant_refs`,
     # so each nested model is captured once regardless of how often it recurs.
     models: dict[str, ModelSchema] = {}
+
+
+_LEAF_SYNTH: dict[str, Any] = {"str": "string", "int": 0, "float": 0.0, "bool": False}
+
+
+def synth_skeleton(
+    models: dict[str, ModelSchema], model_name: str | None, *, full: bool
+) -> Any:
+    """Synthesize a JSON skeleton for ``model_name`` from the registry.
+
+    full=True → all fields incl. optionals (docs). full=False → required-only
+    with a non-empty guarantee (--help / invocation / runtime default error).
+    Cycle-broken on a model repeated in the current path. Public face; the
+    ``path`` accumulator lives in the private ``_synth`` helper below.
+    """
+    return _synth(models, model_name, full=full, path=())
+
+
+def _synth(
+    models: dict[str, ModelSchema],
+    model_name: str | None,
+    *,
+    full: bool,
+    path: tuple[str, ...],
+) -> Any:
+    if model_name is None or model_name not in models or model_name in path:
+        return {}
+    schema = models[model_name]
+    here = (*path, model_name)
+    if schema.is_oneof:
+        # A top-level oneOf BODY never reaches here (such bodies are pre-split
+        # into per-variant commands → a body flag's model is always a concrete
+        # variant); this only fires for a nested oneOf wrapper model. Use the
+        # first variant.
+        if not schema.fields:
+            return {}
+        return _field_value(models, schema.fields[0], full=full, path=here)
+    out: dict[str, Any] = {}
+    for mf in schema.fields:
+        if not full and not mf.required:
+            continue
+        out[mf.alias] = _field_value(models, mf, full=full, path=here)
+    if not full and not out and schema.fields:
+        out[schema.fields[0].alias] = _field_value(
+            models, schema.fields[0], full=full, path=here
+        )
+    return out
+
+
+def _field_value(
+    models: dict[str, ModelSchema],
+    mf: ModelField,
+    *,
+    full: bool,
+    path: tuple[str, ...],
+) -> Any:
+    if mf.variant_refs:
+        return _synth(models, mf.variant_refs[0], full=full, path=path)
+    if mf.model_ref:
+        child = _synth(models, mf.model_ref, full=full, path=path)
+        return [child] if mf.model_ref_list else child
+    if mf.example is not None:
+        return mf.example
+    if mf.default is not None:
+        return mf.default
+    if mf.enum_values:
+        return mf.enum_values[0]
+    return _LEAF_SYNTH.get(mf.py_type, "string")
