@@ -82,10 +82,22 @@ def test_model_registry_roundtrips() -> None:
         models={
             "Saas": ModelSchema(
                 fields=[
-                    ModelField(name="access_mode", alias="accessMode", py_type="str",
-                               kind="enum", required=True, enum_values=["none", "any"]),
-                    ModelField(name="specific", alias="specific", py_type="Specific | None",
-                               kind="json", required=False, model_ref="Specific"),
+                    ModelField(
+                        name="access_mode",
+                        alias="accessMode",
+                        py_type="str",
+                        kind="enum",
+                        required=True,
+                        enum_values=["none", "any"],
+                    ),
+                    ModelField(
+                        name="specific",
+                        alias="specific",
+                        py_type="Specific | None",
+                        kind="json",
+                        required=False,
+                        model_ref="Specific",
+                    ),
                 ]
             )
         },
@@ -98,6 +110,12 @@ def test_model_registry_roundtrips() -> None:
 def test_flag_carries_model_ref() -> None:
     from phantasos.generator.cli.ir import Flag
 
-    f = Flag(name="--applications", param="applications", py_type="str",
-             kind="json", required=False, model_ref="AccessAndDataPostApplications")
+    f = Flag(
+        name="--applications",
+        param="applications",
+        py_type="str",
+        kind="json",
+        required=False,
+        model_ref="AccessAndDataPostApplications",
+    )
     assert f.model_ref == "AccessAndDataPostApplications"
