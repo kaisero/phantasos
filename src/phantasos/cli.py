@@ -69,10 +69,9 @@ def cli_discover(
     ),
 ) -> None:
     """print the classification table + cli.yml stub"""
-    from .generator.cli.classify import build_cli_ir
+    from .generator.cli.classify import build_cli_ir, cli_operations
     from .generator.cli.cliconfig import load_cli_config
     from .generator.cli.discover import render_stub, render_table
-    from .generator.cli.introspect import introspect
 
     try:
         loaded = load_product(product)
@@ -81,7 +80,12 @@ def cli_discover(
         raise typer.Exit(2) from exc
     cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
     try:
-        inv = introspect(loaded.config.package, Path(loaded.output_dir))
+        # Introspect via the typed wrappers (`_WRAPPERS`/`_bindings`): the command
+        # tree is still classified off the RAW operation names, but each op now
+        # carries the wrapper routing fields (object_attr -> Command.sdk_resource,
+        # clean_method -> MethodBinding.sdk_method) so the emitted runtime
+        # dispatches `client.<object>.<verb>(...)`.
+        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc
@@ -101,9 +105,8 @@ def cli_build(
 ) -> None:
     """emit the CLI project from a built SDK"""
     from . import scaffold
-    from .generator.cli.classify import build_cli_ir
+    from .generator.cli.classify import build_cli_ir, cli_operations
     from .generator.cli.cliconfig import load_cli_config
-    from .generator.cli.introspect import introspect
     from .generator.cli.render_cli import cli_overrides_dir, render_cli
     from .generator.cli.scaffold_context import build_cli_scaffold_context
 
@@ -114,7 +117,9 @@ def cli_build(
         raise typer.Exit(2) from exc
     cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
     try:
-        inv = introspect(loaded.config.package, Path(loaded.output_dir))
+        # Wrapper-backed inventory: dispatch goes through the typed
+        # `client.<object>.<verb>(...)` wrappers (see cli_discover).
+        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc

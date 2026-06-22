@@ -9,14 +9,18 @@ auth:
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
+# Opt-in user docs (mkdocs), tailored to the `application` wrapper object. The
+# guides teach the wrapper surface `client.application.<verb>(...)`; the showcase
+# variant pins the oneOf create body to CustomApplicationInput. The `examples.create`
+# override supplies a domain-rich body in place of the generic synthesized one.
 docs:
-  showcase_resource: applications
+  showcase_resource: application
   showcase_variant: CustomApplicationInput
   examples:
     create: |
-      created = client.applications.create_application(
+      created = client.application.create(
           type="custom",
-          create_or_replace_app_input=CustomApplicationInput(
+          body=CustomApplicationInput(
               name="Acme Wiki",
               type="custom",
               urls=[UrlInput(url="https://wiki.acme.com/*")],
@@ -36,11 +40,43 @@ transforms:
     # Cloud-storage providers ship without operationIds, so OAG auto-names them
     # seb_api_v1_* (unclassifiable). Give them CRUD-friendly operationIds so the
     # CLI classifier maps them to show/create/delete cloud-storage-provider.
-    # (The full-replace PUT is intentionally left raw + hidden in cli.yml.)
+    # (The full-replace PUT is intentionally left raw + hidden below.)
     - {path: /seb-api/v1/integrations/cloud-storage, method: get, operation_id: ListCloudStorageProviders, tag: Integrations}
     - {path: /seb-api/v1/integrations/cloud-storage, method: post, operation_id: CreateCloudStorageProvider, tag: Integrations}
     - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: get, operation_id: GetCloudStorageProviderById, tag: Integrations}
     - {path: "/seb-api/v1/integrations/cloud-storage/{providerId}", method: delete, operation_id: DeleteCloudStorageProviderById, tag: Integrations}
+
+# --- anchorless None-classified ops → an explicit (object, method) decision ---
+# Mirrors cli.yml's `request:` block. These 6 ops classify to None AND have no CRUD
+# anchor on their api class to attach to (verb-token stripping can't find an existing
+# object), so the wrapper-context build FAILS unless an override names the target.
+# `resource`/`method` use the classified-object FORM the wrapper views are keyed by
+# (kebab, == classify_name(...).object). The 5 `*-section` targets are EXISTING CRUD
+# objects (reorder/reorder_patch attach to them — distinct method names, no collision);
+# `configuration` is a NEW single-method object the override is allowed to create.
+#
+# `hide: true` rows drop an op from the wrapper entirely (no wrapper method, and the
+# anchorless-gate is NOT tripped). The cloud-storage full-PUT (full-replace, all
+# fields required each call) and the 4 multipart/form-data asset uploads (the
+# introspector sees an empty body — no file-upload flow yet) are SDK-suppressed here,
+# mirroring their cli.yml `hide:` entries so neither surface emits them.
+operations:
+  access_and_data_policy.update_access_and_data_positions:
+    {resource: access-and-data-section, method: reorder}
+  customization_policy.update_customization_positions:
+    {resource: customization-section, method: reorder}
+  security_policy.update_security_positions: {resource: security-section, method: reorder}
+  security_policy.patch_security_positions:
+    {resource: security-section, method: reorder_patch}
+  sign_in_policy.update_sign_in_positions: {resource: sign-in-section, method: reorder}
+  configuration_management.publish_draft_configuration:
+    {resource: configuration, method: publish}
+  integrations.seb_api_v1_integrations_cloud_storage_provider_id_put: {hide: true}
+  assets.upload_background_image: {hide: true}
+  assets.upload_browser_icon: {hide: true}
+  assets.upload_company_logo: {hide: true}
+  assets.upload_pac_file: {hide: true}
+
 project:
   distribution: prisma-browser-sdk
   description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs

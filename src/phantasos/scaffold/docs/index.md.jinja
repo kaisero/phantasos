@@ -2,8 +2,9 @@
 
 {{ description }}
 
-`{{ distribution }}` is the Python SDK for {{ spec_title or distribution }}. It wraps
-every API resource in typed, idiomatic methods and handles authentication{% if has_pagination %}, pagination{% endif %}{% if has_retry %}, and retries{% endif %} for you.
+`{{ distribution }}` is the Python SDK for {{ spec_title or distribution }}. It exposes
+every object as a typed `client.<object>` wrapper with clean, verb-named methods and
+handles authentication{% if has_pagination %}, pagination{% endif %}{% if has_retry %}, and retries{% endif %} for you.
 
 ```bash
 pip install {{ distribution }}

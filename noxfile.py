@@ -10,7 +10,9 @@ dependency groups) for fast, reproducible runs.
 from __future__ import annotations
 
 import os
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import nox
 
@@ -30,6 +32,47 @@ nox.options.sessions = [
 ]
 
 PYTHON_VERSIONS = ["3.11", "3.12", "3.13", "3.14"]
+
+# Product enrollment for the product-parametrized sessions (smoke/live/sdk-docs)
+# lives in nox.toml, NOT hardcoded here — see that file's header. Add a product
+# to a stage there once it is ready to be gated.
+_NOX_CONFIG = Path(__file__).parent / "nox.toml"
+_PRODUCTS_DIR = Path(__file__).parent / "products"
+
+
+def _pipeline() -> dict[str, Any]:
+    """Load nox.toml — the per-stage product enrollment + sdk-docs assertions."""
+    if not _NOX_CONFIG.exists():
+        raise FileNotFoundError(
+            f"{_NOX_CONFIG.name} is missing; it declares the products for each "
+            "product-parametrized session (smoke/live/sdk-docs)."
+        )
+    with _NOX_CONFIG.open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def _stage_products(stage: str) -> list[str]:
+    """Products enrolled in ``stage``, validated against ``products/``."""
+    cfg = _pipeline().get(stage)
+    if not cfg or "products" not in cfg:
+        raise KeyError(f"nox.toml has no [{stage}] products list")
+    products: list[str] = cfg["products"]
+    for name in products:
+        if not (_PRODUCTS_DIR / name).is_dir():
+            raise ValueError(
+                f"nox.toml [{stage}] enrolls unknown product {name!r} "
+                f"(no products/{name}/)"
+            )
+    return products
+
+
+def _stage_asserts(stage: str, product: str) -> list[dict[str, str]]:
+    """Per-product post-build content assertions declared for ``stage``."""
+    return [
+        a
+        for a in _pipeline().get(stage, {}).get("assert", [])
+        if a.get("product") == product
+    ]
 
 
 def _sync(session: nox.Session, *groups: str) -> None:
@@ -78,7 +121,14 @@ def tests(session: nox.Session) -> None:
     ``addopts``) so ad-hoc ``pytest`` runs stay fast and matrix runs don't
     contend over a shared ``.coverage`` file.
     """
+    from phantasos.productconfig import sdk_runtime_deps
+
     _sync(session, "test")
+    # Tests that build a `facade:` SDK introspect the emitted package, whose
+    # vendored facade imports the SDK's runtime deps (urllib3 via retry, etc.).
+    # Pre-install them so the build's wrapper-vendoring import works — mirrors
+    # the `smoke` session.
+    session.install(*sdk_runtime_deps())
     session.run("pytest", "--cov", "--cov-report=term-missing", *session.posargs)
 
 
@@ -165,13 +215,13 @@ def smoke(session: nox.Session) -> None:
     # SDK's runtime deps (e.g. python-dateutil). Pre-install them so the build's
     # introspect step can import the package. Mirrors the `live`/`sdk-docs` sessions.
     session.install(*sdk_runtime_deps())
-    session.run("phantasos", "sdk", "build", "prisma-browser")
-    session.run("phantasos", "sdk", "build", "adem")
+    for product in _stage_products("smoke"):
+        session.run("phantasos", "sdk", "build", product)
 
 
 @nox.session
 def live(session: nox.Session) -> None:
-    """Generate the prisma-browser SDK and run its live CRUD suite (real tenant).
+    """Generate each enrolled SDK (nox.toml [live]) and run its live CRUD suite.
 
     Phase-boundary + CI gate (live.yml). Needs CLIENT_ID/CLIENT_SECRET/SCOPE
     in the environment (a local ``.env`` is read as a convenience); the suite
@@ -179,6 +229,13 @@ def live(session: nox.Session) -> None:
     Needs network + Java (auto-provisioned, like ``smoke``).
     """
     _sync(session, "test")
+    # `sdk build` now introspects the freshly-generated package in-process (to
+    # vendor the typed resource wrappers), which import-walks the SDK — so its
+    # base runtime deps must be importable in THIS venv before the build, not
+    # only after `session.install(out_dir)` below.
+    from phantasos.productconfig import _BASE_DEPS
+
+    session.install(*_BASE_DEPS)
     env_file = Path(".env")
     if env_file.exists():
         for line in env_file.read_text().splitlines():
@@ -192,75 +249,74 @@ def live(session: nox.Session) -> None:
     # (triggered by docs context build during sdk build) can import the SDK package.
     # introspect() adds the SDK dir to sys.path; we only need the deps in the venv.
     session.install(*sdk_runtime_deps())
-    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
-    out_dir = load_product("prisma-browser").output_dir
-    session.install(str(out_dir))
-    session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
+    for product in _stage_products("live"):
+        session.run("phantasos", "sdk", "build", product, "--no-smoke")
+        out_dir = load_product(product).output_dir
+        session.install(str(out_dir))
+        session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
 
 
 @nox.session(name="sdk-docs", venv_backend="uv")
 def sdk_docs(session: nox.Session) -> None:
-    """Build the prisma-browser SDK + its docs and run ``mkdocs build --strict``.
+    """Build each enrolled SDK + its docs and run ``mkdocs build --strict``.
 
-    Integration gate (opt-in; needs the OAG JRE + network, self-provisioned like
-    ``smoke``). NOT added to nox.options.sessions, so the default ``nox``/CI run is
-    unaffected and phantasos's own ``docs`` session stays intact.
+    Products (and per-product fidelity assertions) are declared in nox.toml
+    ``[sdk-docs]`` — no product is hardcoded here. Integration gate (opt-in; needs
+    the OAG JRE + network, self-provisioned like ``smoke``). NOT in
+    nox.options.sessions, so the default ``nox``/CI run is unaffected and
+    phantasos's own ``docs`` session stays intact.
     """
+    import shutil
+
     from phantasos.productconfig import load_product, sdk_runtime_deps
 
     _sync(session)
-    out = load_product("prisma-browser").output_dir
-    # Wipe any stale mkdocs site/ tree left by a previous run — setuptools's flat
-    # layout discovery would otherwise see both `site/` and the SDK package as
-    # top-level packages and refuse to build.
-    stale_site = out / "site"
-    if stale_site.exists():
-        import shutil
-
-        shutil.rmtree(stale_site)
-    # Pre-install the SDK's known stable runtime deps.  We install them directly
-    # (rather than via the SDK's own pyproject.toml) so this step is robust to
-    # partially-built SDK state — e.g. when the OAG-generated pyproject.toml is
-    # present instead of the phantasos-scaffolded one, installing the whole project
-    # would fail (wrong build backend / flat-layout discovery collision with
-    # site/).  The dep set is stable across regenerations; introspect() adds the
-    # SDK dir to sys.path itself, so the package is importable without pip install.
+    # Pre-install the SDK's known stable runtime deps so the in-process introspect
+    # step (docs context build during `sdk build`) can import the package. Installed
+    # directly (not via the SDK's pyproject) so this is robust to partially-built SDK
+    # state; the dep set is stable across products/regenerations, and introspect()
+    # adds the SDK dir to sys.path itself.
     session.install(*sdk_runtime_deps())
-    session.run("phantasos", "sdk", "build", "prisma-browser", "--no-smoke")
-    session.chdir(str(out))
-    # Isolate this `uv run` to a DEDICATED project env. It would otherwise inherit
-    # UV_PROJECT_ENVIRONMENT (commonly the offline-gate venv, per CLAUDE.md) and
-    # editable-install the generated SDK there — which makes prisma_browser
-    # resolvable to mypy and breaks the gate's real-SDK tests. A separate env dir
-    # keeps the shared gate env clean.
-    # Dedicated build env dir (the session venv path + "-build"), kept off the
-    # shared/gate env so the SDK is not editable-installed there.
-    build_env = session.virtualenv.location + "-build"
-    docs_env = {**os.environ, "UV_PROJECT_ENVIRONMENT": build_env}
-    session.run(
-        "uv",
-        "run",
-        "--group",
-        "docs",
-        "mkdocs",
-        "build",
-        "--strict",
-        external=True,
-        env=docs_env,
-    )
-    site = out / "site"
-    if not (site / "reference").exists():
-        session.error("reference pages were not generated")
-    # (A) griffe-pydantic surfaces field descriptions on a leaf model page
-    leaf = site / "reference/models/custom_application_input/index.html"
-    if not (leaf.exists() and "Name of the application" in leaf.read_text()):
-        session.error("model field descriptions did not render (griffe-pydantic)")
-    # (B) oneOf wrapper page links its variant models
-    wrapper = site / "reference/models/create_or_replace_app_input/index.html"
-    if not (wrapper.exists() and "CustomApplicationInput" in wrapper.read_text()):
-        session.error("oneOf wrapper page is missing variant links")
-    # (C) the curated CRUD example rendered (not the opaque placeholder)
-    crud = site / "guides/crud/index.html"
-    txt = crud.read_text() if crud.exists() else ""
-    if "Acme Wiki" not in txt or "CreateOrReplaceAppInput(...)" in txt:
-        session.error("CRUD create example did not render the curated body")
+    root = Path.cwd()
+    for product in _stage_products("sdk-docs"):
+        out = load_product(product).output_dir
+        # Wipe any stale mkdocs site/ tree — setuptools flat-layout discovery would
+        # otherwise see both site/ and the SDK package as top-level packages.
+        if (out / "site").exists():
+            shutil.rmtree(out / "site")
+        session.run("phantasos", "sdk", "build", product, "--no-smoke")
+        # Isolate this `uv run` to a DEDICATED per-product project env so it does not
+        # editable-install the generated SDK into the shared/gate venv (which would
+        # make the package resolvable to mypy and break the gate's real-SDK tests).
+        build_env = f"{session.virtualenv.location}-build-{product}"
+        docs_env = {**os.environ, "UV_PROJECT_ENVIRONMENT": build_env}
+        session.chdir(str(out))
+        session.run(
+            "uv",
+            "run",
+            "--group",
+            "docs",
+            "mkdocs",
+            "build",
+            "--strict",
+            external=True,
+            env=docs_env,
+        )
+        session.chdir(str(root))
+        # Generic guard for every enrolled product: the reference rendered.
+        site = out / "site"
+        if not (site / "reference").exists():
+            session.error(f"{product}: reference pages were not generated")
+        # Product-specific content guards declared in nox.toml [[sdk-docs.assert]].
+        for check in _stage_asserts("sdk-docs", product):
+            target = site / check["file"]
+            text = target.read_text() if target.exists() else ""
+            if "contains" in check and check["contains"] not in text:
+                session.error(
+                    f"{product}: {check['file']} is missing {check['contains']!r}"
+                )
+            if "not_contains" in check and check["not_contains"] in text:
+                session.error(
+                    f"{product}: {check['file']} unexpectedly contains "
+                    f"{check['not_contains']!r}"
+                )

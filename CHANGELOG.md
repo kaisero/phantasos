@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated SDK reference docs now render typed wrapper signatures with clickable
+  request-body model links, and a synthesized copy-pasteable example under every
+  operation (all-optional update bodies render `body=Model()  # all fields optional`).
+  The showcase resource honors `docs.showcase_variant` / `docs.examples` on its
+  reference page.
 - Agent-facing context docs (`.agents/context/`) — a modular, on-demand technical
   doc set for in-repo coding agents: an `index.md` system map, per-subsystem
   deep-dives (sdk-generator, cli-generator, components, product-config, scaffold,
@@ -21,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `config set <key> <value>` and `config unset <key>` for generated CLIs: write/remove options in `config.yml` (aliases `loglevel`/`logfile`; values coerced by type; unknown keys and invalid values exit `2`). NOTE: writing `config.yml` strips the comments that `config init` wrote — run `config init --force` to restore the commented template.
 - Generated CLIs with an auth component now support named environments: stored in `~/.{distribution}/environments.yml` (top-level `environments:` and `default_environment:` keys, with `${VAR}` references resolved at read time), an `--environment/-e` flag, and a `{PREFIX}_ENVIRONMENT` selector. Per-field credential env vars override the active environment.
 - Top-level `environment` command group (auth CLIs only; shown in the `--help` "CLI" panel beside `config`): `create` (per-credential-field options built dynamically from the auth component; secrets prompted with input hidden and stored verbatim, including `${VAR}` references), `activate`, `show` (names only — never values/secrets; marks the active environment), and `delete` (`--force` required to remove the active environment). The first environment created is auto-activated.
+- Typed `client.<object>.<verb>(...)` resource wrappers in generated SDKs; the
+  generated CLI now dispatches through them. New `sdk.yml operations:` naming override
+  block for declarative per-op `resource`/`method`/`verb` overrides (keyed by
+  `api_attr.raw_method`; validated at build) — including a per-op `hide: true` that
+  drops an op from the wrapper entirely (SDK analog of `cli.yml hide:`).
 - Generated SDKs can now ship a complete Material for MkDocs site (Getting Started,
   Architecture, authentication/pagination/CRUD how-to guides, and an mkdocstrings API
   reference). Opt in per product via a `docs:` block naming a `showcase_resource`; the
@@ -65,7 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `list(all_pages=True)` replaces the CLI-side pagination loop: the wrapper's
+  `.list(all_pages=True)` paginates internally and returns a full envelope
+  (`page.model_copy(update={"data": items})`); the runtime passes `--all` as
+  `all_pages=True`. Raw `*Api` classes are no longer reachable from `client.<object>`.
 - User-facing docs: a new **Architecture** page (intent, scope, and three-layer + build-pipeline Mermaid diagrams); the Home page rewritten with a minimal first-build; the authoring guide renamed to `authoring.md` with a quickstart on top.
+- Contributor tooling: product enrollment for the `smoke`/`live`/`sdk-docs` nox sessions now lives in a root `nox.toml` (per-stage `products` lists + per-product `sdk-docs` content assertions) instead of being hardcoded in `noxfile.py`. The new **posture** product is now gated by both `smoke` and `sdk-docs`.
 
 ### Fixed
 
@@ -80,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published-site nav entry is dropped (a fresh architecture page belongs to the
   user-facing docs rework).
 - The mkdocstrings-generated API reference (replaced by a hand-written CLI reference page) and `docs/ONBOARDING.md` (folded into the authoring quickstart).
+- `sdk.yml` `docs.operations` (the per-verb showcase method override) — dead config after CRUD verbs became wrapper-canonical (it was never consumed).
 
 ## [0.1.0a1] - 2026-06-13
 

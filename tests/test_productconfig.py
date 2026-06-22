@@ -281,23 +281,6 @@ def test_docs_config_defaults() -> None:
     d = DocsConfig(showcase_resource="applications")
     assert d.showcase_resource == "applications"
     assert d.site_name is None
-    assert d.operations is None
-
-
-def test_docs_operations_override_parsed() -> None:
-    d = DocsConfig.model_validate(
-        {
-            "showcase_resource": "applications",
-            "operations": {
-                "create": "create_application",
-                "read": "get_application_by_id",
-            },
-        }
-    )
-    assert d.operations is not None
-    assert d.operations.create == "create_application"
-    assert d.operations.read == "get_application_by_id"
-    assert d.operations.list is None
 
 
 def test_product_config_docs_absent_is_none() -> None:

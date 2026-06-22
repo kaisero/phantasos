@@ -1,79 +1,69 @@
-"""Scoped introspect + verb classification + docs context for generated SDKs."""
+"""Wrapper-driven docs context for generated SDKs.
+
+The docs feature tailors its how-to guides to one author-named **showcase
+object** — a `client.<object>` typed wrapper (e.g. `client.application`). The
+guides teach the wrapper surface (`client.<object>.<clean_verb>(...)`), never the
+raw `*Api`. We introspect the SDK's `_WRAPPERS` registry (via `cli_operations`,
+which already stamps each op with its `object_attr`/`clean_method`/`has_body`
+routing) and read the wrapper's clean CRUD verbs directly — no raw-prefix verb
+heuristic. The wrapper already canonicalized create/get/list/update/delete, so
+the showcase slots ARE those methods.
+"""
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ...productconfig import DocsExamples, DocsOperations, LoadedProduct
+    from ...productconfig import DocsExamples, LoadedProduct
     from ..cli.inventory import OperationInfo, OperationInventory
 
-# Leading method token -> CRUD slot. "patch"/"put" also mean update.
+# Clean wrapper verb -> CRUD slot. The wrapper canonicalizes verbs, so this is a
+# direct map (no token-stripping / fewest-params heuristic). Wrapper methods
+# outside this set (`replace`/`reorder`/`publish`/`bulk_*`) are not CRUD slots and
+# are left out of the showcase (the guide focuses on the 5 CRUD operations).
 _VERB_SLOT = {
     "create": "create",
     "get": "read",
     "list": "list",
     "update": "update",
-    "patch": "update",
-    "put": "update",
     "delete": "delete",
 }
-_BY_SUFFIX = re.compile(r"_by_.*$")
 
 
-def _slot(method: str) -> str | None:
-    return _VERB_SLOT.get(method.split("_", 1)[0])
+def classify_operations(
+    operations: list[OperationInfo], obj: str
+) -> dict[str, OperationInfo]:
+    """Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
 
-
-def _noun(method: str) -> str:
-    """Method minus its verb prefix and any `_by_<...>` suffix."""
-    rest = method.split("_", 1)[1] if "_" in method else ""
-    return _BY_SUFFIX.sub("", rest)
-
-
-def _matches_resource(resource: str, noun: str) -> bool:
-    r, n = resource.rstrip("s"), noun.rstrip("s")
-    return r == n or resource == noun or resource.startswith(noun)
+    `operations` is the `cli_operations` inventory (each op stamped with
+    `object_attr`/`clean_method`). We select the ops whose `object_attr` is the
+    showcase object and whose `clean_method` is a CRUD verb, keyed by slot. When a
+    clean verb has several bindings (e.g. `application.get` via id or type+id), the
+    object+verb pair is identical across them — pick the binding with the FEWEST
+    required path params so the example stays minimal (`get(id=...)` over
+    `get(type=..., id=...)`).
+    """
+    slots: dict[str, OperationInfo] = {}
+    for op in operations:
+        if op.object_attr != obj or op.clean_method is None:
+            continue
+        slot = _VERB_SLOT.get(op.clean_method)
+        if slot is None:
+            continue
+        existing = slots.get(slot)
+        if existing is None or _required_path_count(op) < _required_path_count(
+            existing
+        ):
+            slots[slot] = op
+    return slots
 
 
 def _required_path_count(op: OperationInfo) -> int:
     return sum(1 for p in op.params if p.location == "path" and p.required)
-
-
-def classify_operations(
-    operations: list[OperationInfo], resource: str, overrides: DocsOperations | None
-) -> dict[str, OperationInfo]:
-    """Map each CRUD slot to its canonical OperationInfo (present slots only)."""
-    by_method = {op.method: op for op in operations}
-    override_map = {k: v for k, v in vars(overrides).items() if v} if overrides else {}
-
-    slots: dict[str, OperationInfo] = {}
-    for slot in ("create", "read", "list", "update", "delete"):
-        pinned = override_map.get(slot)
-        if pinned:
-            if pinned not in by_method:
-                raise ValueError(
-                    f"docs.operations.{slot} = {pinned!r} is not a method of "
-                    f"resource {resource!r}; available: {sorted(by_method)}"
-                )
-            slots[slot] = by_method[pinned]
-            continue
-        candidates = [
-            op
-            for op in operations
-            if _slot(op.method) == slot
-            and not op.method.startswith("bulk_")
-            and _matches_resource(resource, _noun(op.method))
-        ]
-        if candidates:
-            slots[slot] = min(
-                candidates, key=lambda op: (_required_path_count(op), len(op.method))
-            )
-    return slots
 
 
 def _op_dict(
@@ -81,38 +71,45 @@ def _op_dict(
     resolve: Callable[[str], type | None] | None,
     variant: str | None,
 ) -> dict[str, object]:
+    """Per-slot example data for the WRAPPER call shape.
+
+    The wrapper method takes its request body under the kwarg `body` (not the raw
+    body-param name) plus any required path params (e.g. `id`, `type`). We emit:
+    - a `body` arg (kind="body") whose `body_code` is the synthesized model expr,
+      when the binding carries a request body (`op.has_body`);
+    - one path arg per required path param (kind="path").
+    """
     from .examples import synthesize_body
 
     required_args: list[dict[str, object]] = []
     for p in op.params:
         if not p.required:
             continue
-        if p.location == "body":
-            cls = resolve(p.body_model) if (resolve and p.body_model) else None
-            body_code = (
-                synthesize_body(cls, variant=variant)
-                if cls is not None
-                else f"{p.body_model}(...)"
-            )
-            required_args.append(
-                {
-                    "name": p.name,
-                    "kind": "body",
-                    "body_model": p.body_model,
-                    "body_code": body_code,
-                }
-            )
-        elif p.location == "path":
+        if p.location == "path":
             placeholder = p.enum_values[0] if p.enum_values else f"<{p.name}>"
             required_args.append(
-                {
-                    "name": p.name,
-                    "kind": "path",
-                    "placeholder": str(placeholder),
-                }
+                {"name": p.name, "kind": "path", "placeholder": str(placeholder)}
             )
+    if op.has_body:
+        body_param = next((p for p in op.params if p.location == "body"), None)
+        body_model = body_param.body_model if body_param else None
+        cls = resolve(body_model) if (resolve and body_model) else None
+        body_code = (
+            synthesize_body(cls, variant=variant)
+            if cls is not None
+            else f"{body_model}(...)"
+        )
+        required_args.append(
+            {
+                "name": "body",
+                "kind": "body",
+                "body_model": body_model,
+                "body_code": body_code,
+            }
+        )
     return {
-        "method": op.method,
+        # `method` is the CLEAN wrapper verb (drives `client.<object>.<method>`).
+        "method": op.clean_method,
         "summary": op.summary,
         "description": op.description,
         "required_args": required_args,
@@ -124,23 +121,22 @@ def _op_dict(
 def shape_context(
     inventory: OperationInventory,
     *,
-    resource: str,
+    obj: str,
     site_name: str,
     auth: object | None,
-    overrides: DocsOperations | None,
     has_pagination: bool,
     resolve: Callable[[str], type | None] | None = None,
     variant: str | None = None,
     examples: DocsExamples | None = None,
 ) -> dict[str, object]:
-    ops = [op for op in inventory.operations if op.resource == resource]
-    slots = classify_operations(ops, resource, overrides)
+    slots = classify_operations(inventory.operations, obj)
     operations = {slot: _op_dict(op, resolve, variant) for slot, op in slots.items()}
     ex = vars(examples) if examples else {}
     for slot, entry in operations.items():
         entry["example_override"] = ex.get(slot)
     showcase = {
-        "attr": resource,
+        # `attr` is the singular `client.<object>` wrapper attribute.
+        "attr": obj,
         "operations": operations,
         "has_create": "create" in operations,
         "has_read": "read" in operations,
@@ -169,40 +165,55 @@ def shape_context(
     }
 
 
-def _validate_resource(inventory: OperationInventory, resource: str) -> None:
-    available = sorted({op.resource for op in inventory.operations})
-    if resource not in available:
+def _wrapper_objects(package: str, project_dir: Path) -> list[str]:
+    """The `_WRAPPERS` object keys of the built SDK (for fail-fast validation)."""
+    import importlib
+    import sys
+
+    added = str(project_dir) not in sys.path
+    if added:
+        sys.path.insert(0, str(project_dir))
+    try:
+        facade = importlib.import_module(f"{package}.extras.facade")
+        return list(facade._WRAPPERS)
+    finally:
+        if added and str(project_dir) in sys.path:
+            sys.path.remove(str(project_dir))
+
+
+def _validate_object(available: list[str], obj: str) -> None:
+    if obj not in available:
         raise ValueError(
-            f"docs.showcase_resource {resource!r} not found; "
-            f"available resources: {available}"
+            f"docs.showcase_resource {obj!r} is not a wrapper object; "
+            f"available objects: {sorted(available)}"
         )
 
 
 def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, object]:
-    """Scoped introspect of the showcase resource -> docs context dict."""
+    """Wrapper introspect of the showcase object -> docs context dict."""
     import importlib
 
-    from ..cli.introspect import introspect
+    from ..cli.classify import cli_operations
 
     cfg = loaded.config
     if cfg.docs is None:  # guarded by the caller; this is a defensive check
         raise AssertionError("build_docs_context called without a docs config")
-    inventory = introspect(cfg.package, project_dir)
-    _validate_resource(inventory, cfg.docs.showcase_resource)
+    obj = cfg.docs.showcase_resource
+    _validate_object(_wrapper_objects(cfg.package, project_dir), obj)
+    inventory = cli_operations(cfg.package, project_dir)
     site_name = cfg.docs.site_name or loaded.context.get("distribution", cfg.package)
 
     models_ns = importlib.import_module(f"{cfg.package}.models")
 
     def _resolve(name: str) -> type | None:
-        obj = getattr(models_ns, name, None)
-        return obj if isinstance(obj, type) else None
+        ob = getattr(models_ns, name, None)
+        return ob if isinstance(ob, type) else None
 
     return shape_context(
         inventory,
-        resource=cfg.docs.showcase_resource,
+        obj=obj,
         site_name=str(site_name),
         auth=loaded.auth,
-        overrides=cfg.docs.operations,
         has_pagination=bool(loaded.context.get("has_pagination")),
         resolve=_resolve,
         variant=cfg.docs.showcase_variant,

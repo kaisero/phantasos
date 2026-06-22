@@ -1,0 +1,88 @@
+"""Typed, object-granular resource wrappers (vendored by phantasos).
+
+Each ``<Object>Resource`` wraps the backing generated ``*Api`` with clean,
+typed methods. A method may collapse several raw operations (e.g. by-id and
+by-type-and-id) into one call; the ``_bindings`` table records, per verb, every
+backing op and how a wrapper call maps onto it. ``_select`` picks the
+most-specific binding whose required args are all present; ``_to_raw`` renames
+wrapper params to the chosen op's raw names (and ``body`` to its raw body-param)
+and coerces enum strings.
+"""
+
+from __future__ import annotations
+
+import inspect
+from typing import Any, ClassVar
+{% for imp in imports %}from ..{{ imp[0] }} import {{ imp[1] }}
+{% endfor %}{% for o in objects %}from ..api.{{ o.api_module }} import {{ o.api_cls }}
+{% endfor %}{% if has_pagination %}from .pagination import paginate
+{% endif %}
+
+{% for o in objects %}
+class {{ o.classname }}:
+    """Typed wrapper for ``{{ o.attr }}`` (backed by ``{{ o.api_cls }}``)."""
+
+    _bindings: ClassVar[dict[str, list[dict[str, Any]]]] = {{ o.bindings_literal }}
+
+    def __init__(self, api: {{ o.api_cls }}) -> None:
+        self._api = api
+{% for m in o.methods %}
+    def {{ m.name }}(self, {{ m.sig }}) -> {{ m.return_expr }}:
+        """{{ m.docstring }}"""
+{% if m.is_list %}        return self._list("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }}, all_pages)
+{% elif m.get_unwrap %}        return self._fetch("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }})
+{% else %}        return self._call("{{ m.name }}", {{ m.present_expr }}, {{ m.call_dict }})
+{% endif %}{% endfor %}
+    def _select(self, verb: str, present: set[str]) -> dict[str, Any]:
+        cands = [b for b in self._bindings[verb] if set(b["requires"]) <= present]
+        if not cands:
+            raise ValueError(f"{verb}: missing required arg(s)")
+        return max(cands, key=lambda b: len(b["requires"]))
+
+    def _to_raw(self, kwargs: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+        raw: dict[str, Any] = {}
+        enums = b["enums"]
+        for wrapper_name, raw_name in b["param_map"].items():
+            value = kwargs.get(wrapper_name)
+            if value is None:
+                continue
+            if wrapper_name in enums and isinstance(value, str):
+                value = globals()[enums[wrapper_name]](value)
+            raw[raw_name] = value
+        if b["body"] is not None and kwargs.get("body") is not None:
+            raw[b["body"]] = kwargs["body"]
+        return raw
+
+    def _call(self, verb: str, present: set[str], kwargs: dict[str, Any]) -> Any:
+        b = self._select(verb, present)
+        return getattr(self._api, b["raw_method"])(**self._to_raw(kwargs, b))
+
+    def _fetch(self, verb: str, present: set[str], kwargs: dict[str, Any]) -> Any:
+        return self._call(verb, present, kwargs)
+
+    def _list(
+        self, verb: str, present: set[str], kwargs: dict[str, Any], all_pages: bool
+    ) -> Any:
+        b = self._select(verb, present)
+        fn = getattr(self._api, b["raw_method"])
+        raw = self._to_raw(kwargs, b)
+        page = fn(**raw)
+        if not all_pages:
+            return page
+{% if has_pagination %}        items = list(paginate(fn, **raw))
+        return page.model_copy(update={"data": items})
+{% else %}        return page
+{% endif %}
+    def _serialize(self, verb: str, **kwargs: Any) -> Any:
+        present = {k for k, v in kwargs.items() if v is not None}
+        b = self._select(verb, present)
+        fn = getattr(self._api, b["serialize_name"])
+        params = {
+            k: (0 if k == "_host_index" else None)
+            for k in inspect.signature(fn).parameters
+            if k != "self"
+        }
+        params.update(self._to_raw(kwargs, b))
+        return fn(**params)
+
+{% endfor %}

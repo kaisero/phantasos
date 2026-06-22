@@ -5,7 +5,11 @@ import enum
 
 from pydantic import BaseModel, Field, StrictBool, StrictStr
 
-from phantasos.generator.sdk.examples import synthesize_body
+from phantasos.generator.sdk.examples import (
+    assemble_reference_docstring,
+    reference_example,
+    synthesize_body,
+)
 
 
 # A real str-enum (mirrors the generated SDK's LenientStrEnum, which is a
@@ -92,3 +96,126 @@ def test_cycle_guard_terminates() -> None:
     A.model_rebuild()
     out = synthesize_body(A)
     assert out == "A(\n    nxt=A(...),\n)"
+
+
+# ---------------------------------------------------------------------------
+# Step 3b: _enum_literal escaping
+# ---------------------------------------------------------------------------
+
+
+def test_enum_first_value_with_quote_is_escaped() -> None:
+    class Tricky(str, enum.Enum):  # noqa: UP042
+        FANCY = 'say "hi"'
+
+    class Body(BaseModel):
+        kind: Tricky
+
+    out = synthesize_body(Body)
+    # must be valid Python — the quote is escaped, not raw
+    import ast
+
+    ast.parse(out)
+    assert r'"say \"hi\""' in out or "'say \"hi\"'" in out
+
+
+# ---------------------------------------------------------------------------
+# Task 2: reference_example + assemble_reference_docstring
+# ---------------------------------------------------------------------------
+
+
+class AllOptional(BaseModel):  # mirrors a PATCH body: nothing required
+    name: str | None = None
+    note: str | None = None
+
+
+def test_reference_example_create_includes_body_and_client_path() -> None:
+    ex = reference_example(
+        attr="custom_app",
+        method="create",
+        path_args=[],
+        body_model=CustomApp,
+    )
+    assert ex is not None
+    assert ex.startswith("**Example:**\n\n```python\n")
+    assert "client.custom_app.create(" in ex
+    assert "body=CustomApp(" in ex
+    assert ex.rstrip().endswith("```")
+
+
+def test_reference_example_path_only_op_shows_client_call() -> None:
+    ex = reference_example(
+        attr="custom_app",
+        method="get",
+        path_args=[("id", "<id>")],
+        body_model=None,
+    )
+    assert ex == (
+        '**Example:**\n\n```python\nclient.custom_app.get(\n    id="<id>",\n)\n```'
+    )
+
+
+def test_reference_example_list_no_args() -> None:
+    ex = reference_example(
+        attr="custom_app",
+        method="list",
+        path_args=[],
+        body_model=None,
+    )
+    assert ex == "**Example:**\n\n```python\nclient.custom_app.list()\n```"
+
+
+def test_reference_example_all_optional_body_shows_nav_line_with_hint() -> None:
+    # D2 (updated): an empty all-optional body is NOT suppressed — show the nav
+    # line + an empty, valid body + an optionality hint.
+    ex = reference_example(
+        attr="custom_app",
+        method="update",
+        path_args=[("id", "<id>")],
+        body_model=AllOptional,
+    )
+    assert ex is not None
+    assert "client.custom_app.update(" in ex
+    assert 'id="<id>"' in ex
+    assert "body=AllOptional()" in ex
+    assert "# all fields optional" in ex
+    # the empty body must be valid Python (strip the markdown fence, then parse)
+    import ast
+
+    code = ex.split("```python\n", 1)[1].rsplit("\n```", 1)[0]
+    ast.parse(code)
+
+
+def test_reference_example_override_is_used_verbatim() -> None:
+    # D6: an authored override is shown even when the synthesized body would be empty.
+    override = (
+        'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))'
+    )
+    ex = reference_example(
+        attr="custom_app",
+        method="update",
+        path_args=[("id", "<id>")],
+        body_model=AllOptional,
+        override=override,
+    )
+    assert ex == (
+        "**Example:**\n\n```python\n"
+        'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))\n'
+        "```"
+    )
+
+
+def test_assemble_docstring_single_line_when_no_example() -> None:
+    assert assemble_reference_docstring("Delete a thing.", None) == "Delete a thing."
+
+
+def test_assemble_docstring_indents_continuation_to_eight_spaces() -> None:
+    doc = assemble_reference_docstring(
+        "Create a thing.",
+        "**Example:**\n\n```python\nclient.x.create()\n```",
+    )
+    lines = doc.split("\n")
+    # summary stays flush (line 1); blank lines not indented; continuation +8 spaces
+    assert lines[0] == "Create a thing."
+    assert lines[1] == ""
+    assert lines[2] == "        **Example:**"
+    assert "        client.x.create()" in lines

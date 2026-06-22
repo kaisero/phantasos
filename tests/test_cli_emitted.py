@@ -8,9 +8,8 @@ from typing import Any
 import pytest
 
 from phantasos.config import ScmOAuth
-from phantasos.generator.cli.classify import build_cli_ir
+from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping, VariantMap
-from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
@@ -34,7 +33,7 @@ _FAKESDK_CLI_CONFIG = CliConfig(
 @pytest.fixture
 def emitted(tmp_path: Path) -> Iterator[Path]:
     """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
-    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     sys.path.insert(0, str(tmp_path))
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
@@ -93,7 +92,7 @@ def emitted_auth(tmp_path: Path) -> Iterator[Path]:
     """Like `emitted`, but rendered WITH an auth component so the IR carries
     credential_fields (client_id/client_secret/scope/base_url). Importable as
     `fakesdk_cli` (env_prefix FAKESDK)."""
-    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
     render_cli(
         ir,
         package="fakesdk_cli",
@@ -286,22 +285,42 @@ def test_config_bad_bool_env_diagnostics(
     assert "✖" not in err
 
 
+class _ListResult:
+    """Envelope-shaped list result so the runtime's --all unwrap (result.data)
+    and table rendering (items_field) both work against the fake. Carries a
+    `model_dump` so the JSON/YAML renderer serializes it cleanly (mirrors a real
+    pydantic List*200Response)."""
+
+    def __init__(self, data: list[Any]) -> None:
+        self.data = data
+        self.page_info = None
+
+    def model_dump(self, *a: Any, **k: Any) -> dict[str, Any]:
+        return {"data": self.data, "page_info": self.page_info}
+
+
 def _fake_client(recorder: list[Any]) -> tuple[Any, type]:
-    """A stand-in matching the fixture facade shape; records calls into `recorder`."""
+    """A stand-in matching the WRAPPER facade shape (post-4.2 dispatch): each
+    object attr (`widget`/`gizmo`/`thing`, singular) is a recorder exposing clean
+    verb methods (`create`/`get`/`list`/`update`/`delete`/`suspend`/`revoke`).
+    Records `(clean_method, kwargs)` into `recorder` — the body arrives under the
+    `body=` kwarg, mirroring the typed wrapper surface."""
     import fakesdk.extras.facade as facade
 
     class _Rec:
         def __getattr__(self, name: str) -> Any:
-            def _call(**kw: Any) -> dict[str, Any]:
+            def _call(*, all_pages: bool = False, **kw: Any) -> Any:
                 recorder.append((name, kw))
+                if name == "list":
+                    return _ListResult([{"id": "1"}])
                 return {"id": kw.get("id", "new")}
 
             return _call
 
     class _FakeClientCls:
-        widgets = _Rec()
-        gizmos = _Rec()
-        things = _Rec()
+        widget = _Rec()
+        gizmo = _Rec()
+        thing = _Rec()
 
         def paginate(self, method: Any, **kw: Any) -> Iterator[Any]:
             return iter(method(**kw) or [])
@@ -337,8 +356,9 @@ def test_runtime_create_vs_patch(
         dry_run=False,
         verbose=False,
     )
-    assert calls[0][0] == "create_widget"
-    assert calls[1][0] == "patch_widget" and calls[1][1].get("id") == "w9"
+    # Wrapper surface: clean verb on the `widget` object; PATCH backs `update`.
+    assert calls[0][0] == "create"
+    assert calls[1][0] == "update" and calls[1][1].get("id") == "w9"
 
 
 def test_runtime_variant_wraps_body_and_fills_type(
@@ -362,9 +382,9 @@ def test_runtime_variant_wraps_body_and_fills_type(
         verbose=False,
     )
     name, kw = calls[0]
-    assert name == "create_gizmo"
+    assert name == "create"  # wrapper clean verb
     assert kw["type"] == "simple"  # H4: variant fills the path param
-    wrapped = kw["create_gizmo_input"]
+    wrapped = kw["body"]  # wrapper takes the request body under `body`
     assert isinstance(wrapped, models.CreateGizmoInput)  # H3: oneOf wrapper
     assert isinstance(wrapped.actual_instance, models.SimpleGizmoInput)
     assert wrapped.actual_instance.name == "x"
@@ -403,14 +423,14 @@ def test_runtime_friendly_error_on_sdk_exception(
     import fakesdk.extras.facade as facade
 
     class _Boom:
-        widgets = None
+        widget = None
 
         def __init__(self) -> None:
             class _W:
-                def create_widget(self, **kw: Any) -> Any:
+                def create(self, **kw: Any) -> Any:
                     raise exc_mod.OpenApiException("boom")
 
-            self.widgets = _W()
+            self.widget = _W()
 
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Boom()))
     import pytest as _pytest
@@ -446,7 +466,7 @@ def test_update_uses_patch(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> No
         dry_run=False,
         verbose=False,
     )
-    assert calls[0][0] == "patch_widget"  # NOT update_widget (PUT deferred)
+    assert calls[0][0] == "update"  # PATCH backs `update` (PUT replace deferred)
 
 
 def test_create_without_id_creates(
@@ -466,7 +486,7 @@ def test_create_without_id_creates(
         dry_run=False,
         verbose=False,
     )
-    assert calls[0][0] == "create_widget"
+    assert calls[0][0] == "create"
 
 
 def test_cli_runner_show_create_delete(
@@ -496,9 +516,10 @@ def test_cli_runner_show_create_delete(
     res4 = r.invoke(main.app, ["delete", "widget", "--id", "w1", "--output", "json"])
     assert res4.exit_code == 0
 
+    # All four commands dispatch on the `widget` wrapper via its clean verbs.
     kinds = [c[0] for c in calls]
-    assert "list_widgets" in kinds and "get_widget_by_id" in kinds
-    assert "create_widget" in kinds and "delete_widget_by_id" in kinds
+    assert "list" in kinds and "get" in kinds
+    assert "create" in kinds and "delete" in kinds
 
 
 def test_cli_runner_variant_and_nonvariant_under_object(
@@ -529,12 +550,13 @@ def test_cli_runner_variant_and_nonvariant_under_object(
     )
     assert res2.exit_code == 0, res2.output
 
+    # Both commands dispatch on the `gizmo` wrapper; PATCH backs `update`.
     names = [c[0] for c in calls]
-    assert "create_gizmo" in names  # from `create gizmo simple`
-    assert "patch_gizmo" in names  # from `update gizmo`
-    create_call = next(kw for n, kw in calls if n == "create_gizmo")
+    assert "create" in names  # from `create gizmo simple`
+    assert "update" in names  # from `update gizmo` (PATCH)
+    create_call = next(kw for n, kw in calls if n == "create")
     assert create_call["type"] == "simple"
-    assert isinstance(create_call["create_gizmo_input"], models.CreateGizmoInput)
+    assert isinstance(create_call["body"], models.CreateGizmoInput)
 
 
 def test_runtime_coerces_int_query(
@@ -554,7 +576,7 @@ def test_runtime_coerces_int_query(
         main.app, ["show", "widget", "--limit", "50", "--output", "json"]
     )
     assert res.exit_code == 0, res.output
-    _, kw = next((n, k) for n, k in calls if n == "list_widgets")
+    _, kw = next((n, k) for n, k in calls if n == "list")
     assert kw.get("limit") == 50 and isinstance(kw["limit"], int)  # coerced str->int
 
 
@@ -594,8 +616,8 @@ def test_bool_body_flag_accepts_value_and_coerces(
             ],
         )
         assert res.exit_code == 0, res.output
-        _, kw = next((n, k) for n, k in calls if n == "create_widget")
-        body = kw["widget_input"]
+        _, kw = next((n, k) for n, k in calls if n == "create")
+        body = kw["body"]
         assert body.enabled is expected  # coerced str -> real bool
 
 
@@ -697,10 +719,11 @@ def test_cli_runner_request_actions(
     )
     assert res2.exit_code == 0, res2.output
 
+    # request actions dispatch on the `widget` wrapper via their clean verbs.
     names = [c[0] for c in calls]
-    assert "suspend_widget" in names
-    assert "revoke_widget" in names
-    revoke_call = next(kw for n, kw in calls if n == "revoke_widget")
+    assert "suspend" in names
+    assert "revoke" in names
+    revoke_call = next(kw for n, kw in calls if n == "revoke")
     assert revoke_call.get("id") == "W9"
 
 
@@ -782,13 +805,13 @@ def test_env_file_is_auto_loaded(
 
     class _Rec:
         def __getattr__(self, name: str) -> Any:
-            def _call(**kw: Any) -> list[Any]:
+            def _call(*, all_pages: bool = False, **kw: Any) -> list[Any]:
                 return []
 
             return _call
 
     class _Client:
-        widgets = _Rec()
+        widget = _Rec()
 
         def paginate(self, m: Any, **kw: Any) -> Iterator[Any]:
             return iter([])
@@ -852,7 +875,7 @@ def test_update_body_fields_optional(
         main.app, ["update", "widget", "--id", "w1", "--output", "json"]
     )
     assert res.exit_code == 0, res.output  # no required body flags
-    assert any(n == "patch_widget" for n, _ in calls)
+    assert any(n == "update" for n, _ in calls)  # PATCH backs `update`
 
 
 def test_delete_requires_id(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -867,16 +890,15 @@ def test_delete_requires_id(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_scalar_body_flags_use_real_types(emitted: Path, tmp_path: Path) -> None:
-    from phantasos.generator.cli.classify import build_cli_ir
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.cliconfig import CliConfig
-    from phantasos.generator.cli.introspect import introspect
     from phantasos.generator.cli.render_cli import render_cli
 
-    inv = introspect("fakesdk", FIXTURE)
+    inv = cli_operations("fakesdk", FIXTURE)
     ir, _ = build_cli_ir(inv, CliConfig())
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
-        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
+        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
     ).read_text()
     # Scalar body flags get their REAL Python types (not bare str). Required ->
     # the bare scalar; optional -> the modern ``X | None`` union (matching what
@@ -1077,9 +1099,9 @@ def test_cli_runner_api_error_is_pretty(
     fexc: Any = fakesdk.exceptions
 
     class _Client:
-        class widgets:  # noqa: N801
+        class widget:  # noqa: N801  (object wrapper attr)
             @staticmethod
-            def create_widget(**kw: Any) -> Any:
+            def create(**kw: Any) -> Any:
                 raise fexc.ApiException(
                     status=400,
                     reason="Bad Request",
@@ -1159,15 +1181,14 @@ def test_cli_runner_delete_silent_when_none(
 def test_show_flags_grouped_into_panels(emitted: Path, tmp_path: Path) -> None:
     import re
 
-    from phantasos.generator.cli.classify import build_cli_ir
-    from phantasos.generator.cli.introspect import introspect
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.render_cli import render_cli
 
-    inv = introspect("fakesdk", FIXTURE)
+    inv = cli_operations("fakesdk", FIXTURE)
     ir, _ = build_cli_ir(inv, _FAKESDK_CLI_CONFIG)
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
-        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
+        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
     ).read_text()
     m = re.search(r"def show_widget\(.*?\n\) ->", code, re.S)
     assert m is not None
@@ -1227,13 +1248,14 @@ def test_dry_run_falls_back_without_serialize(
 
     main = importlib.import_module("fakesdk_cli.main")
     # create widget --dry-run: body is built (required fields by Typer), then
-    # _dry_run tries fakesdk.api_client (absent) -> falls back to call-ref string.
+    # _dry_run tries fakesdk.api_client (absent) -> falls back to call-ref string
+    # naming the wrapper dispatch target (`<object>.<verb>`).
     res = CliRunner().invoke(
         main.app,
         ["create", "widget", "--name", "w", "--priority", "1", "--dry-run"],
     )
     assert res.exit_code == 0, res.output
-    assert "DRY-RUN create:widget" in res.output and "create_widget" in res.output
+    assert "DRY-RUN create:widget" in res.output and "widget.create" in res.output
 
 
 def test_version_flag_wired(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1387,11 +1409,11 @@ def test_columns_flag_implies_table_and_renders_curated(
     )
 
     class _W:
-        def list_widgets(self, **kw: Any) -> Any:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> Any:
             return page
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
@@ -1416,11 +1438,11 @@ def test_show_without_columns_uses_ir_default_columns(
     page = models.WidgetList(data=[models.Widget(id="w1", name="alpha")])
 
     class _W:
-        def list_widgets(self, **kw: Any) -> Any:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> Any:
             return page
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
@@ -1443,7 +1465,7 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     ruff = shutil.which("ruff")
     if ruff is None:
         pytest.skip("ruff not on PATH")
-    ir = build_cli_ir(introspect("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     gen = tmp_path / "fakesdk_cli" / "_generated"
     res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
@@ -1474,12 +1496,12 @@ def test_query_default_is_injected_and_overridable(
     calls: list[Any] = []
 
     class _W:
-        def list_widgets(self, **kw: Any) -> list[Any]:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> list[Any]:
             calls.append(kw)
             return []
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
@@ -1519,19 +1541,17 @@ def test_injected_defaults_not_sent_to_get_binding(
 
     calls: list[Any] = []
 
-    class _W:  # STRICT get signature, like the real SDK's @validate_call methods
-        def get_widget_by_id(
-            self, id: str, configuration_version: Any = None
-        ) -> dict[str, Any]:
+    class _W:  # STRICT get signature, like the real SDK's wrapper methods
+        def get(self, id: str, configuration_version: Any = None) -> dict[str, Any]:
             calls.append({"id": id, "configuration_version": configuration_version})
             return {"id": id, "name": "x"}
 
-        def list_widgets(self, **kw: Any) -> list[Any]:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> list[Any]:
             calls.append(kw)
             return []
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
@@ -1554,7 +1574,7 @@ def test_model_body_defaults_still_not_rendered(emitted: Path) -> None:
     import pathlib
 
     src = (
-        pathlib.Path(emitted) / "fakesdk_cli" / "_generated" / "commands" / "widgets.py"
+        pathlib.Path(emitted) / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
     ).read_text(encoding="utf-8")
     mode_lines = [ln for ln in src.splitlines() if '"--mode"' in ln]
     assert mode_lines, "expected a --mode option in the emitted widgets module"
@@ -2241,7 +2261,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
     importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
 
     class _W:
-        def list_widgets(self, **kw: Any) -> list[Any]:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> list[Any]:
             import warnings
 
             warnings.warn(
@@ -2250,7 +2270,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
             return []
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     res = CliRunner().invoke(main.app, ["show", "widget", "--output", "json"])
@@ -2420,7 +2440,7 @@ def test_runtime_records_success_and_error(
         raise exc
 
     class _Failing:
-        widgets = type("W", (), {"get_widget_by_id": staticmethod(_boom)})()
+        widget = type("W", (), {"get": staticmethod(_boom)})()
 
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Failing()))
     with pytest.raises(SystemExit):
@@ -2431,7 +2451,7 @@ def test_runtime_records_success_and_error(
     ok, bad = entries
     assert ok["id"] == 1 and ok["status"] == "success"
     assert ok["command"] == "show widget --id w1"
-    assert ok["sdk_method"] == "widgets.get_widget_by_id"
+    assert ok["sdk_method"] == "widget.get"  # <object>.<clean verb>
     assert "http_status" not in ok and isinstance(ok["duration_ms"], int)
     assert "request_body" not in ok  # verbose off by default
     assert bad["status"] == "error" and bad["http_status"] == 404
@@ -2563,7 +2583,10 @@ def test_runtime_verbose_paginate_all_records_list_body(
 def _oag_fake_client(
     raise_exc: Exception | None = None, query: str = "?expand=1&tag=a&tag=b"
 ) -> tuple[Any, type]:
-    """Fake with the openapi-generator shape: methods route via api_client.call_api."""
+    """Fake with the openapi-generator + facade shape: the api_client lives on the
+    CLIENT (facade level), shared by every wrapper, and the typed `widget` wrapper
+    routes its `get` through `client.api_client.call_api`. The runtime now wraps
+    the facade-level call_api, so the capture sees the request."""
     import fakesdk.extras.facade as facade
 
     class _ApiClient:
@@ -2580,18 +2603,19 @@ def _oag_fake_client(
                 raise raise_exc
             return {"id": "w1"}
 
-    class _Widgets:
-        def __init__(self) -> None:
-            self.api_client = _ApiClient()
+    class _Widget:
+        def __init__(self, api_client: Any) -> None:
+            self._api_client = api_client
 
-        def get_widget_by_id(self, **kw: Any) -> dict[str, Any]:
-            return self.api_client.call_api(
+        def get(self, **kw: Any) -> Any:
+            return self._api_client.call_api(
                 "GET", f"https://api.example.com/v1/widgets/{kw['id']}{query}"
             )
 
     class _Client:
         def __init__(self) -> None:
-            self.widgets = _Widgets()
+            self.api_client = _ApiClient()
+            self.widget = _Widget(self.api_client)
 
     return facade, _Client
 
@@ -2611,8 +2635,8 @@ def test_history_captures_http_method_and_uri(
     # the URI is logged WITHOUT the query string — params live in http_params only
     assert entry["http_uri"] == "https://api.example.com/v1/widgets/w1"
     assert entry["http_params"] == {"expand": "1", "tag": ["a", "b"]}
-    # the call_api wrapper is restored after the call
-    assert client.widgets.api_client.call_api.__name__ == "call_api"
+    # the call_api wrapper is restored after the call (wrapped at the facade level)
+    assert client.api_client.call_api.__name__ == "call_api"
 
 
 def test_history_captures_http_fields_on_error(
@@ -3076,11 +3100,11 @@ def test_env_option_in_help_and_threads_selection(
     captured: dict[str, Any] = {}
 
     class _W:
-        def list_widgets(self, **kw: Any) -> list[Any]:
+        def list(self, *, all_pages: bool = False, **kw: Any) -> list[Any]:
             return []
 
     class _Client:
-        widgets = _W()
+        widget = _W()
 
         def paginate(self, m: Any, **kw: Any) -> Iterator[Any]:
             return iter([])
@@ -3801,5 +3825,5 @@ def test_show_id_only_with_id_still_dispatches_get(
         dry_run=False,
         verbose=False,
     )
-    assert calls and calls[0][0] == "get_thing"
+    assert calls and calls[0][0] == "get"  # wrapper clean verb
     assert calls[0][1].get("thing_id") == "t1"

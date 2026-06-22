@@ -1,0 +1,48 @@
+# nox.toml — product enrollment for phantasos's product-parametrized nox sessions.
+#
+# Each stage lists the products it builds/gates. Add a product to a stage's
+# `products` list once it is ready to be part of that stage's pipeline; the
+# noxfile reads this file (stdlib `tomllib`) and runs the stage generically over
+# its products — NO product name is hardcoded in noxfile.py.
+#
+#   smoke    — build each SDK end-to-end (generate -> vendor -> smoke).
+#   live     — build the SDK + run its live CRUD suite (real tenant; skips w/o creds).
+#   sdk-docs — build the SDK + its docs and run `mkdocs build --strict`.
+#
+# (phantasos's OWN site is the separate `docs`/`docs-serve` sessions and is not
+# governed here.)
+
+[smoke]
+products = ["prisma-browser", "adem", "posture"]
+
+[live]
+products = ["prisma-browser"]
+
+[sdk-docs]
+products = ["prisma-browser", "posture"]
+
+# Optional per-product fidelity assertions for `sdk-docs`. The generic check
+# (build --strict + `mkdocs build --strict` exit 0 + a rendered `reference/`)
+# runs for EVERY enrolled product; these add product-specific content guards.
+# `file` is relative to the built SDK's `site/` dir; give `contains` xor
+# `not_contains`. Products with no entries here are covered by the generic check
+# only (e.g. posture).
+[[sdk-docs.assert]]
+product = "prisma-browser"
+file = "reference/models/custom_application_input/index.html"
+contains = "Name of the application"          # griffe-pydantic renders field descriptions
+
+[[sdk-docs.assert]]
+product = "prisma-browser"
+file = "reference/models/create_or_replace_app_input/index.html"
+contains = "CustomApplicationInput"           # oneOf wrapper page links its variants
+
+[[sdk-docs.assert]]
+product = "prisma-browser"
+file = "guides/crud/index.html"
+contains = "Acme Wiki"                         # curated CRUD example body rendered
+
+[[sdk-docs.assert]]
+product = "prisma-browser"
+file = "guides/crud/index.html"
+not_contains = "CreateOrReplaceAppInput(...)"  # not the opaque oneOf placeholder

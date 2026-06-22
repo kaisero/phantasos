@@ -6,7 +6,7 @@ loader against a registry) and the config the matching Jinja template needs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -145,6 +145,20 @@ class RetryConfig(_Component):
     statuses: list[int] = [408, 429, 500, 502, 503, 504]
     respect_retry_after: bool = True
     template: str = "retry/jittered_retry.py.jinja"
+
+
+class OperationOverride(BaseModel):
+    """Declarative rename of a single SDK operation (keyed by ``resource.method``)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource: str | None = None
+    method: str | None = None
+    verb: Literal["create", "update", "delete", "show", "request"] | None = None
+    # Drop the op from the generated wrapper entirely (no wrapper method emitted,
+    # and the anchorless None-classified gate is NOT tripped for it). The SDK-side
+    # analog of ``cli.yml hide:`` — used for ops the SDK should not surface (e.g.
+    # multipart file uploads with no introspectable body, or full-replace PUTs).
+    hide: bool = False
 
 
 # Built-in strategy registries: category -> {type name: model}. The loader uses

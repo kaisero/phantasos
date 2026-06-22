@@ -15,6 +15,7 @@ from .config import (
     BUILTIN_FACADE,
     BUILTIN_PAGINATION,
     BUILTIN_RETRY,
+    OperationOverride,
 )
 
 _BASE_DEPS = [
@@ -49,17 +50,6 @@ class ProjectConfig(BaseModel):
     dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
 
 
-class DocsOperations(BaseModel):
-    """Optional per-verb override of the showcase resource's CRUD methods."""
-
-    model_config = ConfigDict(extra="forbid")
-    create: str | None = None
-    read: str | None = None
-    list: str | None = None
-    update: str | None = None
-    delete: str | None = None
-
-
 class DocsExamples(BaseModel):
     """Optional per-slot verbatim override of the showcase CRUD example block."""
 
@@ -78,7 +68,6 @@ class DocsConfig(BaseModel):
     showcase_resource: str
     showcase_variant: str | None = None
     site_name: str | None = None
-    operations: DocsOperations | None = None
     examples: DocsExamples | None = None
 
 
@@ -133,6 +122,7 @@ class ProductConfig(BaseModel):
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
+    operations: dict[str, OperationOverride] = Field(default_factory=dict)
     docs: DocsConfig | None = None
 
 

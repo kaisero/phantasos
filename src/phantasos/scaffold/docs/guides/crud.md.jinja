@@ -1,7 +1,7 @@
 {% if has_docs | default(false) %}# CRUD operations
 
-End-to-end create, read, update, and delete for the `{{ showcase.attr }}` resource. Browse
-the full operation list in the **[API Reference](../reference/)**.
+End-to-end create, read, update, and delete via the `client.{{ showcase.attr }}` wrapper.
+Browse the full operation list in the **[API Reference](../reference/)**.
 
 ```python
 from {{ package }}.extras.facade import Client

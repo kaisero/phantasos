@@ -1,6 +1,6 @@
 # sdk-generator
 
-Validated against 23ec64a on 2026-06-14 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
+Validated against 81e8207 on 2026-06-20 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
 
 ## Purpose & responsibilities
 
@@ -37,85 +37,110 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    A product `hooks.py::patch(pkg_dir)` runs after.
 4. **Render** — `render.vendor()` in `render.py` writes the selected component
    templates (auth/pagination/errors/facade/retry plus any `include:` files) into
-   `<package>/extras/`. At this point `facade._RESOURCES` exists in-process, so
-   the docs stage (4a) can run before the scaffold is written.
-   4a. **Docs** (config-gated) — when the product's `sdk.yml` has a `docs:` block,
-   `docs.build_docs_context()` in `generator/sdk/docs.py` runs a scoped,
-   in-process `introspect()` of the configured `showcase_resource`, classifies the
-   resource's operations into CRUD slots via `classify_operations()`, and shapes
-   a `docs_context` dict (via `shape_context()`) containing `has_docs`,
-   `site_name`, `showcase` (per-verb method names, required args, return models,
-   `body_code`, and `example_override`), `credentials` (from
-   `loaded.auth.credential_fields()`), and `show_pagination_guide`. Products
-   without a `docs:` block skip this step entirely — `has_docs` is `False` in the
-   scaffold context and all doc templates gate out.
+   `<package>/extras/`. When the facade is enabled, vendoring happens in **two
+   passes**: pass 1 emits a raw-only `facade.py` (exposes only `_RESOURCES`, no
+   wrapper imports) so the package is importable by `introspect()`; then
+   `_vendor_resources()` introspects the pass-1 package via `generator/opmodel/`
+   to build the wrapper context (`build_wrapper_context`), renders
+   `extras/resources.py` (the object-granular typed resource wrappers); finally
+   pass 2 re-renders `facade.py` in full — binding `client.<object>` to the typed
+   wrappers via `_WRAPPERS`, while retaining `_RESOURCES` for backward
+   compatibility. `_invalidate_pkg_modules` drops stale pass-1 module objects from
+   `sys.modules` so the next import re-reads the pass-2 facade from disk. Then
+   `scaffold.render_scaffold()` (in the sibling `scaffold` module,
+   `phantasos/scaffold.py` — not this package) lays down the project scaffold,
+   with `products/<name>/overrides/` winning over the built-in templates.
 
-   The `docs:` block in `sdk.yml` accepts two optional keys that sharpen the
-   generated docs:
-
-   - **`showcase_variant`** — for oneOf body params, names the concrete variant
-     model to use in the synthesized example (e.g. `CustomApplicationInput`
-     instead of the opaque wrapper).  Consumed by `build_docs_context()` →
-     `shape_context()` → passed as `variant` to `synthesize_body()`.
-   - **`examples.<slot>`** — a verbatim, per-operation example string (YAML block
-     scalar) that completely replaces the synthesized code block for that CRUD slot
-     (`create`, `read`, `update`, `delete`).  Set in `sdk.yml` as
-     `docs.examples.create: |  …`; consumed via the `DocsExamples` pydantic model
-     in `productconfig.py`.  If set, `example_override` in the context is truthy
-     and the CRUD template emits it literally instead of the synthesized call.
-
-   **`examples.py` synthesizer** — `synthesize_body(model, *, variant=None) -> str`
-   imports the live pydantic model class from the built SDK, reflects on its
-   required fields, and returns a real-shaped constructor expression (e.g.
-   `CustomApplicationInput(\n    name="<name>",\n    type="custom",\n    urls=[…],\n)`).
-   The `variant` parameter resolves through the oneOf `actual_instance` annotation
-   to pick the right concrete class when the body param is a wrapper.
-
-   **Reference generator** — `scripts/gen_ref_pages.py.jinja` (rendered into the
-   SDK as `docs/scripts/gen_ref_pages.py`) does two things beyond emitting one
-   mkdocstrings page per module:
-
-   1. **griffe-pydantic** — the generated `mkdocs.yml` includes `griffe_pydantic`
-      in the mkdocstrings `extensions:` list plus `show_if_no_docstring: true` and
-      an aggressive `filters:` blocklist that hides OAG scaffolding fields
-      (`actual_instance`, `one_of_schemas`, `oneof_schema_*`, etc.) while keeping
-      the user-facing pydantic fields.  griffe-pydantic renders each field's
-      `description=` (from the OAS spec) as a proper docstring entry, so the
-      reference page for a model like `CustomApplicationInput` shows
-      "Name of the application" under the `name` field.
-   2. **oneOf wrapper variant-link pages** — when a models/ module defines a
-      pydantic model with an `actual_instance: Union[A, B, …]` field (the OAG
-      oneOf wrapper pattern), `_oneof_variants()` extracts the union members and
-      the page for that module gets an appended "One of the following variants:"
-      list with relative links to each variant's own reference page.  This makes
-      `CreateOrReplaceAppInput` link directly to `CustomApplicationInput` (and any
-      other variants) rather than documenting the opaque wrapper internals.
-
-   Then `scaffold.render_scaffold()` (in the sibling `scaffold` module,
-   `phantasos/scaffold.py` — not this package) lays down the project scaffold with
-   `{**loaded.context, **docs_context}` as the context (just `loaded.context` for
-   non-docs products), and `products/<name>/overrides/` winning over the built-in
-   templates.
-   The documentation templates live under `src/phantasos/scaffold/docs/` — Home,
-   Getting Started, Architecture, authentication/pagination/CRUD guides, a
-   `scripts/gen_ref_pages.py` (mkdocs-gen-files + literate-nav reference
-   generator), and a `_hooks.py` MkDocs logging filter that silences griffe's
-   benign `Duplicate parameter information` warnings so `mkdocs build --strict`
-   passes against OAG's sphinx docstrings. All templates are gated on
-   `{% if has_docs | default(false) %}` (mandatory `| default(false)` because the
-   scaffold engine uses `StrictUndefined`); when `has_docs` is false they render
-   to whitespace and `render_scaffold` skips the file. The `nox -s sdk-docs`
-   session is the integration gate: it performs a real SDK build, then runs
-   `mkdocs build --strict` in the output directory and asserts: (A) a leaf model
-   page (`custom_application_input`) contains a real field description
-   (griffe-pydantic working); (B) the `create_or_replace_app_input` wrapper page
-   links `CustomApplicationInput` (oneOf variant pages working); (C) the CRUD
-   guide's create block contains the curated value "Acme Wiki" and does not contain
-   the opaque `CreateOrReplaceAppInput(...)` placeholder.
+   > **Docs stage (config-gated; wrapper-driven).** When a product's `sdk.yml`
+   > carries a `docs:` block, `build()` runs a docs stage between vendor and
+   > scaffold (`build.py:~97`, only if `cfg.docs is not None`): it calls
+   > `docs.build_docs_context(loaded, project_dir)` and merges the result into the
+   > render context, so the gated `scaffold/docs/*.jinja` templates emit a
+   > strictly-building MkDocs-Material site (Home, Getting-Started, Architecture,
+   > Guides {auth, pagination, CRUD}, mkdocstrings Reference). The whole site
+   > teaches the **wrapper surface** `client.<object>.<clean_verb>(...)`, never the
+   > raw `*Api`. `build_docs_context` introspects the SDK's `_WRAPPERS` registry
+   > via `cli_operations` (which stamps each op with its
+   > `object_attr`/`clean_method`/`has_body` routing); the author-named
+   > `docs.showcase_resource` is a **singular wrapper-object key** (e.g.
+   > `application`, validated against `_WRAPPERS`, fail-fast). `classify_operations`
+   > maps each op's CLEAN verb to a CRUD slot directly (create/get→read/list/
+   > update/delete) — no raw-prefix verb heuristic — picking the fewest-path-params
+   > binding per verb; `_op_dict` emits the wrapper call shape (request body under
+   > the `body` kwarg + required path params). The `examples.py` synthesizer
+   > (surface-independent) turns each body model into a real-shaped constructor;
+   > `docs.examples.<slot>` can override a slot verbatim. The API Reference
+   > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
+   > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
+   > raw `api/` classes or the `extras` helpers (those are taught in the guides).
+   > Per-method wrapper docstrings carry, beyond each op `summary`, a synthesized
+   > `**Example:**` block (`examples.reference_example`, threaded via `wrapper.py`'s
+   > `_reference_example_for`, gated on `docs`): the `client.<object>.<verb>(...)`
+   > call with required path args + a `body=` from `synthesize_body`. An empty
+   > all-optional body renders `body=Model()  # all fields optional` (not suppressed);
+   > the showcase resource honors `docs.showcase_variant` and `docs.examples.<slot>`
+   > (shown verbatim, even for `update`). The reference pages also render the typed
+   > signature with clickable request-body model cross-refs via three `mkdocs.yml`
+   > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
+   > `signature_crossrefs`). The `!^_` filter hides wrapper internals
+   > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
+   > real prisma-browser SDK with docs ON and asserts `mkdocs build --strict`.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
    `run=False`) import-walks every module in an isolated `pip install`ed venv.
+
+**Shared op-model (`generator/opmodel/`).** The classifier core and introspector
+that both SDK-gen and CLI-gen consume live in a stage-agnostic sibling package
+(`generator/opmodel/`), NOT inside `generator/cli/`. It provides:
+`classify.classify_name` (prefix-heuristic: `create_` / `patch_` / `delete_` /
+`get_` / `list_` → verb + sub_verb + singularized object), `classify.OBJECT_OF`
+(CRUD object for a raw method, never guesses for non-CRUD ops),
+`classify.detect_id_param`, `introspect.introspect` (import-walks an
+`*Api`-registry and returns an `OperationInventory`), and the `inventory` types
+(`OperationInfo`, `ParamInfo`, `FieldInfo`, `OperationInventory`). The
+`generator/cli/introspect.py` and `generator/cli/inventory.py` modules are now
+thin backward-compatibility shims that re-export from `generator/opmodel/`.
+
+**Typed wrapper context (`wrapper.py`).** Building on the `operations:` override
+validator, `wrapper.build_wrapper_context(inv, overrides, discovered)` produces the
+in-memory render context for the typed `client.<object>.<verb>(...)` wrappers
+(template rendering lands later). It groups ops by their **classified object**
+(`classify_name(...).object`), not by the raw `op.resource` api-class attr — one
+`*Api` class backs several objects — and resolves each object's backing api class by
+joining `op.resource` against `render._discover_resources()`. Each `(object, method)`
+unions the params of every backing raw op into one `MethodView` with a list of
+`Binding`s (multi-binding: e.g. `application.get` collapses `get_application_by_id` +
+`get_application_by_type_and_id`); every unioned non-body param is forced optional and
+the body param is renamed to `body`. `ParamView` annotations come from the **live
+introspected types** (`typing.get_type_hints(method, include_extras=False)`), never
+from the unparseable `ParamInfo.annotation` repr. None-classified ops (PUT `update_*`
+-> `replace`; verb-phrase actions like `suspend_devices` -> `device.suspend`) attach to
+an EXISTING CRUD object via verb-token stripping — or, when anchorless (`*_positions`,
+`publish_draft_configuration`), require an explicit `sdk.yml operations:` override or the
+build fails. `_gate_collisions` rejects a duplicate method name within one object.
+
+Beyond the structural `MethodView`/`Binding` fields, `build_wrapper_context`
+precomputes the **render-ready strings** the resource template interpolates
+verbatim (the template stays a dumb interpolator): per `MethodView` a typed `sig`
+(every param optional; `list` adds `*, all_pages: bool = False`), a `return_expr`,
+a `present_expr` (the `{...}` set of non-None args, driving binding selection) and
+a `call_dict`; per `ObjectView` a `bindings_literal` — the `_bindings` class-var
+dict (`verb -> [binding-dict]`) where each binding records its `raw_method`,
+`serialize_name`, `requires`, the wrapper→raw `param_map`, the raw `body` param
+name, and the `enums` (wrapper-name → enum class) to coerce. `_classname` emits
+`<PascalObject>Resource` (e.g. `ApplicationResource`). The emitted
+`components/facade/resource.py.jinja` builds one `<Object>Resource` per object
+whose clean typed methods delegate to generic `_select`/`_to_raw`/`_call`/`_fetch`/
+`_list` helpers: `_select` picks the most-specific binding whose `requires ⊆
+present` (so `list`/`get`/`delete` dispatch by which args are present, never
+`bindings[0]`), `_to_raw` renames + enum-coerces onto the chosen op's raw params
+(routing a discriminator like `type` to path on `*_by_type` vs query on the plain
+op, since each binding's `param_map` is its own accepted surface), and
+`list(all_pages=True)` paginates via the vendored `paginate(...)` and returns
+`page.model_copy(update={"data": items})`. Raw method names appear only inside
+`_bindings`. `_serialize(verb, **kwargs)` is the dry-run twin (calls the op's
+`*_serialize`).
 
 ## Build / run pointers
 
@@ -127,7 +152,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 
 <!-- GENERATED:module-map -->
 - `build.py` — SDK build orchestrator: preprocess -> generate -> patch -> vendor -> scaffold.
-- `docs.py` — Scoped introspect + verb classification + docs context for generated SDKs.
+- `docs.py` — Wrapper-driven docs context for generated SDKs.
 - `examples.py` — Synthesize illustrative constructor examples from live pydantic models.
 - `generate.py` — Run OpenAPI Generator (python) — jar fetch/verify + invocation.
 - `patches.py` — Generic codegen-bug patches for OpenAPI Generator (python) output.
@@ -135,6 +160,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
 - `render.py` — Vendor step: render selected component templates into the SDK's extras/.
 - `smoke.py` — Smoke check: import every generated module (in isolation) and count operations.
+- `wrapper.py` — SDK operation-override helpers + object-granular wrapper render context.
 <!-- /GENERATED:module-map -->
 
 ## Public API
@@ -143,11 +169,13 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 - `build.py`
   - `build(loaded, run_smoke)`
 - `docs.py`
-  - `classify_operations(operations, resource, overrides)` — Map each CRUD slot to its canonical OperationInfo (present slots only).
-  - `shape_context(inventory, resource, site_name, auth, overrides, has_pagination, resolve, variant, examples)`
-  - `build_docs_context(loaded, project_dir)` — Scoped introspect of the showcase resource -> docs context dict.
+  - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
+  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples)`
+  - `build_docs_context(loaded, project_dir)` — Wrapper introspect of the showcase object -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
+  - `reference_example(attr, method, path_args, body_model, variant, override)` — The `**Example:**` block for one wrapper op (always returns a block here).
+  - `assemble_reference_docstring(summary, example)` — Combine the one-line summary with an example block into a docstring body.
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
@@ -173,10 +201,17 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
   - `cache_dir()` — Shared on-disk cache for the OAG jar and the managed JRE.
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
-  - `vendor(pkg_dir, loaded)`
+  - `vendor(pkg_dir, loaded, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.
+- `wrapper.py`
+  - `validate_override_keys(inv, overrides)` — Raise ``ValueError`` if any override key is not a valid ``resource.method``.
+  - class `ParamView` — One render-ready parameter of a wrapper method.
+  - class `Binding` — One raw op backing a (possibly multi-binding) wrapper method.
+  - class `MethodView` — One typed wrapper method on an object (``client.<object>.<name>(...)``).
+  - class `ObjectView` — A typed wrapper class for one classified object.
+  - `build_wrapper_context(inv, overrides, discovered, docs)` — Build the object-granular wrapper render context for a built SDK.
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants
@@ -202,6 +237,7 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 
 ## See also
 
-- Specs: `docs/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`
+- Specs: `docs/specs/2026-06-12-sdk-generator-package-and-cli-restructure-design.md`,
+  `docs/specs/2026-06-19-cli-on-clean-resource-wrapper-design.md`
 - Decisions: (added in the scale increment) `decisions.md`
 - Rules: `CLAUDE.md`

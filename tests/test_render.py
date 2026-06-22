@@ -1,12 +1,18 @@
 """Unit tests for the vendor/render step."""
 
+import ast
 import json
 import sys
 import types
 from pathlib import Path
 
+import pytest
+
 from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
+
+_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+_PKG = _SDK / "prisma_browser"
 
 _EXC_NAMES = (
     "ApiException",
@@ -176,22 +182,25 @@ def test_vendor_full_components(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
-    written = render.vendor(pkg, loaded)
+    written = render.vendor(pkg, loaded, wrapper_objects=[])
 
     assert set(written) == {
         "auth.py",
         "pagination.py",
         "errors.py",
         "facade.py",
+        "resources.py",
         "retry.py",
         "__init__.py",
     }
     extras = pkg / "extras"
     for name in written:
         assert (extras / name).exists()
-    # facade binds the discovered resources and references the auth/pagination modules
+    # facade retains the raw `_RESOURCES` map (introspection target) and
+    # references the auth/pagination modules
     facade_src = (extras / "facade.py").read_text(encoding="utf-8")
-    assert "things: ThingsApi" in facade_src
+    assert '"things": ThingsApi' in facade_src
+    assert "_RESOURCES = {" in facade_src and "_WRAPPERS = {" in facade_src
     assert "from .auth import" in facade_src
     # auth template inlined the config class name
     auth_src = (extras / "auth.py").read_text(encoding="utf-8")
@@ -212,13 +221,13 @@ def test_vendor_facade_only(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
-    written = render.vendor(pkg, loaded)
+    written = render.vendor(pkg, loaded, wrapper_objects=[])
 
-    assert set(written) == {"facade.py", "retry.py", "__init__.py"}
+    assert set(written) == {"facade.py", "resources.py", "retry.py", "__init__.py"}
     facade_src = (pkg / "extras" / "facade.py").read_text(encoding="utf-8")
     assert "from .auth" not in facade_src
     assert "from .pagination" not in facade_src
-    assert "things: ThingsApi" in facade_src
+    assert '"things": ThingsApi' in facade_src
 
 
 def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
@@ -242,7 +251,7 @@ def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
-    written = render.vendor(pkg, loaded)
+    written = render.vendor(pkg, loaded, wrapper_objects=[])
     assert "facade.py" in written
     assert (pkg / "extras" / "banner.py").read_text() == "BANNER = 'acme 1.0.0'\n"
 
@@ -332,7 +341,7 @@ def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
         "utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
-    render.vendor(pkg, loaded)
+    render.vendor(pkg, loaded, wrapper_objects=[])
     auth_src = (pkg / "extras" / "auth.py").read_text()
     facade_src = (pkg / "extras" / "facade.py").read_text()
     assert "from .retry import default_retry" in auth_src
@@ -364,4 +373,161 @@ def test_include_rejects_path_escape(tmp_path: Path) -> None:
     )
     loaded = load_product(str(prod / "sdk.yml"))
     with pytest.raises(ValueError, match="escapes"):
-        render.vendor(pkg, loaded)
+        render.vendor(pkg, loaded, wrapper_objects=[])
+
+
+def _emit_resources(tmp_path: Path) -> str:
+    """Render extras/resources.py for the REAL prisma-browser wrapper context."""
+    from phantasos.generator.opmodel import introspect
+    from phantasos.generator.sdk.render import _discover_resources
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+
+    inv = introspect("prisma_browser", _SDK)
+    overrides = load_product("prisma-browser").config.operations
+    objects = build_wrapper_context(inv, overrides, _discover_resources(_PKG))
+
+    pkg = tmp_path / "out" / "prisma_browser"
+    (pkg / "api").mkdir(parents=True)
+    init = (_PKG / "api" / "__init__.py").read_text(encoding="utf-8")
+    (pkg / "api" / "__init__.py").write_text(init, encoding="utf-8")
+    prod = tmp_path / "products" / "pb"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: prisma_browser\noutput: ../../out/prisma_browser\nbase_url: b\n"
+        "pagination: {type: cursor}\nfacade: true\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+    written = render.vendor(pkg, loaded, wrapper_objects=objects)
+    assert "resources.py" in written
+    return (pkg / "extras" / "resources.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
+def test_resources_emitted(tmp_path: Path) -> None:
+    src = _emit_resources(tmp_path)
+    # Typed wrapper class named <Object>Resource (NOT <Object>WrapperResource).
+    assert "class ApplicationResource" in src
+    assert "WrapperResource" not in src
+    # The dumb-template seams: _bindings table + generated _serialize twin.
+    assert "_bindings: ClassVar" in src
+    assert "def _serialize(self" in src
+    # all_pages toggle on list + the page-rewrap (not a hard-coded total/offset).
+    assert "all_pages: bool = False" in src
+    assert "model_copy(update=" in src
+    # Raw method names live ONLY inside _bindings / dispatch — never as public defs.
+    assert "def get_application_by_id" not in src
+    assert "def list_applications" not in src
+    assert "'raw_method': 'get_application_by_id'" in src
+    # Every generated method carries a one-line docstring.
+    assert '"""Get a' in src or '"""List' in src or '"""Create' in src
+    # Parses clean.
+    ast.parse(src)
+
+
+@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
+def test_resources_multibinding_dispatch_via_select(tmp_path: Path) -> None:
+    src = _emit_resources(tmp_path)
+    # application.list collapses two raw ops; the by-type op routes `type` to path,
+    # the plain op to query — both must appear in _bindings so _select can choose.
+    assert "'raw_method': 'list_applications'" in src
+    assert "'raw_method': 'list_applications_by_type'" in src
+    # Multi-binding list/get/delete dispatch through _select, not bindings[0].
+    assert "def _select(self" in src
+    assert 'max(cands, key=lambda b: len(b["requires"]))' in src
+    # The list method delegates to the generic _list helper (with all_pages).
+    assert 'return self._list("list"' in src
+    # A returning get unwraps via _fetch; a delete (no return) via _call.
+    assert 'return self._fetch("get"' in src
+    assert 'return self._call("delete"' in src
+
+
+def _purge_pb_extras() -> None:
+    """Drop any cached ``prisma_browser.extras{,.facade,.resources}`` modules.
+
+    Both this helper and ``vendor`` rewrite ``facade.py``/``resources.py`` on the
+    REAL package on disk, so a later import must re-read the new files, never the
+    stale cache.
+    """
+    import sys
+
+    for name in list(sys.modules):
+        if name == "prisma_browser.extras" or name.startswith("prisma_browser.extras."):
+            del sys.modules[name]
+
+
+@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
+def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
+    """Two-pass facade: ``client.<object>`` is a typed wrapper, raw ``*Api`` hidden.
+
+    Vendors the full two-pass facade into the REAL package (so the emitted
+    relative/absolute imports resolve) and restores the two touched files after.
+    Asserts the wrapper surface, the shared ``*Api`` across sibling objects, and
+    that BOTH ``_RESOURCES`` (raw map, introspection target) and ``_WRAPPERS``
+    (object map) live on the facade module.
+    """
+    import importlib
+    import sys
+
+    from phantasos.generator.opmodel import introspect
+    from phantasos.generator.sdk.render import _discover_resources
+    from phantasos.generator.sdk.wrapper import build_wrapper_context
+
+    inv = introspect("prisma_browser", _SDK)
+    overrides = load_product("prisma-browser").config.operations
+    objects = build_wrapper_context(inv, overrides, _discover_resources(_PKG))
+
+    prod = tmp_path / "products" / "pb"
+    prod.mkdir(parents=True)
+    (prod / "openapi.yml").write_text(
+        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
+    )
+    (prod / "sdk.yml").write_text(
+        "package: prisma_browser\noutput: ../../out/prisma_browser\nbase_url: b\n"
+        "pagination: {type: cursor}\nfacade: true\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(prod / "sdk.yml"))
+
+    extras = _PKG / "extras"
+    backups = {
+        name: (extras / name).read_text(encoding="utf-8")
+        for name in ("facade.py", "resources.py")
+    }
+    if str(_SDK) not in sys.path:
+        sys.path.insert(0, str(_SDK))
+    try:
+        render.vendor(_PKG, loaded, wrapper_objects=objects)
+        _purge_pb_extras()
+        facade = importlib.import_module("prisma_browser.extras.facade")
+
+        class _FakeApiClient:
+            configuration = type("C", (), {"retries": object()})()
+
+        client = facade.Client(_FakeApiClient())
+
+        # client.<object> is the typed wrapper, exposing clean verbs only.
+        assert type(client.application).__name__ == "ApplicationResource"
+        assert hasattr(client.application, "create")
+        assert not hasattr(client.application, "create_application")
+        assert not hasattr(client.application, "get_application_by_id")
+        # The raw *Api is held privately on the wrapper, not on the client.
+        assert not hasattr(client, "applications")
+        assert client.application._api.__class__.__name__ == "ApplicationsApi"
+        # Sibling objects backed by one *Api class SHARE the *Api instance.
+        assert client.access_and_data_rule._api is client.access_and_data_section._api
+        # Both maps live on the module; _RESOURCES is the raw introspection target.
+        assert "applications" in facade._RESOURCES
+        assert "application" in facade._WRAPPERS
+        assert facade._WRAPPERS["application"][0] is type(client.application)
+        # The single HTTP-capture point is still exposed.
+        assert client.api_client is not None
+    finally:
+        for name, text in backups.items():
+            (extras / name).write_text(text, encoding="utf-8")
+        _purge_pb_extras()
+        if str(_SDK) in sys.path:
+            sys.path.remove(str(_SDK))

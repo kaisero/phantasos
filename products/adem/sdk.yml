@@ -7,6 +7,23 @@ auth:
   base_url_env: ADEM_BASE_URL
   config_class_name: AdemConfiguration
 facade: true
+# ADEM is a read-only analytics API: every op is a non-CRUD "get a facet" call,
+# so the wrapper classifier cannot anchor them. Map each to its object + a clean
+# method name (verb defaults to `request` — a generic, non-CRUD action).
+operations:
+  agent_controller.agent_controller_get_agent_metric: {resource: agent, method: get_metric}
+  agent_controller.agent_controller_get_agent_properties: {resource: agent, method: get_properties}
+  agent_controller.agent_controller_get_agent_score: {resource: agent, method: get_score}
+  application_controller.application_controller_get_application_metric: {resource: application, method: get_metric}
+  application_controller.application_controller_get_application_score: {resource: application, method: get_score}
+  internet_controller.internet_controller_get_internet_metric: {resource: internet, method: get_metric}
+  nav_controller.nav_controller_get_nav_traffic: {resource: nav, method: get_traffic}
+  route_controller.route_controller_get_route_hops: {resource: route, method: get_hops}
+  rum_controller.rum_controller_get_rum_metric: {resource: rum, method: get_metric}
+  rum_controller.rum_controller_get_rum_score: {resource: rum, method: get_score}
+  zoom_participant_controller.zoom_participant_controller_get_zoom_participant: {resource: zoom_participant, method: get}
+  zoom_participant_controller.zoom_participant_controller_get_zoom_participant_score: {resource: zoom_participant, method: get_score}
+  zoom_qos_controller.zoom_qos_controller_get_zoom_qos_metric: {resource: zoom_qos, method: get_metric}
 hooks: ./hooks.py
 project:
   distribution: adem-sdk
