@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
-from .spec import CliIR, Command, Flag, MethodBinding
+from .spec import CliIR, Command, Flag, MethodBinding, synth_skeleton
 
 
 @functools.lru_cache(maxsize=1)
@@ -277,6 +277,15 @@ def _skeleton(model: Any) -> dict[str, Any]:
     return out
 
 
+def _registry_example(flag: Flag) -> str | None:
+    if not flag.model_ref:
+        return None
+    from . import config as _config  # local import — the module's convention
+    full = _config.log_level_int(_config.get().logging.level) <= 10  # debug or trace
+    skel = synth_skeleton(_ir().models, flag.model_ref, full=full)
+    return json.dumps(skel, separators=(",", ":"))
+
+
 def _describe_json_field(model_cls: Any, param: str) -> tuple[str | None, str | None]:
     mf = getattr(model_cls, "model_fields", {}).get(param)
     if mf is None:
@@ -317,11 +326,15 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
         try:
             parsed[k] = _coerce(flags[k], v)
         except InputError as exc:
-            if flags[k].kind == "json" and exc.expected is None:
-                exp, ex = _describe_json_field(model_cls, k)
-                exc.expected, exc.example = exp, (
-                    f"{flags[k].name} '{ex}'" if ex else None
-                )
+            fl = flags[k]
+            if fl.kind == "json" and exc.expected is None:
+                exp, live_ex = _describe_json_field(model_cls, k)
+                exc.expected = exp
+                reg = _registry_example(fl)
+                # D11: registry skeleton for known models; anonymous json (no
+                # model_ref → reg is None) keeps the live {"key": "value"} fallback.
+                ex = reg if reg is not None else live_ex
+                exc.example = f"{fl.name} '{ex}'" if ex else None
             raise
     if extra:
         parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion

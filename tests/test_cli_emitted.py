@@ -679,6 +679,69 @@ def test_invalid_json_flag_reports_clean_error(
     assert "spec" in res.stderr
 
 
+def test_runtime_json_error_example_minimal_and_debug_full(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    argv = [
+        "create",
+        "widget",
+        "--name",
+        "w",
+        "--priority",
+        "1",
+        "--profile",
+        "notjson",
+    ]
+
+    # default level → MINIMAL non-empty skeleton: first member (contact) + its
+    # required field; the OPTIONAL `tags` is omitted.
+    res = CliRunner().invoke(main.app, argv)
+    assert res.exit_code != 0
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    assert "contact" in res.stderr  # registry skeleton, not {}
+    assert "'{}'" not in res.stderr  # never the broken empty fallback
+    assert "tags" not in res.stderr  # optional field absent at minimal
+
+    # debug level → FULL skeleton includes optional fields (e.g. tags). Config is
+    # cached at import; set env THEN clear the cache before re-invoking (CLAUDE.md).
+    monkeypatch.setenv("FAKESDK_LOGGING_LEVEL", "debug")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    res2 = CliRunner().invoke(main.app, argv)
+    assert "tags" in res2.stderr  # optional field => full skeleton only
+
+
+def test_runtime_anonymous_json_error_keeps_keyvalue_example(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # D11: a json flag with NO model_ref (--spec: Optional[dict]) keeps the live
+    # `{"key": "value"}` fallback — it must NOT regress to an empty/missing example.
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1", "--spec", "notjson"],
+    )
+    assert res.exit_code != 0
+    assert "key" in res.stderr and "value" in res.stderr
+
+
 def test_cli_runner_request_actions(
     emitted: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
