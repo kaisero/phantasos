@@ -62,20 +62,31 @@ Add to `tests/test_cli_introspect.py`:
 
 ```python
 def test_public_primitives_exported() -> None:
-    from phantasos.generator.opmodel import introspect as I
+    # Submodule-direct import — EXACTLY what cli/modelschema.py (Task 4) uses.
+    # Do NOT use `from ...opmodel import introspect as I`: opmodel/__init__.py does
+    # `from .introspect import introspect`, rebinding the package attribute
+    # `opmodel.introspect` to the FUNCTION (shadowing the submodule), so `I.field_kind`
+    # would raise AttributeError. The submodule path below is the real contract.
+    from phantasos.generator.opmodel.introspect import (
+        enum_values,
+        field_kind,
+        scalar_type,
+        union_members,
+        unwrap_optional,
+    )
 
-    assert I.field_kind(str) == "scalar"
-    assert I.field_kind(list[str]) == "scalar"
-    assert I.unwrap_optional(str | None) is str
-    assert I.enum_values(int) is None
-    assert I.scalar_type(bool) == "bool"
-    assert callable(I.union_members)
+    assert field_kind(str) == "scalar"
+    assert field_kind(list[str]) == "scalar"
+    assert unwrap_optional(str | None) is str
+    assert enum_values(int) is None
+    assert scalar_type(bool) == "bool"
+    assert callable(union_members)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `UV_PROJECT_ENVIRONMENT=$HOME/.tmp/phantasos uv run pytest tests/test_cli_introspect.py::test_public_primitives_exported -v`
-Expected: FAIL with `AttributeError: module ... has no attribute 'field_kind'`.
+Expected: FAIL with `ImportError: cannot import name 'field_kind' from 'phantasos.generator.opmodel.introspect'`.
 
 - [ ] **Step 3: Add public names (keep `_` aliases)**
 

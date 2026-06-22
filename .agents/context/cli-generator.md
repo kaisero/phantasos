@@ -298,6 +298,8 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `MethodBinding`
   - class `ColumnSpec` — One table column: a header + a JMESPath evaluated against each row dict
   - class `Command`
+  - class `ModelField` — One field of a body model, captured for the CLI payload-helper skeleton.
+  - class `ModelSchema` — A body model's field surface, stored deduped under a key in `CliIR.models`.
   - class `CliIR`
 - `render_cli.py`
   - `cli_overrides_dir()`
