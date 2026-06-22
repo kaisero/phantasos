@@ -105,6 +105,10 @@ class Flag(BaseModel):
     cli_default: Any | None = None
     help: str = ""
     choices: list[str] | None = None  # enum values; flag stays permissive
+    # Registry key (CliIR.models) of the nested body model this flag carries, when
+    # the flag is a complex/nested field. None for scalar/leaf flags. Drives the
+    # CLI payload-helper skeleton synthesis in later tasks.
+    model_ref: str | None = None
 
 
 class MethodBinding(BaseModel):
@@ -161,6 +165,44 @@ class Command(BaseModel):
     columns: list[ColumnSpec] = []
 
 
+class ModelField(BaseModel):
+    """One field of a body model, captured for the CLI payload-helper skeleton.
+
+    Mirrors the SDK model's field surface so the synthesizer can render a
+    JSON skeleton without re-parsing `py_type`: `model_ref` (+ `model_ref_list`)
+    point at a nested known model in `CliIR.models`, and `variant_refs` lists the
+    registry keys of an inline-union field's variants.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    alias: str
+    py_type: str
+    kind: FlagKind
+    required: bool
+    description: str = ""
+    enum_values: list[str] | None = None
+    default: Any | None = None
+    example: Any | None = None
+    # Registry key of a nested known model this field carries (None for leaves).
+    model_ref: str | None = None
+    # True when the field is list[<model_ref>] rather than a single <model_ref>.
+    model_ref_list: bool = False
+    # Registry keys of an inline-union field's variants (None when not a union).
+    variant_refs: list[str] | None = None
+
+
+class ModelSchema(BaseModel):
+    """A body model's field surface, stored deduped under a key in `CliIR.models`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fields: list[ModelField]
+    # True for a oneOf wrapper model whose `fields` ARE its variants.
+    is_oneof: bool = False
+
+
 class CliIR(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -175,3 +217,7 @@ class CliIR(BaseModel):
     # Error-envelope descriptor contributed by the resolved error component.
     # Default is the no-component case (generic fallback only); see ErrorEnvelope.
     error_envelope: ErrorEnvelope = Field(default_factory=ErrorEnvelope)
+    # Deduped registry of nested body-model schemas, keyed by model name. Flags
+    # and ModelFields reference entries here via `model_ref` / `variant_refs`,
+    # so each nested model is captured once regardless of how often it recurs.
+    models: dict[str, ModelSchema] = {}
