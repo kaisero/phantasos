@@ -75,3 +75,25 @@ def test_registry_cycle_emits_each_model_once() -> None:
     assert set(reg) == {"A", "B"}  # no infinite expansion
     assert reg["A"].fields[0].model_ref == "B"
     assert reg["B"].fields[0].model_ref == "A"
+
+
+def test_fakesdk_registry_covers_nested_models() -> None:
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import cli_operations
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = cli_operations("fakesdk", fixture)
+    reg = build_model_registry("fakesdk", fixture, inv)
+    assert "WidgetProfile" in reg
+    # all-optional → minimal skeleton must be non-empty (first field)
+    from phantasos.generator.cli.ir import synth_skeleton
+
+    assert synth_skeleton(reg, "WidgetProfile", full=False) != {}
+    # inline oneOf field -> variant_refs; list[Tag] field -> model_ref_list
+    prof = reg["WidgetProfile"]
+    target = next(f for f in prof.fields if f.name == "target")
+    assert target.variant_refs == ["EmailTarget", "PhoneTarget"]
+    tags = next(f for f in prof.fields if f.name == "tags")
+    assert tags.model_ref == "Tag" and tags.model_ref_list is True
