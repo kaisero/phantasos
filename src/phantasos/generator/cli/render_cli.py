@@ -13,6 +13,11 @@ from typing import cast
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from . import ir as _ir_module
+from .cliconfig import CliDocsConfig
+from .docs import build_cli_docs_context
+from .flags import dedupe_flags
+from .flags import leaf as _leaf
+from .flags import query_panel as _query_panel
 from .ir import CliIR, Command, Flag
 
 _TEMPLATES = Path(__file__).parent / "templates"
@@ -34,40 +39,12 @@ _RESERVED = {
     "quiet",
 }
 
-# Well-known pagination/sort query params → their own help panel (the rest of the
-# query params are filters). Matched on the SDK param name (snake_case).
-_PAGINATION_PARAMS = frozenset(
-    {
-        "limit",
-        "offset",
-        "cursor",
-        "page",
-        "page_size",
-        "per_page",
-        "sort",
-        "order",
-        "sort_by",
-        "order_by",
-        "sort_order",
-    }
-)
-
-
-def _query_panel(f: Flag) -> str:
-    return "Pagination" if f.param in _PAGINATION_PARAMS else "Filters"
-
 
 def _py_name(param: str) -> str:
     ident = param if param.isidentifier() else "p_" + re.sub(r"\W", "_", param)
     if keyword.iskeyword(ident) or ident in _RESERVED:
         ident += "_"
     return ident
-
-
-def _leaf(c: Command) -> str | None:
-    """The third command segment: a oneOf variant OR a request action (mutually
-    exclusive)."""
-    return c.variant or c.action
 
 
 def _func_name(c: Command) -> str:
@@ -225,19 +202,9 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
-    # Deduplicate all_flags: path params take priority; body/query flags whose
-    # param name already appears in path_params are suppressed (avoids duplicate
-    # argument errors when an SDK body model field shares a name with a path param
-    # — e.g. the `type` discriminator that appears both as a path param and as a
-    # field of the request body).
-    path_param_names = {f.param for f in c.path_params}
-    deduped_body = [f for f in c.body_flags if f.param not in path_param_names]
-    deduped_query = [
-        f
-        for f in c.query_flags
-        if f.param not in path_param_names
-        and f.param not in {b.param for b in deduped_body}
-    ]
+    # Dedup flags via the shared helper so the docs command reference can't drift
+    # from the emitted flag set (design D2): path wins over body, body over query.
+    deduped_body, deduped_query = dedupe_flags(c)
     return {
         "key": c.key,
         "func_name": _func_name(c),
@@ -320,6 +287,10 @@ def render_cli(
     distribution: str | None = None,
     auth: object | None = None,
     errors: object | None = None,
+    docs: CliDocsConfig | None = None,
+    docs_site_name: str | None = None,
+    docs_repo_url: str | None = None,
+    docs_description: str = "",
 ) -> list[str]:
     reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
     if reserved:
@@ -427,6 +398,46 @@ def render_cli(
         dest = pkg / rel
         if not dest.exists():
             render(f"{rel}.jinja", dest)
+
+    if docs is not None:
+        dist = distribution or package
+        site_name = docs.site_name or docs_site_name or dist
+        doc_ctx = build_cli_docs_context(
+            ir,
+            docs,
+            distribution=dist,
+            site_name=site_name,
+            env_prefix=resolved_prefix,
+            repo_url=docs_repo_url,
+            description=docs_description,
+        )
+        merged = {**ctx, **doc_ctx}
+
+        def render_doc(template: str, rel: str, **extra: object) -> None:
+            dest = out_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(
+                env.get_template(template).render(**merged, **extra), encoding="utf-8"
+            )
+            written.append(rel)
+
+        render_doc("docs/index.md.jinja", "docs/index.md")
+        render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
+        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+            render_doc(
+                "docs/reference_object.md.jinja",
+                f"docs/reference/{obj['object']}.md",
+                obj=obj,
+            )
+        render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
+        render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
+        if doc_ctx["has_auth"]:
+            render_doc(
+                "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
+            )
+        if doc_ctx["show_pagination_guide"]:
+            render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
+        render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

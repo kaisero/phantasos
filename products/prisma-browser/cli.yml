@@ -117,3 +117,8 @@ defaults:
   applications.list_applications_by_type:
     sort: application.name
     order: asc
+
+# --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
+docs:
+  showcase_object: application
+  showcase_variant: custom

@@ -83,7 +83,9 @@ this package. They wire the three pipeline stages together:
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
    the sibling `scaffold` module, using
    `scaffold_context.build_cli_scaffold_context()` (the SDK product context
-   overridden for the CLI) and `cli_overrides/` as the override tree.
+   overridden for the CLI) and `cli_overrides/` as the override tree. When
+   `cli.yml` carries a `docs:` block, `render_cli` ALSO emits a documentation
+   site (`docs/` + `mkdocs.yml`) — see *Generated documentation site* below.
 
 `discover.py` (`render_table`, `render_stub`) renders the human-readable
 classification table and a `cli.yml` stub for `cli discover`. `columns.py`
@@ -182,6 +184,46 @@ keys / param names / objects fail the build loudly.
   genuine auth failure with credentials present exits `1` (`--verbose` keeps the
   traceback). See CHANGELOG Unreleased.
 
+## Generated documentation site
+
+Opt-in per product via a `docs:` block in `cli.yml` (`CliDocsConfig`:
+`showcase_object` [required], `showcase_variant`, `site_name`, `examples`). When
+present, `render_cli` emits a standalone MkDocs-Material site into the CLI project
+(`docs/` + `mkdocs.yml`), built strict by the `cli-docs` nox gate.
+
+It is **IR-driven and generate-time**: the command reference is a pure function of
+the `CliIR`, rendered to concrete markdown at `cli build`. It deliberately does NOT
+use mkdocstrings / mkdocs-gen-files / literate-nav like the per-SDK docs site (those
+autodoc Python; the CLI's user surface is the command tree). See
+`docs/adr/0001-cli-docs-ir-driven-generate-time.md`.
+
+- `docs.py` — `build_cli_docs_context(ir, docs, *, distribution, site_name,
+  repo_url, description)` shapes the render context (per-object command groups, the
+  `showcase` object/variant, guide-gating flags, credentials, the `error_envelope`
+  sub-dict). It validates `showcase_object` against the IR objects (fail-loud);
+  `CONTEXT_KEYS` pins the producer/template contract.
+- `examples.py` — synthesizes required-only invocation examples (`render_invocation`)
+  + a per-flag value strategy (`example_value`). Deliberately NOT shared with
+  `sdk/examples.py` (different output: shell vs Python constructor); it DOES share
+  `flags.py`.
+- `flags.py` — `dedupe_flags`/`query_panel`/`leaf`, imported by BOTH `render_cli`
+  (emitted command modules) and `docs.py` (the reference), so the command
+  reference's flag set/grouping can never drift from the emitted `--help` (a drift
+  test in `tests/cli/test_docs_context.py` locks it).
+- `templates/docs/**.jinja` — `index` (verb-model explainer), `quickstart`
+  (showcase-driven, honoring `showcase_variant`), per-object `reference_object`,
+  four guides (output/errors always; authentication gated on credentials,
+  pagination on any paginated command), and `mkdocs.yml` with an explicit
+  IR-generated `nav`.
+- Scaffold seam: `build_cli_scaffold_context` sets `cli_docs = (cli.yml docs is not
+  None)` while keeping the SDK `has_docs` flag False — so the shared SDK-flavored
+  docs templates never fire for a CLI. The shared `pyproject.toml` / `noxfile.py` /
+  Pages-workflow / README templates gain a minimal `cli_docs` branch (CLI docs
+  dependency group = `mkdocs-material` only).
+- Gate: `nox -s cli-docs` (per-product, enrolled in `nox.toml [cli-docs]`) builds
+  each enrolled SDK + CLI and runs `mkdocs build --strict` + content asserts;
+  offline behavior is covered by `tests/cli/` against the `fakesdk` fixture.
+
 ## Build / run pointers
 
 - Inspect classification: `phantasos cli discover <name>` (`--write-stub` writes
@@ -204,6 +246,9 @@ keys / param names / objects fail the build loudly.
 - `cliconfig.py` — The per-product cli.yml model — declarative deltas only; the classifier always runs.
 - `columns.py` — Table-column resolution: model-derived defaults + cli.yml validation.
 - `discover.py` — Render the classification table and a cli.yml stub from a CliIR.
+- `docs.py` — Build the CLI docs render context from the resolved CliIR (IR-driven, generate-time).
+- `examples.py` — Synthesize illustrative CLI invocations from the resolved command IR.
+- `flags.py` — Shared flag-grouping helpers for the CLI generator.
 - `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
 - `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
 - `ir.py` — The CLI intermediate representation: the fully-resolved command tree.
@@ -228,6 +273,7 @@ keys / param names / objects fail the build loudly.
   - class `VariantMap`
   - class `ColumnEntry`
   - class `CustomPointer`
+  - class `CliDocsConfig` — Opt-in CLI documentation generation (cli.yml `docs:` block).
   - class `CliConfig`
   - `load_cli_config(path)` — Load cli.yml; return an empty CliConfig if the file is absent.
 - `columns.py`
@@ -236,6 +282,15 @@ keys / param names / objects fail the build loudly.
 - `discover.py`
   - `render_table(ir, unmapped)`
   - `render_stub(ir, unmapped)` — A cli.yml stub: TODO entries for unmapped ops. CRUD is auto-classified, so the
+- `docs.py`
+  - `build_cli_docs_context(ir, docs, distribution, site_name, env_prefix, repo_url, description)`
+- `examples.py`
+  - `example_value(flag)` — A shell-safe example value token for one flag.
+  - `render_invocation(command, distribution, override)` — A one-line invocation example (required flags only) or the verbatim override.
+- `flags.py`
+  - `query_panel(f)`
+  - `leaf(c)` — The third command segment: a oneOf variant OR a request action (mutually
+  - `dedupe_flags(c)` — Return (body, query) flags deduped against path params (path wins), then
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
   - class `ErrorEnvelope` — Config-driven description of a product's error body, threaded onto the IR so
@@ -246,7 +301,7 @@ keys / param names / objects fail the build loudly.
   - class `CliIR`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->

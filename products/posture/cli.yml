@@ -37,3 +37,7 @@ columns:
     - type
     - severity
     - management_type
+
+# --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
+docs:
+  showcase_object: posture-check

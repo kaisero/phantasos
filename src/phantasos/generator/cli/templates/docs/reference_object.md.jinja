@@ -1,0 +1,51 @@
+{% macro flag_table(rows) -%}
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+{% for f in rows -%}
+| `{{ f.name }}` | `{{ f.type }}` | {{ "yes" if f.required else "no" }} | {{ f.help }}{% if f.choices %} _(values: {{ f.choices | join(", ") }})_{% endif %} |
+{% endfor -%}
+{%- endmacro -%}
+# `{{ obj.object }}`
+
+{% for cmd in obj.commands -%}
+## `{{ cmd.usage }}`
+
+{% if cmd.summary %}{{ cmd.summary }}
+
+{% endif %}{% if cmd.description and cmd.description != cmd.summary %}{{ cmd.description }}
+
+{% endif %}{% if cmd.path_flags %}**Arguments**
+
+{{ flag_table(cmd.path_flags) }}
+
+{% endif %}{% if cmd.body_flags %}**Body**
+
+{{ flag_table(cmd.body_flags) }}
+
+{% endif %}{% if cmd.filter_flags %}**Filters**
+
+{{ flag_table(cmd.filter_flags) }}
+
+{% endif %}{% if cmd.pagination_flags %}**Pagination**
+
+{{ flag_table(cmd.pagination_flags) }}
+
+{% endif %}{% if cmd.columns %}Default table columns: {% for c in cmd.columns %}`{{ c.header }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+
+{% endif %}**Example**
+
+```bash
+{{ cmd.example }}
+```
+
+{% endfor %}
+{% if common_flags %}## Common options
+
+Every command above also accepts these global flags:
+
+| Flag | Description |
+| --- | --- |
+{% for f in common_flags -%}
+| `{{ f.name }}` | {{ f.help }} |
+{% endfor -%}
+{% endif %}

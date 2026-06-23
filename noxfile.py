@@ -75,6 +75,24 @@ def _stage_asserts(stage: str, product: str) -> list[dict[str, str]]:
     ]
 
 
+def _run_content_asserts(
+    session: nox.Session, stage: str, product: str, site: Path
+) -> None:
+    """Run the nox.toml per-product content guards for ``stage`` against ``site/``."""
+    for check in _stage_asserts(stage, product):
+        target = site / check["file"]
+        text = target.read_text() if target.exists() else ""
+        if "contains" in check and check["contains"] not in text:
+            session.error(
+                f"{product}: {check['file']} is missing {check['contains']!r}"
+            )
+        if "not_contains" in check and check["not_contains"] in text:
+            session.error(
+                f"{product}: {check['file']} unexpectedly contains "
+                f"{check['not_contains']!r}"
+            )
+
+
 def _sync(session: nox.Session, *groups: str) -> None:
     """Install the project plus the given dependency groups into the session.
 
@@ -308,15 +326,60 @@ def sdk_docs(session: nox.Session) -> None:
         if not (site / "reference").exists():
             session.error(f"{product}: reference pages were not generated")
         # Product-specific content guards declared in nox.toml [[sdk-docs.assert]].
-        for check in _stage_asserts("sdk-docs", product):
-            target = site / check["file"]
-            text = target.read_text() if target.exists() else ""
-            if "contains" in check and check["contains"] not in text:
-                session.error(
-                    f"{product}: {check['file']} is missing {check['contains']!r}"
-                )
-            if "not_contains" in check and check["not_contains"] in text:
-                session.error(
-                    f"{product}: {check['file']} unexpectedly contains "
-                    f"{check['not_contains']!r}"
-                )
+        _run_content_asserts(session, "sdk-docs", product, site)
+
+
+@nox.session(name="cli-docs", venv_backend="uv")
+def cli_docs(session: nox.Session) -> None:
+    """Build each enrolled CLI + its docs and run ``mkdocs build --strict``.
+
+    Products are declared in nox.toml ``[cli-docs]``. Opt-in integration gate (NOT in
+    nox.options.sessions, like ``sdk-docs``). The CLI docs markdown is rendered at
+    ``phantasos cli build`` time, so the mkdocs build needs only ``mkdocs-material``
+    (the emitted CLI's ``docs`` dependency group). The CLI output dir is derived the
+    same way the build computes it (via ``build_cli_scaffold_context``), NOT by
+    string-munging the SDK output dir name.
+    """
+    import shutil
+
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    from phantasos.generator.cli.scaffold_context import build_cli_scaffold_context
+    from phantasos.productconfig import load_product, sdk_runtime_deps
+
+    _sync(session)
+    # `phantasos cli build` introspects the built SDK, so it must be importable.
+    session.install(*sdk_runtime_deps())
+    root = Path.cwd()
+    for product in _stage_products("cli-docs"):
+        loaded = load_product(product)
+        cli_cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
+        # Derive the CLI out dir exactly as `cli build` does. build_cli_scaffold_context
+        # ignores its `ir` arg (only loaded + cli_cfg determine `distribution`), so
+        # ir=None is safe here; we consume ONLY ctx["distribution"].
+        ctx = build_cli_scaffold_context(loaded, ir=None, cli_cfg=cli_cfg)
+        cli_out = Path(loaded.output_dir).parent / str(ctx["distribution"])
+        if (cli_out / "site").exists():
+            shutil.rmtree(cli_out / "site")
+        session.run("phantasos", "sdk", "build", product, "--no-smoke")
+        session.run("phantasos", "cli", "build", product)
+        if not cli_out.is_dir():
+            session.error(f"{product}: CLI was not emitted at {cli_out}")
+        build_env = f"{session.virtualenv.location}-clibuild-{product}"
+        docs_env = {**os.environ, "UV_PROJECT_ENVIRONMENT": build_env}
+        session.chdir(str(cli_out))
+        session.run(
+            "uv",
+            "run",
+            "--group",
+            "docs",
+            "mkdocs",
+            "build",
+            "--strict",
+            external=True,
+            env=docs_env,
+        )
+        session.chdir(str(root))
+        site = cli_out / "site"
+        if not (site / "reference").exists():
+            session.error(f"{product}: CLI command reference was not generated")
+        _run_content_asserts(session, "cli-docs", product, site)

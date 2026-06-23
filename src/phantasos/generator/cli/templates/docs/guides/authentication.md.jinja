@@ -1,0 +1,30 @@
+# Authentication & environments
+
+## Credentials
+
+`{{ distribution }}` reads these from the environment (or a named environment):
+
+| Credential | Environment variable | Required | Secret |
+| --- | --- | --- | --- |
+{% for c in credentials %}| `{{ c.name }}` | `{{ c.env_var }}` | {{ "yes" if c.required else "no" }} | {{ "yes" if c.secret else "no" }} |
+{% endfor %}
+## Named environments
+
+```bash
+{{ distribution }} environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
+
+{{ distribution }} environment show
+{{ distribution }} show <object> --environment prod
+```
+
+## Configuration layering
+
+Settings resolve in order (later wins): packaged defaults →
+`~/.{{ distribution }}/config.yml` → `.env` / shell env → per-command flags.
+
+```bash
+{{ distribution }} config init           # write a commented config.yml to edit
+{{ distribution }} config show           # effective merged config + its sources
+{{ distribution }} config set output.format json
+{{ distribution }} config unset output.format
+```

@@ -1,4 +1,4 @@
-{% if has_docs | default(false) %}
+{% if (has_docs | default(false)) or (cli_docs | default(false)) %}
 {% raw %}name: Docs
 
 on:

@@ -69,7 +69,10 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
         has_errors=False,
         has_facade=False,
         has_retry=False,
-        has_docs=False,  # docs are SDK-only; CLI scaffold never emits MkDocs pages
+        # has_docs stays False so the SHARED (SDK-flavored) docs templates never fire
+        # for a CLI; CLI docs are driven by the independent cli_docs flag instead.
+        has_docs=False,
+        cli_docs=getattr(cli_cfg, "docs", None) is not None,
         auth_env_vars=_auth_env_vars(loaded),
     )
     if project is not None:

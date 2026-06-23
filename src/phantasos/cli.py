@@ -134,6 +134,11 @@ def cli_build(
     scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
     cli_pkg = f"{loaded.config.package}_cli"
     out_dir = Path(loaded.output_dir).parent / str(scaffold_ctx["distribution"])
+    docs_site_name = (
+        f"{scaffold_ctx.get('spec_title')} CLI"
+        if scaffold_ctx.get("spec_title")
+        else None
+    )
     written = render_cli(
         ir,
         package=cli_pkg,
@@ -141,6 +146,10 @@ def cli_build(
         distribution=str(scaffold_ctx["distribution"]),
         auth=loaded.auth,
         errors=loaded.errors,
+        docs=cfg.docs,
+        docs_site_name=docs_site_name,
+        docs_repo_url=scaffold_ctx.get("repo_url"),
+        docs_description=scaffold_ctx.get("description") or "",
     )
     written = written + scaffold.render_scaffold(
         scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx
