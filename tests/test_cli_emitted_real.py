@@ -1,3 +1,5 @@
+# generator-output invariants (lint-clean, --version, config init/show) are proven
+# on fakesdk in test_cli_emitted*.py; this module covers real-spec behavior only.
 import importlib
 import sys
 from collections.abc import Callable, Iterator
@@ -694,44 +696,6 @@ def test_real_dry_run_with_enum_query_flag(real_cli: Path) -> None:
     assert "list_devices(" not in res.output  # NOT the fallback call-string
 
 
-def test_real_version_flag(real_cli: Path) -> None:
-    from typer.testing import CliRunner
-
-    main = importlib.import_module("prisma_browser_cli.main")
-    app_mod = importlib.import_module("prisma_browser_cli._generated.app")
-    res = CliRunner().invoke(main.app, ["--version"])
-    assert res.exit_code == 0, res.output
-    assert app_mod._DISTRIBUTION in res.output  # e.g. "prisma-browser-cli"
-
-
-def test_generated_code_is_lint_clean(real_cli: Path) -> None:
-    """Capstone: the emitted `_generated/` passes the scaffold's ruff config
-    (select E,F,I,UP,W; line-length 88) with ZERO errors — no noqa, no exclude.
-    `real_cli` renders via `render_cli`, which `ruff format`s the output."""
-    import shutil
-    import subprocess
-
-    ruff = shutil.which("ruff")
-    if ruff is None:
-        pytest.skip("ruff not on PATH")
-    gen = real_cli / "prisma_browser_cli" / "_generated"
-    res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
-        [
-            ruff,
-            "check",
-            "--isolated",
-            "--select",
-            "E,F,I,UP,W",
-            "--line-length",
-            "88",
-            str(gen),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 0, res.stdout + res.stderr  # 0 lint errors in generated
-
-
 def test_long_help_text_preserved(real_cli: Path) -> None:
     """Word-wrapping long help into implicit-concat chunks must not drop text:
     Rich reassembles the chunks at runtime, so distinctive fragments survive."""
@@ -830,21 +794,6 @@ def test_real_ir_carries_query_defaults() -> None:
     # the defaults are surgical: no other command gains them
     show_dg = next(c for c in ir.commands if c.key == "show:device-group")
     assert all(f.cli_default is None for f in show_dg.query_flags)
-
-
-def test_real_config_init_and_show(
-    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from typer.testing import CliRunner
-
-    monkeypatch.setenv("HOME", str(tmp_path))
-    main = importlib.import_module("prisma_browser_cli.main")
-    r = CliRunner()
-    assert r.invoke(main.app, ["config", "init"]).exit_code == 0
-    assert (tmp_path / ".prisma-browser-cli" / "config.yml").exists()
-    res = r.invoke(main.app, ["config", "show"])
-    assert res.exit_code == 0
-    assert "pager" in res.output and "merged from" in res.output
 
 
 def test_private_application_invalid_urls_enriched(

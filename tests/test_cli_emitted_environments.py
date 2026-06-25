@@ -797,80 +797,106 @@ def test_env_show_no_active_after_force_delete(
     assert "(active)" not in res.output  # nothing is marked active
 
 
-def test_env_delete_non_default_removes_it(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+# `default_after` sentinels: the written env file's `default_environment` key must
+# be ABSENT after the delete, or assertion on it is skipped entirely.
+_DEFAULT_UNSET = object()
+_DEFAULT_SKIP = object()
+
+
+@pytest.mark.parametrize(
+    (
+        "env_yaml",
+        "args",
+        "exit_code",
+        "err_substr",
+        "present",
+        "absent",
+        "default_after",
+    ),
+    [
+        # non-default removed: file present, others + default survive
+        pytest.param(
+            "default_environment: prod\n"
+            "environments:\n"
+            "  prod: {client_id: PROD}\n"
+            "  staging: {client_id: STAGING}\n",
+            ["staging"],
+            0,
+            None,
+            ["prod"],
+            ["staging"],
+            "prod",
+            id="non_default_removes_it",
+        ),
+        # deleting the active env without --force errors; nothing removed
+        pytest.param(
+            "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
+            ["prod"],
+            2,
+            "active environment",
+            ["prod"],
+            [],
+            _DEFAULT_SKIP,
+            id="default_without_force_errors",
+        ),
+        # --force removes the active env AND unsets the default_environment key
+        pytest.param(
+            "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
+            ["--force", "prod"],
+            0,
+            None,
+            [],
+            ["prod"],
+            _DEFAULT_UNSET,
+            id="force_removes_default_and_unsets_key",
+        ),
+        # unknown name errors (no env file written at all)
+        pytest.param(
+            None,
+            ["ghost"],
+            2,
+            "no such environment",
+            [],
+            [],
+            _DEFAULT_SKIP,
+            id="unknown_name_errors",
+        ),
+    ],
+)
+def test_env_delete(
+    env_yaml: str | None,
+    args: list[str],
+    exit_code: int,
+    err_substr: str | None,
+    present: list[str],
+    absent: list[str],
+    default_after: object,
+    emitted_auth: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     home = tmp_path / "home"
-    _write_user_env_file(
-        home,
-        "default_environment: prod\n"
-        "environments:\n"
-        "  prod: {client_id: PROD}\n"
-        "  staging: {client_id: STAGING}\n",
-    )
+    if env_yaml is not None:
+        _write_user_env_file(home, env_yaml)
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["environment", "delete", "staging"])
-    assert res.exit_code == 0, res.output
-    data = _read_environments_yml(home)
-    assert "staging" not in data["environments"]
-    assert "prod" in data["environments"]
-    assert data["default_environment"] == "prod"
-
-
-def test_env_delete_default_without_force_errors(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from typer.testing import CliRunner
-
-    home = tmp_path / "home"
-    _write_user_env_file(
-        home,
-        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
-    )
-    monkeypatch.setenv("HOME", str(home))
-    main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["environment", "delete", "prod"])
-    assert res.exit_code == 2
-    msg = res.stderr or res.output
-    assert "active environment" in msg
-    # environment must NOT have been removed
-    data = _read_environments_yml(home)
-    assert "prod" in data["environments"]
-
-
-def test_env_delete_force_removes_default_and_unsets_key(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from typer.testing import CliRunner
-
-    home = tmp_path / "home"
-    _write_user_env_file(
-        home,
-        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n",
-    )
-    monkeypatch.setenv("HOME", str(home))
-    main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["environment", "delete", "--force", "prod"])
-    assert res.exit_code == 0, res.output
-    data = _read_environments_yml(home)
-    assert "prod" not in data.get("environments", {})
-    assert "default_environment" not in data
-
-
-def test_env_delete_unknown_name_errors(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from typer.testing import CliRunner
-
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["environment", "delete", "ghost"])
-    assert res.exit_code == 2
-    assert "no such environment" in (res.stderr or res.output)
+    res = CliRunner().invoke(main.app, ["environment", "delete", *args])
+    assert res.exit_code == exit_code, res.output
+    if err_substr is not None:
+        assert err_substr in (res.stderr or res.output)
+    if env_yaml is not None:
+        data = _read_environments_yml(home)
+        envs = data.get("environments", {})
+        for name in present:
+            assert name in envs
+        for name in absent:
+            assert name not in envs
+        if default_after is _DEFAULT_UNSET:
+            assert "default_environment" not in data
+        elif default_after is not _DEFAULT_SKIP:
+            assert data["default_environment"] == default_after
 
 
 def test_env_create_preserves_existing_environments(

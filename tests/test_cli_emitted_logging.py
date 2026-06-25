@@ -195,53 +195,62 @@ def test_full_command_warning_not_on_stderr_but_in_log(
     assert any("not defined in the OpenAPI spec" in m for m in msgs)
 
 
-def test_diagnostics_plain_format_no_color(emitted: Path) -> None:
-    # Inject an explicit no_color StringIO console — the plain path needs no env/reload.
-    d: Any = importlib.import_module("fakesdk_cli._generated.diagnostics")
+@pytest.mark.parametrize(
+    ("console_kwargs", "min_level", "emits", "present", "absent"),
+    [
+        # plain (no-color) path: prefixed lines survive, bracket kept, NO icon
+        pytest.param(
+            {"no_color": True},
+            "INFO",
+            [("error", "boom [x]"), ("warning", "careful"), ("info", "fyi")],
+            ["error: boom [x]", "warning: careful", "info: fyi"],
+            ["✖"],
+            id="plain_format_no_color",
+        ),
+        # styled (terminal) path: the error icon is rendered
+        pytest.param(
+            {"force_terminal": True},
+            "INFO",
+            [("error", "boom")],
+            ["✖"],
+            [],
+            id="styled_has_icon_on_terminal",
+        ),
+        # min-level gate: below-threshold messages are suppressed
+        pytest.param(
+            {"no_color": True},
+            "ERROR",
+            [("warning", "hidden"), ("info", "hidden"), ("error", "shown")],
+            ["shown"],
+            ["hidden"],
+            id="min_level_suppresses",
+        ),
+    ],
+)
+def test_diagnostics(
+    console_kwargs: dict[str, Any],
+    min_level: str,
+    emits: list[tuple[str, str]],
+    present: list[str],
+    absent: list[str],
+    emitted: Path,
+) -> None:
+    # Inject an explicit StringIO console — the diagnostics path needs no env/reload.
     import io
 
     from rich.console import Console
 
+    d: Any = importlib.import_module("fakesdk_cli._generated.diagnostics")
     buf = io.StringIO()
-    d._err_console = Console(stderr=True, file=buf, theme=d._THEME, no_color=True)
-    d.set_min_level(d.Level.INFO)
-    d.error("boom [x]")
-    d.warning("careful")
-    d.info("fyi")
+    d._err_console = Console(stderr=True, file=buf, theme=d._THEME, **console_kwargs)
+    d.set_min_level(getattr(d.Level, min_level))
+    for method, msg in emits:
+        getattr(d, method)(msg)
     out = buf.getvalue()
-    assert "error: boom [x]" in out  # bracket survives (markup off)
-    assert "warning: careful" in out
-    assert "info: fyi" in out
-    assert "✖" not in out  # no icon when no-color
-
-
-def test_diagnostics_styled_has_icon_on_terminal(emitted: Path) -> None:
-    d: Any = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    import io
-
-    from rich.console import Console
-
-    buf = io.StringIO()
-    d._err_console = Console(stderr=True, file=buf, theme=d._THEME, force_terminal=True)
-    d.set_min_level(d.Level.INFO)
-    d.error("boom")
-    assert "✖" in buf.getvalue()  # icon present on a terminal
-
-
-def test_diagnostics_min_level_suppresses(emitted: Path) -> None:
-    d: Any = importlib.import_module("fakesdk_cli._generated.diagnostics")
-    import io
-
-    from rich.console import Console
-
-    buf = io.StringIO()
-    d._err_console = Console(stderr=True, file=buf, no_color=True)
-    d.set_min_level(d.Level.ERROR)  # quiet
-    d.warning("hidden")
-    d.info("hidden")
-    d.error("shown")
-    out = buf.getvalue()
-    assert "shown" in out and "hidden" not in out
+    for s in present:
+        assert s in out
+    for s in absent:
+        assert s not in out
     d.set_min_level(d.Level.INFO)  # reset for other tests
 
 
