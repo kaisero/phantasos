@@ -10,12 +10,12 @@ generator.opmodel.classify and are re-exported here for backward compatibility.
 from __future__ import annotations
 
 import importlib
-import sys
 from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from ..opmodel._pathutil import on_sys_path
 from ..opmodel.classify import (
     _SKIP_FRAGMENTS,
     _VERB_PREFIXES,
@@ -128,15 +128,9 @@ def cli_operations(
         (op.resource, op.method): op for op in inv.operations
     }
 
-    added = str(sdk_path) not in sys.path
-    if added:
-        sys.path.insert(0, str(sdk_path))
-    try:
+    with on_sys_path(sdk_path):
         facade = importlib.import_module(f"{package}.extras.facade")
         wrappers: dict[str, tuple[type[Any], str]] = getattr(facade, registry_attr)
-    finally:
-        if added and str(sdk_path) in sys.path:
-            sys.path.remove(str(sdk_path))
 
     operations: list[OperationInfo] = []
     for obj_attr, (wrapper_cls, api_attr) in wrappers.items():

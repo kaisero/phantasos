@@ -15,6 +15,7 @@ from types import UnionType
 
 from pydantic import BaseModel
 
+from ..opmodel._pathutil import on_sys_path
 from ..opmodel.introspect import (
     enum_values,
     field_kind,
@@ -166,11 +167,5 @@ def _root_models(package: str, inv: OperationInventory) -> list[type[BaseModel]]
 def build_model_registry(
     package: str, sdk_path: Path, inv: OperationInventory
 ) -> dict[str, ModelSchema]:
-    added = str(sdk_path) not in sys.path
-    if added:
-        sys.path.insert(0, str(sdk_path))
-    try:
+    with on_sys_path(sdk_path):
         return registry_from_models(_root_models(package, inv))
-    finally:
-        if added and str(sdk_path) in sys.path:
-            sys.path.remove(str(sdk_path))
