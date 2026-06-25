@@ -164,8 +164,18 @@ def _schema_rows(
     return rows
 
 
+def _anchor(key: str, flag_name: str) -> str:
+    """Page-unique slug for a nested-model flag's schema disclosure block.
+
+    Built from the command key + flag name so the same flag name under two
+    commands on one reference page gets distinct anchors.
+    """
+    base = f"{key}-{flag_name.lstrip('-')}-schema".lower()
+    return re.sub(r"[^a-z0-9]+", "-", base).strip("-")
+
+
 def _flag_row(
-    f: Flag, models: dict[str, ModelSchema] | None = None
+    f: Flag, models: dict[str, ModelSchema] | None = None, *, key: str
 ) -> dict[str, object]:
     schema = None
     if f.kind == "json" and f.model_ref and models:
@@ -173,6 +183,7 @@ def _flag_row(
     return {
         "name": f.name,
         "type": (f.model_ref or f.py_type),
+        "type_anchor": _anchor(key, f.name) if schema else None,
         "required": f.required,
         "choices": [_cell(c) for c in f.choices] if f.choices else None,
         "help": _cell(f.help or _ref_description(models, f.model_ref)),
@@ -204,10 +215,10 @@ def _command_view(
         "usage": _usage(c),
         "summary": c.summary,
         "description": _clean_description(c.description),
-        "path_flags": [_flag_row(f, models) for f in c.path_params],
-        "body_flags": [_flag_row(f, models) for f in body],
-        "filter_flags": [_flag_row(f, models) for f in filters],
-        "pagination_flags": [_flag_row(f, models) for f in pagination],
+        "path_flags": [_flag_row(f, models, key=c.key) for f in c.path_params],
+        "body_flags": [_flag_row(f, models, key=c.key) for f in body],
+        "filter_flags": [_flag_row(f, models, key=c.key) for f in filters],
+        "pagination_flags": [_flag_row(f, models, key=c.key) for f in pagination],
         "example": render_invocation(
             c, distribution=distribution, override=override, models=models
         ),

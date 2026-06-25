@@ -461,3 +461,72 @@ def test_unknown_showcase_variant_raises() -> None:
             distribution="acmecli",
             site_name="x",
         )
+
+
+def test_nested_model_flag_carries_unique_type_anchor() -> None:
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    def _msr(name: str) -> "ModelSchema":
+        return ModelSchema(
+            description=f"{name} desc",
+            fields=[
+                ModelField(
+                    name="x", alias="x", py_type="str", kind="scalar", required=True
+                )
+            ],
+        )
+
+    def _json_flag(flag: str, ref: str) -> Flag:
+        return Flag(
+            name=flag,
+            param=flag.lstrip("-").replace("-", "_"),
+            py_type=ref,
+            kind="json",
+            required=False,
+            model_ref=ref,
+        )
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="cloud-storage-provider",
+                key="create:cloud-storage-provider",
+                sdk_resource="csp",
+                body_flags=[
+                    _json_flag("--microsoft", "CreateMicrosoftProviderRequest"),
+                    _json_flag("--google", "CreateGoogleProviderRequest"),
+                ],
+            )
+        ],
+        models={
+            "CreateMicrosoftProviderRequest": _msr("CreateMicrosoftProviderRequest"),
+            "CreateGoogleProviderRequest": _msr("CreateGoogleProviderRequest"),
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="cloud-storage-provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    rows = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])
+    anchors = {r["name"]: r["type_anchor"] for r in rows}
+    assert anchors["--microsoft"] == "create-cloud-storage-provider-microsoft-schema"
+    assert anchors["--google"] == "create-cloud-storage-provider-google-schema"
+
+
+def test_scalar_flag_has_no_type_anchor() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    create = next(
+        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget"
+    )
+    row = cast("list[dict[str, object]]", create["body_flags"])[0]  # --name, scalar
+    assert row["type_anchor"] is None
