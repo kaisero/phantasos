@@ -27,12 +27,12 @@ from dataclasses import dataclass
 from types import UnionType
 from typing import TYPE_CHECKING, Any
 
-from ..cli.introspect import _unwrap_optional
 from ..opmodel.classify import (
     OBJECT_OF,
     _strip_id_suffix,
     classify_name,
 )
+from ..opmodel.introspect import _unwrap_optional
 from .docs import _VERB_SLOT
 from .examples import assemble_reference_docstring, reference_example
 

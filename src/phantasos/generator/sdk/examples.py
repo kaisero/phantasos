@@ -18,7 +18,7 @@ from typing import Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-from ..cli.introspect import _enum_values, _unwrap_optional
+from ..opmodel.introspect import _enum_values, _unwrap_optional
 
 _INDENT = "    "
 _SCALARS = {
