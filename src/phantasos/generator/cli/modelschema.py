@@ -26,6 +26,20 @@ from .inventory import OperationInventory
 from .ir import FlagKind, ModelField, ModelSchema
 
 
+def _model_doc(cls: type[BaseModel]) -> str:
+    """The model's schema-level description from its class docstring.
+
+    openapi-generator writes the OpenAPI component `description` as the class
+    docstring; for a description-less schema it writes the bare class name. The
+    latter is noise, so drop it. Whitespace (the indented triple-quote block) is
+    collapsed to a single line.
+    """
+    doc = (cls.__doc__ or "").strip()
+    if not doc or doc == cls.__name__:
+        return ""
+    return " ".join(doc.split())
+
+
 def _resolve_ref(tp: object) -> tuple[str | None, bool, list[str] | None]:
     """(model_ref, model_ref_list, variant_refs) for a field annotation."""
     base = unwrap_optional(tp)
@@ -74,7 +88,8 @@ def _model_to_schema(
                     )
                 )
                 children.append(member_cls)
-        return ModelSchema(fields=fields, is_oneof=True), children
+        schema = ModelSchema(fields=fields, is_oneof=True, description=_model_doc(cls))
+        return schema, children
 
     fields = []
     for fname, f in cls.model_fields.items():
@@ -112,7 +127,7 @@ def _model_to_schema(
             vcls = getattr(sys.modules[cls.__module__], vname, None)
             if isinstance(vcls, type) and issubclass(vcls, BaseModel):
                 children.append(vcls)
-    return ModelSchema(fields=fields), children
+    return ModelSchema(fields=fields, description=_model_doc(cls)), children
 
 
 def registry_from_models(roots: list[type[BaseModel]]) -> dict[str, ModelSchema]:

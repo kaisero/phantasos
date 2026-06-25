@@ -201,6 +201,9 @@ class ModelSchema(BaseModel):
     fields: list[ModelField]
     # True for a oneOf wrapper model whose `fields` ARE its variants.
     is_oneof: bool = False
+    # The model's own schema-level description (openapi component `description`,
+    # captured from the generated model's class docstring). "" when absent.
+    description: str = ""
 
 
 class CliIR(BaseModel):
