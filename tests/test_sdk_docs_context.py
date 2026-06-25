@@ -1,4 +1,4 @@
-# tests/test_cli_docs.py
+# tests/test_sdk_docs_context.py
 """Unit tests for the WRAPPER-driven docs context (generator.sdk.docs).
 
 The docs context is built from the SDK's typed wrappers (`cli_operations`, which
