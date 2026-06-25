@@ -133,7 +133,11 @@ nowhere to hold nested structure. The registry closes that gap end to end.
   deep prisma-browser schemas stay bounded and cycle-proof (mirrors pydantic
   `$defs`/`$ref`). The recursion runs in the CLI layer to keep the SDK-shared
   `FieldInfo`/`OperationInfo` types unpolluted (separation of duty); opmodel only
-  exposes its walking primitives. `build_cli_ir(inv, cfg, models)` threads the
+  exposes its walking primitives. Each `ModelSchema` also carries the model's own
+  schema-level `description`: `_model_doc(cls)` reads the class docstring that
+  openapi-generator writes from the OpenAPI component `description` (and drops it
+  when it is just the bare class name — that is openapi-generator's marker for a
+  description-less schema). `build_cli_ir(inv, cfg, models)` threads the
   built registry onto `CliIR.models` and stamps each `json` flag's `model_ref`.
 
 - **`ir.py` `synth_skeleton(models, model_name, *, full)` = registry → JSON
@@ -161,6 +165,18 @@ These two halves feed **four surfaces**, all off the single registry:
    oneOf fields render as `pymdownx.tabbed` tabs, and each command gets a
    collapsed `??? example "Full body (copy & fill)"` (`full=True`) skeleton. New
    `mkdocs.yml` extensions: `pymdownx.details`, `attr_list`, `pymdownx.tabbed`.
+   In `docs.py`, a nested-model body flag with an empty help cell **falls back to
+   the registry model's `description`**: both `_flag_row` and the recursive
+   `_schema_rows` resolve an empty cell via `_ref_description(models, ref)` (which
+   reads `ModelSchema.description`), so a flag like `--microsoft` shows the model's
+   schema-level prose in the Body table instead of a blank. The Body-table **Type
+   cell links to that flag's schema disclosure block**: when a flag has a schema,
+   `_flag_row` stamps a page-unique `type_anchor` slug from `_anchor(key, flag)`
+   (command key + flag name, so the same flag under two commands gets distinct
+   anchors), the template renders the Type cell as `[`<Model>`](#<type_anchor>)`,
+   and emits a matching invisible `<a id="<type_anchor>"></a>` on the line ABOVE the
+   `??? note` disclosure (the blank line between the anchor and `??? note` is
+   load-bearing — it keeps `pymdownx.details` from swallowing the admonition).
 4. **Runtime input-error example** (`runtime.py.jinja`) — the corrective JSON in a
    bad-input error is registry-driven and **debug-adaptive**: it shows the FULL
    skeleton when debug logging is active (`log_level_int(...) <= 10`), else the
