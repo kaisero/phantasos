@@ -325,6 +325,110 @@ def test_flag_help_pipe_escaped_for_markdown_table() -> None:
     assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
 
 
+def test_nested_model_flag_help_falls_back_to_model_description() -> None:
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="provider",
+                key="create:provider",
+                sdk_resource="providers",
+                body_flags=[
+                    Flag(
+                        name="--microsoft",
+                        param="microsoft",
+                        py_type="CreateMicrosoftProviderRequest",
+                        kind="json",
+                        required=False,
+                        help="",  # bare $ref property: no field-level description
+                        model_ref="CreateMicrosoftProviderRequest",
+                    )
+                ],
+            )
+        ],
+        models={
+            "CreateMicrosoftProviderRequest": ModelSchema(
+                description="Request body to create a Microsoft OneDrive provider.",
+                fields=[
+                    ModelField(
+                        name="tenant_id",
+                        alias="tenantId",
+                        py_type="str",
+                        kind="scalar",
+                        required=True,
+                        description="Azure AD tenant ID.",
+                    )
+                ],
+            )
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    row = cast(
+        "list[dict[str, object]]",
+        _commands(_objects(ctx)[0])[0]["body_flags"],
+    )[0]
+    assert row["help"] == "Request body to create a Microsoft OneDrive provider."
+
+
+def test_model_description_fallback_is_pipe_and_newline_escaped() -> None:
+    # The fallback source (model description) must be escaped for a GFM cell just like
+    # field-level help is (mirrors test_flag_help_pipe_escaped_for_markdown_table).
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="provider",
+                key="create:provider",
+                sdk_resource="providers",
+                body_flags=[
+                    Flag(
+                        name="--cfg",
+                        param="cfg",
+                        py_type="Cfg",
+                        kind="json",
+                        required=False,
+                        help="",
+                        model_ref="Cfg",
+                    )
+                ],
+            )
+        ],
+        models={
+            "Cfg": ModelSchema(
+                description="pick a | b\nor c",
+                fields=[
+                    ModelField(
+                        name="x", alias="x", py_type="str", kind="scalar", required=True
+                    )
+                ],
+            )
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[
+        0
+    ]
+    assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
+
+
 def test_unknown_showcase_object_raises() -> None:
     with pytest.raises(ValueError, match="not a CLI object"):
         build_cli_docs_context(

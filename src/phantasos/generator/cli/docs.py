@@ -113,6 +113,12 @@ def _clean_description(text: str) -> str:
     return (text[: match.start()] if match else text).strip()
 
 
+def _ref_description(models: dict[str, ModelSchema] | None, ref: str | None) -> str:
+    """The schema-level description of a referenced model, or "" when absent."""
+    m = models.get(ref) if models and ref else None
+    return m.description if m else ""
+
+
 def _schema_rows(
     models: dict[str, ModelSchema],
     name: str,
@@ -147,7 +153,7 @@ def _schema_rows(
                     else mf.model_ref or mf.py_type
                 ),
                 "required": mf.required,
-                "help": _cell(mf.description),
+                "help": _cell(mf.description or _ref_description(models, mf.model_ref)),
                 "choices": (
                     [_cell(c) for c in mf.enum_values] if mf.enum_values else None
                 ),
@@ -169,7 +175,7 @@ def _flag_row(
         "type": (f.model_ref or f.py_type),
         "required": f.required,
         "choices": [_cell(c) for c in f.choices] if f.choices else None,
-        "help": _cell(f.help),
+        "help": _cell(f.help or _ref_description(models, f.model_ref)),
         "schema": schema,
     }
 
