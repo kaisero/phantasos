@@ -14,9 +14,9 @@ from typing import Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-from ..cli.ir import FlagKind
 from ._pathutil import on_sys_path
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
+from .vocab import FlagKind
 
 _EXCLUDE_SUFFIXES = ("_with_http_info", "_without_preload_content", "_serialize")
 _SKIP_PARAMS = {

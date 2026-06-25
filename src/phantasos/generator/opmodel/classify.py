@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from ..cli.ir import SubVerb, Verb
 from .inventory import ParamInfo
+from .vocab import SubVerb, Verb
 
 # (prefix, verb, sub_verb) — ORDER MATTERS: longer/compound prefixes first.
 _VERB_PREFIXES: list[tuple[str, Verb, SubVerb]] = [

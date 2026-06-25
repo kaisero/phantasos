@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ..cli.ir import FlagKind
+from .vocab import FlagKind
 
 Location = Literal["path", "query", "body"]
 

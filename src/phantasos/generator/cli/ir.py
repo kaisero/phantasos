@@ -9,6 +9,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+# NOTE: These three Literal aliases are the canonical CLASSIFICATION VOCABULARY,
+# also defined byte-identically in ``opmodel.vocab`` (the base layer the opmodel
+# modules import from). They are duplicated here ON PURPOSE: this module's source
+# is copied VERBATIM into each generated CLI as ``_generated/spec.py`` (see
+# render_cli.py), which is a standalone package with NO ``opmodel`` to import
+# from. The values MUST stay in sync with ``opmodel.vocab`` (they serialize into
+# the frozen ir.json/spec.py contract).
 FlagKind = Literal["scalar", "enum", "json", "file", "id"]
 
 
