@@ -42,6 +42,8 @@ class PhoneTarget(BaseModel):
 
 
 class Contact(BaseModel):
+    """How to reach the widget owner."""
+
     name: str  # required
     timezone: Optional[str] = None
 

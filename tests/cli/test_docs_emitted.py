@@ -179,6 +179,16 @@ def test_reference_links_nested_model_type_to_schema_anchor(
     assert lines[a + 2].startswith('??? note "`--profile` schema"')
 
 
+def test_reference_nested_field_shows_model_description(
+    emit_cli: Callable[..., Path],
+) -> None:
+    # WidgetProfile.contact has no field-level description; the Contact model's own
+    # class docstring must surface in the nested --profile schema table (Task 2).
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))
+    text = (out / "docs" / "reference" / "widget.md").read_text()
+    assert "How to reach the widget owner." in text
+
+
 def test_reference_schema_anchors_unique_per_page(
     emit_cli: Callable[..., Path],
 ) -> None:
