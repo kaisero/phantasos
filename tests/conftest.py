@@ -55,7 +55,12 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
         # (e.g. auth-on vs auth-off) without one clobbering the other.
         calls["n"] += 1
         out = tmp_path / f"emit{calls['n']}"
-        ir = build_cli_ir(cli_operations("fakesdk", fixture), config)[0]
+        from phantasos.generator.cli.modelschema import build_model_registry
+
+        inv = cli_operations("fakesdk", fixture)
+        ir = build_cli_ir(
+            inv, config, models=build_model_registry("fakesdk", fixture, inv)
+        )[0]
         render_cli(
             ir,
             package="fakesdk_cli",

@@ -79,7 +79,7 @@ operations:
 
 project:
   distribution: prisma-browser-sdk
-  description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs
+  description: Python SDK for the Palo Alto Networks Prisma Browser
   author: Oliver Kaiser
   author_email: oliver.kaiser@outlook.com
   repo_url: https://github.com/kaisero/prisma-browser-sdk

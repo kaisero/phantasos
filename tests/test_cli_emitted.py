@@ -33,7 +33,12 @@ _FAKESDK_CLI_CONFIG = CliConfig(
 @pytest.fixture
 def emitted(tmp_path: Path) -> Iterator[Path]:
     """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     sys.path.insert(0, str(tmp_path))
     for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
@@ -92,7 +97,12 @@ def emitted_auth(tmp_path: Path) -> Iterator[Path]:
     """Like `emitted`, but rendered WITH an auth component so the IR carries
     credential_fields (client_id/client_secret/scope/base_url). Importable as
     `fakesdk_cli` (env_prefix FAKESDK)."""
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(
         ir,
         package="fakesdk_cli",
@@ -669,6 +679,69 @@ def test_invalid_json_flag_reports_clean_error(
     assert "spec" in res.stderr
 
 
+def test_runtime_json_error_example_minimal_and_debug_full(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    argv = [
+        "create",
+        "widget",
+        "--name",
+        "w",
+        "--priority",
+        "1",
+        "--profile",
+        "notjson",
+    ]
+
+    # default level → MINIMAL non-empty skeleton: first member (contact) + its
+    # required field; the OPTIONAL `tags` is omitted.
+    res = CliRunner().invoke(main.app, argv)
+    assert res.exit_code != 0
+    assert res.exception is None or isinstance(res.exception, SystemExit)
+    assert "contact" in res.stderr  # registry skeleton, not {}
+    assert "'{}'" not in res.stderr  # never the broken empty fallback
+    assert "tags" not in res.stderr  # optional field absent at minimal
+
+    # debug level → FULL skeleton includes optional fields (e.g. tags). Config is
+    # cached at import; set env THEN clear the cache before re-invoking (CLAUDE.md).
+    monkeypatch.setenv("FAKESDK_LOGGING_LEVEL", "debug")
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    res2 = CliRunner().invoke(main.app, argv)
+    assert "tags" in res2.stderr  # optional field => full skeleton only
+
+
+def test_runtime_anonymous_json_error_keeps_keyvalue_example(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # D11: a json flag with NO model_ref (--spec: Optional[dict]) keeps the live
+    # `{"key": "value"}` fallback — it must NOT regress to an empty/missing example.
+    from typer.testing import CliRunner
+
+    main = importlib.import_module("fakesdk_cli.main")
+    import fakesdk.extras.facade as facade
+
+    _, fake_client_cls = _fake_client([])
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
+    )
+    res = CliRunner().invoke(
+        main.app,
+        ["create", "widget", "--name", "w", "--priority", "1", "--spec", "notjson"],
+    )
+    assert res.exit_code != 0
+    assert "key" in res.stderr and "value" in res.stderr
+
+
 def test_cli_runner_request_actions(
     emitted: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -895,6 +968,8 @@ def test_scalar_body_flags_use_real_types(emitted: Path, tmp_path: Path) -> None
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
+    # intentionally exercises the un-deepened (models=None) path: this asserts only
+    # on scalar body-flag typing (name/priority/enabled), not skeletons/model_ref.
     ir, _ = build_cli_ir(inv, CliConfig())
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
@@ -1185,6 +1260,8 @@ def test_show_flags_grouped_into_panels(emitted: Path, tmp_path: Path) -> None:
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
+    # intentionally exercises the un-deepened (models=None) path: this asserts only
+    # on show-command path/query flag panels, not body skeletons/model_ref.
     ir, _ = build_cli_ir(inv, _FAKESDK_CLI_CONFIG)
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
     code = (
@@ -1465,7 +1542,12 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     ruff = shutil.which("ruff")
     if ruff is None:
         pytest.skip("ruff not on PATH")
-    ir = build_cli_ir(cli_operations("fakesdk", FIXTURE), _FAKESDK_CLI_CONFIG)[0]
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    inv = cli_operations("fakesdk", FIXTURE)
+    ir = build_cli_ir(
+        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
+    )[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     gen = tmp_path / "fakesdk_cli" / "_generated"
     res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
@@ -3827,3 +3909,27 @@ def test_show_id_only_with_id_still_dispatches_get(
     )
     assert calls and calls[0][0] == "get"  # wrapper clean verb
     assert calls[0][1].get("thing_id") == "t1"
+
+
+def test_emitted_help_shows_json_skeleton(emitted: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    # Force a wide, non-interactive terminal so Rich does NOT wrap the help columns
+    # (a wrapped "[json: WidgetProfile]" would split the token and flake the assert).
+    env = {**os.environ, "COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"}
+    # The emitted package's entry point lives in ``main.py`` (hand-owned); there
+    # is no ``__main__.py``, so ``-m fakesdk_cli`` would not be runnable — target
+    # ``fakesdk_cli.main`` (the same module the console-script wires up).
+    out = subprocess.run(
+        [sys.executable, "-m", "fakesdk_cli.main", "create", "widget", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(emitted),
+        env=env,
+    )
+    text = out.stdout + out.stderr
+    # Assert ONLY the two short, wrap-safe tokens here; the exact compact-JSON
+    # skeleton string is asserted in the _flag_view unit test (no wrapping there).
+    assert "[json:" in text and "WidgetProfile" in text

@@ -89,7 +89,10 @@ def cli_discover(
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc
-    ir, unmapped = build_cli_ir(inv, cfg)
+    from .generator.cli.modelschema import build_model_registry
+
+    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
+    ir, unmapped = build_cli_ir(inv, cfg, models=models)
     typer.echo(render_table(ir, unmapped))
     if write_stub:
         stub_path = Path(loaded.base_dir) / "cli.yml.stub"
@@ -123,7 +126,10 @@ def cli_build(
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc
-    ir, unmapped = build_cli_ir(inv, cfg)
+    from .generator.cli.modelschema import build_model_registry
+
+    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
+    ir, unmapped = build_cli_ir(inv, cfg, models=models)
     if loaded.config.project is None and cfg.project is None:
         typer.echo(
             "ERROR: cli build needs project metadata to scaffold the CLI — add a "

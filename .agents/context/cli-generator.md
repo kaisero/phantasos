@@ -104,6 +104,92 @@ distinct from `Flag.default` (the SDK/model default, NEVER rendered — body fla
 stay None so PATCH won't silently resend model defaults). The IR is serialized to
 `_generated/ir.json` and reloaded at CLI runtime against the emitted `spec.py`.
 
+The IR also carries a **deduped nested-schema model registry** for complex
+(`json`-kind) body flags: `CliIR.models: dict[str, ModelSchema]` (each body
+model emitted once, keyed by its class name) and `Flag.model_ref` (a `json`
+flag's pointer into that registry). A `ModelSchema` is a `list[ModelField]`
+(+ `is_oneof`); a `ModelField` records `name`/`alias` (wire key), `py_type`,
+`kind`, `required`, `description`, `enum_values`, `default`/`example`, plus the
+edges that keep the registry normalized — `model_ref` (a nested known model) and
+`variant_refs` (a oneOf/union's variant keys, rendered as tabs). See *Nested
+body-model registry* below. Spec: `docs/specs/2026-06-22-cli-flag-schema-ir-and-docs-design.md`.
+
+## Nested body-model registry
+
+Complex body fields (nested object / `list[Model]` / oneOf) used to collapse to
+`str`/`TEXT` with an empty help and a `'{}'` example: the full schema survived
+SDK introspection (`FieldInfo.annotation`) but was dropped at
+`fields_to_flags` (the `json` branch sets `py_type="str"`), and the `Flag` IR had
+nowhere to hold nested structure. The registry closes that gap end to end.
+
+- **`modelschema.py` = live models → registry.** This is the one seam that walks
+  the *live* SDK body classes (already imported by the wrapper-rebased
+  `cli_operations`). `build_model_registry(package, sdk_path, inv)` collects every
+  body-model root in the inventory and `registry_from_models(roots)` recurses each
+  via the now-public opmodel primitives (`field_kind`/`unwrap_optional`/
+  `enum_values`/`scalar_type`/`union_members`, walking `cls.model_fields`),
+  emitting one `ModelSchema` per reachable class into a `dict` keyed by class name. Recursion is **emit-once**
+  (a model already in the registry is referenced, not re-expanded) so reuse-heavy,
+  deep prisma-browser schemas stay bounded and cycle-proof (mirrors pydantic
+  `$defs`/`$ref`). The recursion runs in the CLI layer to keep the SDK-shared
+  `FieldInfo`/`OperationInfo` types unpolluted (separation of duty); opmodel only
+  exposes its walking primitives. Each `ModelSchema` also carries the model's own
+  schema-level `description`: `_model_doc(cls)` reads the class docstring that
+  openapi-generator writes from the OpenAPI component `description` (and drops it
+  when it is just the bare class name — that is openapi-generator's marker for a
+  description-less schema). `build_cli_ir(inv, cfg, models)` threads the
+  built registry onto `CliIR.models` and stamps each `json` flag's `model_ref`.
+
+- **`ir.py` `synth_skeleton(models, model_name, *, full)` = registry → JSON
+  skeleton.** A self-contained (stdlib + pydantic only) synthesizer that turns a
+  registry entry into a copy-&-fill JSON body. `full=True` emits every field
+  including optionals (the docs "Full body"); `full=False` emits a required-only
+  **minimal** skeleton with a non-empty guarantee — an all-optional model still
+  emits one representative (first-declared) field recursively, so the example is a
+  valid minimal body rather than an API-rejected `{}`. Field values follow
+  `example > default > type-synth`; wire/alias (camelCase) keys are used. Because
+  `spec.py` is the verbatim copy of `ir.py` (the `render_cli.py` `ir.py`→`spec.py`
+  mechanism), the synthesizer ships to the runtime unchanged — every surface is
+  byte-identical by construction.
+
+These two halves feed **four surfaces**, all off the single registry:
+
+1. **`--help` annotation** (`commands.py.jinja` / `examples.py`) — a `json` flag's
+   help becomes `{help} [json: <Model>] e.g. {compact-minimal-skeleton}`
+   (single-line, `full=False`), replacing the old empty help + `'{}'`.
+2. **Docs one-line invocation** (`examples.py:example_value`) — the same compact
+   minimal skeleton replaces `'{}'` in the quickstart/reference invocation.
+3. **Docs progressive disclosure** (`reference_object.md.jinja`) — each complex
+   flag row is followed by a collapsed `pymdownx.details` block (`??? note`) with
+   that model's field table; sub-models nest (collapsed, 4-space-indented),
+   oneOf fields render as `pymdownx.tabbed` tabs, and each command gets a
+   collapsed `??? example "Full body (copy & fill)"` (`full=True`) skeleton. New
+   `mkdocs.yml` extensions: `pymdownx.details`, `attr_list`, `pymdownx.tabbed`.
+   In `docs.py`, a nested-model body flag with an empty help cell **falls back to
+   the registry model's `description`**: both `_flag_row` and the recursive
+   `_schema_rows` resolve an empty cell via `_ref_description(models, ref)` (which
+   reads `ModelSchema.description`), so a flag like `--microsoft` shows the model's
+   schema-level prose in the Body table instead of a blank. The Body-table **Type
+   cell links to that flag's schema disclosure block**: when a flag has a schema,
+   `_flag_row` stamps a page-unique `type_anchor` slug from `_anchor(key, flag)`
+   (command key + flag name, so the same flag under two commands gets distinct
+   anchors), the template renders the Type cell as `[`<Model>`](#<type_anchor>)`,
+   and emits a matching invisible `<a id="<type_anchor>"></a>` on the line ABOVE the
+   `??? note` disclosure (the blank line between the anchor and `??? note` is
+   load-bearing — it keeps `pymdownx.details` from swallowing the admonition).
+4. **Runtime input-error example** (`runtime.py.jinja`) — the corrective JSON in a
+   bad-input error is registry-driven and **debug-adaptive**: it shows the FULL
+   skeleton when debug logging is active (`log_level_int(...) <= 10`), else the
+   minimal-non-empty one. Anonymous json (no `model_ref`) keeps the
+   `{"key": "value"}` fallback.
+
+> Known minor: a `json` field whose annotation can't be resolved to a registry
+> model (no `model_ref`/`variant_refs`) shows its raw `py_type` in the docs Type
+> cell — for some prisma-browser fields that is a long `typing.Annotated[…] | None`
+> with an unescaped `|`. It is cosmetic only: the cell is backtick-wrapped, so the
+> markdown table parser doesn't split on the `|` (the rendered `<tr>` keeps 4
+> `<td>`s and `mkdocs build --strict` passes); it's just noisy, not broken.
+
 ## Templates & overrides
 
 - `templates/_generated/*.jinja` — the rebuilt-every-time package: `app.py`
@@ -252,6 +338,7 @@ autodoc Python; the CLI's user surface is the command tree). See
 - `introspect.py` — Backward-compatibility shim: introspect now lives in generator.opmodel.introspect.
 - `inventory.py` — Backward-compatibility shim: inventory types now live in generator.opmodel.inventory.
 - `ir.py` — The CLI intermediate representation: the fully-resolved command tree.
+- `modelschema.py` — Walk live SDK body models into the deduped CliIR model registry.
 - `render_cli.py` — Emit a Typer CLI project from a CliIR (static codegen via Jinja).
 - `scaffold_context.py` — Build the scaffold context for an emitted CLI project (reuses the SDK scaffold).
 <!-- /GENERATED:module-map -->
@@ -263,10 +350,10 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `classify_name(method)` — CLI-local prefix classification: ADDS the PUT `update_*` -> (update, put) case.
   - `cli_operations(package, sdk_path, registry_attr)` — Inventory built from the SDK's typed wrappers (`_WRAPPERS`/`_bindings`).
   - `select_method_for_verb(methods)` — Return the preferred method when multiple share the same verb.
-  - `fields_to_flags(fields)`
+  - `fields_to_flags(fields, schema)`
   - class `ResolvedVariant`
   - `resolve_variants(op, vmap)` — Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
-  - `build_cli_ir(inv, cfg)`
+  - `build_cli_ir(inv, cfg, models)`
 - `cliconfig.py`
   - class `RequestMapping`
   - class `Override`
@@ -285,8 +372,8 @@ autodoc Python; the CLI's user surface is the command tree). See
 - `docs.py`
   - `build_cli_docs_context(ir, docs, distribution, site_name, env_prefix, repo_url, description)`
 - `examples.py`
-  - `example_value(flag)` — A shell-safe example value token for one flag.
-  - `render_invocation(command, distribution, override)` — A one-line invocation example (required flags only) or the verbatim override.
+  - `example_value(flag, models)` — A shell-safe example value token for one flag.
+  - `render_invocation(command, distribution, override, models)` — A one-line invocation example (required flags only) or the verbatim override.
 - `flags.py`
   - `query_panel(f)`
   - `leaf(c)` — The third command segment: a oneOf variant OR a request action (mutually
@@ -298,7 +385,13 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `MethodBinding`
   - class `ColumnSpec` — One table column: a header + a JMESPath evaluated against each row dict
   - class `Command`
+  - class `ModelField` — One field of a body model, captured for the CLI payload-helper skeleton.
+  - class `ModelSchema` — A body model's field surface, stored deduped under a key in `CliIR.models`.
   - class `CliIR`
+  - `synth_skeleton(models, model_name, full)` — Synthesize a JSON skeleton for ``model_name`` from the registry.
+- `modelschema.py`
+  - `registry_from_models(roots)` — Deduped registry of every model reachable from ``roots``.
+  - `build_model_registry(package, sdk_path, inv)`
 - `render_cli.py`
   - `cli_overrides_dir()`
   - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`

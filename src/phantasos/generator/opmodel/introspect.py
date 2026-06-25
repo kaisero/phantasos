@@ -35,7 +35,7 @@ def _public_methods(cls: type[Any]) -> Iterator[tuple[str, object]]:
         yield name, member
 
 
-def _enum_values(tp: object) -> list[str] | None:
+def enum_values(tp: object) -> list[str] | None:
     if isinstance(tp, type) and issubclass(tp, enum.Enum):
         return [str(m.value) for m in tp]
     if get_origin(tp) is Literal:
@@ -53,24 +53,24 @@ def _annotated_description(tp: object) -> str:
     return ""
 
 
-def _unwrap_optional(tp: object) -> object:
+def unwrap_optional(tp: object) -> object:
     """Return the underlying type, peeling Annotated[...] and Optional[X]."""
     if get_origin(tp) is not None and hasattr(tp, "__metadata__"):
         tp = get_args(tp)[0]
     if get_origin(tp) in (Union, UnionType):
         non_none = [a for a in get_args(tp) if a is not type(None)]
         if len(non_none) == 1:
-            return _unwrap_optional(non_none[0])
+            return unwrap_optional(non_none[0])
     return tp
 
 
-def _scalar_type(tp: object) -> str:
+def scalar_type(tp: object) -> str:
     """Return the normalized scalar type for path/query/body-field coercion.
 
     bool must be checked before int because bool is a subclass of int in Python.
     datetime and complex types (UUID, nested model, enum, list, …) map to "str".
     """
-    base = _unwrap_optional(tp)
+    base = unwrap_optional(tp)
     if base is bool:
         return "bool"
     if base is int:
@@ -80,15 +80,15 @@ def _scalar_type(tp: object) -> str:
     return "str"
 
 
-def _field_kind(tp: object) -> str:
-    tp = _unwrap_optional(tp)
-    if _enum_values(tp):
+def field_kind(tp: object) -> str:
+    tp = unwrap_optional(tp)
+    if enum_values(tp):
         return "enum"
     if tp in (str, int, float, bool):
         return "scalar"
     origin = get_origin(tp)
     if origin in (list, set):
-        inner = _unwrap_optional(get_args(tp)[0]) if get_args(tp) else str
+        inner = unwrap_optional(get_args(tp)[0]) if get_args(tp) else str
         return "scalar" if inner in (str, int, float, bool) else "json"
     return "json"  # nested model, dict, union, etc.
 
@@ -97,9 +97,9 @@ def _model_fields(model: type[BaseModel]) -> list[FieldInfo]:
     out: list[FieldInfo] = []
     for fname, field in model.model_fields.items():
         tp = field.annotation
-        kind = typing.cast(FlagKind, _field_kind(tp))
+        kind = typing.cast(FlagKind, field_kind(tp))
         # Compute scalar_type only for scalar fields; enums stay "str" (Task 4).
-        st = _scalar_type(tp) if kind == "scalar" else "str"
+        st = scalar_type(tp) if kind == "scalar" else "str"
         out.append(
             FieldInfo(
                 name=fname,
@@ -108,18 +108,18 @@ def _model_fields(model: type[BaseModel]) -> list[FieldInfo]:
                 required=field.is_required(),
                 default=None if field.is_required() else field.default,
                 description=field.description or "",
-                enum_values=_enum_values(_unwrap_optional(tp)),
+                enum_values=enum_values(unwrap_optional(tp)),
                 scalar_type=st,
             )
         )
     return out
 
 
-def _union_members(model: type[BaseModel]) -> list[str] | None:
+def union_members(model: type[BaseModel]) -> list[str] | None:
     field = model.model_fields.get("actual_instance")
     if field is None:
         return None
-    inner = _unwrap_optional(field.annotation)
+    inner = unwrap_optional(field.annotation)
     if get_origin(inner) in (Union, UnionType):
         return [
             getattr(a, "__name__", None) or str(a)
@@ -137,7 +137,7 @@ def _item_fields(item: type[BaseModel]) -> list[FieldInfo]:
     (actual_instance / one_of_schemas / ...). This lets default and curated
     columns resolve against the real variant fields.
     """
-    members = _union_members(item)
+    members = union_members(item)
     if not members:
         return _model_fields(item)
     ns: ModuleType = sys.modules[item.__module__]
@@ -169,17 +169,17 @@ def _response_info(tp: object) -> tuple[str | None, str | None, list[FieldInfo]]
     items_field is the list field's name and the fields are the inner model's;
     otherwise the return model itself is the item.
     """
-    base = _unwrap_optional(tp)
+    base = unwrap_optional(tp)
     if not (isinstance(base, type) and issubclass(base, BaseModel)):
         return None, None, []
     for fname, field in base.model_fields.items():
-        inner = _unwrap_optional(field.annotation)
+        inner = unwrap_optional(field.annotation)
         if get_origin(inner) not in (list, set):
             continue
         if fname != "data" and "page_info" not in base.model_fields:
             continue  # embedded list inside an item model, not an envelope
         args = get_args(inner)
-        item = _unwrap_optional(args[0]) if args else None
+        item = unwrap_optional(args[0]) if args else None
         if isinstance(item, type) and issubclass(item, BaseModel):
             return base.__name__, fname, _item_fields(item)
     return base.__name__, None, _item_fields(base)
@@ -230,7 +230,7 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
                 if pname in _SKIP_PARAMS:
                     continue
                 tp = hints.get(pname, p.annotation)
-                base = _unwrap_optional(tp)
+                base = unwrap_optional(tp)
                 required = p.default is inspect.Parameter.empty
                 # TODO(phase2): detect dict and list[Model] request bodies (currently
                 # classified as path/query because they are not BaseModel subclasses).
@@ -248,12 +248,12 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
                     required=required,
                     default=None if required else p.default,
                     description=_annotated_description(tp),
-                    enum_values=_enum_values(base),
-                    scalar_type=_scalar_type(tp),
+                    enum_values=enum_values(base),
+                    scalar_type=scalar_type(tp),
                 )
                 if is_body and isinstance(base, type) and issubclass(base, BaseModel):
                     info.body_model = base.__name__
-                    members = _union_members(base)
+                    members = union_members(base)
                     info.union_members = members
                     if members:
                         ns: ModuleType = sys.modules[base.__module__]
@@ -284,3 +284,11 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
         sdk_version=getattr(pkg, "__version__", "0.0.0"),
         operations=operations,
     )
+
+
+# Backward-compatible private aliases (internal callers + tests still import these).
+_enum_values = enum_values
+_unwrap_optional = unwrap_optional
+_scalar_type = scalar_type
+_field_kind = field_kind
+_union_members = union_members

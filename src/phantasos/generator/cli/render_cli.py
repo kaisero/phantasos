@@ -18,7 +18,7 @@ from .docs import build_cli_docs_context
 from .flags import dedupe_flags
 from .flags import leaf as _leaf
 from .flags import query_panel as _query_panel
-from .ir import CliIR, Command, Flag
+from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
 
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
@@ -163,7 +163,9 @@ def _help_literal(text: str | None) -> str | None:
     return "(" + " ".join(parts) + ")"
 
 
-def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
+def _flag_view(
+    f: Flag, panel: str | None = None, *, models: dict[str, ModelSchema] | None = None
+) -> dict[str, object]:
     choices = f.choices
     help_text: str | None = f.help
     completion: list[str] | None = None
@@ -176,6 +178,15 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
         help_text = f"{f.help}  {values}" if f.help else values
         completion = choices
         completer_name = f"_complete_{_py_name(f.param)}"
+    elif f.kind == "json" and f.model_ref and models is not None:
+        # Stop-gap payload helper: a json body flag would otherwise render as a
+        # bare ``TEXT`` with no hint of its shape. Show the model name plus a
+        # compact minimal (required-only) skeleton so ``--help`` tells the user
+        # what JSON to pass. Escape the leading bracket like the enum path above.
+        skel = synth_skeleton(models, f.model_ref, full=False)
+        compact = json.dumps(skel, separators=(",", ":"))
+        ann = rf"\[json: {f.model_ref}] e.g. {compact}"
+        help_text = f"{f.help}  {ann}" if f.help else ann
     return {
         "name": f.name,
         "param": f.param,
@@ -193,7 +204,10 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
 
 
 def _command_view(
-    c: Command, variant_groups: set[tuple[str, str]]
+    c: Command,
+    variant_groups: set[tuple[str, str]],
+    *,
+    models: dict[str, ModelSchema] | None = None,
 ) -> dict[str, object]:
     leaf = _leaf(c)
     if leaf:
@@ -214,11 +228,11 @@ def _command_view(
         "verb": c.verb,
         "variant": c.variant,
         "path_params": [_flag_view(f) for f in c.path_params],
-        "body_flags": [_flag_view(f) for f in deduped_body],
+        "body_flags": [_flag_view(f, models=models) for f in deduped_body],
         "query_flags": [_flag_view(f) for f in deduped_query],
         "all_flags": [
             *(_flag_view(f) for f in c.path_params),
-            *(_flag_view(f) for f in deduped_body),
+            *(_flag_view(f, models=models) for f in deduped_body),
             *(_flag_view(f, _query_panel(f)) for f in deduped_query),
         ],
     }
@@ -365,7 +379,9 @@ def render_cli(
     }
     by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
     for c in ir.commands:
-        by_resource[c.sdk_resource].append(_command_view(c, variant_groups))
+        by_resource[c.sdk_resource].append(
+            _command_view(c, variant_groups, models=ir.models)
+        )
     for resource, cmds in by_resource.items():
         dest = gen / "commands" / f"{resource}.py"
         # Dedup enum-flag completers by completer_name across the module's commands
@@ -385,7 +401,9 @@ def render_cli(
     (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
     written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
     # app factory
-    all_views = [_command_view(c, variant_groups) for c in ir.commands]
+    all_views = [
+        _command_view(c, variant_groups, models=ir.models) for c in ir.commands
+    ]
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
             resources=resources, commands=all_views, **ctx

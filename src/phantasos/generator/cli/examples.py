@@ -10,7 +10,7 @@ helpers from flags.py.
 from __future__ import annotations
 
 from .flags import dedupe_flags, leaf
-from .ir import Command, Flag
+from .ir import Command, Flag, ModelSchema
 
 # Honest placeholder values rendered as shell tokens. Required-only examples stay
 # short and copy-pasteable; full flag detail lives in the reference flag tables.
@@ -22,11 +22,24 @@ _SCALARS: dict[str, str] = {
 }
 
 
-def example_value(flag: Flag) -> str:
-    """A shell-safe example value token for one flag."""
+def example_value(flag: Flag, models: dict[str, ModelSchema] | None = None) -> str:
+    """A shell-safe example value token for one flag.
+
+    A json flag carrying a known body model (``model_ref``) renders the real
+    minimal skeleton (required-only) from the registry, single-quoted for the
+    shell; an anonymous json flag (no ``model_ref``) or an empty registry falls
+    back to ``'{}'``.
+    """
     if flag.choices:
         return flag.choices[0]
     if flag.kind == "json":
+        if flag.model_ref and models:
+            import json as _json
+
+            from .ir import synth_skeleton
+
+            skel = synth_skeleton(models, flag.model_ref, full=False)
+            return "'" + _json.dumps(skel, separators=(",", ":")) + "'"
         return "'{}'"
     if flag.kind == "file":
         return "./file"
@@ -45,7 +58,11 @@ def _required_flags(c: Command) -> list[Flag]:
 
 
 def render_invocation(
-    command: Command, *, distribution: str, override: str | None = None
+    command: Command,
+    *,
+    distribution: str,
+    override: str | None = None,
+    models: dict[str, ModelSchema] | None = None,
 ) -> str:
     """A one-line invocation example (required flags only) or the verbatim override."""
     if override is not None:
@@ -55,5 +72,5 @@ def render_invocation(
     if third:
         parts.append(third)
     for f in _required_flags(command):
-        parts.append(f"{f.name} {example_value(f)}")
+        parts.append(f"{f.name} {example_value(f, models)}")
     return " ".join(parts)

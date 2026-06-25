@@ -325,6 +325,110 @@ def test_flag_help_pipe_escaped_for_markdown_table() -> None:
     assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
 
 
+def test_nested_model_flag_help_falls_back_to_model_description() -> None:
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="provider",
+                key="create:provider",
+                sdk_resource="providers",
+                body_flags=[
+                    Flag(
+                        name="--microsoft",
+                        param="microsoft",
+                        py_type="CreateMicrosoftProviderRequest",
+                        kind="json",
+                        required=False,
+                        help="",  # bare $ref property: no field-level description
+                        model_ref="CreateMicrosoftProviderRequest",
+                    )
+                ],
+            )
+        ],
+        models={
+            "CreateMicrosoftProviderRequest": ModelSchema(
+                description="Request body to create a Microsoft OneDrive provider.",
+                fields=[
+                    ModelField(
+                        name="tenant_id",
+                        alias="tenantId",
+                        py_type="str",
+                        kind="scalar",
+                        required=True,
+                        description="Azure AD tenant ID.",
+                    )
+                ],
+            )
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    row = cast(
+        "list[dict[str, object]]",
+        _commands(_objects(ctx)[0])[0]["body_flags"],
+    )[0]
+    assert row["help"] == "Request body to create a Microsoft OneDrive provider."
+
+
+def test_model_description_fallback_is_pipe_and_newline_escaped() -> None:
+    # The fallback source (model description) must be escaped for a GFM cell just like
+    # field-level help is (mirrors test_flag_help_pipe_escaped_for_markdown_table).
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="provider",
+                key="create:provider",
+                sdk_resource="providers",
+                body_flags=[
+                    Flag(
+                        name="--cfg",
+                        param="cfg",
+                        py_type="Cfg",
+                        kind="json",
+                        required=False,
+                        help="",
+                        model_ref="Cfg",
+                    )
+                ],
+            )
+        ],
+        models={
+            "Cfg": ModelSchema(
+                description="pick a | b\nor c",
+                fields=[
+                    ModelField(
+                        name="x", alias="x", py_type="str", kind="scalar", required=True
+                    )
+                ],
+            )
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[
+        0
+    ]
+    assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
+
+
 def test_unknown_showcase_object_raises() -> None:
     with pytest.raises(ValueError, match="not a CLI object"):
         build_cli_docs_context(
@@ -357,3 +461,72 @@ def test_unknown_showcase_variant_raises() -> None:
             distribution="acmecli",
             site_name="x",
         )
+
+
+def test_nested_model_flag_carries_unique_type_anchor() -> None:
+    from phantasos.generator.cli.ir import ModelField, ModelSchema
+
+    def _msr(name: str) -> "ModelSchema":
+        return ModelSchema(
+            description=f"{name} desc",
+            fields=[
+                ModelField(
+                    name="x", alias="x", py_type="str", kind="scalar", required=True
+                )
+            ],
+        )
+
+    def _json_flag(flag: str, ref: str) -> Flag:
+        return Flag(
+            name=flag,
+            param=flag.lstrip("-").replace("-", "_"),
+            py_type=ref,
+            kind="json",
+            required=False,
+            model_ref=ref,
+        )
+
+    ir = CliIR(
+        sdk_package="acme",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="cloud-storage-provider",
+                key="create:cloud-storage-provider",
+                sdk_resource="csp",
+                body_flags=[
+                    _json_flag("--microsoft", "CreateMicrosoftProviderRequest"),
+                    _json_flag("--google", "CreateGoogleProviderRequest"),
+                ],
+            )
+        ],
+        models={
+            "CreateMicrosoftProviderRequest": _msr("CreateMicrosoftProviderRequest"),
+            "CreateGoogleProviderRequest": _msr("CreateGoogleProviderRequest"),
+        },
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="cloud-storage-provider"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    rows = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])
+    anchors = {r["name"]: r["type_anchor"] for r in rows}
+    assert anchors["--microsoft"] == "create-cloud-storage-provider-microsoft-schema"
+    assert anchors["--google"] == "create-cloud-storage-provider-google-schema"
+
+
+def test_scalar_flag_has_no_type_anchor() -> None:
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    create = next(
+        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget"
+    )
+    row = cast("list[dict[str, object]]", create["body_flags"])[0]  # --name, scalar
+    assert row["type_anchor"] is None

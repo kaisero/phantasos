@@ -71,3 +71,51 @@ def test_flag_cli_default_roundtrip() -> None:
     back = Flag.model_validate_json(f.model_dump_json())
     assert back.cli_default == "application.id"
     assert back.default is None  # SDK/model default stays separate
+
+
+def test_model_registry_roundtrips() -> None:
+    from phantasos.generator.cli.ir import CliIR, ModelField, ModelSchema
+
+    ir = CliIR(
+        sdk_package="x",
+        sdk_version="1",
+        models={
+            "Saas": ModelSchema(
+                fields=[
+                    ModelField(
+                        name="access_mode",
+                        alias="accessMode",
+                        py_type="str",
+                        kind="enum",
+                        required=True,
+                        enum_values=["none", "any"],
+                    ),
+                    ModelField(
+                        name="specific",
+                        alias="specific",
+                        py_type="Specific | None",
+                        kind="json",
+                        required=False,
+                        model_ref="Specific",
+                    ),
+                ]
+            )
+        },
+    )
+    back = CliIR.model_validate_json(ir.model_dump_json())
+    assert back.models["Saas"].fields[1].model_ref == "Specific"
+    assert back.models["Saas"].fields[0].enum_values == ["none", "any"]
+
+
+def test_flag_carries_model_ref() -> None:
+    from phantasos.generator.cli.ir import Flag
+
+    f = Flag(
+        name="--applications",
+        param="applications",
+        py_type="str",
+        kind="json",
+        required=False,
+        model_ref="AccessAndDataPostApplications",
+    )
+    assert f.model_ref == "AccessAndDataPostApplications"

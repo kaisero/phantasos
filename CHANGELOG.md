@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated CLIs now carry a deduped nested-schema model registry in the CLI IR
+  (`CliIR.models` + per-flag `Flag.model_ref`), recovering the full structure of
+  complex (`json`-kind) body fields that previously collapsed to an empty `TEXT`
+  flag with a `'{}'` example. One registry-driven skeleton synthesizer (shipped
+  verbatim to the runtime) powers four surfaces: progressive-disclosure docs
+  (collapsible per-flag schema tables, `oneOf` tabs, and a copy-&-fill full-body
+  skeleton on each command's reference page); a `[json: <Model>] e.g. {…}` `--help`
+  annotation carrying a real, minimal, valid skeleton; that same skeleton in the
+  docs one-line invocation (replacing `'{}'`); and a debug-adaptive JSON skeleton
+  in input-error messages (the full body under debug logging, an always-valid
+  minimal body otherwise). All-optional models still emit one representative field,
+  so the suggested body is never an API-rejected `{}`.
 - Generated CLIs can now emit a documentation site — opt-in via a `docs:` block in
   `cli.yml` (`showcase_object`, optional `showcase_variant` / `site_name` /
   `examples`). `cli build` renders a standalone MkDocs-Material site (Home with a
@@ -95,6 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated CLIs now render clean payloads for oneOf endpoints (e.g. `show access-and-data-policy`): the openapi-generator wrapper scaffolding (`actual_instance`, `one_of_schemas`, `oneof_schema_*_validator`, `discriminator_value_class_map`) no longer leaks into `--output json/yaml`, and empty `additional_properties: {}` bags are omitted (non-empty bags — fields the spec hasn't caught up to — are preserved). Two generic SDK serializer patches drive this, so every `model_dump()` consumer benefits; the outbound request path (which uses `to_dict()`) is unchanged. Curated/default table columns for oneOf list commands now resolve against the real variant fields (e.g. `application`, `access-and-data-policy`) instead of showing the wrapper.
 - Generated CLIs (with an auth component) now report a clean, actionable error instead of a raw traceback when no credentials are configured on the first command: a descriptor-driven pre-flight names the missing required credential variables (and the active environment, if any) and points to both `environment create` and the credential env vars (exit code `2`). A genuine auth failure when credentials *are* present (e.g. a token-endpoint error) is likewise reported cleanly with exit code `1`; `--verbose` still surfaces the traceback. The SCM `base_url` credential is now correctly treated as optional (the SDK host has a default).
 - Generated CLIs now report a clear error when a `show <object>` is backed only by a get-by-id operation and the API exposes no list endpoint (e.g. `show access-and-data-rule`, `show access-and-data-section`): instead of the generic `no operation for '…' matches the given arguments`, the CLI prints `'show <object>' has no list operation` with a hint to fetch a single object by `--id` (exit code `2`). Detected at build time via a new `Command.get_by_id_only` IR flag.
+- CLI docs: nested-model body flags (e.g. `--microsoft`) now show the model's
+  schema-level description in the Body table, and the Type cell links to that
+  flag's schema disclosure block.
 
 ### Removed
 

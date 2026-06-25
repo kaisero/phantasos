@@ -172,3 +172,48 @@ def test_no_error_component_emits_generic_envelope(tmp_path: Path) -> None:
     # default envelope: zero product shapes baked into the generic template
     assert "errorResponse" not in diag and '"_errors"' not in diag
     assert '"error_field": None' in diag and '"errors_field": None' in diag
+
+
+def test_flag_view_injects_json_annotation_and_skeleton() -> None:
+    from phantasos.generator.cli.ir import Flag, ModelField, ModelSchema
+    from phantasos.generator.cli.render_cli import _flag_view
+
+    models = {
+        "WidgetProfile": ModelSchema(
+            fields=[
+                ModelField(
+                    name="contact",
+                    alias="contact",
+                    py_type="str",
+                    kind="json",
+                    required=False,
+                    model_ref="Contact",
+                ),
+            ]
+        ),
+        "Contact": ModelSchema(
+            fields=[
+                ModelField(
+                    name="name",
+                    alias="name",
+                    py_type="str",
+                    kind="scalar",
+                    required=True,
+                ),
+            ]
+        ),
+    }
+    f = Flag(
+        name="--profile",
+        param="profile",
+        py_type="str",
+        kind="json",
+        required=False,
+        help="Widget profile.",
+        model_ref="WidgetProfile",
+    )
+    view = _flag_view(f, models=models)
+    help_literal = view["help_literal"]
+    assert isinstance(help_literal, str)
+    assert "[json: WidgetProfile]" in help_literal
+    assert '{\\"contact\\":{\\"name\\":\\"string\\"}}' in help_literal

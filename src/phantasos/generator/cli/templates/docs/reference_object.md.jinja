@@ -1,9 +1,37 @@
+{% macro schema_block(rows) -%}
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+{% for r in rows -%}
+| `{{ r.name }}` | `{{ r.type }}` | {{ "yes" if r.required else "no" }} | {{ r.help }}{% if r.choices %} _(values: {{ r.choices | join(", ") }})_{% endif %} |
+{% endfor %}
+{% for r in rows %}{% if r.tabs %}
+{% for t in r.tabs %}
+=== "{{ t.name }}"
+
+{{ schema_block(t.rows) | indent(4, first=True) }}
+{% endfor %}
+{% elif r.children %}
+??? note "`{{ r.name }}` fields"
+
+{{ schema_block(r.children) | indent(4, first=True) }}
+{% endif %}{% endfor %}
+{%- endmacro -%}
+
 {% macro flag_table(rows) -%}
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 {% for f in rows -%}
-| `{{ f.name }}` | `{{ f.type }}` | {{ "yes" if f.required else "no" }} | {{ f.help }}{% if f.choices %} _(values: {{ f.choices | join(", ") }})_{% endif %} |
-{% endfor -%}
+| `{{ f.name }}` | {% if f.type_anchor %}[`{{ f.type }}`](#{{ f.type_anchor }}){% else %}`{{ f.type }}`{% endif %} | {{ "yes" if f.required else "no" }} | {{ f.help }}{% if f.choices %} _(values: {{ f.choices | join(", ") }})_{% endif %} |
+{% endfor %}
+{% for f in rows %}{% if f.schema %}
+{# The blank line between <a id> and ??? note is LOAD-BEARING: without it
+   python-markdown folds the admonition into the raw-HTML block. Do not remove. #}
+<a id="{{ f.type_anchor }}"></a>
+
+??? note "`{{ f.name }}` schema"
+
+{{ schema_block(f.schema) | indent(4, first=True) }}
+{% endif %}{% endfor %}
 {%- endmacro -%}
 # `{{ obj.object }}`
 
@@ -22,7 +50,13 @@
 
 {{ flag_table(cmd.body_flags) }}
 
-{% endif %}{% if cmd.filter_flags %}**Filters**
+{% if cmd.body_skeleton %}??? example "Full body (copy & fill)"
+
+    ```json
+{{ cmd.body_skeleton | indent(4, first=True) }}
+    ```
+
+{% endif %}{% endif %}{% if cmd.filter_flags %}**Filters**
 
 {{ flag_table(cmd.filter_flags) }}
 
