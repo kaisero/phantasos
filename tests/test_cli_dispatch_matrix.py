@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import importlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -33,7 +35,10 @@ REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 
 @pytest.fixture
-def real_cli(tmp_path: Path) -> Iterator[Path]:
+def real_cli(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> Iterator[Path]:
     """Build the prisma-browser CLI into ``tmp_path``; importable as
     ``prisma_browser_cli``.  Skips when the SDK is absent or its runtime deps
     are missing."""
@@ -53,15 +58,8 @@ def real_cli(tmp_path: Path) -> Iterator[Path]:
         env_prefix="PRISMA",
         distribution="prisma-browser-cli",
     )
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         yield tmp_path
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def _make_app_response(**fields: Any) -> dict[str, Any]:

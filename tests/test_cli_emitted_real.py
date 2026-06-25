@@ -1,7 +1,9 @@
 import importlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,7 +28,10 @@ _APP_VARIANTS = VariantMap(
 
 
 @pytest.fixture
-def real_cli(tmp_path: Path) -> Iterator[Path]:
+def real_cli(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> Iterator[Path]:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
     try:
@@ -42,15 +47,8 @@ def real_cli(tmp_path: Path) -> Iterator[Path]:
         env_prefix="PRISMA",
         distribution="prisma-browser-cli",
     )
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         yield tmp_path
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
@@ -375,7 +373,9 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped() -> None:
 
 
 def test_real_request_commands_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
@@ -399,10 +399,7 @@ def test_real_request_commands_dispatch(
     assert unmapped == []
 
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
         import prisma_browser.extras.facade as facade
 
@@ -422,14 +419,12 @@ def test_real_request_commands_dispatch(
         assert mock.user_request.revoke.called
         kw = mock.user_request.revoke.call_args.kwargs
         assert kw.get("id") == "REQ-1"
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def test_real_create_api_error_is_pretty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
@@ -446,10 +441,7 @@ def test_real_create_api_error_is_pretty(
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
         import prisma_browser.exceptions as pexc
         import prisma_browser.extras.facade as facade
@@ -506,14 +498,12 @@ def test_real_create_api_error_is_pretty(
         assert res2.exit_code != 0
         # the ApiException propagated under --verbose
         assert res2.exception is not None
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def test_real_create_update_delete_device_group(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
@@ -544,10 +534,7 @@ def test_real_create_update_delete_device_group(
     assert [b.sub_verb for b in upd.bindings] == ["patch"]
 
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
         runner = CliRunner()
         # --help shows required name + permissive enum choices
@@ -615,14 +602,12 @@ def test_real_create_update_delete_device_group(
         if body_obj is not None and hasattr(body_obj, "model_dump"):
             dumped = body_obj.model_dump(exclude_none=True)
             assert dumped.get("name") == "renamed", dumped
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def test_real_show_device_help_panels(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
     if not REAL_SDK.exists():
         pytest.skip("prisma-browser-sdk not built")
@@ -637,20 +622,13 @@ def test_real_show_device_help_panels(
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
-        del sys.modules[n]
-    try:
+    with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
         out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
         # box-char-anchored: bare "Filter" appears in option help texts
         assert "─ Filters " in out and "─ Pagination " in out
         # a real filter is under Filters; a pagination param is under Pagination
         assert "--device-hostname" in out and "--limit" in out and "--sort" in out
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in list(sys.modules) if n.startswith("prisma_browser_cli")]:
-            del sys.modules[n]
 
 
 def test_real_dry_run_shows_http_request(
