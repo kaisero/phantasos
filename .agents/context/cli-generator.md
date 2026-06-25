@@ -1,6 +1,6 @@
 # cli-generator
 
-Validated against 81e8207 on 2026-06-20 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
+Validated against 8ab9ccf on 2026-06-25 · Purpose: how `phantasos cli build` turns a BUILT SDK into a vendored, scaffolded Typer + Rich CLI project.
 
 ## Purpose & responsibilities
 
@@ -24,10 +24,12 @@ this package. They wire the three pipeline stages together:
    types) now live in the stage-agnostic `generator/opmodel/` package, shared with
    the SDK wrapper generator. `generator/cli/introspect.py` and
    `generator/cli/inventory.py` are thin backward-compatibility shims that
-   re-export from there. `introspect(package, sdk_path)` imports the built SDK,
-   reads `extras.facade._RESOURCES`, and walks each raw `*Api` class's public
-   methods via reflection (signatures, type hints, docstrings, pydantic model
-   fields). It produces an `OperationInventory` (`OperationInfo` / `ParamInfo` /
+   re-export from there. `introspect(package, sdk_path)` imports the built SDK
+   (briefly on `sys.path` via the shared `opmodel/_pathutil.on_sys_path` context
+   manager — the single guard reused by `introspect`, `classify.cli_operations`,
+   and `modelschema.build_model_registry`), reads `extras.facade._RESOURCES`, and
+   walks each raw `*Api` class's public methods via reflection (signatures, type
+   hints, docstrings, pydantic model fields). It produces an `OperationInventory` (`OperationInfo` / `ParamInfo` /
    `FieldInfo`), classifying each param as path / query / body and capturing the
    response model + list-envelope `items_field` for table columns. The
    `body_fields` map records oneOf-variant model fields. For a oneOf **list** item,
@@ -63,11 +65,24 @@ this package. They wire the three pipeline stages together:
    It also flags `Command.get_by_id_only` — a `show` whose only binding is a single
    get-by-id (no list endpoint) — so the runtime can emit a precise "no list
    operation" error instead of the generic no-match message.
+   `build_cli_ir` is an **orchestrator over named stages**, not a monolith: it runs
+   `_validate_defaults` (cli.yml `defaults` sanity), the per-op `_emit_command`
+   (promoted from the old inner `_emit` closure), then three post-loop passes —
+   `_relax_patch_body_requiredness` (the PATCH-vs-PUT body relaxation above),
+   `_flag_get_by_id_only`, and `_resolve_columns` (per-object column resolution).
+   Each stage is independently readable and testable; the refactor cut
+   `build_cli_ir`'s cyclomatic complexity from F (53) to C (19) with no behaviour change.
 3. **Render** — `render_cli.render_cli(ir, package, out_dir, *, env_prefix,
    distribution, auth)` in `render_cli.py` wipes/re-emits `_generated/` from Jinja
    templates: the runtime modules, one command module per SDK resource, the
    `app.py` factory, a typed copy of the IR models (`spec.py`, copied from
-   `ir.py`) and `ir.json`. The `auth` parameter is the product's resolved auth
+   `ir.py`) and `ir.json`. `render_cli` is itself **data-driven** — the fixed
+   one-shot renders are a `_GENERATED` table of `(template, output-path)` pairs
+   looped over, and the variable work is factored into named helpers: `_enrich_ir`
+   (the auth/errors IR enrichment described next), `_render_commands` (the
+   per-resource command modules), and `_render_docs` (the optional docs site). The
+   extraction cut `render_cli`'s cyclomatic complexity from E (32) to C (15) with
+   no behaviour change. The `auth` parameter is the product's resolved auth
    component (`loaded.auth`, passed by `cli_build`); when present, its
    `credential_fields()` enrich a `model_copy` of the IR (`ir.credential_fields`)
    BEFORE any template render or the `ir.json` write, so templates, `spec.py`, and
@@ -103,6 +118,15 @@ present). `Flag.cli_default` (a `cli.yml`-injected value that IS rendered) is
 distinct from `Flag.default` (the SDK/model default, NEVER rendered — body flags
 stay None so PATCH won't silently resend model defaults). The IR is serialized to
 `_generated/ir.json` and reloaded at CLI runtime against the emitted `spec.py`.
+
+The classification-vocabulary aliases `Verb` / `SubVerb` / `FlagKind` (the
+`Literal` sets `ir.py` annotates its models with) are **canonically defined in
+`opmodel/vocab.py`** — the base layer — so the shared `opmodel` package never has
+to import UP into `cli` (restoring an acyclic `opmodel -> {sdk, cli}` layering).
+`ir.py` keeps a **byte-identical copy** of those three aliases on purpose: its
+source is copied VERBATIM into each emitted CLI as `_generated/spec.py`, a
+standalone package with no `opmodel` to import from. The two definitions MUST stay
+in sync — their values serialize into the frozen `ir.json` / `spec.py` contract.
 
 The IR also carries a **deduped nested-schema model registry** for complex
 (`json`-kind) body flags: `CliIR.models: dict[str, ModelSchema]` (each body
@@ -316,14 +340,21 @@ autodoc Python; the CLI's user surface is the command tree). See
   `products/<name>/cli.yml.stub`). Needs the SDK built and importable.
 - Emit the CLI project: `phantasos cli build <name>` (writes a sibling
   `<sdk-dist>-cli/` project next to the SDK).
-- Tests (`ls tests | grep -i cli`): `test_cli.py`, `test_cli_classify.py`,
-  `test_cli_columns.py`, `test_cli_command.py`, `test_cli_config.py`,
-  `test_cli_discover.py`, `test_cli_emitted.py`, `test_cli_emitted_real.py`,
-  `test_cli_introspect.py`, `test_cli_ir.py`, `test_cli_render.py`,
-  `test_cli_scaffold.py`. Behavioral tests run through the emitted package
-  (`tests/test_cli_emitted.py` `emitted` fixture); config is cached at command-
-  module import (set HOME/env before import; `load_config.cache_clear()` after
-  mutating env).
+- Tests (`ls tests | grep -i cli`): the unit seams (`test_cli_classify.py`,
+  `test_cli_columns.py`, `test_cli_command.py`, `test_cli_discover.py`,
+  `test_cli_introspect.py`, `test_cli_operations.py`, `test_cli_ir.py`,
+  `test_cli_modelschema.py`, `test_cli_skeleton.py`, `test_cli_render.py`,
+  `test_cli_scaffold.py`) plus the host-CLI dispatch (`test_cli.py`). The big
+  `test_cli_emitted.py` was **split per-seam** into `test_cli_emitted_config.py`,
+  `…_environments.py`, `…_history.py`, `…_logging.py`, `…_runtime.py` (a slim
+  `test_cli_emitted.py` / `test_cli_emitted_real.py` remain); the shared `emitted`
+  fixture and the `render_and_import` helper they all build on now live in
+  `tests/conftest.py`. Behavioral tests run through the emitted package; config is
+  cached at command-module import (set HOME/env before import;
+  `load_config.cache_clear()` after mutating env). Offline CLI-docs tests live
+  under `tests/cli/` (against the `fakesdk` fixture); the opmodel split has its own
+  `test_opmodel_classify.py` / `test_opmodel_pathutil.py`. Slow OAG-jar builds are
+  tagged with the `slow` marker (deselect with `-m "not slow"`).
 
 ## Module map
 
