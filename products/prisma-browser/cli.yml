@@ -8,7 +8,7 @@ project:
   author: Oliver Kaiser
   author_email: oliver.kaiser@outlook.com
   repo_url: https://github.com/kaisero/prisma-browser-cli
-  description: Command-line interface for the Palo Alto Networks Prisma Browser Management APIs
+  description: Command-line interface for the Palo Alto Networks Prisma Browser
 
 # --- oneOf (union) request bodies → variant subcommands `set application <variant>` ---
 # Applications use an undiscriminated oneOf body keyed by the path `type`. BOTH the create
@@ -120,5 +120,6 @@ defaults:
 
 # --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
 docs:
+  site_name: Prisma Browser CLI
   showcase_object: application
   showcase_variant: custom
