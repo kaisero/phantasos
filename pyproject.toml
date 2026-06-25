@@ -167,6 +167,7 @@ minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
+markers = ["slow: end-to-end builds (OAG jar / Java) — deselect with -m 'not slow'"]
 
 [tool.coverage.run]
 branch = true
