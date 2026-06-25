@@ -10,12 +10,12 @@ generator.opmodel.classify and are re-exported here for backward compatibility.
 from __future__ import annotations
 
 import importlib
-import sys
 from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from ..opmodel._pathutil import on_sys_path
 from ..opmodel.classify import (
     _SKIP_FRAGMENTS,
     _VERB_PREFIXES,
@@ -128,15 +128,9 @@ def cli_operations(
         (op.resource, op.method): op for op in inv.operations
     }
 
-    added = str(sdk_path) not in sys.path
-    if added:
-        sys.path.insert(0, str(sdk_path))
-    try:
+    with on_sys_path(sdk_path):
         facade = importlib.import_module(f"{package}.extras.facade")
         wrappers: dict[str, tuple[type[Any], str]] = getattr(facade, registry_attr)
-    finally:
-        if added and str(sdk_path) in sys.path:
-            sys.path.remove(str(sdk_path))
 
     operations: list[OperationInfo] = []
     for obj_attr, (wrapper_cls, api_attr) in wrappers.items():
@@ -392,29 +386,12 @@ def _emit_request(
     cmd.bindings.append(binding)
 
 
-def build_cli_ir(
-    inv: OperationInventory,
-    cfg: CliConfig,
-    *,
-    models: dict[str, ModelSchema] | None = None,
-) -> tuple[CliIR, list[str]]:
-    groups: dict[str, Command] = {}
-    unmapped: list[str] = []
+def _validate_defaults(cfg: CliConfig, ops_index: dict[str, OperationInfo]) -> None:
+    """Validate cli.yml `defaults` op keys + param names up front.
 
-    # cli.yml defaults: validate op keys and param names up front (build fails
-    # on a typo rather than silently ignoring it). Keyed by the UNCHANGED raw
-    # `api_resource.raw_method` (cli.yml keys + classification key off this).
-    ops_index = {f"{op.resource}.{op.method}": op for op in inv.operations}
-    # Column resolution looks an op up by a command's DISPATCH key
-    # (`sdk_resource.sdk_method`) — the object attr + clean verb on the wrapper
-    # path, the api attr + raw method otherwise. Several raw ops can collapse onto
-    # one wrapper verb (e.g. get-by-id + get-by-type-and-id -> `get`); first record
-    # carrying response fields wins, matching the raw-path lookup.
-    dispatch_index: dict[str, OperationInfo] = {}
-    for op in inv.operations:
-        dkey = f"{op.object_attr or op.resource}.{op.clean_method or op.method}"
-        if op.response_fields or dkey not in dispatch_index:
-            dispatch_index[dkey] = op
+    Build fails on a typo (unknown operation / non-query param) rather than
+    silently ignoring it. Keyed by the UNCHANGED raw `api_resource.raw_method`.
+    """
     for op_key, params_map in cfg.defaults.items():
         op_info = ops_index.get(op_key)
         if op_info is None:
@@ -428,122 +405,111 @@ def build_cli_ir(
                 f" {', '.join(sorted(query_names)) or 'none'})"
             )
 
-    def _emit(
-        verb: Verb,
-        obj: str,
-        variant: str | None,
-        op: OperationInfo,
-        sub_verb: SubVerb,
-        body_model: str | None,
-        variant_param: str | None = None,
-    ) -> None:
-        key = _command_key(verb, obj, variant)
-        id_param = detect_id_param(op.params)
-        body_info = _body_param_info(op)
-        bp_model: str | None
-        bp_wrapper: str | None
-        if body_model:  # variant command: build the variant, wrap in the param's model
-            bp_model = body_model
-            bp_wrapper = (
-                body_info.body_model
-                if body_info and body_info.body_model != body_model
-                else None
-            )
-        elif body_info:  # plain body: build the param's model directly
-            bp_model = body_info.body_model
-            bp_wrapper = None
-        else:
-            bp_model = None
-            bp_wrapper = None
-        binding = MethodBinding(
-            # Wrapper verb for `_WRAPPERS`-discovered ops; raw method otherwise.
-            sdk_method=op.clean_method or op.method,
-            sub_verb=sub_verb,
-            requires=_required_path_names(op.params),
-            body_param=_dispatch_body_param(op, body_info),
-            body_model=bp_model,
-            body_wrapper=bp_wrapper,
+
+def _emit_command(
+    groups: dict[str, Command],
+    op: OperationInfo,
+    *,
+    verb: Verb,
+    obj: str,
+    variant: str | None,
+    sub_verb: SubVerb,
+    body_model: str | None,
+    cfg: CliConfig,
+    models: dict[str, ModelSchema] | None,
+    variant_param: str | None = None,
+) -> None:
+    """Build (or merge into) the Command for a classified operation.
+
+    Promoted from the `_emit` closure of `build_cli_ir`; `groups`/`cfg`/`models`
+    (formerly captured) are now explicit params.
+    """
+    key = _command_key(verb, obj, variant)
+    id_param = detect_id_param(op.params)
+    body_info = _body_param_info(op)
+    bp_model: str | None
+    bp_wrapper: str | None
+    if body_model:  # variant command: build the variant, wrap in the param's model
+        bp_model = body_model
+        bp_wrapper = (
+            body_info.body_model
+            if body_info and body_info.body_model != body_model
+            else None
         )
-        op_defaults = cfg.defaults.get(f"{op.resource}.{op.method}")
-        cmd = groups.get(key)
-        if cmd is None:
-            cmd = Command(
-                verb=verb,
-                object=obj,
-                variant=variant,
-                variant_param=variant_param,
-                key=key,
-                sdk_resource=op.object_attr or op.resource,
-                path_params=_path_flags(op.params, id_param),
-                body_flags=_body_flags_for(op, body_model, models),
-                query_flags=_query_flags(op.params, op_defaults),
-                summary=op.summary,
-                description=op.description,
-                paginated=(sub_verb == "list"),
-            )
-            groups[key] = cmd
-        else:
-            cmd.paginated = cmd.paginated or sub_verb == "list"
-            _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
-            _merge_flags(cmd.body_flags, _body_flags_for(op, body_model, models))
-            _merge_flags(cmd.query_flags, _query_flags(op.params, op_defaults))
-        cmd.bindings.append(binding)
-        # --id is semantically required for update and delete: the operation targets
-        # a specific resource by id.  show intentionally keeps it optional (list
-        # without --id is valid).  create has no id path param.
-        if verb in ("update", "delete"):
-            for f in cmd.path_params:
-                if f.kind == "id":
-                    f.required = True
+    elif body_info:  # plain body: build the param's model directly
+        bp_model = body_info.body_model
+        bp_wrapper = None
+    else:
+        bp_model = None
+        bp_wrapper = None
+    binding = MethodBinding(
+        # Wrapper verb for `_WRAPPERS`-discovered ops; raw method otherwise.
+        sdk_method=op.clean_method or op.method,
+        sub_verb=sub_verb,
+        requires=_required_path_names(op.params),
+        body_param=_dispatch_body_param(op, body_info),
+        body_model=bp_model,
+        body_wrapper=bp_wrapper,
+    )
+    op_defaults = cfg.defaults.get(f"{op.resource}.{op.method}")
+    cmd = groups.get(key)
+    if cmd is None:
+        cmd = Command(
+            verb=verb,
+            object=obj,
+            variant=variant,
+            variant_param=variant_param,
+            key=key,
+            sdk_resource=op.object_attr or op.resource,
+            path_params=_path_flags(op.params, id_param),
+            body_flags=_body_flags_for(op, body_model, models),
+            query_flags=_query_flags(op.params, op_defaults),
+            summary=op.summary,
+            description=op.description,
+            paginated=(sub_verb == "list"),
+        )
+        groups[key] = cmd
+    else:
+        cmd.paginated = cmd.paginated or sub_verb == "list"
+        _merge_flags(cmd.path_params, _path_flags(op.params, id_param))
+        _merge_flags(cmd.body_flags, _body_flags_for(op, body_model, models))
+        _merge_flags(cmd.query_flags, _query_flags(op.params, op_defaults))
+    cmd.bindings.append(binding)
+    # --id is semantically required for update and delete: the operation targets
+    # a specific resource by id.  show intentionally keeps it optional (list
+    # without --id is valid).  create has no id path param.
+    if verb in ("update", "delete"):
+        for f in cmd.path_params:
+            if f.kind == "id":
+                f.required = True
 
-    for op in inv.operations:
-        key0 = f"{op.resource}.{op.method}"
-        if key0 in cfg.hide:
-            continue
-        if key0 in cfg.request:
-            _emit_request(groups, op, cfg.request[key0], cfg.defaults.get(key0), models)
-            continue
-        ov = cfg.override.get(key0)
-        cls = classify_name(op.method)
-        if cls is None:
-            unmapped.append(key0)
-            continue
-        verb = cast(Verb, ov.verb) if ov and ov.verb else cls.verb
-        obj = ov.object if ov and ov.object else cls.object
-        vmap = cfg.variants.get(key0)
-        variants = resolve_variants(op, vmap)
-        if variants:
-            for v in variants:
-                _emit(
-                    verb,
-                    obj,
-                    v.name,
-                    op,
-                    cls.sub_verb,
-                    v.model,
-                    variant_param=vmap.path_param if vmap else None,
-                )
-        else:
-            _emit(verb, obj, None, op, cls.sub_verb, None)
 
-    # ---- Update body requiredness (per-command, post-merge: order-independent).
-    # PATCH is partial → no body field should be mandatory. A PUT-only update is a
-    # full replace → the model's required fields STAY required (omitting one would
-    # wipe it server-side). A command that merges BOTH (a `patch_` + an `update_`
-    # PUT on one object) is relaxed because PATCH offers a valid partial update.
-    # Deciding from the final binding set (not per-binding in `_emit`) avoids the
-    # emit-order sensitivity a per-binding gate would have.
+def _relax_patch_body_requiredness(groups: dict[str, Command]) -> None:
+    """Relax body-field requiredness for update commands that include a PATCH.
+
+    Per-command, post-merge: order-independent. PATCH is partial → no body field
+    should be mandatory. A PUT-only update is a full replace → the model's
+    required fields STAY required (omitting one would wipe it server-side). A
+    command that merges BOTH (a `patch_` + an `update_` PUT on one object) is
+    relaxed because PATCH offers a valid partial update. Deciding from the final
+    binding set (not per-binding in `_emit_command`) avoids the emit-order
+    sensitivity a per-binding gate would have.
+    """
     for cmd in groups.values():
         if cmd.verb == "update" and any(b.sub_verb == "patch" for b in cmd.bindings):
             for f in cmd.body_flags:
                 f.required = False
 
-    # ---- get-by-id-only show commands.
-    # A `show` with a single get-by-id binding and NO list operation can only
-    # fetch one object by id; flag it so the runtime emits a precise "no list
-    # operation" diagnostic instead of the generic no-match message. The strict
-    # `requires == [id]` check keeps the flag (and message) accurate: a show whose
-    # get also needs a discriminator (e.g. by_type_and_id) is NOT flagged.
+
+def _flag_get_by_id_only(groups: dict[str, Command]) -> None:
+    """Flag `show` commands that can only fetch a single object by id.
+
+    A `show` with a single get-by-id binding and NO list operation can only
+    fetch one object by id; flag it so the runtime emits a precise "no list
+    operation" diagnostic instead of the generic no-match message. The strict
+    `requires == [id]` check keeps the flag (and message) accurate: a show whose
+    get also needs a discriminator (e.g. by_type_and_id) is NOT flagged.
+    """
     for cmd in groups.values():
         id_flag = next((f for f in cmd.path_params if f.kind == "id"), None)
         cmd.get_by_id_only = (
@@ -554,15 +520,23 @@ def build_cli_ir(
             and all(b.requires == [id_flag.param] for b in cmd.bindings)
         )
 
-    # ---- Table columns.
-    # CRITICAL: columns resolve per OBJECT, never per command. Real-SDK write ops
-    # return DIVERGENT response models (e.g. create_device_group ->
-    # CreateDeviceGroup201Response{device_group_id} — not the DeviceGroup item),
-    # so validating cli.yml columns against each command's own response model
-    # would fail the build on valid configs. The object's canonical row shape is
-    # its show command's item model (list envelope unwrapped, else get's model);
-    # the resolved columns attach to every command of the object (a jmespath
-    # miss renders as an empty cell). items_field stays per-command.
+
+def _resolve_columns(
+    groups: dict[str, Command],
+    cfg: CliConfig,
+    dispatch_index: dict[str, OperationInfo],
+) -> None:
+    """Resolve table columns + items_field per OBJECT (never per command).
+
+    CRITICAL: columns resolve per OBJECT, never per command. Real-SDK write ops
+    return DIVERGENT response models (e.g. create_device_group ->
+    CreateDeviceGroup201Response{device_group_id} — not the DeviceGroup item),
+    so validating cli.yml columns against each command's own response model
+    would fail the build on valid configs. The object's canonical row shape is
+    its show command's item model (list envelope unwrapped, else get's model);
+    the resolved columns attach to every command of the object (a jmespath
+    miss renders as an empty cell). items_field stays per-command.
+    """
     rank = {"list": 0, "get": 1}
 
     def _rep_op(cmd: Command) -> OperationInfo | None:
@@ -600,6 +574,79 @@ def build_cli_ir(
         cmd.columns = resolved.get(cmd.object, [])
         if (rep := _rep_op(cmd)) is not None:
             cmd.items_field = rep.items_field
+
+
+def build_cli_ir(
+    inv: OperationInventory,
+    cfg: CliConfig,
+    *,
+    models: dict[str, ModelSchema] | None = None,
+) -> tuple[CliIR, list[str]]:
+    groups: dict[str, Command] = {}
+    unmapped: list[str] = []
+
+    # cli.yml defaults: validate op keys and param names up front (build fails
+    # on a typo rather than silently ignoring it). Keyed by the UNCHANGED raw
+    # `api_resource.raw_method` (cli.yml keys + classification key off this).
+    ops_index = {f"{op.resource}.{op.method}": op for op in inv.operations}
+    # Column resolution looks an op up by a command's DISPATCH key
+    # (`sdk_resource.sdk_method`) — the object attr + clean verb on the wrapper
+    # path, the api attr + raw method otherwise. Several raw ops can collapse onto
+    # one wrapper verb (e.g. get-by-id + get-by-type-and-id -> `get`); first record
+    # carrying response fields wins, matching the raw-path lookup.
+    dispatch_index: dict[str, OperationInfo] = {}
+    for op in inv.operations:
+        dkey = f"{op.object_attr or op.resource}.{op.clean_method or op.method}"
+        if op.response_fields or dkey not in dispatch_index:
+            dispatch_index[dkey] = op
+    _validate_defaults(cfg, ops_index)
+
+    for op in inv.operations:
+        key0 = f"{op.resource}.{op.method}"
+        if key0 in cfg.hide:
+            continue
+        if key0 in cfg.request:
+            _emit_request(groups, op, cfg.request[key0], cfg.defaults.get(key0), models)
+            continue
+        ov = cfg.override.get(key0)
+        cls = classify_name(op.method)
+        if cls is None:
+            unmapped.append(key0)
+            continue
+        verb = cast(Verb, ov.verb) if ov and ov.verb else cls.verb
+        obj = ov.object if ov and ov.object else cls.object
+        vmap = cfg.variants.get(key0)
+        variants = resolve_variants(op, vmap)
+        if variants:
+            for v in variants:
+                _emit_command(
+                    groups,
+                    op,
+                    verb=verb,
+                    obj=obj,
+                    variant=v.name,
+                    sub_verb=cls.sub_verb,
+                    body_model=v.model,
+                    cfg=cfg,
+                    models=models,
+                    variant_param=vmap.path_param if vmap else None,
+                )
+        else:
+            _emit_command(
+                groups,
+                op,
+                verb=verb,
+                obj=obj,
+                variant=None,
+                sub_verb=cls.sub_verb,
+                body_model=None,
+                cfg=cfg,
+                models=models,
+            )
+
+    _relax_patch_body_requiredness(groups)
+    _flag_get_by_id_only(groups)
+    _resolve_columns(groups, cfg, dispatch_index)
 
     ir = CliIR(
         sdk_package=inv.sdk_package,

@@ -234,3 +234,26 @@ def test_removed_top_level_build_errors(
     # `phantasos build` no longer exists -> usage error, exit 2
     monkeypatch.chdir(tmp_path)
     assert cli.main(["build", "acme"]) == 2
+
+
+def test_main_returns_exit_code_from_click_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An unknown subcommand makes typer/click raise an exception carrying
+    # exit_code=2; main()'s funnel must capture it (call .show(), then return the
+    # code) rather than letting it propagate.
+    assert cli.main(["definitely-not-a-command"]) == 2
+
+
+def test_main_reraises_plain_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Inject a fault into a COLLABORATOR (load_product), not into main() or `app`.
+    # sdk_build only catches FileNotFoundError/ValueError/ValidationError around
+    # load_product, so a RuntimeError bubbles through app() to main()'s
+    # `except Exception`; it carries no .exit_code, so main() hits the bare
+    # `raise` and propagates it unchanged.
+    def _boom(_product: str) -> object:
+        raise RuntimeError("no exit_code here")
+
+    monkeypatch.setattr(cli, "load_product", _boom)
+    with pytest.raises(RuntimeError, match="no exit_code here"):
+        cli.main(["sdk", "build", "anything"])

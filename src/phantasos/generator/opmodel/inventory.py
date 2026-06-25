@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ..cli.ir import FlagKind
+from .vocab import FlagKind
 
 Location = Literal["path", "query", "body"]
 
@@ -48,7 +48,6 @@ class OperationInfo(BaseModel):
     description: str = ""
     params: list[ParamInfo] = []
     body_fields: dict[str, list[FieldInfo]] = {}  # model/variant name -> fields
-    return_type: str = ""
     # Response capture (for table columns): the return annotation's model, the
     # list-envelope field holding list[Model] (e.g. "data"), and the ITEM model's
     # fields (envelope unwrapped; == the return model's own fields when not a list op).

@@ -23,6 +23,23 @@ from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
 
+# The fixed, uniform ``_generated/*`` renders: ``(template, rel_dest)`` pairs
+# emitted in order. ``spec.py``, the conditional ``environment_commands.py``,
+# and the ``ir.json`` write are NOT uniform renders and stay inline in
+# :func:`render_cli`.
+_GENERATED: tuple[tuple[str, str], ...] = (
+    ("_generated/__init__.py.jinja", "__init__.py"),
+    ("_generated/config.py.jinja", "config.py"),
+    ("_generated/default_config.yml.jinja", "default_config.yml"),
+    ("_generated/config_commands.py.jinja", "config_commands.py"),
+    ("_generated/history.py.jinja", "history.py"),
+    ("_generated/cli_commands.py.jinja", "cli_commands.py"),
+    ("_generated/diagnostics.py.jinja", "diagnostics.py"),
+    ("_generated/logging_setup.py.jinja", "logging_setup.py"),
+    ("_generated/output.py.jinja", "output.py"),
+    ("_generated/runtime.py.jinja", "runtime.py"),
+)
+
 
 def cli_overrides_dir() -> Path:
     return Path(__file__).parent / "cli_overrides"
@@ -292,87 +309,35 @@ def _format_generated(paths: list[Path]) -> None:
     )
 
 
-def render_cli(
-    ir: CliIR,
-    package: str,
-    out_dir: Path,
-    *,
-    env_prefix: str | None = None,
-    distribution: str | None = None,
-    auth: object | None = None,
-    errors: object | None = None,
-    docs: CliDocsConfig | None = None,
-    docs_site_name: str | None = None,
-    docs_repo_url: str | None = None,
-    docs_description: str = "",
-) -> list[str]:
-    reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
-    if reserved:
-        raise ValueError(
-            "object name 'cli' is reserved for CLI meta-commands "
-            "(show cli history); rename the API object via a cli.yml override"
-        )
-    env = _env()
-    pkg = out_dir / package
-    gen = pkg / "_generated"
-    if gen.exists():
-        if not gen.resolve().is_relative_to(pkg.resolve()):
-            raise ValueError("refusing to wipe a path outside the package")
-        shutil.rmtree(gen)
-    (gen / "commands").mkdir(parents=True, exist_ok=True)
-    resolved_prefix = env_prefix or package.upper().removesuffix("_CLI")
-    ctx = {
-        "ir": ir,
-        "package": package,
-        "env_prefix": resolved_prefix,
-        "distribution": distribution or package,
-    }
-    # Enrich the IR with credential descriptors from the auth component (if any),
-    # BEFORE any template render or the ir.json write, so templates and the
-    # serialized IR see the same enriched copy. model_copy returns a new instance,
-    # leaving the caller's ir untouched.
+def _enrich_ir(ir: CliIR, auth: object | None, errors: object | None) -> CliIR:
+    """Enrich the IR with credential descriptors from the auth component and the
+    error-envelope descriptor from the error component (if present).
+
+    Done BEFORE any template render or the ir.json write so templates and the
+    serialized IR see the same enriched copy. ``model_copy`` returns a new
+    instance, leaving the caller's ``ir`` untouched.
+    """
     if auth is not None and hasattr(auth, "credential_fields"):
         ir = ir.model_copy(update={"credential_fields": list(auth.credential_fields())})
-        ctx["ir"] = ir
-    # Likewise enrich the IR with the error-envelope descriptor from the error
-    # component, so the emitted diagnostics carries NO product-specific error keys.
+    # Likewise enrich with the error-envelope descriptor so the emitted
+    # diagnostics carries NO product-specific error keys.
     if errors is not None and hasattr(errors, "error_fields"):
         ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
-        ctx["ir"] = ir
+    return ir
+
+
+def _render_commands(
+    env: Environment,
+    ctx: dict[str, object],
+    ir: CliIR,
+    *,
+    gen: Path,
+    out_dir: Path,
+) -> list[str]:
+    """Emit the per-resource command modules, the commands package marker, and
+    the app factory; return the written rel-paths in emission order so the caller
+    can ``written.extend(...)`` them."""
     written: list[str] = []
-
-    def render(template: str, dest: Path) -> None:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(env.get_template(template).render(**ctx), encoding="utf-8")
-        written.append(str(dest.relative_to(out_dir)))
-
-    render("_generated/__init__.py.jinja", gen / "__init__.py")
-    render("_generated/config.py.jinja", gen / "config.py")
-    render("_generated/default_config.yml.jinja", gen / "default_config.yml")
-    render("_generated/config_commands.py.jinja", gen / "config_commands.py")
-    render("_generated/history.py.jinja", gen / "history.py")
-    render("_generated/cli_commands.py.jinja", gen / "cli_commands.py")
-    render("_generated/diagnostics.py.jinja", gen / "diagnostics.py")
-    render("_generated/logging_setup.py.jinja", gen / "logging_setup.py")
-    render("_generated/output.py.jinja", gen / "output.py")
-    render("_generated/runtime.py.jinja", gen / "runtime.py")
-    # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
-    spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
-    (gen / "spec.py").write_text(spec_src, encoding="utf-8")
-    written.append(str((gen / "spec.py").relative_to(out_dir)))
-    # `config environment` commands — rendered with STATIC per-field typer options
-    # generated from ir.credential_fields (no `click` dependency; typer only).
-    # Emitted ONLY for auth CLIs; a no-auth CLI never references it (app.py's
-    # registration is gated on the same condition).
-    if ir.credential_fields:
-        render(
-            "_generated/environment_commands.py.jinja",
-            gen / "environment_commands.py",
-        )
-    (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
-    written.append(str((gen / "ir.json").relative_to(out_dir)))
-
-    # Emit per-resource command modules
     resources = sorted({c.sdk_resource for c in ir.commands})
     variant_groups: set[tuple[str, str]] = {
         (c.verb, c.object) for c in ir.commands if c.variant or c.action
@@ -411,6 +376,134 @@ def render_cli(
         encoding="utf-8",
     )
     written.append(str((gen / "app.py").relative_to(out_dir)))
+    return written
+
+
+def _render_docs(
+    env: Environment,
+    ctx: dict[str, object],
+    ir: CliIR,
+    docs: CliDocsConfig,
+    *,
+    out_dir: Path,
+    package: str,
+    distribution: str | None,
+    docs_site_name: str | None,
+    resolved_prefix: str,
+    docs_repo_url: str | None,
+    docs_description: str,
+) -> list[str]:
+    """Emit the per-product CLI docs site, returning the doc rel-paths it wrote
+    (in emission order) so the caller can ``written.extend(...)`` them."""
+    dist = distribution or package
+    site_name = docs.site_name or docs_site_name or dist
+    doc_ctx = build_cli_docs_context(
+        ir,
+        docs,
+        distribution=dist,
+        site_name=site_name,
+        env_prefix=resolved_prefix,
+        repo_url=docs_repo_url,
+        description=docs_description,
+    )
+    merged = {**ctx, **doc_ctx}
+    written: list[str] = []
+
+    def render_doc(template: str, rel: str, **extra: object) -> None:
+        dest = out_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(
+            env.get_template(template).render(**merged, **extra), encoding="utf-8"
+        )
+        written.append(rel)
+
+    render_doc("docs/index.md.jinja", "docs/index.md")
+    render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
+    for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+        render_doc(
+            "docs/reference_object.md.jinja",
+            f"docs/reference/{obj['object']}.md",
+            obj=obj,
+        )
+    render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
+    render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
+    if doc_ctx["has_auth"]:
+        render_doc(
+            "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
+        )
+    if doc_ctx["show_pagination_guide"]:
+        render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
+    render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")
+    return written
+
+
+def render_cli(
+    ir: CliIR,
+    package: str,
+    out_dir: Path,
+    *,
+    env_prefix: str | None = None,
+    distribution: str | None = None,
+    auth: object | None = None,
+    errors: object | None = None,
+    docs: CliDocsConfig | None = None,
+    docs_site_name: str | None = None,
+    docs_repo_url: str | None = None,
+    docs_description: str = "",
+) -> list[str]:
+    reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
+    if reserved:
+        raise ValueError(
+            "object name 'cli' is reserved for CLI meta-commands "
+            "(show cli history); rename the API object via a cli.yml override"
+        )
+    env = _env()
+    pkg = out_dir / package
+    gen = pkg / "_generated"
+    if gen.exists():
+        if not gen.resolve().is_relative_to(pkg.resolve()):
+            raise ValueError("refusing to wipe a path outside the package")
+        shutil.rmtree(gen)
+    (gen / "commands").mkdir(parents=True, exist_ok=True)
+    resolved_prefix = env_prefix or package.upper().removesuffix("_CLI")
+    ctx = {
+        "ir": ir,
+        "package": package,
+        "env_prefix": resolved_prefix,
+        "distribution": distribution or package,
+    }
+    # Enrich the IR (credential + error-envelope descriptors) BEFORE any template
+    # render or the ir.json write, so templates and the serialized IR see the same
+    # enriched copy.
+    ir = _enrich_ir(ir, auth, errors)
+    ctx["ir"] = ir
+    written: list[str] = []
+
+    def render(template: str, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(env.get_template(template).render(**ctx), encoding="utf-8")
+        written.append(str(dest.relative_to(out_dir)))
+
+    for template, rel in _GENERATED:
+        render(template, gen / rel)
+    # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
+    spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
+    (gen / "spec.py").write_text(spec_src, encoding="utf-8")
+    written.append(str((gen / "spec.py").relative_to(out_dir)))
+    # `config environment` commands — rendered with STATIC per-field typer options
+    # generated from ir.credential_fields (no `click` dependency; typer only).
+    # Emitted ONLY for auth CLIs; a no-auth CLI never references it (app.py's
+    # registration is gated on the same condition).
+    if ir.credential_fields:
+        render(
+            "_generated/environment_commands.py.jinja",
+            gen / "environment_commands.py",
+        )
+    (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
+    written.append(str((gen / "ir.json").relative_to(out_dir)))
+
+    # Emit per-resource command modules + the app factory
+    written.extend(_render_commands(env, ctx, ir, gen=gen, out_dir=out_dir))
 
     for rel in _HANDOWNED:
         dest = pkg / rel
@@ -418,44 +511,21 @@ def render_cli(
             render(f"{rel}.jinja", dest)
 
     if docs is not None:
-        dist = distribution or package
-        site_name = docs.site_name or docs_site_name or dist
-        doc_ctx = build_cli_docs_context(
-            ir,
-            docs,
-            distribution=dist,
-            site_name=site_name,
-            env_prefix=resolved_prefix,
-            repo_url=docs_repo_url,
-            description=docs_description,
+        written.extend(
+            _render_docs(
+                env,
+                ctx,
+                ir,
+                docs,
+                out_dir=out_dir,
+                package=package,
+                distribution=distribution,
+                docs_site_name=docs_site_name,
+                resolved_prefix=resolved_prefix,
+                docs_repo_url=docs_repo_url,
+                docs_description=docs_description,
+            )
         )
-        merged = {**ctx, **doc_ctx}
-
-        def render_doc(template: str, rel: str, **extra: object) -> None:
-            dest = out_dir / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(
-                env.get_template(template).render(**merged, **extra), encoding="utf-8"
-            )
-            written.append(rel)
-
-        render_doc("docs/index.md.jinja", "docs/index.md")
-        render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
-        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
-            render_doc(
-                "docs/reference_object.md.jinja",
-                f"docs/reference/{obj['object']}.md",
-                obj=obj,
-            )
-        render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
-        render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
-        if doc_ctx["has_auth"]:
-            render_doc(
-                "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
-            )
-        if doc_ctx["show_pagination_guide"]:
-            render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
-        render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

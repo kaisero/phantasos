@@ -1,6 +1,6 @@
 # sdk-generator
 
-Validated against 81e8207 on 2026-06-20 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
+Validated against 8ab9ccf on 2026-06-25 · Purpose: how `phantasos sdk build` turns a product's spec into a vendored, scaffolded Python SDK.
 
 ## Purpose & responsibilities
 
@@ -98,9 +98,23 @@ that both SDK-gen and CLI-gen consume live in a stage-agnostic sibling package
 (CRUD object for a raw method, never guesses for non-CRUD ops),
 `classify.detect_id_param`, `introspect.introspect` (import-walks an
 `*Api`-registry and returns an `OperationInventory`), and the `inventory` types
-(`OperationInfo`, `ParamInfo`, `FieldInfo`, `OperationInventory`). The
-`generator/cli/introspect.py` and `generator/cli/inventory.py` modules are now
+(`OperationInfo`, `ParamInfo`, `FieldInfo`, `OperationInventory`). It also owns two
+base-layer modules: `vocab.py` — the canonical classification-vocabulary `Literal`
+aliases `Verb` / `SubVerb` / `FlagKind` (kept BYTE-IDENTICAL in `cli/ir.py` because
+that file is copied verbatim into each emitted CLI's `_generated/spec.py`, which
+has no `opmodel` to import) — and `_pathutil.py` — the `on_sys_path(path)` context
+manager that temporarily front-loads a built SDK onto `sys.path` (the single guard
+reused by `introspect`, `cli.classify.cli_operations`, and
+`cli.modelschema.build_model_registry`, replacing a 3×-duplicated try/finally).
+The `generator/cli/introspect.py` and `generator/cli/inventory.py` modules are now
 thin backward-compatibility shims that re-export from `generator/opmodel/`.
+
+The layering is now **acyclic** — `opmodel -> {sdk, cli}` — with `opmodel` no
+longer importing up into `cli`. The SDK consumers import opmodel directly:
+`sdk/examples.py` and `sdk/wrapper.py` pull their introspect helpers from
+`..opmodel.introspect` (not via the `cli` shim). The one remaining `cli`-shim edge
+inside `sdk/` is `sdk/docs.py`, which still reaches `cli.classify.cli_operations` /
+`cli.inventory` for its wrapper-driven docs context (deliberately left as-is).
 
 **Typed wrapper context (`wrapper.py`).** Building on the `operations:` override
 validator, `wrapper.build_wrapper_context(inv, overrides, discovered)` produces the
@@ -146,7 +160,11 @@ op, since each binding's `param_map` is its own accepted surface), and
 
 - Build the example SDKs: `uv run nox -s smoke` (auto-provisions JRE; needs network).
 - One product: `phantasos sdk build <name>` (`--no-smoke` to skip the import-check).
-- Unit tests: `uv run nox -s gate` (offline) or `pytest tests/test_generate.py …`.
+- Unit tests: `uv run nox -s gate` (offline) or per-stage suites —
+  `tests/test_generate.py`, `tests/test_sdk_preprocess.py` (direct preprocess unit
+  tests), `tests/test_sdk_patches.py`, `tests/test_sdk_wrapper.py`,
+  `tests/test_sdk_build.py`. The `slow` marker tags the OAG-jar builds
+  (deselect with `-m "not slow"`).
 
 ## Module map
 

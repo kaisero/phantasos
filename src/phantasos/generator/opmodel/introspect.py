@@ -14,8 +14,9 @@ from typing import Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-from ..cli.ir import FlagKind
+from ._pathutil import on_sys_path
 from .inventory import FieldInfo, OperationInfo, OperationInventory, ParamInfo
+from .vocab import FlagKind
 
 _EXCLUDE_SUFFIXES = ("_with_http_info", "_without_preload_content", "_serialize")
 _SKIP_PARAMS = {
@@ -196,14 +197,8 @@ def _docstring_parts(fn: object) -> tuple[str, str]:
 def introspect(
     package: str, sdk_path: Path, *, registry_attr: str = "_RESOURCES"
 ) -> OperationInventory:
-    added = str(sdk_path) not in sys.path
-    if added:
-        sys.path.insert(0, str(sdk_path))
-    try:
+    with on_sys_path(sdk_path):
         return _introspect(package, registry_attr)
-    finally:
-        if added and str(sdk_path) in sys.path:
-            sys.path.remove(str(sdk_path))
 
 
 def _introspect(package: str, registry_attr: str) -> OperationInventory:
@@ -286,9 +281,6 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
     )
 
 
-# Backward-compatible private aliases (internal callers + tests still import these).
+# Backward-compatible private aliases (consumed by the cli.introspect shim + sdk).
 _enum_values = enum_values
 _unwrap_optional = unwrap_optional
-_scalar_type = scalar_type
-_field_kind = field_kind
-_union_members = union_members

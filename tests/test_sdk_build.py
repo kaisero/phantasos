@@ -25,6 +25,7 @@ from phantasos.productconfig import load_product
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
 def test_build_emits_wrapper() -> None:
     """build() runs the full pass1 → introspect → wrapper-gen → pass2 pipeline.

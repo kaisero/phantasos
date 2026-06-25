@@ -1,5 +1,8 @@
 import json
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -73,16 +76,15 @@ def test_render_cli_lays_down_project(tmp_path: Path) -> None:
     assert {c["key"] for c in data["commands"]} == {c.key for c in _ir().commands}
 
 
-def test_emitted_spec_loads_ir_json_typed(tmp_path: Path) -> None:
+def test_emitted_spec_loads_ir_json_typed(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
     # H1: the emitted spec.py + ir.json round-trip through the TYPED CliIR
     import importlib
-    import sys
 
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    try:
-        for n in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-            del sys.modules[n]
+    with render_and_import(tmp_path, "fakesdk_cli"):
         spec = importlib.import_module("fakesdk_cli._generated.spec")
         ir_json = (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
         loaded = spec.CliIR.model_validate_json(ir_json)
@@ -90,10 +92,6 @@ def test_emitted_spec_loads_ir_json_typed(tmp_path: Path) -> None:
         # a binding's typed fields are accessible (no raw-dict access needed at runtime)
         setw = next(c for c in loaded.commands if c.key == "create:widget")
         assert any(b.body_model == "WidgetInput" for b in setw.bindings)
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-            del sys.modules[n]
 
 
 def test_render_cli_wipes_generated_but_preserves_handowned(tmp_path: Path) -> None:

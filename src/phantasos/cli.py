@@ -3,16 +3,49 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
 from .productconfig import load_product
+
+if TYPE_CHECKING:
+    from .generator.cli.cliconfig import CliConfig
+    from .generator.cli.ir import CliIR
+    from .productconfig import LoadedProduct
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 sdk_app = typer.Typer(no_args_is_help=True)
 cli_app = typer.Typer(no_args_is_help=True)
 app.add_typer(sdk_app, name="sdk", help="build SDKs from a product's sdk.yml")
 app.add_typer(cli_app, name="cli", help="generate / inspect a CLI from a built SDK")
+
+
+def _load_or_exit(product: str) -> LoadedProduct:
+    try:
+        return load_product(product)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+def _build_ir_or_exit(loaded: LoadedProduct) -> tuple[CliIR, CliConfig, list[str]]:
+    from .generator.cli.classify import build_cli_ir, cli_operations
+    from .generator.cli.cliconfig import load_cli_config
+    from .generator.cli.modelschema import build_model_registry
+
+    cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
+    try:
+        # Wrapper-backed inventory: dispatch goes through the typed
+        # client.<object>.<verb>(...) wrappers; the command tree is still
+        # classified off the RAW operation names.
+        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
+    except ImportError as exc:
+        typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
+        raise typer.Exit(2) from exc
+    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
+    ir, unmapped = build_cli_ir(inv, cfg, models=models)
+    return ir, cfg, unmapped
 
 
 @sdk_app.command("build")
@@ -69,30 +102,10 @@ def cli_discover(
     ),
 ) -> None:
     """print the classification table + cli.yml stub"""
-    from .generator.cli.classify import build_cli_ir, cli_operations
-    from .generator.cli.cliconfig import load_cli_config
     from .generator.cli.discover import render_stub, render_table
 
-    try:
-        loaded = load_product(product)
-    except (FileNotFoundError, ValueError) as exc:
-        typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
-    try:
-        # Introspect via the typed wrappers (`_WRAPPERS`/`_bindings`): the command
-        # tree is still classified off the RAW operation names, but each op now
-        # carries the wrapper routing fields (object_attr -> Command.sdk_resource,
-        # clean_method -> MethodBinding.sdk_method) so the emitted runtime
-        # dispatches `client.<object>.<verb>(...)`.
-        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
-    except ImportError as exc:
-        typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
-        raise typer.Exit(2) from exc
-    from .generator.cli.modelschema import build_model_registry
-
-    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
-    ir, unmapped = build_cli_ir(inv, cfg, models=models)
+    loaded = _load_or_exit(product)
+    ir, _cfg, unmapped = _build_ir_or_exit(loaded)
     typer.echo(render_table(ir, unmapped))
     if write_stub:
         stub_path = Path(loaded.base_dir) / "cli.yml.stub"
@@ -108,28 +121,11 @@ def cli_build(
 ) -> None:
     """emit the CLI project from a built SDK"""
     from . import scaffold
-    from .generator.cli.classify import build_cli_ir, cli_operations
-    from .generator.cli.cliconfig import load_cli_config
     from .generator.cli.render_cli import cli_overrides_dir, render_cli
     from .generator.cli.scaffold_context import build_cli_scaffold_context
 
-    try:
-        loaded = load_product(product)
-    except (FileNotFoundError, ValueError) as exc:
-        typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
-    try:
-        # Wrapper-backed inventory: dispatch goes through the typed
-        # `client.<object>.<verb>(...)` wrappers (see cli_discover).
-        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
-    except ImportError as exc:
-        typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
-        raise typer.Exit(2) from exc
-    from .generator.cli.modelschema import build_model_registry
-
-    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
-    ir, unmapped = build_cli_ir(inv, cfg, models=models)
+    loaded = _load_or_exit(product)
+    ir, cfg, unmapped = _build_ir_or_exit(loaded)
     if loaded.config.project is None and cfg.project is None:
         typer.echo(
             "ERROR: cli build needs project metadata to scaffold the CLI — add a "
