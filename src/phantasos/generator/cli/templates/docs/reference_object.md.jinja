@@ -21,9 +21,13 @@
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 {% for f in rows -%}
-| `{{ f.name }}` | `{{ f.type }}` | {{ "yes" if f.required else "no" }} | {{ f.help }}{% if f.choices %} _(values: {{ f.choices | join(", ") }})_{% endif %} |
+| `{{ f.name }}` | {% if f.type_anchor %}[`{{ f.type }}`](#{{ f.type_anchor }}){% else %}`{{ f.type }}`{% endif %} | {{ "yes" if f.required else "no" }} | {{ f.help }}{% if f.choices %} _(values: {{ f.choices | join(", ") }})_{% endif %} |
 {% endfor %}
 {% for f in rows %}{% if f.schema %}
+{# The blank line between <a id> and ??? note is LOAD-BEARING: without it
+   python-markdown folds the admonition into the raw-HTML block. Do not remove. #}
+<a id="{{ f.type_anchor }}"></a>
+
 ??? note "`{{ f.name }}` schema"
 
 {{ schema_block(f.schema) | indent(4, first=True) }}
