@@ -281,9 +281,6 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
     )
 
 
-# Backward-compatible private aliases (internal callers + tests still import these).
+# Backward-compatible private aliases (consumed by the cli.introspect shim + sdk).
 _enum_values = enum_values
 _unwrap_optional = unwrap_optional
-_scalar_type = scalar_type
-_field_kind = field_kind
-_union_members = union_members
