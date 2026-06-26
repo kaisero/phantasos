@@ -192,6 +192,46 @@ def hoist_items(
             stats["items_hoisted"] = stats.get("items_hoisted", 0) + 1
 
 
+_HTTP_METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
+
+
+def normalize_operation_ids(
+    spec: Any,
+    *,
+    strip_suffix: str | None = None,
+    dots_to_underscore: bool = False,
+    unify_separator: str | None = None,
+    stats: dict[str, int] | None = None,
+) -> None:
+    """Rewrite every operation's ``operationId`` for OAG-friendly method names.
+
+    Strips ``strip_suffix`` (e.g. ``.v2``), turns dots into ``unify_separator``
+    (default ``_``) when ``dots_to_underscore``, and folds dashes into
+    ``unify_separator`` — e.g. ``create.connector_group.v2`` ->
+    ``create_connector_group``. Applied per-sub when
+    ``SubPackage.normalize_operation_ids`` is set.
+    """
+    for path_item in (spec.get("paths") or {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for method in _HTTP_METHODS:
+            op = path_item.get(method)
+            if not isinstance(op, dict) or "operationId" not in op:
+                continue
+            oid = op["operationId"]
+            if strip_suffix and oid.endswith(strip_suffix):
+                oid = oid[: -len(strip_suffix)]
+            if dots_to_underscore:
+                oid = oid.replace(".", unify_separator or "_")
+            if unify_separator:
+                oid = oid.replace("-", unify_separator)
+            op["operationId"] = oid
+            if stats is not None:
+                stats["operation_ids_normalized"] = (
+                    stats.get("operation_ids_normalized", 0) + 1
+                )
+
+
 def tag_operations(
     spec: Any,
     ops: list[tuple[str, str, str, str]],

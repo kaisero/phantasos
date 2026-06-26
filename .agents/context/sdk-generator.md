@@ -214,6 +214,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `strip_external_tags(spec, stats)` — Remove the non-standard top-level `ExternalTags` key (trips OAG validation).
   - `clean(spec, stats)` — Run all generic, spec-agnostic transforms.
   - `hoist_items(spec, hoists, stats)` — Hoist nested inline array-item objects into named components.
+  - `normalize_operation_ids(spec, strip_suffix, dots_to_underscore, unify_separator, stats)` — Rewrite every operation's ``operationId`` for OAG-friendly method names.
   - `tag_operations(spec, ops, stats)` — Add tags + operationId to operations that lack them.
 - `provision.py`
   - class `ProvisionError` — Raised when the Java toolchain cannot be provisioned.

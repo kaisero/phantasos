@@ -12,7 +12,11 @@ from collections import defaultdict
 from typing import Any
 
 from phantasos.generator.sdk import preprocess as p
-from phantasos.generator.sdk.preprocess import clean, strip_external_tags
+from phantasos.generator.sdk.preprocess import (
+    clean,
+    normalize_operation_ids,
+    strip_external_tags,
+)
 
 
 # ---- _resolve_type --------------------------------------------------------------
@@ -280,6 +284,44 @@ def test_clean_runs_collapse_and_mojibake_over_a_spec() -> None:
         "$ref": "#/components/schemas/Str"
     }
     assert stats["allof_collapsed"] == 1
+
+
+# ---- normalize_operation_ids ----------------------------------------------------
+def test_normalize_strips_suffix_and_dots() -> None:
+    spec = {
+        "paths": {
+            "/cg": {
+                "post": {"operationId": "create.connector_group.v2"},
+                "get": {"operationId": "list.connector_groups.v2"},
+            }
+        }
+    }
+    normalize_operation_ids(
+        spec, strip_suffix=".v2", dots_to_underscore=True, unify_separator="_"
+    )
+    ops = spec["paths"]["/cg"]
+    assert ops["post"]["operationId"] == "create_connector_group"
+    assert ops["get"]["operationId"] == "list_connector_groups"
+
+
+def test_normalize_skips_missing_paths_and_operation_id() -> None:
+    # No `paths` key, and an op without `operationId`, are both no-ops.
+    no_paths: dict[str, Any] = {}
+    normalize_operation_ids(no_paths, strip_suffix=".v2", dots_to_underscore=True)
+    assert no_paths == {}
+
+    spec = {"paths": {"/x": {"get": {"summary": "no id"}}}}
+    normalize_operation_ids(spec, dots_to_underscore=True)
+    assert "operationId" not in spec["paths"]["/x"]["get"]
+
+
+def test_normalize_unifies_dashes_and_counts() -> None:
+    # unify_separator also folds dashes; stats counts each rewritten op.
+    spec = {"paths": {"/x": {"get": {"operationId": "list-foo-bar"}}}}
+    stats: defaultdict[str, int] = defaultdict(int)
+    normalize_operation_ids(spec, unify_separator="_", stats=stats)
+    assert spec["paths"]["/x"]["get"]["operationId"] == "list_foo_bar"
+    assert stats["operation_ids_normalized"] == 1
 
 
 # ---- strip_external_tags --------------------------------------------------------
