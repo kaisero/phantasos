@@ -28,9 +28,15 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 > the N near-identical OAG runtime copies (`api_client`, `configuration`, `rest`,
 > `exceptions`, `api_response`) into one shared `<package>/_runtime/` and repoints
 > every runtime-targeting import (incl. each sub's `__init__.py` re-exports) to
-> absolute `<package>._runtime.X` via a libcst transformer (see `runtime.py`). The
-> shared `_auth.py` and composing `__init__.py` that fuse the subs into one client are
-> later tasks — after P1.1/P1.2 the parent `<package>/__init__.py` is OAG's empty stub.
+> absolute `<package>._runtime.X` via a libcst transformer (see `runtime.py`). Then
+> `_render_shared_auth()` renders the one `<package>/_auth.py` (the bearer/config
+> factories — `federated=True`, `has_retry=False`), and `_render_composer()` writes
+> the composing `<package>/__init__.py` **last** (overwriting OAG's empty parent
+> stub): a `Client` that builds ONE `SdkConfiguration` + ONE `RESTClientObject` pool
+> fanned out to N thin `_BearerApiClient` handles (each tagged `.models`), injected
+> into each sub's facade `Client`, plus the `_SUBPACKAGES` registry (slug → facade
+> `Client`) that docs/CLI enumerate. The first sub-facade wires `default_retry()`
+> onto the shared config, since `_auth.py` rendered without it.
 
 1. **Preprocess** — `preprocess.load()` then `preprocess.clean()` in
    `preprocess.py` apply the generic, spec-agnostic transforms; the product's

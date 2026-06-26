@@ -1,0 +1,48 @@
+"""Top-level composing client for {{ root_package }} (written by phantasos).
+
+Ties the federated sub-packages into one SDK: ONE {{ config_class_name }} +
+ONE RESTClientObject (connection pool), fanned out to N thin `_BearerApiClient`
+handles (each tagged with its own `.models` namespace), injected into each
+sub-package's facade `Client`. `_SUBPACKAGES` is the introspection registry the
+docs site (and a future CLI) enumerate instead of re-reading `sdk.yml`.
+"""
+from __future__ import annotations
+{% for slug in slugs %}import {{ root_package }}.{{ slug }}.models as _{{ slug }}_models
+from {{ root_package }}.{{ slug }}.extras.facade import Client as _{{ slug }}_Client
+{% endfor %}
+from {{ root_package }}._runtime.rest import RESTClientObject
+from {{ root_package }}._auth import (
+    {{ config_class_name }},
+    _BearerApiClient,
+    configuration_from_credentials as _configuration_from_credentials,
+    configuration_from_env as _configuration_from_env,
+)
+
+# slug -> sub-package facade Client (rev-7/D10: the enumeration seam docs + a
+# future CLI introspect from the built artifact, mirroring _WRAPPERS/_RESOURCES).
+_SUBPACKAGES = {
+{% for slug in slugs %}    "{{ slug }}": _{{ slug }}_Client,
+{% endfor %}}
+__all__ = ["Client", "_SUBPACKAGES"]
+
+
+class Client:
+    """One SDK over all sub-packages: one credential, one pool, N typed facades."""
+
+    def __init__(self, configuration: {{ config_class_name }}) -> None:
+        pool = RESTClientObject(configuration)  # one shared connection pool
+{% for slug in slugs %}        _ac_{{ slug }} = _BearerApiClient(configuration)
+        _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
+        _ac_{{ slug }}.rest_client = pool
+        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})
+{% endfor %}        # The first sub-facade above wires retry onto the shared `configuration`
+        # (each facade does `if configuration.retries is None: ...default_retry()`).
+        self._configuration = configuration
+
+    @classmethod
+    def from_env(cls, **kwargs) -> "Client":
+        return cls(_configuration_from_env(**kwargs))
+
+    @classmethod
+    def from_credentials(cls, **kwargs) -> "Client":
+        return cls(_configuration_from_credentials(**kwargs))

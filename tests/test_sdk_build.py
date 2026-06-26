@@ -99,6 +99,12 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
     shape, per-handle ``.models`` namespace resolution, a shared transport pool,
     and that the ``_BearerApiClient`` override attaches the bearer even with empty
     ``auth_settings`` (across subs whose hardcoded schemes diverge).
+
+    P2.1 capstone (offline): the composer ``__init__`` now ties it together —
+    ``import prisma_access`` exposes ``Client`` + the ``_SUBPACKAGES`` registry,
+    and constructing ``Client(cfg)`` with the stubbed-token config wires one
+    config + one pool into the three sub-package facades (and lands retry on the
+    shared config via the first facade).
     """
     loaded = load_product("prisma-access")
     build(loaded, run_smoke=False)
@@ -204,6 +210,37 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
         ztna_api = (root / "ztna_connector" / "api" / "connector_api.py").read_text()
         assert "scmToken" in obj_api and "scmToken" not in ztna_api
         assert "bearerAuth" in ztna_api and "bearerAuth" not in obj_api
+
+        # --- P2.1 capstone: the composer fuses the subs into one Client ---
+        pa = importlib.import_module("prisma_access")  # the composer __init__
+        assert hasattr(pa, "Client")
+        # _SUBPACKAGES is the rev-7/D10 introspection registry (slug -> facade).
+        assert set(pa._SUBPACKAGES) == {"objects", "network_services", "ztna_connector"}
+        assert len(pa._SUBPACKAGES) == 3
+
+        # Construct the real composing Client with the stubbed-token config (no
+        # network: the TokenManager above is pre-seeded). One config, one pool,
+        # three facade handles.
+        assert cfg.retries is None  # SdkConfiguration starts with no retry
+        client = pa.Client(cfg)
+        assert client._configuration is cfg
+        for slug in ("objects", "network_services", "ztna_connector"):
+            assert getattr(client, slug) is not None
+        # Each handle resolves its OWN models namespace (no cross-bleed).
+        assert client.objects.api_client.models is objects_models
+        assert client.ztna_connector.api_client.models is ztna_models
+        # The three facades share the ONE connection pool the composer built.
+        assert (
+            client.objects.api_client.rest_client
+            is client.ztna_connector.api_client.rest_client
+        )
+        # client.objects.<object> is a usable typed wrapper (clean verbs only).
+        assert hasattr(client.objects.address, "create")
+        assert not hasattr(client.objects.address, "create_address")
+        # Retry got wired onto the SHARED config by the first sub-facade's
+        # __init__ (the shared _auth.py rendered with has_retry=False, so the
+        # composer must not ship a retry-less client).
+        assert cfg.retries is not None
     finally:
         sys.path.remove(str(loaded.output_dir))
         _drop()

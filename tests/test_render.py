@@ -580,3 +580,25 @@ def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
         _purge_pb_extras()
         if str(_SDK) in sys.path:
             sys.path.remove(str(_SDK))
+
+
+def test_composer_emits_client_and_subpackages_registry() -> None:
+    """The composer renders one Client, the shared-pool wiring, and _SUBPACKAGES."""
+    # The sdk package re-exports the build() function (shadowing the build module
+    # as an attribute), so import the helper from the module path directly.
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "network_services", "ztna_connector"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+    )
+    assert "_SUBPACKAGES = {" in txt
+    assert '"objects":' in txt
+    assert "class Client" in txt
+    assert "self.objects =" in txt
+    assert "rest_client" in txt  # shared pool wiring
+    assert ".models = _objects_models" in txt  # rev-2 B1 instance attr
+    assert "configuration_from_env" in txt  # auth config factory
+    # Renders to valid Python (no Jinja syntax slips through).
+    ast.parse(txt)

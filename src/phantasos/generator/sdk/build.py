@@ -4,9 +4,10 @@ Single-spec products run one preprocess -> generate -> patch -> vendor -> scaffo
 pass. Federated products (``subpackages:``) instead loop that generate -> patch ->
 vendor core once per sub-package (each emitted under ``<package>/<slug>/``), sharing
 the ``_generate_one`` helper with the single-spec path, then scaffold the one
-distribution. The runtime-hoist, the shared ``_auth.py`` and the composing
-``__init__.py`` that fuse the sub-packages into one client land in later tasks (see
-the markers in ``_build_federated``).
+distribution. After the loop the runtime-hoist collapses the per-sub OAG runtimes
+into one ``<package>/_runtime/``, the shared ``<package>/_auth.py`` is rendered, and
+the composing ``<package>/__init__.py`` (``Client`` + ``_SUBPACKAGES``) is written
+LAST to fuse the sub-packages into one client (see ``_build_federated``).
 """
 
 from __future__ import annotations
@@ -223,10 +224,45 @@ def _build_federated(
     # P1.3: render the shared `<package>/_auth.py` (TokenManager + _BearerApiClient);
     #   the per-sub facades above are has_auth=False, so the composer owns auth.
     _render_shared_auth(loaded, project_dir)
+
     # P2.1: render the composer `<package>/__init__.py` (Client + _SUBPACKAGES),
-    #   written LAST so it overwrites OAG's empty parent __init__.
+    #   written LAST so it overwrites OAG's empty parent __init__. The first
+    #   sub-facade it constructs wires retry onto the shared config (each facade
+    #   self-wires `default_retry()` when `configuration.retries is None`).
+    root = project_dir / Path(*loaded.config.package.split("."))
+    (root / "__init__.py").write_text(
+        _render_composer(
+            [s.config.slug for s in loaded.subpackages],
+            root_package=loaded.config.package,
+            config_class_name=loaded.context["config_class_name"],
+        ),
+        encoding="utf-8",
+    )
 
     return {"preprocess": dict(stats), "vendored": vendored}
+
+
+def _render_composer(
+    slugs: list[str], *, root_package: str, config_class_name: str
+) -> str:
+    """Render the composing ``<package>/__init__.py`` (Client + ``_SUBPACKAGES``).
+
+    Direct render (no component model on disk, like ``_render_shared_auth``): the
+    sub-package slugs + the distribution's ``root_package``/``config_class_name``
+    drive ``facade/composer.py.jinja`` — absolute imports of the hoisted
+    ``_runtime``, the shared ``_auth`` factories, and each sub's facade ``Client``.
+    """
+    from . import render
+
+    return (
+        render._env()
+        .get_template("facade/composer.py.jinja")
+        .render(
+            slugs=slugs,
+            root_package=root_package,
+            config_class_name=config_class_name,
+        )
+    )
 
 
 def _render_shared_auth(loaded: LoadedProduct, project_dir: Path) -> None:
