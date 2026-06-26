@@ -26,7 +26,7 @@ Two Opus reviews (python-pro: correctness vs the real OAG runtime; ponytail: ove
 - **B1 (P1.2):** do **not** regex `ApiClient.__init__`. The hoist adds a class-level default via libcst: `class ApiClient: models = None`. The **composer** sets `ac.models = <slug>.models` per handle (loud `AttributeError` on unset → spec risk #4 fail-loud for free). No `__init__` signature surgery.
 - **B2 (P1.2):** the real `api_client.py:32` is `from prisma_browser import rest` (non-dotted, `rest.` used 6×). The libcst pass rewrites this shape too → `from prisma_access._runtime import rest`.
 - **B3 (P1.2):** `extras/errors.py` (nested/list_error) does `from ..exceptions import …`; hoist must walk `extras/` and rewrite relative runtime imports to absolute `_runtime` — else every sub-facade import fails. (Bonus: one `ApiException` distribution-wide.)
-- **B4 (P1.1/P1.3):** the per-sub loop must **not** vendor the real `auth.py` (it imports `..api_client`/`..configuration`, which hoist deletes). Instead vendor a **1-line `extras/auth.py` shim** per sub: `from prisma_access._auth import api_client_from_credentials, api_client_from_env`. Facade template stays byte-identical; direct sub-package `from_env` still works.
+- **B4 (P1.1) — corrected to `has_auth=False`, NOT a shim:** the per-sub loop must not vendor the real `auth.py` (it imports `..api_client`/`..configuration`, which the hoist deletes), and must **also not** vendor a `from prisma_access._auth import …` shim — `vendor()` *introspects* (imports) each sub **during the loop**, and `prisma_access._auth` does not exist until P1.3, so a shim ImportErrors at build time. Instead vendor federated subs with **`has_auth=False`**: both templates gate auth on `{% if has_auth %}` (`client.py.jinja:14,51-58`; `extras_init.py.jinja:3-11`), so the sub facade emits no `from .auth` import and no `from_env`/`from_credentials`, and stays fully self-contained (its own OAG runtime) for loop-time introspection. The **composer (P2.1) is the sole auth/entry layer** — it builds `_BearerApiClient` and injects it into each sub's `Client(api_client)`. Trade-off: a directly-imported sub facade has no `from_env` (pass an api_client, or use the composer). No `_auth` import exists in any sub → the hoist has no auth-shim to rewrite.
 - **B5 (P0.3):** `load_product:235` `base_dir / cfg.spec` → `TypeError` when `spec is None`. Guard: when `cfg.subpackages`, skip the top-level spec read (`spec_path = None`, `spec_version/spec_title = None`); make `LoadedProduct.spec_path: Path | None`.
 - **B6 (P3.1):** see decision 2 — apply headers on the ApiClient handle, not Configuration.
 - **S1 (P1.3/P2.1):** use **absolute** imports in `_auth.py` and the composer (`from prisma_access._runtime.api_client import ApiClient`), never `.._runtime` (off-by-one — `_auth.py` lives at `prisma_access/_auth.py`).
@@ -473,17 +473,14 @@ def test_first_light_three_subpackages(tmp_path):
 - [ ] **Step 2: Run → fail** — `pytest tests/test_sdk_build.py -k first_light -v -m slow` → FAIL (build has no federated branch; sub dirs not emitted at the dotted path).
 
 - [ ] **Step 3: Implement.** Extract a `_generate_one(...)` helper for the preprocess→generate→patch→vendor of one (spec, package); the single-spec path and the federated loop both call it. Key changes:
-  - `vendor()` signature: `def vendor(pkg_dir, loaded, *, package=None, context=None, distribution_root=None, suppress_auth=False, wrapper_objects=None)`. Inside, `pkg = package or loaded.config.package`, `ctx = context or loaded.context`, `dist_root = distribution_root or pkg_dir.parent`. `_vendor_resources` calls `introspect(pkg, dist_root)` (rev-2 S2; single-spec `dist_root == pkg_dir.parent`, unchanged). When `suppress_auth`, **skip** `write_component("auth.py", loaded.auth)` and instead write the 1-line shim (B4):
+  - `vendor()` signature: `def vendor(pkg_dir, loaded, *, package=None, context=None, distribution_root=None, suppress_auth=False, wrapper_objects=None)`. Inside, `pkg = package or loaded.config.package`, `ctx = context or loaded.context` (a copy), `dist_root = distribution_root or pkg_dir.parent`. `_vendor_resources` calls `introspect(pkg, dist_root)` (rev-2 S2; single-spec `dist_root == pkg_dir.parent`, unchanged). When `suppress_auth` (federated subs, **corrected B4 — `has_auth=False`, NO shim**): **skip** `write_component("auth.py", …)` **and force `ctx["has_auth"] = False`** so the facade + `extras/__init__.py` emit no `from .auth` import (both gate on `{% if has_auth %}`):
     ```python
-    if loaded.auth and not suppress_auth:
+    if suppress_auth:
+        ctx = {**ctx, "has_auth": False}     # facade self-contained; composer is the auth/entry layer
+    elif loaded.auth:
         write_component("auth.py", loaded.auth)
-    elif loaded.auth and suppress_auth:          # rev-2 B4: federated sub-package shim
-        (extras / "auth.py").write_text(
-            f"from {root_package}._auth import api_client_from_credentials, api_client_from_env\n",
-            encoding="utf-8")
-        written.append("auth.py")
     ```
-    (`root_package` = `package.split(".")[0]` = `prisma_access`.) The facade template's `from .auth import …` and `extras_init`'s re-export then resolve to the shim; the composer remains the real entry point.
+    No shim is written — a `from prisma_access._auth import …` shim would ImportError during this loop's introspection (`_auth.py` doesn't exist until P1.3). The sub facade is then `Client(api_client)` only; the composer (P2.1) injects the `_BearerApiClient`. (Make `write_component`/the facade renders use the local `ctx` so `has_auth=False` actually reaches the templates.)
   - The federated loop in `build()`:
     ```python
     for sub in loaded.subpackages:
@@ -533,7 +530,7 @@ def test_first_light_three_subpackages(tmp_path):
   - `prisma_access/_runtime/{api_client,configuration,rest,exceptions,api_response}.py` exist; **all** their imports of runtime modules are absolute `prisma_access._runtime.X` (incl. the `from prisma_access._runtime import rest` shape — B2).
   - `_runtime/api_client.py`: a class-level `models = None` is inserted into `class ApiClient`; the module-level `import prisma_access.<donor>.models` is dropped; `getattr(prisma_access.<donor>.models, klass)` → `getattr(self.models, klass)`. **`ApiClient.__init__` is untouched** (B1).
   - The 5 files are deleted from every `prisma_access/<slug>/`.
-  - Every `prisma_access/<slug>/api/*.py` **and** `prisma_access/<slug>/extras/*.py` import that targets a runtime module is rewritten to absolute `prisma_access._runtime.X` — covering relative `from ..exceptions import …` in `extras/errors.py` (B3) and `from prisma_access.<slug> import rest` in `api_client` (B2). Model imports and facade/auth-shim imports are left alone.
+  - Every `prisma_access/<slug>/api/*.py` **and** `prisma_access/<slug>/extras/*.py` import that targets a runtime module is rewritten to absolute `prisma_access._runtime.X` — covering relative `from ..exceptions import …` in `extras/errors.py` (B3) and `from prisma_access.<slug> import rest` in `api_client` (B2). Model imports and facade imports are left alone (federated subs have no `extras/auth.py` — auth is suppressed, B4).
 
 - [ ] **Step 1: Write the failing test** — fixture mirrors REAL OAG shapes (the `prisma-browser-sdk` ones), so it fails-before for B1/B2/B3, not just the happy path:
 
@@ -606,7 +603,7 @@ def test_hoist_runtime(tmp_path):
     - if `M` ends in a runtime name (`prisma_access.<slug>.exceptions`, or relative `..exceptions` → same) → rewrite to `from prisma_access._runtime.<name> import …` (level 0).
     - if `M` is the sub-package itself and an imported **name** is a runtime module (`from prisma_access.<slug> import rest` — B2) → rewrite to `from prisma_access._runtime import rest`.
   - **`Import`** — `import prisma_access.<donor>.models` in api_client → drop (handled below); other `import` left alone.
-  - Leave model imports (`…​.models.*`), facade, and the auth shim untouched.
+  - Leave model imports (`…​.models.*`) and the facade untouched (federated subs have no `extras/auth.py`).
 
   ```python
   from __future__ import annotations
@@ -954,4 +951,4 @@ def test_about_uses_real_phantasos_version(tmp_path, monkeypatch):
 
 - **Spec coverage:** D2 (P1.1 loop), D2.0/skip-validate (P0.1), ExternalTags (P0.4), D3 namespacing (federated by construction — P1.1), D4 transport bearer (P1.3), D5 facade+composer (P2.1), D6 subpackages config (P0.2–0.3), D7 phasing (P0–P4), D8 runtime hoist (P1.2), D9 docs (P4), D10 `_SUBPACKAGES` (P2.1) + ztna normalize (P0.5). All mapped.
 - **Review outcome (resolved — see the rev-2 block):** the two-Opus review (python-pro + ponytail) found 6 runtime blockers (B1–B6) + over-build; all folded in. The earlier "open confirmations" are now decided: (a) `vendor()` threads `package`/`context`/`distribution_root` (no clone); (b) the hoist is **libcst**, not regex, and does **not** touch `__init__` (B1); (c) `default_headers` keeps `required_for`, applied on the **ApiClient handle** (B6); (d) composer is a direct render (no model); (e) `_auth.configuration_from_env/_credentials` added (P1.3). The one taste call (Q4) — keep `NormalizeIds` explicit, drop the other three surfaces.
-- **Risk hotspots (from spec §10, with rev-2 mitigations):** runtime-hoist completeness — the libcst pass covers `_runtime`+`api/`+`extras/` and the P1.2 test imports the whole tree from real-OAG-shaped fixtures (B1/B2/B3); base-path silent-404 — P1.4 live checks **all** first-light subs (S3); composer write-order (last — P2.1); per-sub auth-shim resolves the facade's `from .auth` (B4); docs reference completeness (strict + per-sub assert — P4.3).
+- **Risk hotspots (from spec §10, with rev-2 mitigations):** runtime-hoist completeness — the libcst pass covers `_runtime`+`api/`+`extras/` and the P1.2 test imports the whole tree from real-OAG-shaped fixtures (B1/B2/B3); base-path silent-404 — P1.4 live checks **all** first-light subs (S3); composer write-order (last — P2.1); federated subs vendored `has_auth=False` so the facade has no `from .auth` import at loop-time introspection — composer is the auth layer (B4, corrected from the shim); docs reference completeness (strict + per-sub assert — P4.3).
