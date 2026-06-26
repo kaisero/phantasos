@@ -211,6 +211,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `dump(spec, yaml, path)`
   - `collapse_allof(schemas, node, stats)` — Collapse `allOf` whose single structural branch resolves to a non-object.
   - `fix_strings_and_enums(node, stats)` — Repair mojibake strings and dedupe enum members (after repair).
+  - `strip_external_tags(spec, stats)` — Remove the non-standard top-level `ExternalTags` key (trips OAG validation).
   - `clean(spec, stats)` — Run all generic, spec-agnostic transforms.
   - `hoist_items(spec, hoists, stats)` — Hoist nested inline array-item objects into named components.
   - `tag_operations(spec, ops, stats)` — Add tags + operationId to operations that lack them.

@@ -12,6 +12,7 @@ from collections import defaultdict
 from typing import Any
 
 from phantasos.generator.sdk import preprocess as p
+from phantasos.generator.sdk.preprocess import clean, strip_external_tags
 
 
 # ---- _resolve_type --------------------------------------------------------------
@@ -279,3 +280,18 @@ def test_clean_runs_collapse_and_mojibake_over_a_spec() -> None:
         "$ref": "#/components/schemas/Str"
     }
     assert stats["allof_collapsed"] == 1
+
+
+# ---- strip_external_tags --------------------------------------------------------
+def test_strip_external_tags_removes_top_level_key() -> None:
+    spec = {"openapi": "3.0.0", "ExternalTags": [{"name": "x"}], "paths": {}}
+    stats: dict[str, int] = {}
+    strip_external_tags(spec, stats)
+    assert "ExternalTags" not in spec
+    assert stats.get("external_tags_stripped", 0) == 1
+
+
+def test_clean_invokes_strip_external_tags() -> None:
+    spec = {"openapi": "3.0.0", "ExternalTags": [], "paths": {}}
+    clean(spec, {})
+    assert "ExternalTags" not in spec

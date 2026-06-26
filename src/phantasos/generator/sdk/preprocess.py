@@ -152,12 +152,20 @@ def fix_strings_and_enums(node: Any, stats: dict[str, int]) -> None:
             fix_strings_and_enums(i, stats)
 
 
+def strip_external_tags(spec: Any, stats: dict[str, int]) -> None:
+    """Remove the non-standard top-level `ExternalTags` key (trips OAG validation)."""
+    if "ExternalTags" in spec:
+        del spec["ExternalTags"]
+        stats["external_tags_stripped"] = stats.get("external_tags_stripped", 0) + 1
+
+
 def clean(spec: Any, stats: dict[str, int]) -> None:
     """Run all generic, spec-agnostic transforms."""
     schemas = (spec.get("components") or {}).get("schemas")
     if schemas:
         collapse_allof(schemas, spec, stats)
     fix_strings_and_enums(spec, stats)
+    strip_external_tags(spec, stats)
 
 
 # ---- parameterized spec-specific helpers (called from a spec's preprocess hook) --
