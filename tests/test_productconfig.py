@@ -338,3 +338,83 @@ def test_docs_examples_and_variant_parse() -> None:
     assert cfg.examples.create is not None
     assert cfg.examples.create.startswith("created =")
     assert cfg.examples.read is None
+
+
+def test_federated_config_parses_subpackages() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "project": {
+                "distribution": "prisma-access-sdk",
+                "author": "a",
+                "author_email": "a@b.c",
+                "repo_url": "https://x",
+            },
+            "subpackages": [
+                {"slug": "objects", "spec": "openapi/objects.yaml"},
+                {
+                    "slug": "ztna_connector",
+                    "spec": "openapi/ztna-connector.yaml",
+                    "normalize_operation_ids": {
+                        "strip_suffix": ".v2",
+                        "dots_to_underscore": True,
+                        "unify_separator": "_",
+                    },
+                },
+            ],
+        }
+    )
+    assert [s.slug for s in cfg.subpackages] == ["objects", "ztna_connector"]
+    assert cfg.subpackages[1].normalize_operation_ids is not None
+    assert cfg.subpackages[1].normalize_operation_ids.strip_suffix == ".v2"
+
+
+def test_legacy_single_spec_still_parses() -> None:
+    cfg = ProductConfig(
+        package="prisma_browser",
+        output="../out",
+        base_url="https://h",
+        spec="./openapi.yml",
+    )
+    assert cfg.subpackages == []
+    assert cfg.spec == "./openapi.yml"
+
+
+def test_cannot_set_both_spec_and_subpackages() -> None:
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "spec": "./openapi.yml",
+                "subpackages": [{"slug": "x", "spec": "x.yaml"}],
+            }
+        )
+
+
+def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary validation
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                # slug with a hyphen — rejected by the slug regex
+                "subpackages": [{"slug": "network-services", "spec": "a.yaml"}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "subpackages": [
+                    {"slug": "objects", "spec": "a.yaml"},
+                    {"slug": "objects", "spec": "b.yaml"},  # dup
+                ],
+            }
+        )

@@ -126,6 +126,8 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
   - class `TagOperation`
   - class `Transforms`
   - class `GeneratorConfig` — OpenAPI Generator invocation options (sdk.yml `generator:` block).
+  - class `NormalizeIds` — Per-sub operationId normalization (e.g. strip ``.v2``, dots->underscore).
+  - class `SubPackage` — One federated sub-package: its slug becomes a package/dir/import path.
   - class `ProductConfig`
   - class `CustomComponent` — A component backed by a per-product template path (arbitrary config).
   - `resolve_component(block, registry, base_dir)` — Turn a raw sdk.yml component block into a validated component model.

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .config import (
     BUILTIN_AUTH,
@@ -102,13 +103,40 @@ class GeneratorConfig(BaseModel):
     oneof_discriminator_lookup: bool = True
 
 
+class NormalizeIds(BaseModel):
+    """Per-sub operationId normalization (e.g. strip ``.v2``, dots->underscore)."""
+
+    model_config = ConfigDict(extra="forbid")
+    strip_suffix: str | None = None
+    dots_to_underscore: bool = False
+    unify_separator: str | None = None
+
+
+class SubPackage(BaseModel):
+    """One federated sub-package: its slug becomes a package/dir/import path."""
+
+    model_config = ConfigDict(extra="forbid")
+    slug: str
+    spec: str
+    normalize_operation_ids: NormalizeIds | None = None
+    operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    skip_validate_spec: bool = False
+
+
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
 class ProductConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     package: str
     output: str
     base_url: str
     generator: GeneratorConfig = Field(default_factory=GeneratorConfig)
-    spec: str = "./openapi.yml"
+    # Single-spec (legacy) products set `spec:`; federated products set
+    # `subpackages:` instead. Exactly one is required — the validator restores
+    # the legacy "./openapi.yml" default when neither is federated.
+    spec: str | None = None
+    subpackages: list[SubPackage] = Field(default_factory=list)
     apply_generic_patches: bool = True
     transforms: Transforms = Field(default_factory=Transforms)
     hooks: str | None = None
@@ -124,6 +152,29 @@ class ProductConfig(BaseModel):
     project: ProjectConfig | None = None
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
     docs: DocsConfig | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_spec_mode(self) -> ProductConfig:
+        federated = bool(self.subpackages)
+        explicit_spec = self.spec is not None
+        if federated and explicit_spec:
+            raise ValueError(
+                "set either `spec:` (single-spec) or `subpackages:` (federated), "
+                "not both"
+            )
+        if not federated and self.spec is None:
+            self.spec = "./openapi.yml"  # restore legacy default
+        if federated:  # slug is a package/dir/import path — validate at the boundary
+            seen: set[str] = set()
+            for sub in self.subpackages:
+                if not _SLUG_RE.match(sub.slug):
+                    raise ValueError(
+                        f"sub-package slug {sub.slug!r} must match {_SLUG_RE.pattern}"
+                    )
+                if sub.slug in seen:
+                    raise ValueError(f"duplicate sub-package slug {sub.slug!r}")
+                seen.add(sub.slug)
+        return self
 
 
 class CustomComponent(BaseModel):
@@ -232,7 +283,9 @@ def load_product(name_or_path: str) -> LoadedProduct:
         block.setdefault("type", "default")
         retry = resolve_component(block, BUILTIN_RETRY, base_dir)
 
-    spec_path = (base_dir / cfg.spec).resolve()
+    # Single-spec path. Federated (subpackages) products are wired in P0.3; the
+    # validator guarantees `spec` is non-None whenever `subpackages` is empty.
+    spec_path = (base_dir / (cfg.spec or "./openapi.yml")).resolve()
     info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
 
     context: dict[str, Any] = {
