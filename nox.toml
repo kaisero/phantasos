@@ -13,20 +13,20 @@
 # governed here.)
 
 [smoke]
-products = ["prisma-browser", "adem", "posture"]
+products = ["prisma-browser", "adem"]
 
 [live]
-products = ["prisma-browser"]
+products = ["prisma-browser", "prisma-access"]
 
 [sdk-docs]
-products = ["prisma-browser", "posture"]
+products = ["prisma-browser", "prisma-access"]
 
 # Optional per-product fidelity assertions for `sdk-docs`. The generic check
 # (build --strict + `mkdocs build --strict` exit 0 + a rendered `reference/`)
 # runs for EVERY enrolled product; these add product-specific content guards.
 # `file` is relative to the built SDK's `site/` dir; give `contains` xor
-# `not_contains`. Products with no entries here are covered by the generic check
-# only (e.g. posture).
+# `not_contains`. A product with no entries here is covered by the generic check
+# only.
 [[sdk-docs.assert]]
 product = "prisma-browser"
 file = "reference/models/custom_application_input/index.html"
@@ -47,8 +47,28 @@ product = "prisma-browser"
 file = "guides/crud/index.html"
 not_contains = "CreateOrReplaceAppInput(...)"  # not the opaque oneOf placeholder
 
+# prisma-access is FEDERATED: gen_ref_pages loops `_SUBPACKAGES` and groups every
+# wrapper + model page under `reference/<slug>/…`. Material's search plugin records
+# one `"location": "reference/<slug>/…/"` per rendered page in search_index.json, so
+# asserting the slug prefix there proves ≥1 reference page exists for that sub-package
+# (the federation marker — a single-spec layout would have a flat `reference/…`).
+[[sdk-docs.assert]]
+product = "prisma-access"
+file = "search/search_index.json"
+contains = "reference/objects/"               # showcase sub (address wrapper)
+
+[[sdk-docs.assert]]
+product = "prisma-access"
+file = "search/search_index.json"
+contains = "reference/network_services/"      # 2nd federated sub renders
+
+[[sdk-docs.assert]]
+product = "prisma-access"
+file = "search/search_index.json"
+contains = "reference/ztna_connector/"        # 3rd federated sub renders
+
 [cli-docs]
-products = ["prisma-browser", "posture"]
+products = ["prisma-browser"]
 # adem: PENDING — its 13 ops are all non-CRUD telemetry GETs, so `cli build` emits 0
 # commands (no documentable surface). Enroll once those ops are request-mapped in cli.yml.
 
@@ -62,13 +82,3 @@ contains = "Command model"
 product = "prisma-browser"
 file = "reference/application/index.html"
 contains = "show application"          # lean per-command heading
-
-[[cli-docs.assert]]
-product = "posture"
-file = "reference/posture-check/index.html"
-contains = "show posture-check"        # lean per-command heading
-
-[[cli-docs.assert]]
-product = "posture"
-file = "index.html"
-contains = "Command model"

@@ -117,7 +117,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
    > `signature_crossrefs`). The `!^_` filter hides wrapper internals
    > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
-   > real prisma-browser SDK with docs ON and asserts `mkdocs build --strict`.
+   > real prisma-browser SDK (single-spec, flat reference) **and** the federated
+   > prisma-access SDK (12 sub-packages → `reference/<slug>/…`) with docs ON and
+   > asserts `mkdocs build --strict`; the prisma-access `[[sdk-docs.assert]]` guards
+   > check `search/search_index.json` for the per-sub `reference/<slug>/` prefixes,
+   > proving each federated sub renders at least one reference page.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless

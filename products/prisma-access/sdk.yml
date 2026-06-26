@@ -2,6 +2,15 @@ package: prisma_access
 output: ../../../prisma-access-sdk
 base_url: https://api.strata.paloaltonetworks.com
 auth: {type: scm_oauth}
+# Opt-in user docs (mkdocs). Federated: gen_ref_pages loops `_SUBPACKAGES` and
+# groups every sub's wrapper + model pages under `reference/<slug>/…`. The guides
+# showcase the FIRST sub-package's clean CRUD object — `client.objects.address`
+# (`showcase_subpackage` selects the sub whose `.models`/wrappers the docs context
+# introspects; `showcase_resource` is its wrapper object).
+docs:
+  showcase_subpackage: objects
+  showcase_resource: address
+  site_name: Prisma Access SDK
 # Full 12-spec federation (P2.2). `objects` is FIRST = the runtime-hoist donor (clean
 # CRUD). Each sub owns its spec; anchorless None-classified ops (PUT replaces / non-CRUD
 # verb-phrase actions with no CRUD sibling) are bound or hidden via per-sub `operations:`

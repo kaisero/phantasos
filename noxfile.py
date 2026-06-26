@@ -271,7 +271,13 @@ def live(session: nox.Session) -> None:
         session.run("phantasos", "sdk", "build", product, "--no-smoke")
         out_dir = load_product(product).output_dir
         session.install(str(out_dir))
-        session.run("pytest", "-v", str(out_dir / "tests" / "test_sdk_crud_live.py"))
+        # Run every emitted live suite (`test_*_live.py`): single-spec products ship
+        # the frozen `test_sdk_crud_live.py` oracle; the federated prisma-access ships
+        # `test_first_light_live.py` (per-sub base-path read). All skip without creds.
+        live_tests = sorted(out_dir.glob("tests/test_*_live.py"))
+        if not live_tests:
+            session.error(f"{product}: no live test (tests/test_*_live.py) emitted")
+        session.run("pytest", "-v", *(str(p) for p in live_tests))
 
 
 @nox.session(name="sdk-docs", venv_backend="uv")
