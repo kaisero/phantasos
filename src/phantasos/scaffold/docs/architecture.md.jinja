@@ -9,7 +9,7 @@ requests — the first call mints an auth token that is then reused, so creating
 per request is wasteful.
 
 Each object is exposed as a typed **resource wrapper** attribute: `client.<object>`
-(for example `client.{{ showcase.attr }}`). A wrapper exposes clean, verb-named methods —
+(for example `client.{{ showcase.call_path }}`). A wrapper exposes clean, verb-named methods —
 `create(body=…)`, `get(id=…)`, `list(…)`, `update(id=…, body=…)`, `delete(id=…)` — that
 return typed models. Several wrappers may share one backing API client under the hood;
 the raw generated `*Api` classes are an internal detail you never call directly.

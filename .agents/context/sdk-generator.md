@@ -85,7 +85,14 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > via `cli_operations` (which stamps each op with its
    > `object_attr`/`clean_method`/`has_body` routing); the author-named
    > `docs.showcase_resource` is a **singular wrapper-object key** (e.g.
-   > `application`, validated against `_WRAPPERS`, fail-fast). `classify_operations`
+   > `application`, validated against `_WRAPPERS`, fail-fast). For a **federated**
+   > distribution the facade/IR/models live under `<package>.<sub>.*`, so
+   > `docs.showcase_subpackage` (e.g. `objects`) retargets the
+   > `_wrapper_objects`/`cli_operations`/`models`-import at `<package>.<sub>`; the
+   > showcase then carries a clean `attr` (the object id) plus a dotted `call_path`
+   > (`<sub>.<object>`) so the guides render `client.objects.address.<verb>(...)`.
+   > Single-spec products leave `showcase_subpackage` unset — `call_path == attr`,
+   > targeting is byte-identical. `classify_operations`
    > maps each op's CLEAN verb to a CRUD slot directly (create/get→read/list/
    > update/delete) — no raw-prefix verb heuristic — picking the fewest-path-params
    > binding per verb; `_op_dict` emits the wrapper call shape (request body under
@@ -215,7 +222,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `build(loaded, run_smoke)`
 - `docs.py`
   - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
-  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples)`
+  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples, subpackage)`
   - `build_docs_context(loaded, project_dir)` — Wrapper introspect of the showcase object -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).

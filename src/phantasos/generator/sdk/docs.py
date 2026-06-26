@@ -128,6 +128,7 @@ def shape_context(
     resolve: Callable[[str], type | None] | None = None,
     variant: str | None = None,
     examples: DocsExamples | None = None,
+    subpackage: str | None = None,
 ) -> dict[str, object]:
     slots = classify_operations(inventory.operations, obj)
     operations = {slot: _op_dict(op, resolve, variant) for slot, op in slots.items()}
@@ -135,8 +136,12 @@ def shape_context(
     for slot, entry in operations.items():
         entry["example_override"] = ex.get(slot)
     showcase = {
-        # `attr` is the singular `client.<object>` wrapper attribute.
+        # `attr` is the singular `client.<object>` wrapper attribute (a clean Python
+        # identifier). `call_path` is what the guides render after `client.` — equal
+        # to `attr` for single-spec, but `<sub>.<object>` for a federated sub-package
+        # (e.g. `objects.address`) so the example reads `client.objects.address.<v>`.
         "attr": obj,
+        "call_path": f"{subpackage}.{obj}" if subpackage else obj,
         "operations": operations,
         "has_create": "create" in operations,
         "has_read": "read" in operations,
@@ -199,11 +204,15 @@ def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, ob
     if cfg.docs is None:  # guarded by the caller; this is a defensive check
         raise AssertionError("build_docs_context called without a docs config")
     obj = cfg.docs.showcase_resource
-    _validate_object(_wrapper_objects(cfg.package, project_dir), obj)
-    inventory = cli_operations(cfg.package, project_dir)
+    # Federated products carry the facade/IR/models under `<package>.<sub>.*`; a
+    # single-spec product keeps them at the root (`showcase_pkg == cfg.package`).
+    sub = cfg.docs.showcase_subpackage
+    showcase_pkg = f"{cfg.package}.{sub}" if sub else cfg.package
+    _validate_object(_wrapper_objects(showcase_pkg, project_dir), obj)
+    inventory = cli_operations(showcase_pkg, project_dir)
     site_name = cfg.docs.site_name or loaded.context.get("distribution", cfg.package)
 
-    models_ns = importlib.import_module(f"{cfg.package}.models")
+    models_ns = importlib.import_module(f"{showcase_pkg}.models")
 
     def _resolve(name: str) -> type | None:
         ob = getattr(models_ns, name, None)
@@ -218,4 +227,5 @@ def build_docs_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, ob
         resolve=_resolve,
         variant=cfg.docs.showcase_variant,
         examples=cfg.docs.examples,
+        subpackage=sub,
     )

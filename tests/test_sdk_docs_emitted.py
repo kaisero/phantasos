@@ -78,6 +78,7 @@ def _ctx(**over: Any) -> dict[str, Any]:
         # False -> partial CRUD, no update example rendered).
         "showcase": {
             "attr": "application",
+            "call_path": "application",  # single-spec: no sub-package prefix
             "has_create": True,
             "has_read": True,
             "has_list": True,
@@ -189,6 +190,7 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     # carry body_code, not placeholder) under StrictUndefined.
     showcase: dict[str, Any] = {
         "attr": "thing",
+        "call_path": "thing",
         "has_create": False,
         "has_read": True,
         "has_list": False,
