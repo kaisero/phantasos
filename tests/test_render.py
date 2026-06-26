@@ -135,6 +135,55 @@ def test_nested_error_without_wrapper_still_works() -> None:
     assert mod.error_message(exc) == "plain"
 
 
+_AUTH_PARAMS = {
+    "config_class_name": "SdkConfiguration",
+    "base_url": "https://h",
+    "token_url": "https://t",
+    "client_id_env": "CID",
+    "client_secret_env": "CSEC",
+    "scope_env": "SCOPE",
+    "base_url_env": "BURL",
+    "has_retry": False,
+}
+_GOLDEN_SINGLE = Path(__file__).parent / "golden" / "scm_oauth_single_spec.golden.txt"
+
+
+def _render_auth(**extra: object) -> str:
+    return (
+        render._env()
+        .get_template("auth/scm_oauth.py.jinja")
+        .render(**{**_AUTH_PARAMS, **extra})
+    )
+
+
+def test_federated_auth_emits_bearer_client_and_config_factory() -> None:
+    """federated=True appends the transport-level bearer client + config factories."""
+    txt = _render_auth(federated=True)
+    assert "class _BearerApiClient(ApiClient):" in txt
+    assert "def update_params_for_auth" in txt
+    # Unconditional bearer at the transport layer (works for posture's empty auth).
+    bearer = 'headers["Authorization"] = f"Bearer {self.configuration.access_token}"'
+    assert bearer in txt
+    assert "def configuration_from_env" in txt
+    assert "def configuration_from_credentials" in txt
+    # Runtime imported ABSOLUTELY (rev-2 S1) — _auth.py sits at the package root,
+    # so `..` would escape it.
+    assert "from prisma_access._runtime.api_client import ApiClient" in txt
+    assert "from prisma_access._runtime.configuration import Configuration" in txt
+    assert "from ..api_client import ApiClient" not in txt
+    ast.parse(txt)
+
+
+def test_single_spec_auth_render_is_byte_identical() -> None:
+    """federated unset/false keeps the single-spec extras/auth.py byte-unchanged."""
+    golden = _GOLDEN_SINGLE.read_text(encoding="utf-8")
+    assert _render_auth() == golden  # default (federated unset)
+    assert _render_auth(federated=False) == golden  # explicit false
+    # The federated-only surface must NOT leak into single-spec output.
+    assert "_BearerApiClient" not in golden
+    assert "from ..api_client import ApiClient" in golden
+
+
 def _make_pkg(tmp_path: Path) -> Path:
     """Create a minimal generated package dir with an api/__init__.py."""
     pkg = tmp_path / "demo"

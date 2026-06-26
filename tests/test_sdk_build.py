@@ -101,3 +101,35 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
         assert (root / slug / "__init__.py").exists()
         assert (root / slug / "api").is_dir()
         assert (root / slug / "models").is_dir()
+
+    # P1.3: build() also rendered the ONE shared _auth.py at the package root.
+    assert (root / "_auth.py").exists()
+
+    # De-risk: the real built tree imports cleanly — _auth.py imports the hoisted
+    # _runtime absolutely, and _BearerApiClient is a subclass of the runtime
+    # ApiClient (so update_params_for_auth overrides the right base). Isolate from
+    # any real prisma_access an earlier test left in sys.modules.
+    import importlib
+    import sys
+    from types import ModuleType
+
+    def _drop() -> dict[str, ModuleType]:
+        return {
+            m: sys.modules.pop(m)
+            for m in list(sys.modules)
+            if m == "prisma_access" or m.startswith("prisma_access.")
+        }
+
+    saved = _drop()
+    sys.path.insert(0, str(loaded.output_dir))
+    try:
+        importlib.invalidate_caches()
+        auth = importlib.import_module("prisma_access._auth")
+        runtime_ac = importlib.import_module("prisma_access._runtime.api_client")
+        assert issubclass(auth._BearerApiClient, runtime_ac.ApiClient)
+        assert hasattr(auth, "configuration_from_env")
+        assert hasattr(auth, "configuration_from_credentials")
+    finally:
+        sys.path.remove(str(loaded.output_dir))
+        _drop()
+        sys.modules.update(saved)

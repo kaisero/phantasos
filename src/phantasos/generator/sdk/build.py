@@ -222,10 +222,40 @@ def _build_federated(
 
     # P1.3: render the shared `<package>/_auth.py` (TokenManager + _BearerApiClient);
     #   the per-sub facades above are has_auth=False, so the composer owns auth.
+    _render_shared_auth(loaded, project_dir)
     # P2.1: render the composer `<package>/__init__.py` (Client + _SUBPACKAGES),
     #   written LAST so it overwrites OAG's empty parent __init__.
 
     return {"preprocess": dict(stats), "vendored": vendored}
+
+
+def _render_shared_auth(loaded: LoadedProduct, project_dir: Path) -> None:
+    """Render the ONE shared ``<package>/_auth.py`` for a federated distribution.
+
+    Direct render (no component model on disk, like ``extras_init.py``): the auth
+    component's fields + the product context drive the ``federated=True`` branch of
+    ``auth/scm_oauth.py.jinja``, which imports the hoisted ``_runtime`` absolutely and
+    attaches the bearer at the transport layer (``_BearerApiClient``). Dormant until
+    the P2.1 composer imports it.
+    """
+    from . import render
+
+    if loaded.auth is None:
+        raise ValueError("federated product needs a top-level `auth:` block for _auth")
+    fields = loaded.auth.model_dump()
+    template = fields.pop("template")
+    fields.pop("type", None)
+    # has_retry=False: `retry.py` is a per-sub vendored extra (<slug>/extras/), not
+    # hoisted to the package root, so the root-level _auth.py has no `.retry` sibling
+    # to import. ponytail: the shared config skips auto-retry until the P2.1 composer
+    # owns it — the per-sub facades keep their own retry.
+    src = (
+        render._env()
+        .get_template(template)
+        .render(**{**loaded.context, **fields, "federated": True, "has_retry": False})
+    )
+    root = project_dir / Path(*loaded.config.package.split("."))
+    (root / "_auth.py").write_text(src, encoding="utf-8")
 
 
 def _scaffold(loaded: LoadedProduct, project_dir: Path) -> None:

@@ -15,9 +15,11 @@ import time
 import urllib3
 {% if has_retry %}from .retry import default_retry
 {% endif %}
-from ..api_client import ApiClient
+{% if federated %}from prisma_access._runtime.api_client import ApiClient
+from prisma_access._runtime.configuration import Configuration
+{% else %}from ..api_client import ApiClient
 from ..configuration import Configuration
-
+{% endif %}
 __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_TOKEN_URL",
@@ -25,7 +27,9 @@ __all__ = [
     "{{ config_class_name }}",
     "api_client_from_credentials",
     "api_client_from_env",
-]
+{% if federated %}    "configuration_from_credentials",
+    "configuration_from_env",
+{% endif %}]
 
 DEFAULT_BASE_URL = "{{ base_url }}"
 DEFAULT_TOKEN_URL = "{{ token_url }}"
@@ -98,7 +102,7 @@ def api_client_from_credentials(
     tm = TokenManager(client_id, client_secret, scope, token_url=token_url)
     cfg = {{ config_class_name }}(token_manager=tm, host=host)
 {% if has_retry %}    cfg.retries = default_retry()
-{% endif %}    return ApiClient(cfg)
+{% endif %}{% if federated %}    return _BearerApiClient(cfg){% else %}    return ApiClient(cfg){% endif %}
 
 
 def _pick(overrides, key, env_var):
@@ -119,3 +123,50 @@ def api_client_from_env(**overrides) -> ApiClient:
     return api_client_from_credentials(
         client_id=client_id, client_secret=client_secret, scope=scope, host=host, **overrides
     )
+{% if federated %}
+
+class _BearerApiClient(ApiClient):
+    """Attach the pull-model bearer at the transport layer (spec-agnostic).
+
+    Set unconditionally so it works even for specs that declare no ``security``
+    (e.g. posture): the gateway needs the bearer regardless of the OAS, and the
+    base ``ApiClient`` would skip an op whose ``auth_settings`` is empty.
+    """
+
+    def update_params_for_auth(self, headers, queries, auth_settings, resource_path,
+                               method, body, request_auth=None):
+        headers["Authorization"] = f"Bearer {self.configuration.access_token}"
+
+
+def configuration_from_credentials(
+    *,
+    client_id: str,
+    client_secret: str,
+    scope: str,
+    host: str = DEFAULT_BASE_URL,
+    token_url: str = DEFAULT_TOKEN_URL,
+) -> {{ config_class_name }}:
+    """Build the shared {{ config_class_name }} (composer uses this — no throwaway ApiClient)."""
+    if not scope:
+        raise ValueError("scope is required")
+    tm = TokenManager(client_id, client_secret, scope, token_url=token_url)
+    cfg = {{ config_class_name }}(token_manager=tm, host=host)
+{% if has_retry %}    cfg.retries = default_retry()
+{% endif %}    return cfg
+
+
+def configuration_from_env(**overrides) -> {{ config_class_name }}:
+    """Build the shared {{ config_class_name }} from env (mirror of api_client_from_env)."""
+    client_id = _pick(overrides, "client_id", "{{ client_id_env }}")
+    client_secret = _pick(overrides, "client_secret", "{{ client_secret_env }}")
+    scope = _pick(overrides, "scope", "{{ scope_env }}")
+    host = _pick(overrides, "host", "{{ base_url_env }}") or DEFAULT_BASE_URL
+    missing = [n for n, v in (("{{ client_id_env }}", client_id),
+                              ("{{ client_secret_env }}", client_secret),
+                              ("{{ scope_env }}", scope)) if not v]
+    if missing:
+        raise RuntimeError(f"missing required auth environment variables: {', '.join(missing)}")
+    return configuration_from_credentials(
+        client_id=client_id, client_secret=client_secret, scope=scope, host=host
+    )
+{% endif %}
