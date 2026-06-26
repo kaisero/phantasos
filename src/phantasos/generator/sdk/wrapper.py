@@ -237,11 +237,19 @@ def _noun_tails(obj_snake: str) -> tuple[str, ...]:
     """The trailing-noun forms a method may end with for object *obj_snake*.
 
     ``device`` -> ``_device`` / ``_devices``; ``policy`` -> ``_policy`` /
-    ``_policies`` (so a plural-with-``y`` action can still attach to its object).
+    ``_policies`` (so a plural-with-``y`` action can still attach to its object);
+    ``address`` -> ``_address`` / ``_addresses`` (the ``-es`` plural — must mirror
+    ``classify._singularize`` so an ``update_addresses_by_id`` PUT anchors to the
+    ``address`` object instead of a naive ``_addresss`` that never matches).
     """
+    # Additive: keep the singular + naive ``+s`` plural (covers vowel+y like
+    # ``gateway`` -> ``gateways``), and ADD the ``-ies`` (consonant+y) and ``-es``
+    # (sibilant: s/x/z/ch/sh) plurals so e.g. ``address`` also yields ``addresses``.
     tails = ["_" + obj_snake, "_" + obj_snake + "s"]
     if obj_snake.endswith("y"):
         tails.append("_" + obj_snake[:-1] + "ies")
+    if obj_snake.endswith(("s", "x", "z", "ch", "sh")):
+        tails.append("_" + obj_snake + "es")
     return tuple(tails)
 
 
@@ -312,7 +320,13 @@ def _render_annotation(
         tp = args[0] if len(args) == 1 else tp
     if isinstance(tp, type) and tp.__module__.startswith(package):
         expr = tp.__qualname__ + (" | None" if optional else "")
-        rel_module = tp.__module__.split(".", 1)[1]
+        # Strip the FULL package prefix (not just the first segment): for a
+        # federated sub-package `prisma_access.objects` a model module is
+        # `prisma_access.objects.models.address` -> `models.address`, so the
+        # `from ..models.address import …` in resources.py resolves. A naive
+        # `split(".", 1)[1]` would leave `objects.models.address` and emit a
+        # broken `from ..objects.models.address`.
+        rel_module = tp.__module__[len(package) + 1 :]
         return expr, (rel_module, tp.__qualname__), optional
     base = _SCALARS.get(tp, "str")
     return (base + " | None") if optional else base, None, optional

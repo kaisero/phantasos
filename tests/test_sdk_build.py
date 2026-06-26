@@ -45,3 +45,25 @@ def test_build_emits_wrapper() -> None:
     # Use loaded.output_dir (resolves relative to the product's base_dir).
     resources_py = loaded.output_dir / loaded.config.package / "extras" / "resources.py"
     assert resources_py.exists(), f"extras/resources.py not found at {resources_py}"
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not Path("products/prisma-access/openapi/objects.yaml").exists(),
+    reason="prisma-access specs absent",
+)
+def test_first_light_three_subpackages(tmp_path: Path) -> None:
+    """Federated build loop emits each sub-package under the distribution root.
+
+    sdk.yml is limited to 3 sub-packages for P1 first light. Each one runs the
+    real OAG generate (dotted ``--package-name prisma_access.<slug>``) →
+    patches → vendor (facade, auth suppressed) loop, so the built tree must
+    carry ``prisma_access/<slug>/{__init__.py, api/, models/}`` for every sub.
+    """
+    loaded = load_product("prisma-access")
+    build(loaded, run_smoke=False)
+    root = loaded.output_dir / "prisma_access"
+    for slug in ("objects", "network_services", "ztna_connector"):
+        assert (root / slug / "__init__.py").exists()
+        assert (root / slug / "api").is_dir()
+        assert (root / slug / "models").is_dir()

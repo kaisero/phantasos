@@ -1,0 +1,33 @@
+package: prisma_access
+output: ../../../prisma-access-sdk
+base_url: https://api.strata.paloaltonetworks.com
+auth: {type: scm_oauth}
+# P1 first light: 3 representative sub-packages prove the federated build loop on a
+# real OAG run — objects (clean CRUD), network_services (OAS 3.1, generated alone —
+# skip-validate works around a 3.1 false positive), ztna_connector (dotted operationIds,
+# normalized to OAG-friendly method names). The full 12-spec federation lands in P2.
+subpackages:
+  - {slug: objects, spec: openapi/objects.yaml}
+  - slug: network_services
+    spec: openapi/network-services.yaml
+    skip_validate_spec: true   # OAS 3.1 false positive under OAG validation
+    operations:
+      # The spec's operationId has a typo ("vlanl"), so the PUT can't anchor to the
+      # vlan_interface object by name — bind it explicitly as a replace.
+      vlan_interfaces.update_vlanl_interfaces_by_id: {resource: vlan_interface, method: replace}
+  - slug: ztna_connector
+    spec: openapi/ztna-connector.yaml
+    normalize_operation_ids: {strip_suffix: .v2, dots_to_underscore: true, unify_separator: _}
+    operations:
+      # ztna's non-CRUD ops carry no CRUD anchor on their api class, so bind each to
+      # an explicit (object, method) — the design's "operations: for residue".
+      connector.download_connector_packet_capture_file: {resource: connector_packet_capture, method: download}
+      tenant.start_offboarding: {resource: tenant, method: start_offboarding}
+      tenant.start_onboarding: {resource: tenant, method: start_onboarding}
+
+project:
+  distribution: prisma-access-sdk
+  description: Python SDK for Palo Alto Networks Prisma Access
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-access-sdk

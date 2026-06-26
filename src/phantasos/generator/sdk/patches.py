@@ -84,11 +84,15 @@ def patch_apostrophe_enums(models_dir: Path) -> int:
     return fixed
 
 
-def rebase_lenient_enums(pkg_dir: Path) -> int:
+def rebase_lenient_enums(pkg_dir: Path, *, package: str | None = None) -> int:
+    # `_lenient.py` lives at `<pkg_dir>/_lenient.py`, so the import must carry the
+    # FULL dotted import path of the package — for a federated sub-package
+    # `prisma_access.objects` that is `prisma_access.objects._lenient`, NOT the leaf
+    # `objects._lenient` (which `pkg_dir.name` would yield). Single-spec callers omit
+    # `package`, so it defaults to the leaf (unchanged).
+    pkg = package or pkg_dir.name
     (pkg_dir / "_lenient.py").write_text(LENIENT_SOURCE, encoding="utf-8")
-    import_line = (
-        f"from {pkg_dir.name}._lenient import LenientStrEnum, LenientIntEnum\n"
-    )
+    import_line = f"from {pkg}._lenient import LenientStrEnum, LenientIntEnum\n"
     rebased = 0
     for path in sorted((pkg_dir / "models").glob("*.py")):
         text = path.read_text(encoding="utf-8")
@@ -199,11 +203,13 @@ def patch_drop_empty_additional_properties(models_dir: Path) -> int:
     return count
 
 
-def apply_generic_patches(pkg_dir: Path) -> dict[str, int]:
+def apply_generic_patches(
+    pkg_dir: Path, *, package: str | None = None
+) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),
-        "lenient_enums": rebase_lenient_enums(pkg_dir),
+        "lenient_enums": rebase_lenient_enums(pkg_dir, package=package),
         "oneof_first_match": patch_oneof_first_match(models),
         "oneof_unwrap": patch_oneof_unwrap_serializer(models),
         "drop_empty_additional_properties": patch_drop_empty_additional_properties(

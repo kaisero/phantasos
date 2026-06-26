@@ -47,6 +47,11 @@ def vendor(
     pkg_dir: Path,
     loaded: LoadedProduct,
     *,
+    package: str | None = None,
+    context: dict[str, Any] | None = None,
+    distribution_root: Path | None = None,
+    suppress_auth: bool = False,
+    operations: dict[str, Any] | None = None,
     wrapper_objects: list[Any] | None = None,
 ) -> list[str]:
     """Render the selected component templates into ``<pkg>/extras/``.
@@ -56,13 +61,30 @@ def vendor(
     pre-built ``build_wrapper_context`` result (the stub-package component tests
     pass ``[]`` to opt out of live introspection); otherwise the freshly
     generated package is introspected to build it.
+
+    Federated sub-packages pass *package*/*context*/*distribution_root* directly
+    (the sub's dotted import path, its per-sub jinja context, and the
+    distribution root that must be on ``sys.path`` to import the nested package);
+    single-spec callers omit them and default to ``loaded.config.package`` /
+    ``loaded.context`` / ``pkg_dir.parent`` (unchanged). *suppress_auth* forces
+    ``has_auth=False`` and skips writing ``auth.py`` — the sub facade is then a
+    self-contained ``Client(api_client)`` whose bearer is injected by the shared
+    composer (P1.3/P2.1); no ``from <pkg>._auth import …`` shim is written (it
+    would ImportError during this loop's introspection).
     """
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+    pkg = package or loaded.config.package
+    dist_root = distribution_root or pkg_dir.parent
+    # Per-sub `operations:` overrides (federated) vs the product's top-level block
+    # (single-spec). build_wrapper_context's validate_override_keys rejects keys
+    # absent from THIS package's inventory, so a federated sub must pass its OWN
+    # overrides — a top-level key for another sub's op would fail every other sub.
+    ops = operations if operations is not None else loaded.config.operations
     extras = pkg_dir / "extras"
     extras.mkdir(exist_ok=True)
     written: list[str] = []
-    ctx = dict(loaded.context)
+    ctx = dict(context) if context is not None else dict(loaded.context)
 
     builtin_env = _env()
     product_env = Environment(
@@ -87,7 +109,14 @@ def vendor(
         )
         written.append(name)
 
-    if loaded.auth:
+    if suppress_auth:
+        # Federated sub: the facade self-contains; the composer is the auth/entry
+        # layer (P1.3/P2.1). Force has_auth=False so the facade + extras/__init__
+        # (both gate on `{% if has_auth %}`) emit no `from .auth` import, and skip
+        # writing auth.py. Rebinds ctx — the render_template/write_component
+        # closures read it fresh, so later renders see has_auth=False.
+        ctx = {**ctx, "has_auth": False}
+    elif loaded.auth:
         write_component("auth.py", loaded.auth)
     if loaded.pagination:
         write_component("pagination.py", loaded.pagination)
@@ -123,7 +152,15 @@ def vendor(
     # already exist on disk.
     if loaded.facade:
         objects = _vendor_resources(
-            pkg_dir, loaded, extras, builtin_env, written, wrapper_objects
+            pkg_dir,
+            loaded,
+            pkg,
+            dist_root,
+            ops,
+            extras,
+            builtin_env,
+            written,
+            wrapper_objects,
         )
         # Pass 2: RE-render the facade in full now that `resources.py` exists —
         # bind `client.<object>` to the typed wrappers (sharing one `*Api`
@@ -140,7 +177,7 @@ def vendor(
         # `sys.modules`. Pass 2 just rewrote `facade.py` on disk, so any later
         # in-process import would resurrect the STALE pass-1 facade (no
         # `_WRAPPERS`). Drop those entries so the next import re-reads disk.
-        _invalidate_pkg_modules(loaded.config.package)
+        _invalidate_pkg_modules(pkg)
     return written
 
 
@@ -165,6 +202,9 @@ def _invalidate_pkg_modules(package: str) -> None:
 def _vendor_resources(
     pkg_dir: Path,
     loaded: LoadedProduct,
+    pkg: str,
+    dist_root: Path,
+    operations: dict[str, Any],
     extras: Path,
     env: Environment,
     written: list[str],
@@ -174,19 +214,22 @@ def _vendor_resources(
 
     Uses *wrapper_objects* when supplied; otherwise introspects the
     freshly-vendored package (the pass-1 ``facade.py`` — and thus ``_RESOURCES``
-    — is already written) to build the context. The per-object imports are merged
-    + sorted for a stable, ruff-clean import block. Returns the ``ObjectView``
-    list so the caller can drive the pass-2 facade re-render.
+    — is already written) to build the context. *pkg* is the (possibly dotted)
+    import path and *dist_root* the directory that must be on ``sys.path`` to
+    import it — for a federated sub these are ``prisma_access.<slug>`` and the
+    distribution root (``project_dir``), not ``pkg_dir.parent``. The per-object
+    imports are merged + sorted for a stable, ruff-clean import block. Returns
+    the ``ObjectView`` list so the caller can drive the pass-2 facade re-render.
     """
     objects = wrapper_objects
     if objects is None:
         from ..opmodel import introspect
         from .wrapper import build_wrapper_context
 
-        inv = introspect(loaded.config.package, pkg_dir.parent)
+        inv = introspect(pkg, dist_root)
         objects = build_wrapper_context(
             inv,
-            loaded.config.operations,
+            operations,
             _discover_resources(pkg_dir),
             docs=loaded.config.docs,
         )

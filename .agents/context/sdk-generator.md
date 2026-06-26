@@ -16,6 +16,18 @@ smoke-checks the result. The output is a pure build artifact — never hand-edit
 `build.build()` in `build.py` is the orchestrator; it runs the stages in order
 and returns a stats dict. To trace the pipeline, open these files in sequence:
 
+> **Single-spec vs federated.** A product with a `spec:` runs the single-spec path
+> (`_build_single`). A product with `subpackages:` (e.g. `prisma-access`) runs
+> `_build_federated`: it loops each sub-package through the shared generate→patch→
+> vendor→`_about` core (`_generate_one`), emitting `<package>/<slug>/…` via a dotted
+> `--package-name`, then scaffolds the one distribution. Each sub is vendored with
+> `suppress_auth=True` (facade `has_auth=False`, no `auth.py`) and its own per-sub
+> `operations:` overrides; `vendor`/`patches` take the dotted `package` +
+> `distribution_root` so nested-package imports (`_lenient`, resource model imports,
+> introspection root) resolve. The runtime-hoist (`_runtime`), shared `_auth.py`, and
+> composing `__init__.py` that fuse the subs into one client are later tasks — after
+> P1.1 the parent `<package>/__init__.py` is OAG's empty stub.
+
 1. **Preprocess** — `preprocess.load()` then `preprocess.clean()` in
    `preprocess.py` apply the generic, spec-agnostic transforms; the product's
    `transforms:` block drives `preprocess.hoist_items()` / `tag_operations()`,
@@ -201,11 +213,11 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
 - `patches.py`
   - `patch_apostrophe_enums(models_dir)`
-  - `rebase_lenient_enums(pkg_dir)`
+  - `rebase_lenient_enums(pkg_dir, package)`
   - `patch_oneof_first_match(models_dir)`
   - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
-  - `apply_generic_patches(pkg_dir)`
+  - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
   - `load(path)`
   - `dump(spec, yaml, path)`
@@ -221,7 +233,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `cache_dir()` — Shared on-disk cache for the OAG jar and the managed JRE.
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
-  - `vendor(pkg_dir, loaded, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
+  - `vendor(pkg_dir, loaded, package, context, distribution_root, suppress_auth, operations, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.
