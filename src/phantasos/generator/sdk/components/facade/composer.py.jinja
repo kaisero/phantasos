@@ -42,7 +42,7 @@ class Client:
                 "{{ root_package }}: required header '{{ h.name }}' for sub-package "
                 "'{{ slug }}' is unset; set the {{ h.env }} environment variable"
             )
-        _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v  # client-level default; per-call `_headers` still overrides
+        _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v  # client-level default header (OAG applies default_headers last, so it takes precedence over a per-call `_headers` value)
 {% else %}        if _v is not None:  # optional header (applied only when present)
             _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v
 {% endif %}{% endfor %}        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})

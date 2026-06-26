@@ -65,7 +65,8 @@ subpackages:
 # Client-level request headers the SDK sends by default (declared here, NOT
 # derived from any spec). Applied on each sub-package's ApiClient handle from the
 # environment at construction; `required_for` fails loud when its env is unset.
-# Per-call `_headers` still overrides. incidents REQUIRES X-PANW-Region
+# OAG applies default_headers last, so this client-level default takes precedence
+# over a per-call `_headers` value. incidents REQUIRES X-PANW-Region
 # (PrismaRegionHeader, required: true); prisma-tenant is optional everywhere.
 default_headers:
   X-PANW-Region: {env: PANW_REGION, required_for: [incidents]}
