@@ -131,6 +131,7 @@ Custom template: set `type` to a relative path ending in `.jinja` → resolved t
   - class `ProductConfig`
   - class `CustomComponent` — A component backed by a per-product template path (arbitrary config).
   - `resolve_component(block, registry, base_dir)` — Turn a raw sdk.yml component block into a validated component model.
+  - class `LoadedSubPackage` — One federated sub-package, resolved against its own spec.
   - class `LoadedProduct`
   - `load_product(name_or_path)`
 <!-- /GENERATED:api -->

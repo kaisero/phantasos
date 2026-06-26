@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass as _dataclass
+from dataclasses import field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -68,6 +69,7 @@ class DocsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     showcase_resource: str
     showcase_variant: str | None = None
+    showcase_subpackage: str | None = None
     site_name: str | None = None
     examples: DocsExamples | None = None
 
@@ -210,10 +212,23 @@ def resolve_component(
 
 
 @_dataclass
+class LoadedSubPackage:
+    """One federated sub-package, resolved against its own spec.
+
+    `config` carries the slug (`config.slug`) — there is no separate slug field.
+    """
+
+    package: str  # "prisma_access.objects"
+    spec_path: Path
+    context: dict[str, Any]  # per-sub jinja context (package, spec_title, spec_version)
+    config: SubPackage
+
+
+@_dataclass
 class LoadedProduct:
     config: ProductConfig
     base_dir: Path
-    spec_path: Path
+    spec_path: Path | None  # None for federated products (B5)
     output_dir: Path
     auth: Any | None
     pagination: Any | None
@@ -221,6 +236,7 @@ class LoadedProduct:
     facade: Any | None
     retry: Any | None
     context: dict[str, Any]
+    subpackages: list[LoadedSubPackage] = field(default_factory=list)
 
 
 _AUTO_EXPOSED = {
@@ -283,17 +299,25 @@ def load_product(name_or_path: str) -> LoadedProduct:
         block.setdefault("type", "default")
         retry = resolve_component(block, BUILTIN_RETRY, base_dir)
 
-    # Single-spec path. Federated (subpackages) products are wired in P0.3; the
-    # validator guarantees `spec` is non-None whenever `subpackages` is empty.
-    spec_path = (base_dir / (cfg.spec or "./openapi.yml")).resolve()
-    info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
+    # B5: only single-spec products carry a top-level spec; for federated
+    # products each sub-package owns its spec, so the top-level read is skipped.
+    if cfg.subpackages:
+        spec_path: Path | None = None
+        spec_version = spec_title = None
+    else:
+        # validator restores the legacy default, so cfg.spec is non-None here
+        spec_path = (base_dir / cast(str, cfg.spec)).resolve()
+        info = (
+            (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
+        )
+        spec_version, spec_title = info.get("version"), info.get("title")
 
     context: dict[str, Any] = {
         "package": cfg.package,
         "library": cfg.generator.library,
         "base_url": cfg.base_url,
-        "spec_version": info.get("version"),
-        "spec_title": info.get("title"),
+        "spec_version": spec_version,
+        "spec_title": spec_title,
         "has_auth": auth is not None,
         "has_pagination": pagination is not None,
         "has_errors": errors is not None,
@@ -331,6 +355,23 @@ def load_product(name_or_path: str) -> LoadedProduct:
                 f"include source {source!r}: template not found at {src_path}"
             )
 
+    sub_loaded: list[LoadedSubPackage] = []
+    for sub in cfg.subpackages:
+        sub_spec = (base_dir / sub.spec).resolve()
+        sub_info = (
+            (_read_yaml(sub_spec) or {}).get("info", {}) if sub_spec.exists() else {}
+        )
+        sub_pkg = f"{cfg.package}.{sub.slug}"
+        sub_ctx = dict(context)
+        sub_ctx["package"] = sub_pkg
+        sub_ctx["spec_title"] = sub_info.get("title")
+        sub_ctx["spec_version"] = sub_info.get("version")
+        sub_loaded.append(
+            LoadedSubPackage(
+                package=sub_pkg, spec_path=sub_spec, context=sub_ctx, config=sub
+            )
+        )
+
     return LoadedProduct(
         config=cfg,
         base_dir=base_dir,
@@ -342,4 +383,5 @@ def load_product(name_or_path: str) -> LoadedProduct:
         facade=facade,
         retry=retry,
         context=context,
+        subpackages=sub_loaded,
     )

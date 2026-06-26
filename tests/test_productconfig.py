@@ -395,6 +395,40 @@ def test_cannot_set_both_spec_and_subpackages() -> None:
         )
 
 
+def test_federated_load_builds_per_sub_contexts(tmp_path: Path) -> None:
+    (tmp_path / "openapi").mkdir()
+    (tmp_path / "openapi" / "objects.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Objects, version: '1.2.3'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "openapi" / "posture.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Posture, version: '4.5.6'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sdk.yml").write_text(
+        "package: prisma_access\n"
+        "output: ../out\n"
+        "base_url: https://h\n"
+        "project: {distribution: prisma-access-sdk, author: a, "
+        "author_email: a@b.c, repo_url: https://x}\n"
+        "subpackages:\n"
+        "  - {slug: objects, spec: openapi/objects.yaml}\n"
+        "  - {slug: posture, spec: openapi/posture.yaml}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["package"] == "prisma_access"  # namespace root unchanged
+    assert loaded.context["distribution"] == "prisma-access-sdk"
+    assert loaded.spec_path is None  # B5: no top-level spec when federated
+    subs = {s.config.slug: s for s in loaded.subpackages}
+    assert subs["objects"].package == "prisma_access.objects"
+    assert subs["objects"].context["package"] == "prisma_access.objects"
+    assert subs["objects"].context["spec_title"] == "Objects"
+    assert subs["objects"].context["spec_version"] == "1.2.3"
+    assert subs["objects"].spec_path == (tmp_path / "openapi/objects.yaml").resolve()
+    assert subs["posture"].context["spec_version"] == "4.5.6"
+
+
 def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary validation
     with pytest.raises(ValidationError):
         ProductConfig.model_validate(
