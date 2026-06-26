@@ -95,6 +95,10 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
    > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
    > raw `api/` classes or the `extras` helpers (those are taught in the guides).
+   > It runtime-detects federation via `_SUBPACKAGES` on the imported package: a
+   > federated distribution loops the sub-packages and groups every wrapper + model
+   > page under `reference/<slug>/…`; a single-spec package renders flat
+   > (byte-identical to the pre-federation output).
    > Per-method wrapper docstrings carry, beyond each op `summary`, a synthesized
    > `**Example:**` block (`examples.reference_example`, threaded via `wrapper.py`'s
    > `_reference_example_for`, gated on `docs`): the `client.<object>.<verb>(...)`

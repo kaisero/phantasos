@@ -5,6 +5,13 @@ One mkdocstrings page per **resource wrapper** (`extras/resources.py`'s
 facade's `_WRAPPERS`) and per `models/` module. The raw generated `api/` classes,
 and the `extras` helpers (facade/auth/pagination), are deliberately NOT autodoc'd
 — they are taught in the guides, not the reference.
+
+Federation-aware: a federated distribution (e.g. `prisma_access`) exposes a
+`_SUBPACKAGES` registry (slug -> sub-facade `Client`) on its top-level package;
+when present, the reference loops the sub-packages and groups every wrapper +
+model page under `reference/<slug>/…`. A single-spec package (no `_SUBPACKAGES`)
+renders its one surface flat under `reference/…`, byte-identical to the
+pre-federation output.
 """
 
 from __future__ import annotations
@@ -51,39 +58,63 @@ def _oneof_variants(model: type[BaseModel]) -> list[type[BaseModel]]:
 
 nav = mkdocs_gen_files.Nav()
 
-# --- Resource wrappers: one page per <Object>Resource class (the public op surface).
-facade = importlib.import_module(f"{PACKAGE}.extras.facade")
-resources_mod = f"{PACKAGE}.extras.resources"
-for obj_attr, (wrapper_cls, _api_attr) in facade._WRAPPERS.items():
-    parts = ("resources", obj_attr)
-    doc_path = Path(*parts).with_suffix(".md")
-    full = Path("reference", doc_path)
-    nav[parts] = doc_path.as_posix()
-    with mkdocs_gen_files.open(full, "w") as fd:
-        fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
-    mkdocs_gen_files.set_edit_path(full, src / "extras" / "resources.py")
 
-# --- Models: one page per models/ module (oneOf wrappers link their variants).
-for path in sorted((src / "models").rglob("*.py")):
-    module = path.relative_to(src).with_suffix("")
-    parts = tuple(module.parts)
-    if parts[-1] == "__init__" or parts[-1].startswith("_"):
-        continue
-    doc_path = Path(*parts).with_suffix(".md")
-    full = Path("reference", doc_path)
-    nav[parts] = doc_path.as_posix()
-    dotted = ".".join((PACKAGE, *parts))
-    model = _public_model(dotted)
-    variants = _oneof_variants(model) if model is not None else []
-    with mkdocs_gen_files.open(full, "w") as fd:
-        fd.write(f"::: {dotted}\n")
-        if variants:
-            fd.write("\nOne of the following variants:\n\n")
-            # Variant pages are siblings of the wrapper page (both under
-            # models/), so a bare "<module>.md" relative link resolves.
-            for v in variants:
-                fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
-    mkdocs_gen_files.set_edit_path(full, path)
+def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
+    """Emit the reference pages for one package (`dotted_pkg`, rooted at `pkg_src`).
+
+    `prefix` is prepended to every nav key / doc path so a federated sub-package
+    groups under `reference/<slug>/…`; an empty prefix reproduces the flat
+    single-spec layout exactly.
+    """
+    assert pkg_src.is_dir(), pkg_src  # fail loudly if a sub-package path drifts
+
+    # --- Resource wrappers: one page per <Object>Resource class (the public op surface).
+    facade = importlib.import_module(f"{dotted_pkg}.extras.facade")
+    resources_mod = f"{dotted_pkg}.extras.resources"
+    for obj_attr, (wrapper_cls, _api_attr) in facade._WRAPPERS.items():
+        parts = (*prefix, "resources", obj_attr)
+        doc_path = Path(*parts).with_suffix(".md")
+        full = Path("reference", doc_path)
+        nav[parts] = doc_path.as_posix()
+        with mkdocs_gen_files.open(full, "w") as fd:
+            fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
+        mkdocs_gen_files.set_edit_path(full, pkg_src / "extras" / "resources.py")
+
+    # --- Models: one page per models/ module (oneOf wrappers link their variants).
+    for path in sorted((pkg_src / "models").rglob("*.py")):
+        module = path.relative_to(pkg_src).with_suffix("")
+        mod_parts = tuple(module.parts)
+        if mod_parts[-1] == "__init__" or mod_parts[-1].startswith("_"):
+            continue
+        parts = (*prefix, *mod_parts)
+        doc_path = Path(*parts).with_suffix(".md")
+        full = Path("reference", doc_path)
+        nav[parts] = doc_path.as_posix()
+        dotted = ".".join((dotted_pkg, *mod_parts))
+        model = _public_model(dotted)
+        variants = _oneof_variants(model) if model is not None else []
+        with mkdocs_gen_files.open(full, "w") as fd:
+            fd.write(f"::: {dotted}\n")
+            if variants:
+                fd.write("\nOne of the following variants:\n\n")
+                # Variant pages are siblings of the wrapper page (both under
+                # models/), so a bare "<module>.md" relative link resolves.
+                for v in variants:
+                    fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
+        mkdocs_gen_files.set_edit_path(full, path)
+
+
+# Federation detect: a federated distribution exposes `_SUBPACKAGES` (slug ->
+# sub-facade Client) on its top-level package — loop it and group by slug. A
+# single-spec package has no such registry, so render its one surface flat
+# (empty prefix), byte-identical to the pre-federation output.
+pkg = importlib.import_module(PACKAGE)
+subpkgs = getattr(pkg, "_SUBPACKAGES", None)
+if subpkgs:
+    for slug in subpkgs:
+        _emit(f"{PACKAGE}.{slug}", src / slug, (slug,))
+else:
+    _emit(PACKAGE, src, ())
 
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as fd:
     fd.writelines(nav.build_literate_nav())

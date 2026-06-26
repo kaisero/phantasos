@@ -7,14 +7,32 @@ scaffold with a wrapper-shaped showcase context (object attr, clean verbs, `body
 kwarg) and assert the emitted Markdown is wrapper-correct.
 """
 
+import ast
 from pathlib import Path
 from typing import Any
 
+import jinja2
 import pytest
 
 from phantasos import scaffold
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+
+_GEN_REF = (
+    Path(__file__).parent.parent
+    / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
+)
+
+
+def _render_gen_ref(package: str) -> str:
+    """Render the gen_ref_pages script template directly (package + has_docs only)."""
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(_GEN_REF.parent)),
+        keep_trailing_newline=True,
+        autoescape=jinja2.select_autoescape(),
+        undefined=jinja2.StrictUndefined,
+    )
+    return env.get_template(_GEN_REF.name).render(package=package, has_docs=True)
 
 
 def _ctx(**over: Any) -> dict[str, Any]:
@@ -245,6 +263,45 @@ def test_gen_ref_pages_walks_wrapper_resources(tmp_path: Path) -> None:
     assert "One of the following variants" in script
     # the raw api/ subpackage is no longer walked.
     assert 'SUBPACKAGES = ("api", "models")' not in script
+    # valid Python after the legacy single-spec render
+    ast.parse(script)
+
+
+def test_gen_ref_pages_federated_loops_subpackages() -> None:
+    # A federated distribution (prisma_access) exposes `_SUBPACKAGES` on its
+    # top-level package; the script must runtime-detect it and loop the
+    # sub-packages, grouping every wrapper + model page under reference/<slug>/.
+    script = _render_gen_ref("prisma_access")
+    assert 'PACKAGE = "prisma_access"' in script
+    # runtime federation detect against the composer registry (not a jinja flag).
+    assert "_SUBPACKAGES" in script
+    assert 'getattr(pkg, "_SUBPACKAGES", None)' in script
+    # federated dispatch: per slug, the dotted sub-package is prisma_access.<slug>
+    # and the (slug,) prefix makes nav keys / doc paths reference/<slug>/...
+    assert "for slug in subpkgs:" in script
+    assert 'f"{PACKAGE}.{slug}"' in script  # -> prisma_access.<slug>.extras/.models
+    assert "(slug,)" in script  # nav/path prefix -> reference/<slug>/...
+    # single-spec dispatch still present (flat, empty prefix).
+    assert "_emit(PACKAGE, src, ())" in script
+    # the per-page identifiers are built from the dotted sub-package.
+    assert 'f"{dotted_pkg}.extras.resources"' in script
+    ast.parse(script)  # valid Python in the federated render
+
+
+def test_gen_ref_pages_single_spec_byte_identical_modulo_package() -> None:
+    # Federation is a RUNTIME detect, so the rendered script is package-agnostic:
+    # a federated and a single-spec render differ ONLY in the PACKAGE constant.
+    # That pins the legacy single-spec output as byte-identical (the `else:`
+    # branch is reached purely by the absence of `_SUBPACKAGES`).
+    federated = _render_gen_ref("prisma_access")
+    single = _render_gen_ref("prisma_browser")
+    ast.parse(single)
+    diff = [
+        (a, b)
+        for a, b in zip(single.splitlines(), federated.splitlines(), strict=True)
+        if a != b
+    ]
+    assert diff == [('PACKAGE = "prisma_browser"', 'PACKAGE = "prisma_access"')]
 
 
 def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
