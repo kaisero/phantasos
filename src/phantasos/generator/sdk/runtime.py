@@ -92,7 +92,11 @@ class _Rewrite(cst.CSTTransformer):
         if mod is None:
             return updated_node
         tail = mod.rsplit(".", 1)[-1]
-        if tail in _RUNTIME:  # from <…>.exceptions import X  (dotted or relative B3)
+        # Only a DIRECT child of the sub-package is a runtime module: a schema named
+        # `Configuration`/`ApiResponse`/etc. lands at `<sub_pkg>.models.configuration`,
+        # whose tail is also runtime-named — the `mod == <sub_pkg>.<tail>` guard keeps
+        # that model import untouched instead of mis-hoisting it to `_runtime`.
+        if tail in _RUNTIME and mod == f"{self.sub_pkg}.{tail}":  # dotted / relative B3
             return updated_node.with_changes(
                 relative=[],
                 module=cst.parse_expression(f"{self.root}._runtime.{tail}"),

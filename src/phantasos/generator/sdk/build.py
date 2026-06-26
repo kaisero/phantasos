@@ -26,6 +26,25 @@ OPENAPI_GENERATOR_VERSION = {oag_version!r}
 '''
 
 
+def _phantasos_version() -> str:
+    """The installed phantasos version, or ``"0+unknown"`` if not installed."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("phantasos")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+def _about_text(spec_version: str | None, oag_version: str) -> str:
+    """Render ``_about.py`` with the REAL phantasos version (not a hardcoded lie)."""
+    return _ABOUT.format(
+        spec_version=spec_version,
+        phantasos_version=_phantasos_version(),
+        oag_version=oag_version,
+    )
+
+
 def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     from . import smoke
 
@@ -102,11 +121,7 @@ def _generate_one(
         operations=operations,
     )
     (pkg_dir / "_about.py").write_text(
-        _ABOUT.format(
-            spec_version=spec_version,
-            phantasos_version="0.1.0",
-            oag_version=generate.OAG_VERSION,
-        ),
+        _about_text(spec_version, generate.OAG_VERSION),
         encoding="utf-8",
     )
     return pkg_dir, vendored, patch_stats

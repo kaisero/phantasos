@@ -22,6 +22,7 @@ debug repr like ``<enum '...'>`` that is unparseable).
 from __future__ import annotations
 
 import importlib
+import keyword
 import typing
 from dataclasses import dataclass
 from types import UnionType
@@ -272,6 +273,17 @@ def _verb_phrase(method: str, obj_snake: str) -> str:
     return stem
 
 
+def _safe_ident(name: str) -> str:
+    """Escape a method name that collides with a Python keyword (``import`` ->
+    ``import_``) so the rendered ``def <name>`` is valid Python. PEP 8's
+    trailing-underscore keyword-clash convention. Applied to EVERY final method
+    name (CRUD verb, verb-phrase action, or an override-provided one) — a verb
+    like ``import_certificates`` otherwise verb-phrases to the keyword ``import``
+    and emits a ``def import(...)`` syntax error that no override would catch.
+    """
+    return f"{name}_" if keyword.iskeyword(name) else name
+
+
 def _clean_verb_and_method(
     op: OperationInfo,
     overrides: dict[str, OperationOverride],
@@ -289,11 +301,11 @@ def _clean_verb_and_method(
         verb = ov.verb if (ov and ov.verb) else c.verb
         base = {"get": "get", "list": "list"}[c.sub_verb] if verb == "show" else verb
         method = ov.method if (ov and ov.method) else base
-        return obj, verb, method
-    # None-classified (PUT replace / verb-phrase action).
-    method = ov.method if (ov and ov.method) else _verb_phrase(op.method, obj)
-    verb = ov.verb if (ov and ov.verb) else "request"
-    return obj, verb, method
+    else:
+        # None-classified (PUT replace / verb-phrase action).
+        method = ov.method if (ov and ov.method) else _verb_phrase(op.method, obj)
+        verb = ov.verb if (ov and ov.verb) else "request"
+    return obj, verb, _safe_ident(method)
 
 
 # --------------------------------------------------------------------------- #

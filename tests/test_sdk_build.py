@@ -21,10 +21,42 @@ from pathlib import Path
 import pytest
 
 from phantasos.generator.sdk import generate, provision
-from phantasos.generator.sdk.build import build
+from phantasos.generator.sdk.build import _about_text, _phantasos_version, build
 from phantasos.productconfig import load_product
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+
+# The full prisma-access federation (P2.2). `objects` is first = the hoist donor.
+_ALL_SLUGS = (
+    "objects",
+    "network_services",
+    "ztna_connector",
+    "config_operations",
+    "config_setup",
+    "deployment_services",
+    "device_settings",
+    "identity_services",
+    "incidents",
+    "mobile_agent",
+    "posture",
+    "security_services",
+)
+
+
+def test_about_uses_real_phantasos_version() -> None:
+    """``_about.py`` records the REAL installed phantasos version, not ``0.1.0``.
+
+    The version used to be hardcoded (``phantasos_version="0.1.0"``) — a provenance
+    lie that never tracked releases. It now comes from ``importlib.metadata`` (with a
+    ``"0+unknown"`` fallback when phantasos is not installed).
+    """
+    txt = _about_text("1.0", "7.22.0")
+    assert "PHANTASOS_VERSION" in txt
+    # the old hardcoded literal line is gone:
+    assert "PHANTASOS_VERSION = '0.1.0'\n" not in txt
+    ver = _phantasos_version()
+    assert ver != "0.1.0"  # a real metadata version (e.g. 0.1.0a1) or the fallback
+    assert f"PHANTASOS_VERSION = {ver!r}\n" in txt
 
 
 def _oag_toolchain_cached() -> bool:
@@ -86,30 +118,32 @@ def test_build_emits_wrapper() -> None:
     not _oag_toolchain_cached(),
     reason="OAG toolchain not provisioned (offline/CI)",
 )
-def test_first_light_three_subpackages(tmp_path: Path) -> None:
-    """Federated build loop emits each sub-package under the distribution root.
+def test_full_federation_twelve_subpackages(tmp_path: Path) -> None:
+    """Federated build loop emits ALL 12 sub-packages under the distribution root.
 
-    sdk.yml is limited to 3 sub-packages for P1 first light. Each one runs the
-    real OAG generate (dotted ``--package-name prisma_access.<slug>``) →
-    patches → vendor (facade, auth suppressed) loop, so the built tree must
-    carry ``prisma_access/<slug>/{__init__.py, api/, models/}`` for every sub.
+    sdk.yml federates the full 12 specs (P2.2). Each one runs the real OAG
+    generate (dotted ``--package-name prisma_access.<slug>``) → patches → vendor
+    (facade, auth suppressed) loop — so the built tree must carry
+    ``prisma_access/<slug>/{__init__.py, api/, models/}`` for every sub, and each
+    sub's anchorless None-classified ops are bound/hidden by its per-sub
+    ``operations:`` block (the facade vendor raises on an unbound one).
 
     P1.4 capstone (offline): against the REAL built tree this also proves the
-    runtime/auth mechanisms the composer (P2.1) will depend on — the libcst hoist
+    runtime/auth mechanisms the composer (P2.1) depends on — the libcst hoist
     shape, per-handle ``.models`` namespace resolution, a shared transport pool,
     and that the ``_BearerApiClient`` override attaches the bearer even with empty
     ``auth_settings`` (across subs whose hardcoded schemes diverge).
 
-    P2.1 capstone (offline): the composer ``__init__`` now ties it together —
-    ``import prisma_access`` exposes ``Client`` + the ``_SUBPACKAGES`` registry,
-    and constructing ``Client(cfg)`` with the stubbed-token config wires one
-    config + one pool into the three sub-package facades (and lands retry on the
-    shared config via the first facade).
+    P2.2 capstone (offline): the composer ``__init__`` ties all 12 together —
+    ``import prisma_access`` exposes ``Client`` + a 12-entry ``_SUBPACKAGES``
+    registry, every ``prisma_access.<slug>`` imports cleanly, and constructing
+    ``Client(cfg)`` with the stubbed-token config exposes all 12 ``.<slug>``
+    facade handles (one config + one pool fanned out, retry landed via the first).
     """
     loaded = load_product("prisma-access")
     build(loaded, run_smoke=False)
     root = loaded.output_dir / "prisma_access"
-    for slug in ("objects", "network_services", "ztna_connector"):
+    for slug in _ALL_SLUGS:
         assert (root / slug / "__init__.py").exists()
         assert (root / slug / "api").is_dir()
         assert (root / slug / "models").is_dir()
@@ -144,9 +178,9 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
 
         # --- P1.4 capstone: prove the runtime/auth mechanisms before P2.1 ---
 
-        # 1. Hoist shape: ONE runtime api_client; NO per-sub copies.
+        # 1. Hoist shape: ONE runtime api_client; NO per-sub copies (all 12).
         assert (root / "_runtime" / "api_client.py").exists()
-        for slug in ("objects", "network_services", "ztna_connector"):
+        for slug in _ALL_SLUGS:
             assert not (root / slug / "api_client.py").exists(), (
                 f"per-sub api_client leaked for {slug}"
             )
@@ -211,20 +245,26 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
         assert "scmToken" in obj_api and "scmToken" not in ztna_api
         assert "bearerAuth" in ztna_api and "bearerAuth" not in obj_api
 
-        # --- P2.1 capstone: the composer fuses the subs into one Client ---
+        # --- P2.2 capstone: every sub imports + the composer fuses all 12 ---
+        # Full-12 de-risk: each generated sub-package imports cleanly against the
+        # hoisted _runtime (its anchorless ops were bound/hidden, so vendor wrote a
+        # real resources.py — an unbound one would have failed the build above).
+        for slug in _ALL_SLUGS:
+            importlib.import_module(f"prisma_access.{slug}")
+
         pa = importlib.import_module("prisma_access")  # the composer __init__
         assert hasattr(pa, "Client")
         # _SUBPACKAGES is the rev-7/D10 introspection registry (slug -> facade).
-        assert set(pa._SUBPACKAGES) == {"objects", "network_services", "ztna_connector"}
-        assert len(pa._SUBPACKAGES) == 3
+        assert set(pa._SUBPACKAGES) == set(_ALL_SLUGS)
+        assert len(pa._SUBPACKAGES) == 12
 
         # Construct the real composing Client with the stubbed-token config (no
         # network: the TokenManager above is pre-seeded). One config, one pool,
-        # three facade handles.
+        # twelve facade handles.
         assert cfg.retries is None  # SdkConfiguration starts with no retry
         client = pa.Client(cfg)
         assert client._configuration is cfg
-        for slug in ("objects", "network_services", "ztna_connector"):
+        for slug in _ALL_SLUGS:
             assert getattr(client, slug) is not None
         # Each handle resolves its OWN models namespace (no cross-bleed).
         assert client.objects.api_client.models is objects_models

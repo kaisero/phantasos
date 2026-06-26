@@ -108,13 +108,18 @@ def _seed_subpackage(root: Path, slug: str) -> None:
         f"from prisma_access.{slug}.api_client import ApiClient, RequestSerialized\n"
         f"from prisma_access.{slug}.api_response import ApiResponse\n"
         f"from prisma_access.{slug}.rest import RESTResponseType\n"
-        f"from prisma_access.{slug}.models.thing import Thing\n",
+        f"from prisma_access.{slug}.models.thing import Thing\n"
+        # P1.2 collision: a SCHEMA named `Configuration` lands at
+        # models/configuration.py — its import tail is runtime-named but it is NOT a
+        # runtime module; the hoist must leave it pointing at the sub-package's models.
+        f"from prisma_access.{slug}.models.configuration import Configuration\n",
     )
     _write(b / "extras" / "__init__.py", "")
     # B3: relative `from ..exceptions import` (extras module → runtime).
     _write(b / "extras" / "errors.py", "from ..exceptions import ApiException\n")
     _write(b / "models" / "__init__.py", "")
     _write(b / "models" / "thing.py", "class Thing:\n    pass\n")
+    _write(b / "models" / "configuration.py", "class Configuration:\n    pass\n")
 
 
 def test_hoist_runtime(tmp_path: Path) -> None:
@@ -161,6 +166,11 @@ def test_hoist_runtime(tmp_path: Path) -> None:
     assert "from prisma_access._runtime.rest import RESTResponseType" in api
     # model import preserved (left untouched):
     assert "from prisma_access.objects.models.thing import Thing" in api
+    # P1.2 collision-hardening: a model named like a runtime module (`Configuration`
+    # → models/configuration.py) is a NON-direct child of the sub-package, so the
+    # hoist must NOT rewrite it to `_runtime.configuration` (that would ImportError).
+    assert "from prisma_access.objects.models.configuration import Configuration" in api
+    assert "_runtime.configuration import Configuration" not in api
 
     err = (root / "objects" / "extras" / "errors.py").read_text(encoding="utf-8")
     assert "from prisma_access._runtime.exceptions import ApiException" in err  # B3
