@@ -143,6 +143,13 @@ def test_full_federation_twelve_subpackages(
     facade handles (one config + one pool fanned out, retry landed via the first).
     """
     loaded = load_product("prisma-access")
+    # Build into an isolated tmp dir, NOT the shared sibling `prisma-access-sdk/`
+    # (load_product's output:). The offline gate and CI run `pytest` bare (no
+    # `-m "not slow"`), so this slow federated build runs concurrently with any
+    # other gate building the same product — two builds in one output dir race on
+    # the hoist's delete-per-sub-runtime step and intermittently leak a per-sub
+    # `api_client.py`. A per-run output dir makes the build hermetic.
+    loaded.output_dir = tmp_path / "prisma-access-sdk"
     build(loaded, run_smoke=False)
     root = loaded.output_dir / "prisma_access"
     for slug in _ALL_SLUGS:
