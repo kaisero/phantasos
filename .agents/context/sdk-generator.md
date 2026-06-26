@@ -198,7 +198,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
   - `ensure_jar()`
-  - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup)`
+  - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
 - `patches.py`
   - `patch_apostrophe_enums(models_dir)`
   - `rebase_lenient_enums(pkg_dir)`
