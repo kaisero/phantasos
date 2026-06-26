@@ -15,14 +15,44 @@ before the assertion).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
+from phantasos.generator.sdk import generate, provision
 from phantasos.generator.sdk.build import build
 from phantasos.productconfig import load_product
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+
+
+def _oag_toolchain_cached() -> bool:
+    """True only if the OAG jar *and* a usable java are already on disk.
+
+    Mirrors the no-download branches of ``generate.ensure_jar`` and
+    ``provision.resolve_java`` so the offline gate (bare ``pytest -q`` — no
+    ``-m 'not slow'``) and CI *skip* the federated build rather than triggering a
+    one-time ~30 MB jar / ~40 MB JRE download on a cold cache or offline runner.
+    """
+    # ponytail: replicates resolve_java's cache-path build (can't reuse it — it
+    # downloads as a side effect, and the predicate must not touch the network).
+    jar = provision.cache_dir() / f"openapi-generator-cli-{generate.OAG_VERSION}.jar"
+    if not jar.exists():
+        return False
+    override = os.environ.get("PHANTASOS_JAVA")
+    if override:
+        return Path(override).exists()
+    try:
+        key = provision._platform_key()
+    except provision.ProvisionError:
+        return False
+    java = (
+        provision.cache_dir()
+        / f"temurin-{provision._JRE_RELEASE}-{key}"
+        / provision._JRE[key].java_subpath
+    )
+    return java.exists()
 
 
 @pytest.mark.slow
@@ -51,6 +81,10 @@ def test_build_emits_wrapper() -> None:
 @pytest.mark.skipif(
     not Path("products/prisma-access/openapi/objects.yaml").exists(),
     reason="prisma-access specs absent",
+)
+@pytest.mark.skipif(
+    not _oag_toolchain_cached(),
+    reason="OAG toolchain not provisioned (offline/CI)",
 )
 def test_first_light_three_subpackages(tmp_path: Path) -> None:
     """Federated build loop emits each sub-package under the distribution root.
