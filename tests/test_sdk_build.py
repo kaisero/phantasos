@@ -93,6 +93,12 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
     real OAG generate (dotted ``--package-name prisma_access.<slug>``) →
     patches → vendor (facade, auth suppressed) loop, so the built tree must
     carry ``prisma_access/<slug>/{__init__.py, api/, models/}`` for every sub.
+
+    P1.4 capstone (offline): against the REAL built tree this also proves the
+    runtime/auth mechanisms the composer (P2.1) will depend on — the libcst hoist
+    shape, per-handle ``.models`` namespace resolution, a shared transport pool,
+    and that the ``_BearerApiClient`` override attaches the bearer even with empty
+    ``auth_settings`` (across subs whose hardcoded schemes diverge).
     """
     loaded = load_product("prisma-access")
     build(loaded, run_smoke=False)
@@ -129,6 +135,75 @@ def test_first_light_three_subpackages(tmp_path: Path) -> None:
         assert issubclass(auth._BearerApiClient, runtime_ac.ApiClient)
         assert hasattr(auth, "configuration_from_env")
         assert hasattr(auth, "configuration_from_credentials")
+
+        # --- P1.4 capstone: prove the runtime/auth mechanisms before P2.1 ---
+
+        # 1. Hoist shape: ONE runtime api_client; NO per-sub copies.
+        assert (root / "_runtime" / "api_client.py").exists()
+        for slug in ("objects", "network_services", "ztna_connector"):
+            assert not (root / slug / "api_client.py").exists(), (
+                f"per-sub api_client leaked for {slug}"
+            )
+
+        # Build a config whose token never touches the network: pre-seed the
+        # TokenManager cache so `.token()` returns FAKETOKEN without a fetch.
+        import time as _time
+
+        tm = auth.TokenManager("id", "secret", "scope")
+        tm._token = "FAKETOKEN"
+        tm._expires_at = _time.time() + 3600
+        cfg = auth.SdkConfiguration(token_manager=tm)
+
+        objects_models = importlib.import_module("prisma_access.objects.models")
+        ztna_models = importlib.import_module("prisma_access.ztna_connector.models")
+
+        # 2. Per-handle `.models` resolves its OWN namespace via the SAME dynamic
+        #    `getattr(self.models, <runtime str>)` the hoisted deserialize path uses
+        #    (rev-2 B1: `.models` is an instance attr). The class name is held in a
+        #    variable on purpose — that is exactly how api_client resolves `klass`.
+        ac_obj = auth._BearerApiClient(cfg)
+        ac_obj.models = objects_models
+        obj_klass = "Addresses"
+        assert getattr(ac_obj.models, obj_klass) is objects_models.Addresses
+
+        ac_ztna = auth._BearerApiClient(cfg)
+        ac_ztna.models = ztna_models
+        ztna_klass = "ConnectorNew"
+        assert getattr(ac_ztna.models, ztna_klass) is ztna_models.ConnectorNew
+
+        # Each handle sees only its own models — no cross-namespace bleed.
+        assert not hasattr(ac_obj.models, "ConnectorNew")
+        assert not hasattr(ac_ztna.models, "Addresses")
+
+        # 3. Shared transport pool: what the composer will wire (one RESTClientObject
+        #    fanned out to every handle).
+        rest_mod = importlib.import_module("prisma_access._runtime.rest")
+        pool = rest_mod.RESTClientObject(cfg)
+        ac_obj.rest_client = pool
+        ac_ztna.rest_client = pool
+        assert ac_obj.rest_client is ac_ztna.rest_client
+
+        # 4. Bearer attaches at the transport layer even with EMPTY auth_settings
+        #    (posture's no-scheme case) — proving the override ignores per-op
+        #    `_auth_settings` and is what unifies auth across divergent specs.
+        headers: dict[str, str] = {}
+        ac_obj.update_params_for_auth(
+            headers=headers,
+            queries=[],
+            auth_settings=[],
+            resource_path="/x",
+            method="GET",
+            body=None,
+        )
+        assert headers["Authorization"] == "Bearer FAKETOKEN", headers
+
+        # 5. The generated subs carry DIVERGENT hardcoded `_auth_settings` (objects
+        #    => scmToken, ztna => bearerAuth) — documenting that the transport hook
+        #    above (which ignores them) is what unifies auth.
+        obj_api = (root / "objects" / "api" / "addresses_api.py").read_text()
+        ztna_api = (root / "ztna_connector" / "api" / "connector_api.py").read_text()
+        assert "scmToken" in obj_api and "scmToken" not in ztna_api
+        assert "bearerAuth" in ztna_api and "bearerAuth" not in obj_api
     finally:
         sys.path.remove(str(loaded.output_dir))
         _drop()
