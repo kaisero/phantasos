@@ -209,9 +209,17 @@ def _build_federated(
 
     generate.prune_suppressed_files(project_dir)  # once, after the loop
 
-    # P1.2: hoist_runtime(project_dir, loaded) — move each sub's OAG runtime
-    #   ({api_client,configuration,rest,exceptions,api_response}.py) into one shared
-    #   `<package>/_runtime/` and repoint each sub's api/*.py runtime imports to it.
+    # P1.2: collapse each sub's OAG runtime ({api_client,configuration,rest,
+    #   exceptions,api_response}.py) into one shared `<package>/_runtime/` and repoint
+    #   every sub's runtime-targeting import to it (incl. each sub's __init__.py).
+    from . import runtime
+
+    runtime.hoist_runtime(
+        project_dir,
+        loaded.config.package,
+        [s.config.slug for s in loaded.subpackages],
+    )
+
     # P1.3: render the shared `<package>/_auth.py` (TokenManager + _BearerApiClient);
     #   the per-sub facades above are has_auth=False, so the composer owns auth.
     # P2.1: render the composer `<package>/__init__.py` (Client + _SUBPACKAGES),

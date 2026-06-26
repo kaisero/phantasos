@@ -24,9 +24,13 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 > `suppress_auth=True` (facade `has_auth=False`, no `auth.py`) and its own per-sub
 > `operations:` overrides; `vendor`/`patches` take the dotted `package` +
 > `distribution_root` so nested-package imports (`_lenient`, resource model imports,
-> introspection root) resolve. The runtime-hoist (`_runtime`), shared `_auth.py`, and
-> composing `__init__.py` that fuse the subs into one client are later tasks — after
-> P1.1 the parent `<package>/__init__.py` is OAG's empty stub.
+> introspection root) resolve. After the loop, **`runtime.hoist_runtime()`** collapses
+> the N near-identical OAG runtime copies (`api_client`, `configuration`, `rest`,
+> `exceptions`, `api_response`) into one shared `<package>/_runtime/` and repoints
+> every runtime-targeting import (incl. each sub's `__init__.py` re-exports) to
+> absolute `<package>._runtime.X` via a libcst transformer (see `runtime.py`). The
+> shared `_auth.py` and composing `__init__.py` that fuse the subs into one client are
+> later tasks — after P1.1/P1.2 the parent `<package>/__init__.py` is OAG's empty stub.
 
 1. **Preprocess** — `preprocess.load()` then `preprocess.clean()` in
    `preprocess.py` apply the generic, spec-agnostic transforms; the product's
@@ -189,6 +193,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 - `preprocess.py` — Spec preprocessing — generic transforms + parameterized spec-specific helpers.
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
 - `render.py` — Vendor step: render selected component templates into the SDK's extras/.
+- `runtime.py` — Federated runtime-hoist pass (libcst).
 - `smoke.py` — Smoke check: import every generated module (in isolation) and count operations.
 - `wrapper.py` — SDK operation-override helpers + object-granular wrapper render context.
 <!-- /GENERATED:module-map -->
@@ -234,6 +239,8 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
   - `vendor(pkg_dir, loaded, package, context, distribution_root, suppress_auth, operations, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
+- `runtime.py`
+  - `hoist_runtime(project_dir, root_package, slugs)` — Collapse the per-sub OAG runtime into one shared ``<root>/_runtime/``.
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.

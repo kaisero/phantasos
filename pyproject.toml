@@ -23,6 +23,9 @@ dependencies = [
     "pydantic>=2",
     "jmespath>=1.0",
     "typer>=0.26.7",
+    # libcst: semantic import-rewrite for the federated SDK runtime-hoist pass
+    # (generator/sdk/runtime.py, imported by build.py at build time).
+    "libcst>=1.1",
 ]
 
 [project.urls]
@@ -102,6 +105,9 @@ ignore = []
 # and the generated wrapper surface (long _bindings/method one-liners, like the
 # emitted extras/resources.py which is not linted)
 "tests/fixtures/**" = ["UP042", "UP045", "UP007", "E501"]
+# runtime.py's libcst visitor API mandates PascalCase method names
+# (leave_ImportFrom, visit_Import, …) — not lowercase per N802.
+"src/phantasos/generator/sdk/runtime.py" = ["N802"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
 "src/phantasos/generator/sdk/generate.py" = ["S603"]
 # render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
