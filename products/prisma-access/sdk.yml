@@ -62,6 +62,15 @@ subpackages:
       config_file_upload.initiate_config_upload: {resource: config_upload, method: initiate}
   - {slug: security_services, spec: openapi/security-services.yaml}
 
+# Client-level request headers the SDK sends by default (declared here, NOT
+# derived from any spec). Applied on each sub-package's ApiClient handle from the
+# environment at construction; `required_for` fails loud when its env is unset.
+# Per-call `_headers` still overrides. incidents REQUIRES X-PANW-Region
+# (PrismaRegionHeader, required: true); prisma-tenant is optional everywhere.
+default_headers:
+  X-PANW-Region: {env: PANW_REGION, required_for: [incidents]}
+  prisma-tenant: {env: PRISMA_TENANT, required: false}
+
 project:
   distribution: prisma-access-sdk
   description: Python SDK for Palo Alto Networks Prisma Access

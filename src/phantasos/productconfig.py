@@ -125,6 +125,20 @@ class SubPackage(BaseModel):
     skip_validate_spec: bool = False
 
 
+class HeaderSpec(BaseModel):
+    """One request header the SDK sends by default, sourced from an env var.
+
+    `required` makes the env var mandatory for every sub-package; `required_for`
+    lists the slugs that must have it set. The fail-loud on a missing value
+    happens at client construction (runtime, in the composer), not at load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    env: str
+    required: bool = False
+    required_for: list[str] = Field(default_factory=list)
+
+
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -154,6 +168,10 @@ class ProductConfig(BaseModel):
     project: ProjectConfig | None = None
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
     docs: DocsConfig | None = None
+    # header-name -> spec; sent as default headers on every sub-package's
+    # ApiClient handle by the federated composer (declared here, NOT derived
+    # from any spec). Fail-loud on a missing value happens at construction.
+    default_headers: dict[str, HeaderSpec] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _exactly_one_spec_mode(self) -> ProductConfig:

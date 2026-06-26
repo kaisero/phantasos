@@ -7,7 +7,9 @@ sub-package's facade `Client`. `_SUBPACKAGES` is the introspection registry the
 docs site (and a future CLI) enumerate instead of re-reading `sdk.yml`.
 """
 from __future__ import annotations
-{% for slug in slugs %}import {{ root_package }}.{{ slug }}.models as _{{ slug }}_models
+{% if headers %}
+import os
+{% endif %}{% for slug in slugs %}import {{ root_package }}.{{ slug }}.models as _{{ slug }}_models
 from {{ root_package }}.{{ slug }}.extras.facade import Client as _{{ slug }}_Client
 {% endfor %}
 from {{ root_package }}._runtime.rest import RESTClientObject
@@ -34,7 +36,16 @@ class Client:
 {% for slug in slugs %}        _ac_{{ slug }} = _BearerApiClient(configuration)
         _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
         _ac_{{ slug }}.rest_client = pool
-        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})
+{% for h in headers %}        _v = os.environ.get({{ h.env | tojson }})
+{% if h.required or slug in h.required_for %}        if _v is None:
+            raise RuntimeError(
+                "{{ root_package }}: required header '{{ h.name }}' for sub-package "
+                "'{{ slug }}' is unset; set the {{ h.env }} environment variable"
+            )
+        _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v  # client-level default; per-call `_headers` still overrides
+{% else %}        if _v is not None:  # optional header (applied only when present)
+            _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v
+{% endif %}{% endfor %}        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})
 {% endfor %}        # The first sub-facade above wires retry onto the shared `configuration`
         # (each facade does `if configuration.retries is None: ...default_retry()`).
         self._configuration = configuration

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from phantasos.config import ScmOAuth
 from phantasos.productconfig import (
+    HeaderSpec,
     Hoist,
     ProductConfig,
     TagOperation,
@@ -369,6 +370,39 @@ def test_federated_config_parses_subpackages() -> None:
     assert [s.slug for s in cfg.subpackages] == ["objects", "ztna_connector"]
     assert cfg.subpackages[1].normalize_operation_ids is not None
     assert cfg.subpackages[1].normalize_operation_ids.strip_suffix == ".v2"
+
+
+def test_default_headers_parse() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "subpackages": [{"slug": "incidents", "spec": "openapi/incidents.yaml"}],
+            "default_headers": {
+                "X-PANW-Region": {"env": "PANW_REGION", "required_for": ["incidents"]},
+                "prisma-tenant": {"env": "PRISMA_TENANT", "required": False},
+            },
+        }
+    )
+    region = cfg.default_headers["X-PANW-Region"]
+    assert isinstance(region, HeaderSpec)
+    assert region.env == "PANW_REGION"
+    assert region.required_for == ["incidents"]
+    assert region.required is False
+    tenant = cfg.default_headers["prisma-tenant"]
+    assert tenant.env == "PRISMA_TENANT" and tenant.required is False
+    assert tenant.required_for == []
+
+
+def test_header_spec_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        HeaderSpec.model_validate({"env": "X", "bogus": 1})
+
+
+def test_default_headers_absent_defaults_empty() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.default_headers == {}
 
 
 def test_legacy_single_spec_still_parses() -> None:

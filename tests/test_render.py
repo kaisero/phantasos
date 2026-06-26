@@ -602,3 +602,48 @@ def test_composer_emits_client_and_subpackages_registry() -> None:
     assert "configuration_from_env" in txt  # auth config factory
     # Renders to valid Python (no Jinja syntax slips through).
     ast.parse(txt)
+    # No default_headers passed -> no `import os`, no apply loop (single-spec /
+    # header-less federated products are unaffected).
+    assert "import os" not in txt
+    assert "default_headers" not in txt
+
+
+def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
+    """default_headers render an env-sourced apply on every handle + a fail-loud
+    guard on the slug a header is `required_for`."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "incidents"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        headers=[
+            {
+                "name": "X-PANW-Region",
+                "env": "PANW_REGION",
+                "required": False,
+                "required_for": ["incidents"],
+            },
+            {
+                "name": "prisma-tenant",
+                "env": "PRISMA_TENANT",
+                "required": False,
+                "required_for": [],
+            },
+        ],
+    )
+    assert "import os" in txt
+    assert 'os.environ.get("PANW_REGION")' in txt
+    assert 'os.environ.get("PRISMA_TENANT")' in txt
+    # Header is set on the ApiClient handle's .default_headers (rev-2 B6), not config.
+    assert '_ac_incidents.default_headers["X-PANW-Region"] = _v' in txt
+    assert '_ac_objects.default_headers["X-PANW-Region"] = _v' in txt  # client-wide
+    # required_for guard: incidents raises a clear RuntimeError naming env + sub.
+    assert "raise RuntimeError(" in txt
+    assert "'incidents' is unset" in txt
+    assert "set the PANW_REGION environment variable" in txt
+    # objects is NOT required_for X-PANW-Region -> no raise for it (optional apply).
+    assert "'objects' is unset" not in txt
+    # prisma-tenant is optional everywhere -> never raises.
+    assert "PRISMA_TENANT environment variable" not in txt
+    ast.parse(txt)

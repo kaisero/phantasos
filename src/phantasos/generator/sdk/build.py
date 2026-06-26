@@ -250,6 +250,15 @@ def _build_federated(
             [s.config.slug for s in loaded.subpackages],
             root_package=loaded.config.package,
             config_class_name=loaded.context["config_class_name"],
+            headers=[
+                {
+                    "name": name,
+                    "env": h.env,
+                    "required": h.required,
+                    "required_for": h.required_for,
+                }
+                for name, h in loaded.config.default_headers.items()
+            ],
         ),
         encoding="utf-8",
     )
@@ -258,7 +267,11 @@ def _build_federated(
 
 
 def _render_composer(
-    slugs: list[str], *, root_package: str, config_class_name: str
+    slugs: list[str],
+    *,
+    root_package: str,
+    config_class_name: str,
+    headers: list[dict[str, Any]] | None = None,
 ) -> str:
     """Render the composing ``<package>/__init__.py`` (Client + ``_SUBPACKAGES``).
 
@@ -266,6 +279,10 @@ def _render_composer(
     sub-package slugs + the distribution's ``root_package``/``config_class_name``
     drive ``facade/composer.py.jinja`` — absolute imports of the hoisted
     ``_runtime``, the shared ``_auth`` factories, and each sub's facade ``Client``.
+
+    ``headers`` (declarative ``default_headers`` from sdk.yml) are applied on each
+    ``_BearerApiClient`` handle from the environment at construction; a header with
+    ``required``/``required_for`` raises if its env var is unset.
     """
     from . import render
 
@@ -276,6 +293,7 @@ def _render_composer(
             slugs=slugs,
             root_package=root_package,
             config_class_name=config_class_name,
+            headers=headers or [],
         )
     )
 

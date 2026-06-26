@@ -118,7 +118,9 @@ def test_build_emits_wrapper() -> None:
     not _oag_toolchain_cached(),
     reason="OAG toolchain not provisioned (offline/CI)",
 )
-def test_full_federation_twelve_subpackages(tmp_path: Path) -> None:
+def test_full_federation_twelve_subpackages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Federated build loop emits ALL 12 sub-packages under the distribution root.
 
     sdk.yml federates the full 12 specs (P2.2). Each one runs the real OAG
@@ -258,12 +260,34 @@ def test_full_federation_twelve_subpackages(tmp_path: Path) -> None:
         assert set(pa._SUBPACKAGES) == set(_ALL_SLUGS)
         assert len(pa._SUBPACKAGES) == 12
 
+        # P3.1: incidents declares `X-PANW-Region` as `required_for` it, so the
+        # composer's fail-loud fires at construction when PANW_REGION is unset —
+        # naming the header, the env var, and the sub-package. prisma-tenant is
+        # optional, so its env being unset must NOT raise. (The earlier subs in
+        # the loop construct before incidents raises, so this also wires retry
+        # onto the shared config — hence the `is None` check precedes it.)
+        assert cfg.retries is None  # SdkConfiguration starts with no retry
+        monkeypatch.delenv("PANW_REGION", raising=False)
+        monkeypatch.delenv("PRISMA_TENANT", raising=False)
+        with pytest.raises(RuntimeError) as exc:
+            pa.Client(cfg)
+        msg = str(exc.value)
+        assert "X-PANW-Region" in msg and "PANW_REGION" in msg and "incidents" in msg
+
         # Construct the real composing Client with the stubbed-token config (no
         # network: the TokenManager above is pre-seeded). One config, one pool,
-        # twelve facade handles.
-        assert cfg.retries is None  # SdkConfiguration starts with no retry
+        # twelve facade handles. PANW_REGION now set -> incidents constructs.
+        monkeypatch.setenv("PANW_REGION", "americas")
         client = pa.Client(cfg)
         assert client._configuration is cfg
+        # rev-2 B6: the default header lands on the ApiClient HANDLE (what OAG
+        # merges into every request), not on Configuration. Applied client-wide.
+        assert (
+            client.incidents.api_client.default_headers["X-PANW-Region"] == "americas"
+        )
+        assert client.objects.api_client.default_headers["X-PANW-Region"] == "americas"
+        # prisma-tenant env unset -> optional header simply not applied (no raise).
+        assert "prisma-tenant" not in client.incidents.api_client.default_headers
         for slug in _ALL_SLUGS:
             assert getattr(client, slug) is not None
         # Each handle resolves its OWN models namespace (no cross-bleed).
