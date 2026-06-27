@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import enum
+from typing import Any
 
 from pydantic import BaseModel, Field, StrictBool, StrictStr
 
@@ -76,16 +77,75 @@ def test_int_enum_and_float_scalars_render_bare() -> None:
     )
 
 
+# OAG oneOf shape: one `oneof_schema_N_validator` field per branch + a runtime
+# `actual_instance` (the variant-resolution signal is the validator fields).
 class _Wrapper(BaseModel):
-    actual_instance: CustomApp | UrlInput | None = None
+    oneof_schema_1_validator: CustomApp | None = None
+    oneof_schema_2_validator: UrlInput | None = None
+    actual_instance: Any = None
 
 
 def test_oneof_picks_named_variant() -> None:
-    assert synthesize_body(_Wrapper, variant="UrlInput").startswith("UrlInput(")
+    # WRAP form: the named variant is nested inside its wrapper (C2).
+    assert synthesize_body(_Wrapper, variant="UrlInput").startswith(
+        "_Wrapper(UrlInput("
+    )
 
 
 def test_oneof_defaults_to_first_variant() -> None:
-    assert synthesize_body(_Wrapper).startswith("CustomApp(")
+    assert synthesize_body(_Wrapper).startswith("_Wrapper(CustomApp(")
+
+
+# ---------------------------------------------------------------------------
+# Task C: a wrapper BODY must synthesize a FULL-nested, constructable payload
+# variant — `AddressGroups(GroupType(Static(...)))` — not an opaque placeholder.
+# These mirror the real OAG anyOf/oneOf shape WITHOUT importing prisma_access
+# (gate-resident; prisma-access is built only under `nox -s sdk-docs`). The real
+# constructability proof lives in tests/test_sdk_docs_wrapper_rendering.py.
+# A wrapper carries `<any|one>of_schema_N_validator` fields + `actual_instance:
+# Any` (anyOf emits `Any` at runtime — the Union is TYPE_CHECKING-only).
+
+
+class _Static(BaseModel):  # payload leaf
+    static: list[StrictStr]
+    additional_properties: dict[str, Any] = {}
+
+
+class _Folder(BaseModel):  # SCM container leaf (single {folder} field)
+    folder: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _Snippet(BaseModel):  # SCM container leaf (single {snippet} field)
+    snippet: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _GroupType(BaseModel):  # payload sub-wrapper (oneOf of leaves)
+    oneof_schema_1_validator: _Static | None = None
+    actual_instance: Any = None
+
+
+class _ContainerType(BaseModel):  # SCM container branch (folder/snippet leaves)
+    oneof_schema_1_validator: _Folder | None = None
+    oneof_schema_2_validator: _Snippet | None = None
+    actual_instance: Any = None
+
+
+class _AddressGroups(BaseModel):  # top anyOf: a payload branch + a container branch
+    anyof_schema_1_validator: _GroupType | None = None
+    anyof_schema_2_validator: _ContainerType | None = None
+    actual_instance: Any = None
+
+
+def test_synthesize_body_picks_payload_variant_for_wrapper() -> None:
+    out = synthesize_body(_AddressGroups)
+    assert "_AddressGroups(...)" not in out  # not opaque
+    assert "folder=" not in out and "snippet=" not in out  # container skipped
+    # FULL nesting wrapper(wrapper(leaf)) — NOT the bare `Static(...)` form the
+    # real model rejects (C2). Must descend the payload sub-wrapper to its leaf.
+    assert "_AddressGroups(_GroupType(_Static(" in out
+    assert 'static=["example"]' in out
 
 
 def test_cycle_guard_terminates() -> None:

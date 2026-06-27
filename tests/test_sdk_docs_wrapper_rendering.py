@@ -182,6 +182,59 @@ def test_plain_model_page_is_byte_identical_single_autodoc() -> None:
     assert dg == "::: prisma_browser.models.device_group_request\n"
 
 
+def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:
+    """A real anyOf wrapper body synthesizes the FULLY nested, constructable
+    form ``AddressGroups(GroupType(Static(...)))`` — never an opaque placeholder,
+    and never the bare leaf the model rejects (C2). Skipped on the gate (no
+    prisma-access build); the real-model construction is the proof string/unit
+    tests can't give.
+    """
+    import importlib
+
+    from phantasos.generator.sdk.examples import synthesize_body
+
+    added = str(_PA_SDK) not in sys.path
+    if added:
+        sys.path.insert(0, str(_PA_SDK))
+    # Purge any SYNTHETIC `prisma_access` other tests cached so the import
+    # resolves against the real built SDK on sys.path.
+    stashed = {
+        k: sys.modules.pop(k)
+        for k in list(sys.modules)
+        if k == "prisma_access" or k.startswith("prisma_access.")
+    }
+    try:
+        base = "prisma_access.objects.models"
+        ag = importlib.import_module(f"{base}.address_groups")
+        gt = importlib.import_module(f"{base}.group_type")
+        st = importlib.import_module(f"{base}.static")
+        dy = importlib.import_module(f"{base}.dynamic")
+        out = synthesize_body(ag.AddressGroups)
+        assert "AddressGroups(...)" not in out  # not opaque
+        assert "AddressGroups(GroupType(Static(" in out  # full nesting
+        assert "folder=" not in out and "snippet=" not in out  # container skipped
+        # the proof unit tests can't give: it actually constructs (bare/unwrapped
+        # forms raise ValidationError on the real model).
+        ns = {
+            "AddressGroups": ag.AddressGroups,
+            "GroupType": gt.GroupType,
+            "Static": st.Static,
+            "Dynamic": dy.Dynamic,
+        }
+        obj = eval(out, ns)  # noqa: S307
+        assert type(obj.actual_instance.actual_instance).__name__ == "Static"
+    finally:
+        for k in [
+            k
+            for k in sys.modules
+            if k == "prisma_access" or k.startswith("prisma_access.")
+        ]:
+            del sys.modules[k]
+        sys.modules.update(stashed)
+        if added and str(_PA_SDK) in sys.path:
+            sys.path.remove(str(_PA_SDK))
+
+
 def test_every_wrapper_page_has_a_single_autodoc_block() -> None:
     # The structural --strict guarantee across ALL wrapper pages of both products:
     # a wrapper page never re-`:::`-renders a leaf (which would collide anchors).
