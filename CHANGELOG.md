@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Generated SDK reference docs now render openapi-generator anyOf/oneOf **wrapper**
+  model pages as the real payload (synthesized field tables, grouped by branch) with
+  the SCM container collapsed to a one-line `Placement:`, instead of the
+  `anyof_schema_*`/`actual_instance` scaffolding; the wrapper-body **example** in the
+  quickstart now synthesizes a constructable, fully-nested form. Applies to every
+  wrapper page (both products); plain-model pages are unchanged.
 
 - Generated CLIs now carry a deduped nested-schema model registry in the CLI IR
   (`CliIR.models` + per-flag `Flag.model_ref`), recovering the full structure of
