@@ -257,6 +257,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `resolve_sub_host(spec, base_url)` — The host a federated sub should use.
   - `spec_declares_header(spec, header_name)` — True if the spec declares ``header_name`` as an ``in: header`` parameter.
   - `flatten_scm_bodies(spec, stats)` — Lift oneOf/anyOf leaf properties back onto an SCM "configurable object".
+  - `relax_readonly_required(spec, stats)` — Drop server-assigned (``readOnly``) fields from each schema's ``required``.
   - `tag_operations(spec, ops, stats)` — Add tags + operationId to operations that lack them.
 - `provision.py`
   - class `ProvisionError` — Raised when the Java toolchain cannot be provisioned.

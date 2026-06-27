@@ -386,8 +386,52 @@ def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
                 props[n] = sch  # intentionally NOT added to `required`
         s.pop("oneOf", None)
         s.pop("anyOf", None)
+        # The flattened type can no longer express "exactly one of ..." — carry the
+        # human signal into the docstring. A value-type union flattened too (a
+        # non-placement leaf is present) means there's also a value field to pick.
+        note = (
+            "Supply exactly one of folder/snippet/device (the configuration container)"
+        )
+        if set(leaves) - _PLACEMENT:
+            note += ", and exactly one value field"
+        note += "."
+        existing = s.get("description")
+        s["description"] = f"{existing}\n\n{note}" if existing else note
         if stats is not None:
             stats["flatten_scm_bodies"] = stats.get("flatten_scm_bodies", 0) + 1
+
+
+def relax_readonly_required(spec: Any, stats: dict[str, int] | None = None) -> None:
+    """Drop server-assigned (``readOnly``) fields from each schema's ``required``.
+
+    SCM reuses one schema for create + response, so a ``readOnly`` field the server
+    assigns (``id`` and friends — real set across the specs:
+    ``{id, fqdn, group, log_type, name, oid}``) is faithfully ``required`` — which
+    wrongly makes ``create()`` demand it. Dropping it from ``required`` (keeping the
+    property) is safe: responses still type the field; create no longer demands a
+    value the client cannot supply. Loops top-level ``components.schemas`` only and
+    matches inline ``readOnly: true`` (the only form these specs use).
+    """
+    schemas = (spec.get("components") or {}).get("schemas") or {}
+    for s in schemas.values():
+        if not isinstance(s, dict):
+            continue
+        required = s.get("required")
+        props = s.get("properties")
+        if not isinstance(required, list) or not isinstance(props, dict):
+            continue
+        kept = [
+            r
+            for r in required
+            if not (isinstance(props.get(r), dict) and props[r].get("readOnly") is True)
+        ]
+        dropped = len(required) - len(kept)
+        if dropped:
+            s["required"] = kept
+            if stats is not None:
+                stats["readonly_required_relaxed"] = (
+                    stats.get("readonly_required_relaxed", 0) + dropped
+                )
 
 
 def tag_operations(

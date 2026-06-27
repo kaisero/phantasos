@@ -652,6 +652,165 @@ def test_flatten_leaves_no_placement_union_untouched() -> None:
     assert "flatten_scm_bodies" not in stats
 
 
+def test_flatten_placement_only_appends_exactly_one_hint() -> None:
+    # Task 2: the "exactly one" signal the type used to carry survives as a
+    # description note. Placement-only schema (no value union) -> only the
+    # container clause; with no pre-existing description it IS the description.
+    spec = _spec_with(
+        {
+            "Tag": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+                "oneOf": [
+                    {
+                        "properties": {"folder": {"type": "string"}},
+                        "required": ["folder"],
+                    },
+                    {
+                        "properties": {"snippet": {"type": "string"}},
+                        "required": ["snippet"],
+                    },
+                    {
+                        "properties": {"device": {"type": "string"}},
+                        "required": ["device"],
+                    },
+                ],
+            }
+        }
+    )
+    p.flatten_scm_bodies(spec)
+    s = spec["components"]["schemas"]["Tag"]
+    assert (
+        s["description"]
+        == "Supply exactly one of folder/snippet/device (the configuration container)."
+    )
+
+
+def test_flatten_membership_appends_value_field_hint_and_keeps_existing_desc() -> None:
+    # Task 2: when a value-type union was also flattened (a non-placement leaf),
+    # the note gains the value-field clause; an existing description is preserved
+    # and the note appended after it.
+    spec = _spec_with(
+        {
+            "Address": {
+                "type": "object",
+                "description": "An address object.",
+                "properties": {"name": {"type": "string"}},
+                "anyOf": [
+                    {
+                        "title": "address_type",
+                        "oneOf": [
+                            {
+                                "properties": {"ip_netmask": {"type": "string"}},
+                                "required": ["ip_netmask"],
+                            },
+                            {
+                                "properties": {"fqdn": {"type": "string"}},
+                                "required": ["fqdn"],
+                            },
+                        ],
+                    },
+                    {
+                        "title": "container_type",
+                        "oneOf": [
+                            {
+                                "properties": {"folder": {"type": "string"}},
+                                "required": ["folder"],
+                            },
+                            {
+                                "properties": {"snippet": {"type": "string"}},
+                                "required": ["snippet"],
+                            },
+                            {
+                                "properties": {"device": {"type": "string"}},
+                                "required": ["device"],
+                            },
+                        ],
+                    },
+                ],
+            }
+        }
+    )
+    p.flatten_scm_bodies(spec)
+    desc = spec["components"]["schemas"]["Address"]["description"]
+    assert desc.startswith("An address object.")
+    assert (
+        "Supply exactly one of folder/snippet/device (the configuration container), "
+        "and exactly one value field." in desc
+    )
+
+
+# ---- relax_readonly_required ----------------------------------------------------
+# A create+response schema reused for both wrongly demands its server-assigned,
+# readOnly fields (the real set across the specs is {id,fqdn,group,log_type,name,oid})
+# on create. `relax_readonly_required` drops every readOnly name from `required`
+# (keeping the property, so responses still type it) — name-agnostic, by the flag.
+
+
+def test_relax_readonly_drops_readonly_field_keeps_property() -> None:
+    spec = _spec_with(
+        {
+            "Address": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {"type": "string", "readOnly": True},
+                    "name": {"type": "string"},
+                },
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.relax_readonly_required(spec, stats)
+    s = spec["components"]["schemas"]["Address"]
+    assert s["required"] == ["name"]  # id dropped from required
+    assert "id" in s["properties"]  # but the property survives (responses type it)
+    assert stats["readonly_required_relaxed"] == 1
+
+
+def test_relax_readonly_is_name_agnostic_across_fields() -> None:
+    # Not "only id": any readOnly+required field is relaxed (here id+fqdn), while a
+    # plain required field (name) stays. Mirrors the real {id,fqdn,...} set.
+    spec = _spec_with(
+        {
+            "Wildcard": {
+                "type": "object",
+                "required": ["id", "fqdn", "name"],
+                "properties": {
+                    "id": {"type": "string", "readOnly": True},
+                    "fqdn": {"type": "string", "readOnly": True},
+                    "name": {"type": "string"},
+                },
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.relax_readonly_required(spec, stats)
+    s = spec["components"]["schemas"]["Wildcard"]
+    assert s["required"] == ["name"]
+    assert set(s["properties"]) == {"id", "fqdn", "name"}
+    assert stats["readonly_required_relaxed"] == 2
+
+
+def test_relax_readonly_noop_without_readonly_required() -> None:
+    # tag-style: required `name` is not readOnly -> nothing changes, no stat bump.
+    spec = _spec_with(
+        {
+            "Tag": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            }
+        }
+    )
+    before = copy.deepcopy(spec)
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.relax_readonly_required(spec, stats)
+    assert spec == before
+    assert "readonly_required_relaxed" not in stats
+
+
 def test_flatten_collision_merges_does_not_clobber() -> None:
     # zones-style: a real `folder` property already exists AND a `folder` placement
     # branch. Merge-don't-clobber keeps the existing property untouched and adds
