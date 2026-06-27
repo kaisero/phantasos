@@ -9,10 +9,11 @@ kwarg) and assert the emitted Markdown is wrapper-correct.
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import jinja2
 import pytest
+from pydantic import BaseModel, StrictInt, StrictStr
 
 from phantasos import scaffold
 
@@ -262,9 +263,12 @@ def test_gen_ref_pages_walks_wrapper_resources(tmp_path: Path) -> None:
     # raw api/ classes.
     assert "_WRAPPERS" in script
     assert "extras.resources" in script
-    # oneOf wrapper variant-link rendering is preserved for models.
-    assert "actual_instance" in script
-    assert "One of the following variants" in script
+    # Wrapper pages render inline classified branches (payload field tables +
+    # collapsed SCM container), not the old variant link list.
+    assert "_is_wrapper" in script
+    assert "_classify_branches" in script
+    assert "Placement:" in script
+    assert "One of the following variants" not in script  # old link list is gone
     # the raw api/ subpackage is no longer walked.
     assert 'SUBPACKAGES = ("api", "models")' not in script
     # valid Python after the legacy single-spec render
@@ -382,3 +386,177 @@ def test_docs_context_slots_are_real_wrapper_methods() -> None:
         assert not verb.startswith("_")
         # and it is NOT a raw *Api method name leaking through
         assert "_by_id" not in verb and "_application" not in verb
+
+
+# ---------------------------------------------------------------------------
+# Wrapper inline-rendering helpers (gate-resident: SYNTHETIC wrappers only — the
+# real prisma_access assertions live in tests/test_sdk_docs_wrapper_rendering.py,
+# because prisma-access is NOT built under `nox -s gate`, only `sdk-docs`).
+# ---------------------------------------------------------------------------
+
+
+def _load_gen_helpers(package: str = "prisma_browser") -> dict[str, Any]:
+    """Exec the side-effect-free helper region of the rendered gen script (C4).
+
+    The script imports ``mkdocs_gen_files`` (not a phantasos dep) and runs a
+    driver with side effects; we stub the import and exec only the region BEFORE
+    the ``# --- driver`` sentinel (docstring + imports + pure helper defs).
+    """
+    import sys
+    import types
+
+    script = _render_gen_ref(package)
+    head, sep, _ = script.partition("# --- driver")
+    assert sep, "driver sentinel missing from gen_ref_pages template"
+    sys.modules.setdefault("mkdocs_gen_files", types.ModuleType("mkdocs_gen_files"))
+    ns: dict[str, Any] = {}
+    exec(compile(head, "<gen_ref_helpers>", "exec"), ns)  # noqa: S102
+    return ns
+
+
+# --- Synthetic OAG-shaped wrappers (mirror the real generator output; no
+#     prisma_access import). A wrapper has `<any|one>of_schema_N_validator`
+#     fields + `actual_instance` + `<any|one>_of_schemas`, exactly like OAG emits.
+
+
+class _Static(BaseModel):
+    static: list[StrictStr]
+    additional_properties: dict[str, Any] = {}
+
+
+class _Dynamic(BaseModel):
+    filter: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _GroupType(BaseModel):  # payload wrapper-of-leaves (anyOf)
+    anyof_schema_1_validator: _Static | None = None
+    anyof_schema_2_validator: _Dynamic | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _FolderLeaf(BaseModel):
+    folder: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _SnippetLeaf(BaseModel):
+    snippet: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _ContainerType(BaseModel):  # standard SCM {folder,snippet,device} container
+    anyof_schema_1_validator: _FolderLeaf | None = None
+    anyof_schema_2_validator: _SnippetLeaf | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _AddressGroups(BaseModel):  # top anyOf: a payload branch + a container branch
+    anyof_schema_1_validator: _GroupType | None = None
+    anyof_schema_2_validator: _ContainerType | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _AppRisk(BaseModel):  # oneOf scalar union (int | str), like ApplicationsRisk
+    oneof_schema_1_validator: Annotated[StrictStr, "x"] | None = None
+    oneof_schema_2_validator: Annotated[StrictInt, "x"] | None = None
+    actual_instance: int | str | None = None
+    one_of_schemas: set[str] = set()
+
+
+class _UrlInput(BaseModel):
+    url: StrictStr
+
+
+class _Zones(BaseModel):  # oneOf list/dict scalars, like ZonesNetwork
+    oneof_schema_1_validator: list[Annotated[StrictStr, "x"]] | None = None
+    oneof_schema_5_validator: dict[str, Any] | None = None
+    actual_instance: list[str] | object | None = None
+    one_of_schemas: set[str] = set()
+
+
+class _AddRemoveUrls(BaseModel):
+    add: list[StrictStr] = []
+    remove: list[StrictStr] = []
+    additional_properties: dict[str, Any] = {}
+
+
+class _PatchUrls(BaseModel):  # MIXED model + scalar (like browser PatchUrls)
+    oneof_schema_1_validator: Annotated[list[_UrlInput], "x"] | None = None
+    oneof_schema_2_validator: _AddRemoveUrls | None = None
+    actual_instance: _AddRemoveUrls | list[_UrlInput] | None = None
+    one_of_schemas: set[str] = set()
+
+
+def test_wrapper_resolver_handles_anyof_and_scalars() -> None:
+    h = _load_gen_helpers()
+    assert h["_is_wrapper"](_AddressGroups)
+    assert not h["_is_wrapper"](_Static)
+    # variant ORDER follows validator-field order (test-locked).
+    direct = [t.__name__ for t in h["_direct_variants"](_AddressGroups)]
+    assert direct == ["_GroupType", "_ContainerType"]
+    # a scalar-only wrapper is never classified to an empty branch list.
+    assert h["_classify_branches"](_Zones)
+
+
+def test_container_branch_detected_and_payload_isolated() -> None:
+    h = _load_gen_helpers()
+    assert h["_is_container_branch"](_ContainerType)
+    assert not h["_is_container_branch"](_GroupType)
+    branches = h["_classify_branches"](_AddressGroups)
+    kinds = {b["label"]: b["kind"] for b in branches}
+    assert kinds["_ContainerType"] == "container"
+    assert kinds["_GroupType"] == "payload"
+    leaves = [
+        leaf.__name__
+        for b in branches
+        if b["kind"] == "payload"
+        for leaf in b["leaves"]
+    ]
+    assert {"_Static", "_Dynamic"} <= set(leaves)
+
+
+def test_scalar_labels_come_from_actual_instance() -> None:
+    h = _load_gen_helpers()
+    classify = h["_classify_branches"]
+    # int | str -> clean code-span labels (NOT the Annotated[...] validator fields).
+    labels = [b["label"] for b in classify(_AppRisk) if b["kind"] == "scalar"]
+    assert labels == ["`int`", "`str`"]
+    # list/dict scalar wrapper: deduped, never empty.
+    zones = [b["label"] for b in classify(_Zones) if b["kind"] == "scalar"]
+    assert "`list[str]`" in zones
+    assert zones
+
+
+def test_mixed_scalar_and_model_wrapper() -> None:
+    h = _load_gen_helpers()
+    branches = h["_classify_branches"](_PatchUrls)
+    payload = [b["label"] for b in branches if b["kind"] == "payload"]
+    scalars = [b["label"] for b in branches if b["kind"] == "scalar"]
+    assert payload == ["_AddRemoveUrls"]
+    assert scalars == ["`list[_UrlInput]`"]
+
+
+def test_type_label_covers_annotation_buckets() -> None:
+    # the 192 distinct payload-field annotation shapes reduce to 5 buckets (C9).
+    h = _load_gen_helpers()
+    tl = h["_type_label"]
+    assert tl(_UrlInput) == "`_UrlInput`"  # plain class
+    assert tl(_UrlInput | None) == "`_UrlInput`"  # Optional-of-model X | None
+    assert tl(list[_UrlInput]) == "`list[_UrlInput]`"  # List[...]
+    assert tl(Annotated[int, "meta"]) == "`int`"  # Annotated[...] unwrapped
+    assert tl(dict[str, Any]) == "`dict[str, Any]`"  # Dict[...]
+    # no nested backticks (C5)
+    assert "``" not in tl(list[_UrlInput])
+
+
+def test_field_table_renders_plain_markdown() -> None:
+    h = _load_gen_helpers()
+    table = h["_field_table"](_AddRemoveUrls)
+    assert "| Field | Type | Required |" in table
+    assert "| `add` |" in table
+    assert "additional_properties" not in table  # scaffolding excluded
+    assert ":::" not in table  # plain markdown only — no autodoc anchors (C1)

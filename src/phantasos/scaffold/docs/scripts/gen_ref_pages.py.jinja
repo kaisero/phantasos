@@ -17,6 +17,7 @@ pre-federation output.
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
@@ -25,11 +26,6 @@ import mkdocs_gen_files
 from pydantic import BaseModel
 
 PACKAGE = "{{ package }}"
-
-# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
-# is the SDK root (scripts -> docs -> root) where the package directory lives.
-src = Path(__file__).resolve().parents[2] / PACKAGE
-assert src.is_dir(), src  # fail loudly if the package path drifts
 
 
 def _public_model(module_name: str) -> type[BaseModel] | None:
@@ -44,17 +40,168 @@ def _public_model(module_name: str) -> type[BaseModel] | None:
     return None
 
 
-def _oneof_variants(model: type[BaseModel]) -> list[type[BaseModel]]:
-    """Variant classes of an openapi-generator oneOf wrapper (else [])."""
-    field = model.model_fields.get("actual_instance")
-    if field is None:
-        return []
-    inner = field.annotation
-    if get_origin(inner) in (Union, UnionType):
-        return [a for a in get_args(inner)
-                if isinstance(a, type) and issubclass(a, BaseModel) and a is not type(None)]
-    return []
+_VALIDATOR = re.compile(r"(any|one)of_schema_\d+_validator$")
+_CONTAINER_FIELDS = {"folder", "snippet", "device"}
 
+
+def _is_wrapper(model: object) -> bool:
+    """True for an openapi-generator oneOf/anyOf wrapper (has `*of_schema_N_validator`)."""
+    return isinstance(model, type) and issubclass(model, BaseModel) and any(
+        _VALIDATOR.match(f) for f in model.model_fields
+    )
+
+
+def _unwrap(tp: object) -> object:
+    """Peel Annotated[...] and single-member Optional[X].
+
+    Mirrors phantasos `opmodel.introspect.unwrap_optional`; inlined because this
+    script runs inside the generated SDK's docs venv (phantasos is not on its path).
+    """
+    if hasattr(tp, "__metadata__"):
+        tp = get_args(tp)[0]
+    if get_origin(tp) in (Union, UnionType):
+        non_none = [a for a in get_args(tp) if a is not type(None)]
+        if len(non_none) == 1:
+            return _unwrap(non_none[0])
+    return tp
+
+
+def _direct_variants(model: type[BaseModel]) -> list:
+    """Variant types of a wrapper, in validator-field order, incl. non-model types.
+
+    Validator-field resolution is the single signal: it is complete (one field per
+    schema) and ordered, unlike the `actual_instance` Union which is typed `Any` at
+    runtime for anyOf wrappers.
+    """
+    out: list = []
+    for name, f in model.model_fields.items():
+        if _VALIDATOR.match(name):
+            args = get_args(f.annotation)
+            for a in (args if args else (f.annotation,)):
+                if a is not type(None):
+                    out.append(a)
+    seen, uniq = set(), []
+    for a in out:
+        if a not in seen:
+            seen.add(a)
+            uniq.append(a)
+    return uniq
+
+
+def _leaf_models(model: type[BaseModel], seen: set | None = None) -> list:
+    """Field-bearing (non-wrapper) BaseModel leaves of a wrapper, de-duped, cycle-safe."""
+    seen = seen if seen is not None else {model}
+    leaves: list = []
+    for v in _direct_variants(model):
+        if not (isinstance(v, type) and issubclass(v, BaseModel)):
+            continue  # primitives handled at the branch level
+        if v in seen:
+            continue
+        seen.add(v)
+        leaves += _leaf_models(v, seen) if _is_wrapper(v) else [v]
+    return leaves
+
+
+def _is_container_branch(variant: object) -> bool:
+    """True iff `variant` is the SCM container: a wrapper whose every leaf carries
+    exactly one real field (besides additional_properties) in {folder,snippet,device}."""
+    if not _is_wrapper(variant):
+        return False
+    leaves = _leaf_models(variant)
+    if not leaves:
+        return False
+    for leaf in leaves:
+        real = [f for f in leaf.model_fields if f != "additional_properties"]
+        if not (len(real) == 1 and real[0] in _CONTAINER_FIELDS):
+            return False
+    return True
+
+
+def _type_text(t: object) -> str:
+    """Render a type as plain text (no backticks): unwrap Annotated/Optional, format
+    list/dict parameters recursively. Covers the payload-field annotation buckets."""
+    t = _unwrap(t)
+    origin = get_origin(t)
+    if origin in (list, set, frozenset, tuple):
+        args = get_args(t)
+        inner = ", ".join(_type_text(a) for a in args) if args else "Any"
+        return f"{origin.__name__}[{inner}]"
+    if origin is dict:
+        args = get_args(t)
+        if len(args) == 2:
+            return f"dict[{_type_text(args[0])}, {_type_text(args[1])}]"
+        return "dict"
+    name = getattr(t, "__name__", None)
+    return name if name else str(t).replace("typing.", "")
+
+
+def _type_label(t: object) -> str:
+    """A single-backticked code span for a variant/field type (no nested backticks)."""
+    return f"`{_type_text(t)}`"
+
+
+def _scalar_labels(model: type[BaseModel]) -> list[str]:
+    """Clean scalar (non-model) variant labels from the `actual_instance` Union.
+
+    The validator-field annotations are noisy `Annotated[...]` forms; the
+    `actual_instance` Union is the user-facing type (e.g. `int | str`,
+    `List[str] | object`). `Any` (all-model anyOf) yields no scalars.
+    """
+    ann = model.model_fields["actual_instance"].annotation
+    if get_origin(ann) not in (Union, UnionType):
+        return []
+    out, seen = [], set()
+    for m in get_args(ann):
+        if m is type(None) or (isinstance(m, type) and issubclass(m, BaseModel)):
+            continue
+        label = _type_label(m)
+        if label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out
+
+
+def _classify_branches(model: type[BaseModel]) -> list:
+    """One entry per variant: payload (model, with leaves) | container | scalar."""
+    branches: list = []
+    for v in _direct_variants(model):
+        if isinstance(v, type) and issubclass(v, BaseModel):
+            label = v.__name__
+            if _is_container_branch(v):
+                branches.append({"kind": "container", "label": label})
+            elif _is_wrapper(v):
+                branches.append({"kind": "payload", "label": label, "leaves": _leaf_models(v)})
+            else:
+                branches.append({"kind": "payload", "label": label, "leaves": [v]})
+        # non-model variants -> resolved cleanly as scalars from actual_instance below
+    for label in _scalar_labels(model):
+        branches.append({"kind": "scalar", "label": label})
+    return branches
+
+
+def _field_table(model: type[BaseModel]) -> str:
+    """A plain-markdown `| Field | Type | Required |` table of a leaf's fields.
+
+    Plain markdown (no `:::` autodoc anchors) so inlining a leaf that ALSO has its
+    own reference page cannot create duplicate primary anchors (mkdocs --strict).
+    """
+    rows = []
+    for name, f in model.model_fields.items():
+        if name == "additional_properties":
+            continue
+        req = "yes" if f.is_required() else "no"
+        cell = _type_label(f.annotation).replace("|", r"\|")  # pipes would break the table
+        rows.append(f"| `{name}` | {cell} | {req} |")
+    if not rows:
+        return ""
+    return "| Field | Type | Required |\n| --- | --- | --- |\n" + "\n".join(rows) + "\n"
+
+
+# --- driver (side effects below; everything above is import-safe & pure) ---
+# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
+# is the SDK root (scripts -> docs -> root) where the package directory lives.
+src = Path(__file__).resolve().parents[2] / PACKAGE
+assert src.is_dir(), src  # fail loudly if the package path drifts
 
 nav = mkdocs_gen_files.Nav()
 
@@ -80,7 +227,7 @@ def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
             fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
         mkdocs_gen_files.set_edit_path(full, pkg_src / "extras" / "resources.py")
 
-    # --- Models: one page per models/ module (oneOf wrappers link their variants).
+    # --- Models: one page per models/ module (wrappers inline their payload fields).
     for path in sorted((pkg_src / "models").rglob("*.py")):
         module = path.relative_to(pkg_src).with_suffix("")
         mod_parts = tuple(module.parts)
@@ -92,15 +239,34 @@ def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
         nav[parts] = doc_path.as_posix()
         dotted = ".".join((dotted_pkg, *mod_parts))
         model = _public_model(dotted)
-        variants = _oneof_variants(model) if model is not None else []
         with mkdocs_gen_files.open(full, "w") as fd:
+            # The wrapper's own autodoc block: the global mkdocstrings filter strips
+            # its oneOf/anyOf scaffolding, leaving just the docstring.
             fd.write(f"::: {dotted}\n")
-            if variants:
-                fd.write("\nOne of the following variants:\n\n")
-                # Variant pages are siblings of the wrapper page (both under
-                # models/), so a bare "<module>.md" relative link resolves.
-                for v in variants:
-                    fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
+            if model is not None and _is_wrapper(model):
+                branches = _classify_branches(model)
+                # Payload branches: inline each leaf's fields as a plain-markdown
+                # TABLE (no `:::` — re-autodoc'ing a leaf that has its own page would
+                # collide primary anchors and abort `mkdocs build --strict`).
+                for b in branches:
+                    if b["kind"] != "payload":
+                        continue
+                    leaves = b["leaves"]
+                    multi = len(leaves) > 1
+                    fd.write(f"\n**{b['label']}**" + (" — one of:" if multi else "") + "\n\n")
+                    for leaf in leaves:
+                        if multi or leaf.__name__ != b["label"]:
+                            fd.write(f"*{leaf.__name__}*\n\n")
+                        table = _field_table(leaf)
+                        fd.write((table + "\n") if table else "_No documented fields._\n\n")
+                scalars = [b["label"] for b in branches if b["kind"] == "scalar"]
+                if scalars:
+                    fd.write("\n**Accepts:** " + " · ".join(scalars) + "\n")
+                if any(b["kind"] == "container" for b in branches):
+                    # The standard SCM placement container is collapsed to one line —
+                    # its folder/snippet/device leaves are uniform across every object.
+                    fd.write("\n**Placement:** `folder` · `snippet` · `device` "
+                             "(standard SCM container)\n")
         mkdocs_gen_files.set_edit_path(full, path)
 
 
