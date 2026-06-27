@@ -5,6 +5,13 @@ real-shaped, type-driven example. Values are honest placeholders: enums use a
 real first value; ``str -> "example"``, ``int -> 0``, ``float -> 0.0``,
 ``bool -> False``, ``datetime -> "2026-01-01T00:00:00Z"``. Domain-perfect
 values come from the optional per-product ``docs.examples`` override.
+
+Placeholders must also CONSTRUCT the model: a bare Mapping field (``dict`` /
+``object`` / ``Any``) gets ``{}`` (not ``"example"``); a constrained int gets
+the smallest value its ``ge``/``gt``/``le``/``lt`` metadata allows; and a
+required field that can't be filled validly (an unresolved forward-ref) drops
+its whole level to the honest opaque ``Name(...)`` rather than emit a
+runnable-looking-but-invalid example.
 """
 
 from __future__ import annotations
@@ -13,7 +20,8 @@ import datetime
 import enum
 import json
 import re
-from typing import get_args, get_origin
+from collections.abc import Iterable, Mapping
+from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -105,7 +113,49 @@ def _enum_literal(base: type) -> str:
     return json.dumps(first)
 
 
-def _value(tp: object, seen: frozenset[type]) -> str:
+def _int_literal(meta: Iterable[Any]) -> str:
+    """Smallest int satisfying any ``ge``/``gt``/``le``/``lt`` constraint (else 0).
+
+    Reads pydantic ``FieldInfo.metadata`` (annotated-types ``Ge``/``Gt``/… each
+    expose the matching attribute) so a constrained int yields a value the model
+    ACCEPTS — ``ge=1 -> 1``, ``gt=0 -> 1`` — instead of an out-of-bounds ``0``.
+    """
+    lo: int | None = None
+    hi: int | None = None
+    for m in meta:
+        ge, gt = getattr(m, "ge", None), getattr(m, "gt", None)
+        le, lt = getattr(m, "le", None), getattr(m, "lt", None)
+        if ge is not None:
+            lo = ge if lo is None else max(lo, ge)
+        if gt is not None:
+            lo = gt + 1 if lo is None else max(lo, gt + 1)
+        if le is not None:
+            hi = le if hi is None else min(hi, le)
+        if lt is not None:
+            hi = lt - 1 if hi is None else min(hi, lt - 1)
+    value = 0
+    if lo is not None and value < lo:
+        value = lo
+    if hi is not None and value > hi:
+        value = hi
+    return str(value)
+
+
+def _is_mapping(base: object) -> bool:
+    """True for a bare Mapping field: ``dict`` / ``object`` / ``Any`` / Mapping.
+
+    Such a field has no declared properties, so the model wants ``{}`` — a string
+    ``"example"`` is rejected with a ``dict_type`` ValidationError.
+    """
+    if base is dict or base is object or base is Any:
+        return True
+    if get_origin(base) is dict:
+        return True
+    return isinstance(base, type) and issubclass(base, Mapping)
+
+
+def _value(tp: object, seen: frozenset[type], meta: Iterable[Any] = ()) -> str | None:
+    """Synthesized value for a field; ``None`` means it can't be filled validly."""
     base = _unwrap_optional(tp)
     if _enum_values(base):
         return _enum_literal(base)  # type: ignore[arg-type]
@@ -113,6 +163,8 @@ def _value(tp: object, seen: frozenset[type]) -> str:
     if origin in (list, set):
         args = get_args(base)
         item = _value(args[0], seen) if args else '"example"'
+        if item is None:
+            return None  # unfillable item -> drop the level upstream
         if "\n" in item:
             inner = _continuation_indent(item, _INDENT)
             return f"[\n{_INDENT}{inner},\n]"
@@ -121,11 +173,17 @@ def _value(tp: object, seen: frozenset[type]) -> str:
         return _model_expr(base, seen)
     if isinstance(base, type) and issubclass(base, datetime.date):
         return '"2026-01-01T00:00:00Z"'
+    if base is int:  # before the scalar table so constraints are honoured
+        return _int_literal(meta)
     if isinstance(base, type):
         for typ, literal in _SCALARS.items():
             if base is typ:
                 return literal
-    return '"example"'
+    if _is_mapping(base):
+        return "{}"
+    if isinstance(base, type):
+        return '"example"'  # an unrecognised concrete type (UUID, IP, ...)
+    return None  # ForwardRef / unresolved annotation: caller makes the level opaque
 
 
 def _model_expr(
@@ -147,7 +205,12 @@ def _model_expr(
     for name, field in model.model_fields.items():
         if not field.is_required():
             continue
-        value = _continuation_indent(_value(field.annotation, seen), _INDENT)
+        rendered = _value(field.annotation, seen, field.metadata)
+        if rendered is None:
+            # A required field can't be filled validly: an honest opaque level
+            # beats a runnable-looking example that raises ValidationError (D3).
+            return f"{model.__name__}(...)"
+        value = _continuation_indent(rendered, _INDENT)
         lines.append(f"{_INDENT}{name}={value},")
     lines.append(")")
     return "\n".join(lines)

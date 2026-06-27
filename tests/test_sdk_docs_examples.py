@@ -77,6 +77,53 @@ def test_int_enum_and_float_scalars_render_bare() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Task D: synthesized required-field values must actually CONSTRUCT the model.
+# A bare dict/Any field wants `{}` (not "example"); a constrained int wants the
+# minimum VALID value (not 0); a field that can't be filled validly (unresolved
+# forward-ref) makes its level opaque rather than emit a runnable-looking lie.
+# Synthetic pydantic models only — gate-resident tests must NOT import the SDK.
+
+
+class DictBody(BaseModel):
+    data: dict[str, Any]  # bare Mapping (no declared props) -> {}, not "example"
+    blob: Any  # Any -> {} (accepts anything, incl. an empty mapping)
+
+
+def test_dict_and_any_required_fields_emit_empty_mapping_and_construct() -> None:
+    out = synthesize_body(DictBody)
+    assert "data={}" in out
+    assert "blob={}" in out
+    assert '"example"' not in out  # the old, model-rejecting placeholder is gone
+    obj = eval(out, {"DictBody": DictBody})  # noqa: S307 — constructability proof
+    assert obj.data == {} and obj.blob == {}
+
+
+class ConstrainedInt(BaseModel):
+    at: int = Field(ge=1, le=59)  # ge=1 -> 1 (0 is out of bounds)
+    after: int = Field(gt=0)  # gt=0 -> 1
+    capped: int = Field(le=-5)  # 0 exceeds le -> -5
+    plain: int  # unconstrained -> 0 (unchanged)
+
+
+def test_constrained_int_uses_minimum_valid_value_and_constructs() -> None:
+    out = synthesize_body(ConstrainedInt)
+    assert "at=1," in out
+    assert "after=1," in out
+    assert "capped=-5," in out
+    assert "plain=0," in out
+    eval(out, {"ConstrainedInt": ConstrainedInt})  # noqa: S307 — must not raise
+
+
+def test_unfillable_forward_ref_field_makes_level_opaque() -> None:
+    # A required field whose type can't be resolved to a fillable value: prefer
+    # the honest opaque `Name(...)` over a concrete-but-invalid example.
+    class Node(BaseModel):
+        child: Missing  # type: ignore[name-defined]  # noqa: F821 — unresolved ref
+
+    assert synthesize_body(Node) == "Node(...)"
+
+
 # OAG oneOf shape: one `oneof_schema_N_validator` field per branch + a runtime
 # `actual_instance` (the variant-resolution signal is the validator fields).
 class _Wrapper(BaseModel):
