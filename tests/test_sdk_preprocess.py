@@ -337,3 +337,50 @@ def test_clean_invokes_strip_external_tags() -> None:
     spec = {"openapi": "3.0.0", "ExternalTags": [], "paths": {}}
     clean(spec, {})
     assert "ExternalTags" not in spec
+
+
+def test_fold_server_prefix_prepends_matched_server_path() -> None:
+    from phantasos.generator.sdk.preprocess import fold_server_prefix
+
+    spec: dict[str, Any] = {
+        "servers": [
+            {"url": "https://api.strata.paloaltonetworks.com/config/objects/v1"},
+            {"url": "https://api.sase.paloaltonetworks.com/sse/config/v1"},
+        ],
+        "paths": {"/addresses": {"get": {}}, "/services": {"post": {}}},
+    }
+    stats: dict[str, int] = {}
+    fold_server_prefix(spec, "https://api.strata.paloaltonetworks.com", stats)
+    assert set(spec["paths"]) == {
+        "/config/objects/v1/addresses",
+        "/config/objects/v1/services",
+    }
+    # path-item bodies preserved, only the keys gained the prefix
+    assert spec["paths"]["/config/objects/v1/addresses"] == {"get": {}}
+    # servers pinned to the bare host so the host override can't double the prefix
+    assert spec["servers"] == [{"url": "https://api.strata.paloaltonetworks.com"}]
+    assert stats["server_prefix_folded"] == 2
+
+
+def test_fold_server_prefix_noop_for_in_path_prefix() -> None:
+    # incidents/posture style: bare host server, prefix already in the path keys
+    from phantasos.generator.sdk.preprocess import fold_server_prefix
+
+    spec: dict[str, Any] = {
+        "servers": [{"url": "https://api.strata.paloaltonetworks.com"}],
+        "paths": {"/incidents/v1/search": {"get": {}}},
+    }
+    fold_server_prefix(spec, "https://api.strata.paloaltonetworks.com")
+    assert set(spec["paths"]) == {"/incidents/v1/search"}
+
+
+def test_fold_server_prefix_noop_when_no_matching_host() -> None:
+    # only a sase server; base_url is strata -> no match -> untouched
+    from phantasos.generator.sdk.preprocess import fold_server_prefix
+
+    spec: dict[str, Any] = {
+        "servers": [{"url": "https://api.sase.paloaltonetworks.com/sse/config/v1"}],
+        "paths": {"/x": {"get": {}}},
+    }
+    fold_server_prefix(spec, "https://api.strata.paloaltonetworks.com")
+    assert set(spec["paths"]) == {"/x"}

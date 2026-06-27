@@ -232,6 +232,41 @@ def normalize_operation_ids(
                 )
 
 
+def fold_server_prefix(
+    spec: Any, base_url: str, stats: dict[str, int] | None = None
+) -> None:
+    """Fold a spec's ``servers[]`` URL path-prefix into every operation path.
+
+    Federated specs declare their per-domain prefix (e.g. ``/config/objects/v1``)
+    in ``servers:`` rather than in the path keys, but the federated SDK shares ONE
+    bare host (``base_url``) across all sub-packages — so that prefix is dropped and
+    every call 404s. Pick the server whose host matches ``base_url`` and prepend its
+    path to every ``paths`` key, then pin ``servers`` to the bare host, so the
+    (host-overridden) runtime URL is ``base_url + <prefix><path>``. A spec that
+    already carries its prefix in the path keys (bare or absent matching server) is
+    a no-op.
+    """
+    from urllib.parse import urlsplit
+
+    base_host = urlsplit(base_url).netloc
+    prefix = ""
+    for server in spec.get("servers") or []:
+        url = server.get("url", "") if isinstance(server, dict) else ""
+        parts = urlsplit(url)
+        if parts.netloc == base_host:
+            prefix = parts.path.rstrip("/")
+            break
+    if not prefix:
+        return
+    paths = spec.get("paths") or {}
+    spec["paths"] = {f"{prefix}{p}": item for p, item in paths.items()}
+    spec["servers"] = [{"url": base_url}]
+    if stats is not None:
+        stats["server_prefix_folded"] = stats.get("server_prefix_folded", 0) + len(
+            paths
+        )
+
+
 def tag_operations(
     spec: Any,
     ops: list[tuple[str, str, str, str]],

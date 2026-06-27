@@ -197,6 +197,10 @@ def _build_federated(
     for sub in loaded.subpackages:
         sub_spec, sub_yaml = preprocess.load(str(sub.spec_path))
         preprocess.clean(sub_spec, stats)  # incl. strip_external_tags
+        # Fold each spec's servers[] domain prefix (/config/<domain>/v1) into its op
+        # paths — the federated SDK shares ONE bare host, so a prefix left in servers
+        # would be dropped and every call 404s (in-path-prefix specs are a no-op).
+        preprocess.fold_server_prefix(sub_spec, loaded.config.base_url, stats)
         norm = sub.config.normalize_operation_ids
         if norm is not None:
             preprocess.normalize_operation_ids(
