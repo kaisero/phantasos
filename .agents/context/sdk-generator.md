@@ -254,6 +254,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `hoist_items(spec, hoists, stats)` — Hoist nested inline array-item objects into named components.
   - `normalize_operation_ids(spec, strip_suffix, dots_to_underscore, unify_separator, stats)` — Rewrite every operation's ``operationId`` for OAG-friendly method names.
   - `fold_server_prefix(spec, base_url, stats)` — Fold a spec's ``servers[]`` URL path-prefix into every operation path.
+  - `resolve_sub_host(spec, base_url)` — The host a federated sub should use.
   - `spec_declares_header(spec, header_name)` — True if the spec declares ``header_name`` as an ``in: header`` parameter.
   - `tag_operations(spec, ops, stats)` — Add tags + operationId to operations that lack them.
 - `provision.py`

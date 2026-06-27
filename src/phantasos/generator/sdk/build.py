@@ -199,9 +199,16 @@ def _build_federated(
     header_declared_by: dict[str, list[str]] = {
         name: [] for name in loaded.config.default_headers
     }
+    # per-sub host overrides: a sub on a different gateway (e.g. ztna-connector on
+    # api.sase while the rest are api.strata) gets a host-overridden config copy.
+    host_overrides: dict[str, str] = {}
     for sub in loaded.subpackages:
         sub_spec, sub_yaml = preprocess.load(str(sub.spec_path))
         preprocess.clean(sub_spec, stats)  # incl. strip_external_tags
+        # Derive this sub's host from its ORIGINAL servers (before fold pins them).
+        sub_host = preprocess.resolve_sub_host(sub_spec, loaded.config.base_url)
+        if sub_host != loaded.config.base_url:
+            host_overrides[sub.config.slug] = sub_host
         # Fold each spec's servers[] domain prefix (/config/<domain>/v1) into its op
         # paths — the federated SDK shares ONE bare host, so a prefix left in servers
         # would be dropped and every call 404s (in-path-prefix specs are a no-op).
@@ -272,6 +279,7 @@ def _build_federated(
                 }
                 for name, h in loaded.config.default_headers.items()
             ],
+            host_overrides=host_overrides,
         ),
         encoding="utf-8",
     )
@@ -285,6 +293,7 @@ def _render_composer(
     root_package: str,
     config_class_name: str,
     headers: list[dict[str, Any]] | None = None,
+    host_overrides: dict[str, str] | None = None,
 ) -> str:
     """Render the composing ``<package>/__init__.py`` (Client + ``_SUBPACKAGES``).
 
@@ -307,6 +316,7 @@ def _render_composer(
             root_package=root_package,
             config_class_name=config_class_name,
             headers=headers or [],
+            host_overrides=host_overrides or {},
         )
     )
 

@@ -419,3 +419,32 @@ def test_spec_declares_header_absent_or_non_header() -> None:
         "paths": {"/x": {"get": {"parameters": [{"in": "query", "name": "limit"}]}}},
     }
     assert not spec_declares_header(spec, "x-panw-region")  # only query params
+
+
+def test_resolve_sub_host_shared_when_server_matches_base() -> None:
+    from phantasos.generator.sdk.preprocess import resolve_sub_host
+
+    base = "https://api.strata.paloaltonetworks.com"
+    spec: dict[str, Any] = {
+        "servers": [
+            {"url": "https://api.strata.paloaltonetworks.com/config/objects/v1"}
+        ]
+    }
+    assert resolve_sub_host(spec, base) == base
+
+
+def test_resolve_sub_host_overrides_when_different_gateway() -> None:
+    from phantasos.generator.sdk.preprocess import resolve_sub_host
+
+    base = "https://api.strata.paloaltonetworks.com"
+    spec: dict[str, Any] = {
+        "servers": [{"url": "https://api.sase.paloaltonetworks.com"}]
+    }
+    assert resolve_sub_host(spec, base) == "https://api.sase.paloaltonetworks.com"
+
+
+def test_resolve_sub_host_falls_back_to_base_when_no_servers() -> None:
+    from phantasos.generator.sdk.preprocess import resolve_sub_host
+
+    base = "https://api.strata.paloaltonetworks.com"
+    assert resolve_sub_host({}, base) == base

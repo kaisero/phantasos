@@ -267,6 +267,30 @@ def fold_server_prefix(
         )
 
 
+def resolve_sub_host(spec: Any, base_url: str) -> str:
+    """The host a federated sub should use.
+
+    The shared ``base_url`` when the spec declares a server on that host (the common
+    case — every sub on the one gateway); otherwise the sub's own server host. A few
+    sub-packages live on a different gateway (e.g. ztna-connector serves from
+    ``api.sase`` while the rest are ``api.strata``); the federation shares ONE
+    Configuration, so the composer gives such a sub a host-overridden copy. Read the
+    ORIGINAL ``servers`` (call before `fold_server_prefix`, which pins them).
+    """
+    from urllib.parse import urlsplit
+
+    base_host = urlsplit(base_url).netloc
+    fallback = ""
+    for server in spec.get("servers") or []:
+        url = server.get("url", "") if isinstance(server, dict) else ""
+        parts = urlsplit(url)
+        if parts.netloc == base_host:
+            return base_url
+        if parts.netloc and not fallback:
+            fallback = f"{parts.scheme}://{parts.netloc}"
+    return fallback or base_url
+
+
 def spec_declares_header(spec: Any, header_name: str) -> bool:
     """True if the spec declares ``header_name`` as an ``in: header`` parameter.
 

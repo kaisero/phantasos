@@ -7,7 +7,8 @@ sub-package's facade `Client`. `_SUBPACKAGES` is the introspection registry the
 docs site (and a future CLI) enumerate instead of re-reading `sdk.yml`.
 """
 from __future__ import annotations
-{% if headers %}
+{% if host_overrides %}import copy
+{% endif %}{% if headers %}
 import os
 {% endif %}{% for slug in slugs %}import {{ root_package }}.{{ slug }}.models as _{{ slug }}_models
 from {{ root_package }}.{{ slug }}.extras.facade import Client as _{{ slug }}_Client
@@ -33,8 +34,11 @@ class Client:
 
     def __init__(self, configuration: {{ config_class_name }}) -> None:
         pool = RESTClientObject(configuration)  # one shared connection pool
-{% for slug in slugs %}        _ac_{{ slug }} = _BearerApiClient(configuration)
-        _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
+{% for slug in slugs %}{% if slug in host_overrides %}        _cfg_{{ slug }} = copy.copy(configuration)  # serves from a different gateway
+        _cfg_{{ slug }}.host = {{ host_overrides[slug] | tojson }}
+        _ac_{{ slug }} = _BearerApiClient(_cfg_{{ slug }})  # shares the TokenManager + pool
+{% else %}        _ac_{{ slug }} = _BearerApiClient(configuration)
+{% endif %}        _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
         _ac_{{ slug }}.rest_client = pool
 {% for h in headers %}{% if slug in h.declared_by %}        _v = os.environ.get({{ h.env | tojson }})  # spec-driven: '{{ slug }}' declares {{ h.name }}
 {% if h.required or slug in h.required_for %}        if _v is None:

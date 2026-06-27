@@ -651,3 +651,39 @@ def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
     # prisma-tenant is optional everywhere -> never raises.
     assert "PRISMA_TENANT environment variable" not in txt
     ast.parse(txt)
+
+
+def test_composer_emits_per_sub_host_override() -> None:
+    """A sub on a different gateway gets a host-overridden config copy (sharing the
+    TokenManager + pool); others use the shared configuration."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "ztna_connector"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        host_overrides={"ztna_connector": "https://api.sase.paloaltonetworks.com"},
+    )
+    assert "import copy" in txt
+    # ztna_connector: copied config with the override host, handle built from the copy
+    assert "_cfg_ztna_connector = copy.copy(configuration)" in txt
+    assert '_cfg_ztna_connector.host = "https://api.sase.paloaltonetworks.com"' in txt
+    assert "_ac_ztna_connector = _BearerApiClient(_cfg_ztna_connector)" in txt
+    # objects: shared configuration, no copy
+    assert "_ac_objects = _BearerApiClient(configuration)" in txt
+    assert "_cfg_objects" not in txt
+    ast.parse(txt)
+
+
+def test_composer_no_copy_import_when_no_host_overrides() -> None:
+    """No host overrides -> no `import copy` (would be an unused import)."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+    )
+    assert "import copy" not in txt
+    assert "_ac_objects = _BearerApiClient(configuration)" in txt
+    ast.parse(txt)

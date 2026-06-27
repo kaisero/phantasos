@@ -315,6 +315,16 @@ def test_full_federation_twelve_subpackages(
             client.objects.api_client.rest_client
             is client.ztna_connector.api_client.rest_client
         )
+        # Per-sub host: ztna-connector's spec declares api.sase, the rest api.strata.
+        # Its handle gets a host-overridden config COPY (sharing the TokenManager +
+        # the pool above); objects et al. keep the shared config object.
+        assert (
+            client.ztna_connector.api_client.configuration.host
+            == "https://api.sase.paloaltonetworks.com"
+        )
+        assert client.objects.api_client.configuration.host == cfg.host
+        assert client.ztna_connector.api_client.configuration is not cfg
+        assert client.objects.api_client.configuration is cfg
         # client.objects.<object> is a usable typed wrapper (clean verbs only).
         assert hasattr(client.objects.address, "create")
         assert not hasattr(client.objects.address, "create_address")
