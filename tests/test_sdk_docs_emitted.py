@@ -586,11 +586,16 @@ def test_field_table_cross_links_documented_model_types() -> None:
         class _Leaf(BaseModel):
             kind: StrictStr  # primitive -> plain code span
             widget: R3Widget | None = None  # documented model -> autoref cross-link
+            tags: list[R3Widget] = []  # list[Model]: container kept, inner linked
             legacy: _UrlInput | None = None  # model with NO page -> plain span
 
         table = h["_field_table"](_Leaf)
+        assert "| Field | Type | Required | Default | Description |" in table
         assert "[`R3Widget`][r3widget.R3Widget]" in table  # clickable cross-reference
-        assert "| `kind` | `str` | yes |" in table  # primitive unchanged
+        # D2: list[Model] preserves the container and links the inner model
+        assert "list[[`R3Widget`][r3widget.R3Widget]]" in table
+        # primitive unchanged: capitalised Yes, em-dash Default/Description
+        assert "| `kind` | `str` | Yes | — | — |" in table
         # an undocumented model is NOT linked — plain span only, no autoref brackets
         assert "`_UrlInput`" in table
         assert "[`_UrlInput`]" not in table

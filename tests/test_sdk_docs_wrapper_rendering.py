@@ -181,11 +181,18 @@ def test_oneof_browser_wrapper_renders_inline_not_link_list() -> None:
     assert pi.count("::: ") == 1
 
 
-def test_plain_model_page_is_byte_identical_single_autodoc() -> None:
+def test_plain_model_page_is_converted_to_a_field_table() -> None:
     pages = _capture("prisma_browser", _BR_SDK)
     dg = _page(pages, "models/device_group_request.md")
-    # a non-wrapper model page is exactly its one autodoc block, unchanged.
-    assert dg == "::: prisma_browser.models.device_group_request\n"
+    # a plain model page is now a heading-only autodoc block (keeps the autoref anchor)
+    # + the 5-col field table — NOT the full `::: module` autodoc, and no
+    # griffe-pydantic Config/Validators boilerplate (`extensions: []`).
+    assert dg.startswith(
+        "::: prisma_browser.models.device_group_request.DeviceGroupRequest\n"
+    )
+    assert "extensions: []" in dg
+    assert "| Field | Type | Required | Default | Description |" in dg
+    assert dg.count("::: ") == 1  # single heading-only block, no leaf re-render
 
 
 def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:

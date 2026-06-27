@@ -24,6 +24,7 @@ from typing import Union, get_args, get_origin
 
 import mkdocs_gen_files
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 PACKAGE = "{{ package }}"
 
@@ -179,43 +180,119 @@ def _classify_branches(model: type[BaseModel]) -> list:
     return branches
 
 
+def _model_autoref(t: object) -> str | None:
+    """An mkdocstrings cross-reference (``[`Name`][dotted.Name]``) to `t`'s OWN reference
+    page, or None if `t` is not a model that gets a page. The page guard mirrors
+    `_emit`'s own predicate (`_public_model(mod) is the model`, skipping `_`-private
+    modules it never pages), so a link can never target an ungenerated page — which would
+    abort `mkdocs build --strict`."""
+    if isinstance(t, type) and issubclass(t, BaseModel):
+        base = t.__module__.rsplit(".", 1)[-1]
+        if not base.startswith("_") and _public_model(t.__module__) is t:
+            return f"[`{t.__name__}`][{t.__module__}.{t.__name__}]"
+    return None
+
+
+def _contains_model(t: object) -> bool:
+    """True if `t` (unwrapped) is, or contains as a parameter, a documented-model leaf."""
+    t = _unwrap(t)
+    return bool(_model_autoref(t)) or any(_contains_model(a) for a in get_args(t))
+
+
+def _linked_type(t: object) -> str:
+    """Render `t` with documented-model leaves as autoref links and the container syntax
+    (`list[...]`, `dict[...]`) as plain text. Only called when `t` contains a model."""
+    t = _unwrap(t)
+    link = _model_autoref(t)
+    if link:
+        return link
+    origin = get_origin(t)
+    if origin in (list, set, frozenset, tuple):
+        args = get_args(t)
+        inner = ", ".join(_linked_type(a) for a in args) if args else "Any"
+        return f"{origin.__name__}[{inner}]"
+    if origin is dict and len(get_args(t)) == 2:
+        k, v = get_args(t)
+        return f"dict[{_linked_type(k)}, {_linked_type(v)}]"
+    return _type_label(t).replace("|", r"\|")  # a non-model leaf inside the container
+
+
 def _type_cell(t: object) -> str:
-    """The Type cell for a field table.
+    """The Type cell for a field table. A documented-model leaf becomes a clickable
+    mkdocstrings autoref; a container keeps its shape with the inner model linked
+    (`list[`<link>`]`). Types with no documented model stay a single plain, pipe-escaped
+    code span — byte-identical to before."""
+    if not _contains_model(t):
+        return _type_label(t).replace("|", r"\|")  # pipes would break the table
+    return _linked_type(t)
 
-    When the field's type is a model that gets its OWN reference page, emit an
-    mkdocstrings cross-reference (``[`Name`][dotted.Name]``) so the reader can click
-    straight through to it; otherwise the plain, pipe-escaped code-span label. Only a
-    DIRECT model type is linked — ``list[...]``/``dict[...]``/scalars stay plain.
 
-    The page guard mirrors ``_emit``'s own predicate (`_public_model(mod) is the
-    model`, skipping ``_``-private modules it never pages), so a link can never target
-    a page that was not generated — which would abort ``mkdocs build --strict``.
-    """
-    u = _unwrap(t)
-    if isinstance(u, type) and issubclass(u, BaseModel):
-        base = u.__module__.rsplit(".", 1)[-1]
-        if not base.startswith("_") and _public_model(u.__module__) is u:
-            return f"[`{u.__name__}`][{u.__module__}.{u.__name__}]"
-    return _type_label(t).replace("|", r"\|")  # pipes would break the table
+def _default_cell(f: object) -> str:
+    """The field's default as a code span, or `—` (required field / factory default)."""
+    if getattr(f, "default_factory", None) is not None:
+        return "—"
+    d = getattr(f, "default", PydanticUndefined)
+    if d is PydanticUndefined:
+        return "—"
+    return f"`{d!r}`".replace("|", r"\|")
+
+
+def _desc_cell(f: object) -> str:
+    """The field's schema description as one table cell (whitespace collapsed, pipes
+    escaped), or `—`."""
+    d = (getattr(f, "description", None) or "").strip()
+    return " ".join(d.split()).replace("|", r"\|") if d else "—"
 
 
 def _field_table(model: type[BaseModel]) -> str:
-    """A plain-markdown `| Field | Type | Required |` table of a leaf's fields.
-
-    Plain markdown (no `:::` autodoc anchors) so inlining a leaf that ALSO has its
-    own reference page cannot create duplicate primary anchors (mkdocs --strict).
-    Model-typed fields cross-link to their pages via `_type_cell`.
-    """
+    """A plain-markdown `| Field | Type | Required | Default | Description |` table of a
+    model's fields. Plain markdown (no `:::` anchors) so it can inline a leaf that ALSO
+    has its own page without colliding primary anchors (mkdocs --strict); model-typed
+    fields cross-link via `_type_cell`."""
     rows = []
     for name, f in model.model_fields.items():
         if name == "additional_properties":
             continue
-        req = "yes" if f.is_required() else "no"
-        cell = _type_cell(f.annotation)
-        rows.append(f"| `{name}` | {cell} | {req} |")
+        req = "Yes" if f.is_required() else "No"
+        rows.append(
+            f"| `{name}` | {_type_cell(f.annotation)} | {req} | "
+            f"{_default_cell(f)} | {_desc_cell(f)} |"
+        )
     if not rows:
         return ""
-    return "| Field | Type | Required |\n| --- | --- | --- |\n" + "\n".join(rows) + "\n"
+    return (
+        "| Field | Type | Required | Default | Description |\n"
+        "| --- | --- | --- | --- | --- |\n" + "\n".join(rows) + "\n"
+    )
+
+
+def _model_prose(model: type[BaseModel]) -> str:
+    """A genuine one-line description for a model page (e.g. the SCM placement hint), or
+    '' for OAG boilerplate / a bare class-name docstring (which add nothing)."""
+    doc = (model.__doc__ or "").strip()
+    if not doc:
+        return ""
+    first = " ".join(doc.splitlines()[0].split())
+    if not first or first == model.__name__:
+        return ""
+    if "OpenAPI" in first or "Open API" in first or first.startswith("This "):
+        return ""  # OAG leaks the spec's API-level description into model docstrings
+    return first.replace("|", r"\|")
+
+
+# Path A heading-only autodoc: keeps the model's autoref anchor (so field-table
+# cross-links + resource-page signature crossrefs still resolve under --strict) while
+# `extensions: []` drops griffe-pydantic's Config/Validators/Fields and
+# `show_docstring_description: false` drops the OAG boilerplate. The 5-col table is the body.
+_MODEL_HEADING_OPTS = (
+    "    options:\n"
+    "      extensions: []\n"
+    "      members: false\n"
+    "      show_docstring_description: false\n"
+    "      show_docstring_attributes: false\n"
+    "      show_root_heading: true\n"
+    "      show_bases: false\n"
+)
 
 
 # --- driver (side effects below; everything above is import-safe & pure) ---
@@ -261,14 +338,16 @@ def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
         dotted = ".".join((dotted_pkg, *mod_parts))
         model = _public_model(dotted)
         with mkdocs_gen_files.open(full, "w") as fd:
-            # The wrapper's own autodoc block: the global mkdocstrings filter strips
-            # its oneOf/anyOf scaffolding, leaving just the docstring.
-            fd.write(f"::: {dotted}\n")
-            if model is not None and _is_wrapper(model):
-                branches = _classify_branches(model)
-                # Payload branches: inline each leaf's fields as a plain-markdown
-                # TABLE (no `:::` — re-autodoc'ing a leaf that has its own page would
+            if model is None:
+                # a models/ module with no single public model -> plain module autodoc.
+                fd.write(f"::: {dotted}\n")
+            elif _is_wrapper(model):
+                # oneOf/anyOf wrapper: the global mkdocstrings filter strips its
+                # scaffolding, leaving the docstring; inline each variant's payload as a
+                # field table (no `:::` — re-autodoc'ing a leaf with its own page would
                 # collide primary anchors and abort `mkdocs build --strict`).
+                fd.write(f"::: {dotted}\n")
+                branches = _classify_branches(model)
                 for b in branches:
                     if b["kind"] != "payload":
                         continue
@@ -288,6 +367,17 @@ def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
                     # its folder/snippet/device leaves are uniform across every object.
                     fd.write("\n**Placement:** `folder` · `snippet` · `device` "
                              "(standard SCM container)\n")
+            else:
+                # plain model: a heading-only autodoc block (keeps the autoref anchor) +
+                # an optional genuine one-liner + the 5-col field table — no griffe-pydantic
+                # Config/Validators and no OAG boilerplate (Path A).
+                fd.write(f"::: {dotted}.{model.__name__}\n")
+                fd.write(_MODEL_HEADING_OPTS)
+                prose = _model_prose(model)
+                if prose:
+                    fd.write(f"\n*{prose}*\n")
+                table = _field_table(model)
+                fd.write(("\n" + table) if table else "\n_No documented fields._\n")
         mkdocs_gen_files.set_edit_path(full, path)
 
 

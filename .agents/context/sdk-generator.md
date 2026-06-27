@@ -121,9 +121,15 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > the `body` kwarg + required path params). The `examples.py` synthesizer
    > (surface-independent) turns each body model into a real-shaped constructor;
    > `docs.examples.<slot>` can override a slot verbatim. The API Reference
-   > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
-   > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
-   > raw `api/` classes or the `extras` helpers (those are taught in the guides).
+   > (`scripts/gen_ref_pages.py.jinja`) emits one page per `<Object>Resource` (keyed
+   > off `_WRAPPERS`, a full mkdocstrings autodoc) + one per `models/` module — NOT the
+   > raw `api/` classes or the `extras` helpers (those are taught in the guides). A model
+   > page is a hand-rendered `Field|Type|Required|Default|Description` table
+   > (`_field_table`), not autodoc: a wrapper inlines its variants' field tables; a plain
+   > model is a heading-only autodoc block (`_MODEL_HEADING_OPTS` — `extensions: []` drops
+   > griffe-pydantic's Config/Validators, `show_docstring_description: false` the OAG
+   > boilerplate) that keeps the model's autoref anchor, then the table + a genuine
+   > one-liner (`_model_prose`, e.g. the SCM placement hint; boilerplate dropped).
    > It runtime-detects federation via `_SUBPACKAGES` on the imported package: a
    > federated distribution loops the sub-packages and groups every wrapper + model
    > page under `reference/<slug>/…`; a single-spec package renders flat
@@ -137,10 +143,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > (shown verbatim, even for `update`). The reference pages also render the typed
    > signature with clickable request-body model cross-refs via three `mkdocs.yml`
    > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
-   > `signature_crossrefs`); wrapper field-table type cells likewise cross-link any
-   > field whose type is a documented model (`_type_cell` emits a plain-markdown
-   > mkdocstrings autoref, `--strict`-safe — guarded by `_emit`'s own page predicate
-   > so it never targets an ungenerated page). The `!^_` filter hides wrapper internals
+   > `signature_crossrefs`); field-table Type cells likewise cross-link any field whose
+   > type is a documented model — incl. inside `list[Model]` (`_type_cell`/`_linked_type`
+   > emit a plain-markdown mkdocstrings autoref, `--strict`-safe — guarded by `_emit`'s
+   > own page predicate so it never targets an ungenerated page; the heading-only model
+   > page is what keeps that anchor resolvable). The `!^_` filter hides wrapper internals
    > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
    > real prisma-browser SDK (single-spec, flat reference) **and** the federated
    > prisma-access SDK (12 sub-packages → `reference/<slug>/…`) with docs ON and

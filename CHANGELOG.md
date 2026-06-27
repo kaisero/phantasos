@@ -24,12 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the SCM container collapsed to a one-line `Placement:`, instead of the
   `anyof_schema_*`/`actual_instance` scaffolding; the wrapper-body **example** in the
   quickstart now synthesizes a constructable, fully-nested form. Applies to every
-  wrapper page (both products); plain-model pages are unchanged.
-- On those wrapper pages, a field whose **type is itself a documented model** now
-  renders as a clickable cross-reference to that model's reference page (mkdocstrings
-  autoref), so a reader can drill into the nested shape in one click instead of reading
-  dead type text (e.g. 168 such links across 77 prisma-access pages). Only direct model
-  types link; `list[…]`/`dict[…]`/primitive types stay plain.
+  wrapper page (both products).
+- **Every model reference page is now a field table.** A plain model page renders a
+  `Field | Type | Required | Default | Description` table — replacing the mkdocstrings
+  autodoc, which leaked pydantic `Config:`/`Validators:` and the OpenAPI boilerplate. A
+  genuine one-line model description (e.g. the SCM "supply exactly one of
+  folder/snippet/device" hint) is kept above the table; boilerplate is dropped. Each
+  page keeps a heading-only autodoc block so its anchor — and every inbound
+  cross-reference — still resolves under `mkdocs build --strict`. Wrapper pages use the
+  same table for their inline variant fields.
+- In those tables, a field whose **type is itself a documented model** (including
+  `list[Model]`, which keeps its container) renders as a clickable mkdocstrings
+  cross-reference to that model's page, so a reader can drill into the nested shape in
+  one click instead of reading dead type text; scalars and `list[str]`/`dict[...]` stay
+  plain.
 
 - Generated CLIs now carry a deduped nested-schema model registry in the CLI IR
   (`CliIR.models` + per-flag `Flag.model_ref`), recovering the full structure of
