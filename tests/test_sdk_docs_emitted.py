@@ -560,3 +560,39 @@ def test_field_table_renders_plain_markdown() -> None:
     assert "| `add` |" in table
     assert "additional_properties" not in table  # scaffolding excluded
     assert ":::" not in table  # plain markdown only — no autodoc anchors (C1)
+
+
+def test_field_table_cross_links_documented_model_types() -> None:
+    # R3: a field whose type is a model that gets its OWN reference page renders as an
+    # mkdocstrings autoref link; primitives and undocumented models stay plain text
+    # (the latter keeps `mkdocs --strict` green — no link to a page that doesn't exist).
+    import sys
+    import types
+
+    h = _load_gen_helpers()
+
+    # A model whose module<->class names follow the per-file convention `_public_model`
+    # keys on, registered so it imports — i.e. exactly a model `_emit` WOULD page.
+    paged_mod = types.ModuleType("r3widget")
+
+    class R3Widget(BaseModel):
+        size: int = 0
+
+    R3Widget.__module__ = "r3widget"
+    paged_mod.R3Widget = R3Widget  # type: ignore[attr-defined]
+    sys.modules["r3widget"] = paged_mod
+    try:
+
+        class _Leaf(BaseModel):
+            kind: StrictStr  # primitive -> plain code span
+            widget: R3Widget | None = None  # documented model -> autoref cross-link
+            legacy: _UrlInput | None = None  # model with NO page -> plain span
+
+        table = h["_field_table"](_Leaf)
+        assert "[`R3Widget`][r3widget.R3Widget]" in table  # clickable cross-reference
+        assert "| `kind` | `str` | yes |" in table  # primitive unchanged
+        # an undocumented model is NOT linked — plain span only, no autoref brackets
+        assert "`_UrlInput`" in table
+        assert "[`_UrlInput`]" not in table
+    finally:
+        sys.modules.pop("r3widget", None)

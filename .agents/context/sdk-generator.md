@@ -137,7 +137,10 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > (shown verbatim, even for `update`). The reference pages also render the typed
    > signature with clickable request-body model cross-refs via three `mkdocs.yml`
    > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
-   > `signature_crossrefs`). The `!^_` filter hides wrapper internals
+   > `signature_crossrefs`); wrapper field-table type cells likewise cross-link any
+   > field whose type is a documented model (`_type_cell` emits a plain-markdown
+   > mkdocstrings autoref, `--strict`-safe — guarded by `_emit`'s own page predicate
+   > so it never targets an ungenerated page). The `!^_` filter hides wrapper internals
    > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
    > real prisma-browser SDK (single-spec, flat reference) **and** the federated
    > prisma-access SDK (12 sub-packages → `reference/<slug>/…`) with docs ON and

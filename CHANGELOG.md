@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anyof_schema_*`/`actual_instance` scaffolding; the wrapper-body **example** in the
   quickstart now synthesizes a constructable, fully-nested form. Applies to every
   wrapper page (both products); plain-model pages are unchanged.
+- On those wrapper pages, a field whose **type is itself a documented model** now
+  renders as a clickable cross-reference to that model's reference page (mkdocstrings
+  autoref), so a reader can drill into the nested shape in one click instead of reading
+  dead type text (e.g. 168 such links across 77 prisma-access pages). Only direct model
+  types link; `list[…]`/`dict[…]`/primitive types stay plain.
 
 - Generated CLIs now carry a deduped nested-schema model registry in the CLI IR
   (`CliIR.models` + per-flag `Flag.model_ref`), recovering the full structure of

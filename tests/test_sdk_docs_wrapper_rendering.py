@@ -240,6 +240,20 @@ def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:
             sys.path.remove(str(_BR_SDK))
 
 
+def test_wrapper_field_tables_cross_link_model_types() -> None:
+    # R3: a variant leaf whose field type is itself a DOCUMENTED model renders a
+    # clickable mkdocstrings autoref (`[`Name`][dotted.Name]`) instead of dead type
+    # text — so the reader can drill into the nested shape. (The full `--strict` proof
+    # that these identifiers RESOLVE is `nox -s sdk-docs`; here we prove they're emitted
+    # and never point outside the package's own documented models.)
+    import re
+
+    pages = _capture("prisma_access", _PA_SDK)
+    link = re.compile(r"\[`[^`]+`\]\[prisma_access\.[\w.]+\.[A-Za-z]\w*\]")
+    linked = [k for k, v in pages.items() if link.search(v)]
+    assert linked, "expected model-type cross-links on wrapper field tables (R3)"
+
+
 def test_every_wrapper_page_has_a_single_autodoc_block() -> None:
     # The structural --strict guarantee across ALL wrapper pages of both products:
     # a wrapper page never re-`:::`-renders a leaf (which would collide anchors).

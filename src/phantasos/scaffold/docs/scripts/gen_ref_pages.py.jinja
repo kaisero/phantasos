@@ -179,18 +179,39 @@ def _classify_branches(model: type[BaseModel]) -> list:
     return branches
 
 
+def _type_cell(t: object) -> str:
+    """The Type cell for a field table.
+
+    When the field's type is a model that gets its OWN reference page, emit an
+    mkdocstrings cross-reference (``[`Name`][dotted.Name]``) so the reader can click
+    straight through to it; otherwise the plain, pipe-escaped code-span label. Only a
+    DIRECT model type is linked — ``list[...]``/``dict[...]``/scalars stay plain.
+
+    The page guard mirrors ``_emit``'s own predicate (`_public_model(mod) is the
+    model`, skipping ``_``-private modules it never pages), so a link can never target
+    a page that was not generated — which would abort ``mkdocs build --strict``.
+    """
+    u = _unwrap(t)
+    if isinstance(u, type) and issubclass(u, BaseModel):
+        base = u.__module__.rsplit(".", 1)[-1]
+        if not base.startswith("_") and _public_model(u.__module__) is u:
+            return f"[`{u.__name__}`][{u.__module__}.{u.__name__}]"
+    return _type_label(t).replace("|", r"\|")  # pipes would break the table
+
+
 def _field_table(model: type[BaseModel]) -> str:
     """A plain-markdown `| Field | Type | Required |` table of a leaf's fields.
 
     Plain markdown (no `:::` autodoc anchors) so inlining a leaf that ALSO has its
     own reference page cannot create duplicate primary anchors (mkdocs --strict).
+    Model-typed fields cross-link to their pages via `_type_cell`.
     """
     rows = []
     for name, f in model.model_fields.items():
         if name == "additional_properties":
             continue
         req = "yes" if f.is_required() else "no"
-        cell = _type_label(f.annotation).replace("|", r"\|")  # pipes would break the table
+        cell = _type_cell(f.annotation)
         rows.append(f"| `{name}` | {cell} | {req} |")
     if not rows:
         return ""
