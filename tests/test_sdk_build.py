@@ -267,32 +267,42 @@ def test_full_federation_twelve_subpackages(
         assert set(pa._SUBPACKAGES) == set(_ALL_SLUGS)
         assert len(pa._SUBPACKAGES) == 12
 
-        # P3.1: incidents declares `X-PANW-Region` as `required_for` it, so the
+        # P3.1: X-PANW-Region is `required_for` ztna_connector + incidents, so the
         # composer's fail-loud fires at construction when PANW_REGION is unset —
-        # naming the header, the env var, and the sub-package. prisma-tenant is
-        # optional, so its env being unset must NOT raise. (The earlier subs in
-        # the loop construct before incidents raises, so this also wires retry
-        # onto the shared config — hence the `is None` check precedes it.)
+        # naming the header, the env var, and the first required sub-package hit
+        # (order-dependent: ztna_connector sorts before incidents in _SUBPACKAGES).
+        # prisma-tenant is optional, so its env being unset must NOT raise. (Earlier
+        # subs in the loop construct before the raise, so this also wires retry onto
+        # the shared config — hence the `is None` check precedes it.)
         assert cfg.retries is None  # SdkConfiguration starts with no retry
         monkeypatch.delenv("PANW_REGION", raising=False)
         monkeypatch.delenv("PRISMA_TENANT", raising=False)
         with pytest.raises(RuntimeError) as exc:
             pa.Client(cfg)
         msg = str(exc.value)
-        assert "X-PANW-Region" in msg and "PANW_REGION" in msg and "incidents" in msg
+        assert "X-PANW-Region" in msg and "PANW_REGION" in msg
+        # names whichever required sub is hit first (don't pin order)
+        assert "ztna_connector" in msg or "incidents" in msg
 
         # Construct the real composing Client with the stubbed-token config (no
         # network: the TokenManager above is pre-seeded). One config, one pool,
-        # twelve facade handles. PANW_REGION now set -> incidents constructs.
+        # twelve facade handles. PANW_REGION now set -> required subs construct.
         monkeypatch.setenv("PANW_REGION", "americas")
         client = pa.Client(cfg)
         assert client._configuration is cfg
         # rev-2 B6: the default header lands on the ApiClient HANDLE (what OAG
-        # merges into every request), not on Configuration. Applied client-wide.
+        # merges into every request), not on Configuration. Spec-driven scoping:
+        # X-PANW-Region rides ONLY the subs that declare it (incidents +
+        # ztna_connector), NOT objects/network which never declared the header.
         assert (
             client.incidents.api_client.default_headers["X-PANW-Region"] == "americas"
         )
-        assert client.objects.api_client.default_headers["X-PANW-Region"] == "americas"
+        assert (
+            client.ztna_connector.api_client.default_headers["X-PANW-Region"]
+            == "americas"
+        )
+        assert "X-PANW-Region" not in client.objects.api_client.default_headers
+        assert "X-PANW-Region" not in client.network_services.api_client.default_headers
         # prisma-tenant env unset -> optional header simply not applied (no raise).
         assert "prisma-tenant" not in client.incidents.api_client.default_headers
         for slug in _ALL_SLUGS:

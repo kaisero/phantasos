@@ -78,7 +78,7 @@ subpackages:
 # over a per-call `_headers` value. incidents REQUIRES X-PANW-Region
 # (PrismaRegionHeader, required: true); prisma-tenant is optional everywhere.
 default_headers:
-  X-PANW-Region: {env: PANW_REGION, required_for: [incidents]}
+  X-PANW-Region: {env: PANW_REGION, required_for: [incidents, ztna_connector]}
   prisma-tenant: {env: PRISMA_TENANT, required: false}
 
 project:

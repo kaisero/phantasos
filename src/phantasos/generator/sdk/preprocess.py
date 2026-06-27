@@ -267,6 +267,42 @@ def fold_server_prefix(
         )
 
 
+def spec_declares_header(spec: Any, header_name: str) -> bool:
+    """True if the spec declares ``header_name`` as an ``in: header`` parameter.
+
+    Drives spec-driven header scoping: the composer applies a `default_headers`
+    entry only to sub-packages whose spec actually declares that header (as a
+    component parameter or inline on an operation), so a header like
+    ``x-panw-region`` rides only the subs that expect it — never objects/network,
+    which never declared it. Case-insensitive (HTTP header names are).
+    """
+    target = header_name.lower()
+
+    def _match(p: Any) -> bool:
+        return (
+            isinstance(p, dict)
+            and str(p.get("in", "")).lower() == "header"
+            and str(p.get("name", "")).lower() == target
+        )
+
+    component_params = (spec.get("components") or {}).get("parameters") or {}
+    if any(_match(p) for p in component_params.values()):
+        return True
+    for path_item in (spec.get("paths") or {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        groups = [path_item.get("parameters")]
+        groups += [
+            op.get("parameters")
+            for m, op in path_item.items()
+            if m in _HTTP_METHODS and isinstance(op, dict)
+        ]
+        for group in groups:
+            if any(_match(p) for p in (group or [])):
+                return True
+    return False
+
+
 def tag_operations(
     spec: Any,
     ops: list[tuple[str, str, str, str]],

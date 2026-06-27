@@ -194,6 +194,11 @@ def _build_federated(
     pp_dir.mkdir(parents=True, exist_ok=True)
 
     vendored: dict[str, list[str]] = {}
+    # spec-driven header scoping: per default_header, the slugs whose spec declares it
+    # (as an in:header param) — the composer applies each header only to those subs.
+    header_declared_by: dict[str, list[str]] = {
+        name: [] for name in loaded.config.default_headers
+    }
     for sub in loaded.subpackages:
         sub_spec, sub_yaml = preprocess.load(str(sub.spec_path))
         preprocess.clean(sub_spec, stats)  # incl. strip_external_tags
@@ -210,6 +215,9 @@ def _build_federated(
                 unify_separator=norm.unify_separator,
                 stats=stats,
             )
+        for hname in loaded.config.default_headers:
+            if preprocess.spec_declares_header(sub_spec, hname):
+                header_declared_by[hname].append(sub.config.slug)
         pp_path = pp_dir / f"{sub.config.slug}.yaml"
         preprocess.dump(sub_spec, sub_yaml, str(pp_path))
         spec_version = (sub_spec.get("info") or {}).get("version")
@@ -260,6 +268,7 @@ def _build_federated(
                     "env": h.env,
                     "required": h.required,
                     "required_for": h.required_for,
+                    "declared_by": header_declared_by[name],
                 }
                 for name, h in loaded.config.default_headers.items()
             ],

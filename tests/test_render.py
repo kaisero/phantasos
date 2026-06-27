@@ -609,8 +609,9 @@ def test_composer_emits_client_and_subpackages_registry() -> None:
 
 
 def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
-    """default_headers render an env-sourced apply on every handle + a fail-loud
-    guard on the slug a header is `required_for`."""
+    """default_headers render an env-sourced apply ONLY on subs whose spec declares
+    the header (spec-driven scoping via `declared_by`) + a fail-loud guard on the
+    slug a header is `required_for`."""
     from phantasos.generator.sdk.build import _render_composer
 
     txt = _render_composer(
@@ -623,12 +624,14 @@ def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
                 "env": "PANW_REGION",
                 "required": False,
                 "required_for": ["incidents"],
+                "declared_by": ["incidents"],  # objects never declares it
             },
             {
                 "name": "prisma-tenant",
                 "env": "PRISMA_TENANT",
                 "required": False,
                 "required_for": [],
+                "declared_by": ["incidents"],
             },
         ],
     )
@@ -637,12 +640,13 @@ def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
     assert 'os.environ.get("PRISMA_TENANT")' in txt
     # Header is set on the ApiClient handle's .default_headers (rev-2 B6), not config.
     assert '_ac_incidents.default_headers["X-PANW-Region"] = _v' in txt
-    assert '_ac_objects.default_headers["X-PANW-Region"] = _v' in txt  # client-wide
+    # spec-driven scoping: objects does NOT declare X-PANW-Region -> no apply emitted.
+    assert '_ac_objects.default_headers["X-PANW-Region"]' not in txt
     # required_for guard: incidents raises a clear RuntimeError naming env + sub.
     assert "raise RuntimeError(" in txt
     assert "'incidents' is unset" in txt
     assert "set the PANW_REGION environment variable" in txt
-    # objects is NOT required_for X-PANW-Region -> no raise for it (optional apply).
+    # objects is NOT required_for X-PANW-Region -> no raise for it.
     assert "'objects' is unset" not in txt
     # prisma-tenant is optional everywhere -> never raises.
     assert "PRISMA_TENANT environment variable" not in txt

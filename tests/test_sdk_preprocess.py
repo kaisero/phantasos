@@ -384,3 +384,38 @@ def test_fold_server_prefix_noop_when_no_matching_host() -> None:
     }
     fold_server_prefix(spec, "https://api.strata.paloaltonetworks.com")
     assert set(spec["paths"]) == {"/x"}
+
+
+def test_spec_declares_header_component_param() -> None:
+    from phantasos.generator.sdk.preprocess import spec_declares_header
+
+    spec: dict[str, Any] = {
+        "components": {
+            "parameters": {"Region": {"in": "header", "name": "x-panw-region"}}
+        },
+        "paths": {},
+    }
+    assert spec_declares_header(spec, "x-panw-region")
+    assert spec_declares_header(spec, "X-PANW-Region")  # case-insensitive
+    assert not spec_declares_header(spec, "prisma-tenant")
+
+
+def test_spec_declares_header_inline_op_param() -> None:
+    from phantasos.generator.sdk.preprocess import spec_declares_header
+
+    spec: dict[str, Any] = {
+        "paths": {
+            "/x": {"get": {"parameters": [{"in": "header", "name": "X-PANW-Region"}]}}
+        },
+    }
+    assert spec_declares_header(spec, "x-panw-region")
+
+
+def test_spec_declares_header_absent_or_non_header() -> None:
+    from phantasos.generator.sdk.preprocess import spec_declares_header
+
+    spec: dict[str, Any] = {
+        "components": {"parameters": {"Folder": {"in": "query", "name": "folder"}}},
+        "paths": {"/x": {"get": {"parameters": [{"in": "query", "name": "limit"}]}}},
+    }
+    assert not spec_declares_header(spec, "x-panw-region")  # only query params

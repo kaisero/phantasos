@@ -36,7 +36,7 @@ class Client:
 {% for slug in slugs %}        _ac_{{ slug }} = _BearerApiClient(configuration)
         _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
         _ac_{{ slug }}.rest_client = pool
-{% for h in headers %}        _v = os.environ.get({{ h.env | tojson }})
+{% for h in headers %}{% if slug in h.declared_by %}        _v = os.environ.get({{ h.env | tojson }})  # spec-driven: '{{ slug }}' declares {{ h.name }}
 {% if h.required or slug in h.required_for %}        if _v is None:
             raise RuntimeError(
                 "{{ root_package }}: required header '{{ h.name }}' for sub-package "
@@ -45,7 +45,7 @@ class Client:
         _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v  # client-level default header (OAG applies default_headers last, so it takes precedence over a per-call `_headers` value)
 {% else %}        if _v is not None:  # optional header (applied only when present)
             _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v
-{% endif %}{% endfor %}        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})
+{% endif %}{% endif %}{% endfor %}        self.{{ slug }} = _{{ slug }}_Client(_ac_{{ slug }})
 {% endfor %}        # The first sub-facade above wires retry onto the shared `configuration`
         # (each facade does `if configuration.retries is None: ...default_retry()`).
         self._configuration = configuration
