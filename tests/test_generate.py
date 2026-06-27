@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from phantasos.generator.sdk import generate
+from phantasos.generator.sdk import generate as _gen
+from phantasos.generator.sdk.generate import _oag_cmd
 
 
 def test_ensure_jar_uses_verified_download(
@@ -128,3 +130,27 @@ def test_prune_removes_suppressed_files(tmp_path: Path) -> None:
     # non-suppressed files survive
     assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
     assert (tmp_path / "pkg" / "__init__.py").exists()
+
+
+def test_skip_validate_spec_flag_present_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.provision.resolve_java", lambda: "java"
+    )
+    monkeypatch.setattr(_gen, "ensure_jar", lambda: "oag.jar")
+    cmd = _oag_cmd("spec.yaml", "/out", "pkg", "urllib3", True, skip_validate_spec=True)
+    assert "--skip-validate-spec" in cmd
+
+
+def test_skip_validate_spec_absent_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "phantasos.generator.sdk.provision.resolve_java", lambda: "java"
+    )
+    monkeypatch.setattr(_gen, "ensure_jar", lambda: "oag.jar")
+    cmd = _oag_cmd(
+        "spec.yaml", "/out", "pkg", "urllib3", True, skip_validate_spec=False
+    )
+    assert "--skip-validate-spec" not in cmd

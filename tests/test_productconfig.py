@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from phantasos.config import ScmOAuth
 from phantasos.productconfig import (
+    HeaderSpec,
     Hoist,
     ProductConfig,
     TagOperation,
@@ -338,3 +339,150 @@ def test_docs_examples_and_variant_parse() -> None:
     assert cfg.examples.create is not None
     assert cfg.examples.create.startswith("created =")
     assert cfg.examples.read is None
+
+
+def test_federated_config_parses_subpackages() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "project": {
+                "distribution": "prisma-access-sdk",
+                "author": "a",
+                "author_email": "a@b.c",
+                "repo_url": "https://x",
+            },
+            "subpackages": [
+                {"slug": "objects", "spec": "openapi/objects.yaml"},
+                {
+                    "slug": "ztna_connector",
+                    "spec": "openapi/ztna-connector.yaml",
+                    "normalize_operation_ids": {
+                        "strip_suffix": ".v2",
+                        "dots_to_underscore": True,
+                        "unify_separator": "_",
+                    },
+                },
+            ],
+        }
+    )
+    assert [s.slug for s in cfg.subpackages] == ["objects", "ztna_connector"]
+    assert cfg.subpackages[1].normalize_operation_ids is not None
+    assert cfg.subpackages[1].normalize_operation_ids.strip_suffix == ".v2"
+
+
+def test_default_headers_parse() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "subpackages": [{"slug": "incidents", "spec": "openapi/incidents.yaml"}],
+            "default_headers": {
+                "X-PANW-Region": {"env": "PANW_REGION", "required_for": ["incidents"]},
+                "prisma-tenant": {"env": "PRISMA_TENANT", "required": False},
+            },
+        }
+    )
+    region = cfg.default_headers["X-PANW-Region"]
+    assert isinstance(region, HeaderSpec)
+    assert region.env == "PANW_REGION"
+    assert region.required_for == ["incidents"]
+    assert region.required is False
+    tenant = cfg.default_headers["prisma-tenant"]
+    assert tenant.env == "PRISMA_TENANT" and tenant.required is False
+    assert tenant.required_for == []
+
+
+def test_header_spec_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        HeaderSpec.model_validate({"env": "X", "bogus": 1})
+
+
+def test_default_headers_absent_defaults_empty() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.default_headers == {}
+
+
+def test_legacy_single_spec_still_parses() -> None:
+    cfg = ProductConfig(
+        package="prisma_browser",
+        output="../out",
+        base_url="https://h",
+        spec="./openapi.yml",
+    )
+    assert cfg.subpackages == []
+    assert cfg.spec == "./openapi.yml"
+
+
+def test_cannot_set_both_spec_and_subpackages() -> None:
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "spec": "./openapi.yml",
+                "subpackages": [{"slug": "x", "spec": "x.yaml"}],
+            }
+        )
+
+
+def test_federated_load_builds_per_sub_contexts(tmp_path: Path) -> None:
+    (tmp_path / "openapi").mkdir()
+    (tmp_path / "openapi" / "objects.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Objects, version: '1.2.3'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "openapi" / "posture.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Posture, version: '4.5.6'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sdk.yml").write_text(
+        "package: prisma_access\n"
+        "output: ../out\n"
+        "base_url: https://h\n"
+        "project: {distribution: prisma-access-sdk, author: a, "
+        "author_email: a@b.c, repo_url: https://x}\n"
+        "subpackages:\n"
+        "  - {slug: objects, spec: openapi/objects.yaml}\n"
+        "  - {slug: posture, spec: openapi/posture.yaml}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["package"] == "prisma_access"  # namespace root unchanged
+    assert loaded.context["distribution"] == "prisma-access-sdk"
+    assert loaded.spec_path is None  # B5: no top-level spec when federated
+    subs = {s.config.slug: s for s in loaded.subpackages}
+    assert subs["objects"].package == "prisma_access.objects"
+    assert subs["objects"].context["package"] == "prisma_access.objects"
+    assert subs["objects"].context["spec_title"] == "Objects"
+    assert subs["objects"].context["spec_version"] == "1.2.3"
+    assert subs["objects"].spec_path == (tmp_path / "openapi/objects.yaml").resolve()
+    assert subs["posture"].context["spec_version"] == "4.5.6"
+
+
+def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary validation
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                # slug with a hyphen — rejected by the slug regex
+                "subpackages": [{"slug": "network-services", "spec": "a.yaml"}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "subpackages": [
+                    {"slug": "objects", "spec": "a.yaml"},
+                    {"slug": "objects", "spec": "b.yaml"},  # dup
+                ],
+            }
+        )

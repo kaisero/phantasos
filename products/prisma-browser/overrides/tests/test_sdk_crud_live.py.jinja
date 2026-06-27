@@ -48,14 +48,14 @@ def created_ids(client):
     yield ids
     for dg_id in ids:
         try:
-            client.device_groups.delete_device_group(dg_id)
+            client.device_group.delete(dg_id)
         except NotFoundException:
             pass  # already deleted by the test body — the happy path
-    page = client.device_groups.list_device_groups(limit=100)
+    page = client.device_group.list(limit=100)
     for dg in page.data or []:
         if dg.name.startswith(_PREFIX):
             try:
-                client.device_groups.delete_device_group(dg.id)
+                client.device_group.delete(dg.id)
             except NotFoundException:
                 pass
 
@@ -63,17 +63,17 @@ def created_ids(client):
 def test_device_group_crud_round_trip(client, created_ids):
     name = _PREFIX + uuid.uuid4().hex[:12]
 
-    created = client.device_groups.create_device_group(
-        DeviceGroupRequest(name=name, platform=DeviceGroupPlatform.DESKTOP_BROWSER)
+    created = client.device_group.create(
+        body=DeviceGroupRequest(name=name, platform=DeviceGroupPlatform.DESKTOP_BROWSER)
     )
     assert created.device_group_id, "create returned no deviceGroupId"
     created_ids.append(created.device_group_id)
 
-    got = client.device_groups.get_device_group_by_id(created.device_group_id)
+    got = client.device_group.get(created.device_group_id)
     assert got.id == created.device_group_id
     assert got.name == name
     assert got.platform == DeviceGroupPlatform.DESKTOP_BROWSER
 
-    client.device_groups.delete_device_group(created.device_group_id)
+    client.device_group.delete(created.device_group_id)
     with pytest.raises(NotFoundException):
-        client.device_groups.get_device_group_by_id(created.device_group_id)
+        client.device_group.get(created.device_group_id)

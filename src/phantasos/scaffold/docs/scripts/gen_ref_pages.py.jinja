@@ -5,24 +5,28 @@ One mkdocstrings page per **resource wrapper** (`extras/resources.py`'s
 facade's `_WRAPPERS`) and per `models/` module. The raw generated `api/` classes,
 and the `extras` helpers (facade/auth/pagination), are deliberately NOT autodoc'd
 — they are taught in the guides, not the reference.
+
+Federation-aware: a federated distribution (e.g. `prisma_access`) exposes a
+`_SUBPACKAGES` registry (slug -> sub-facade `Client`) on its top-level package;
+when present, the reference loops the sub-packages and groups every wrapper +
+model page under `reference/<slug>/…`. A single-spec package (no `_SUBPACKAGES`)
+renders its one surface flat under `reference/…`, byte-identical to the
+pre-federation output.
 """
 
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
 
 import mkdocs_gen_files
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 PACKAGE = "{{ package }}"
-
-# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
-# is the SDK root (scripts -> docs -> root) where the package directory lives.
-src = Path(__file__).resolve().parents[2] / PACKAGE
-assert src.is_dir(), src  # fail loudly if the package path drifts
 
 
 def _public_model(module_name: str) -> type[BaseModel] | None:
@@ -37,53 +41,357 @@ def _public_model(module_name: str) -> type[BaseModel] | None:
     return None
 
 
-def _oneof_variants(model: type[BaseModel]) -> list[type[BaseModel]]:
-    """Variant classes of an openapi-generator oneOf wrapper (else [])."""
-    field = model.model_fields.get("actual_instance")
-    if field is None:
-        return []
-    inner = field.annotation
-    if get_origin(inner) in (Union, UnionType):
-        return [a for a in get_args(inner)
-                if isinstance(a, type) and issubclass(a, BaseModel) and a is not type(None)]
-    return []
+_VALIDATOR = re.compile(r"(any|one)of_schema_\d+_validator$")
+_CONTAINER_FIELDS = {"folder", "snippet", "device"}
 
+
+def _is_wrapper(model: object) -> bool:
+    """True for an openapi-generator oneOf/anyOf wrapper (has `*of_schema_N_validator`)."""
+    return isinstance(model, type) and issubclass(model, BaseModel) and any(
+        _VALIDATOR.match(f) for f in model.model_fields
+    )
+
+
+def _unwrap(tp: object) -> object:
+    """Peel Annotated[...] and single-member Optional[X].
+
+    Mirrors phantasos `opmodel.introspect.unwrap_optional`; inlined because this
+    script runs inside the generated SDK's docs venv (phantasos is not on its path).
+    """
+    if hasattr(tp, "__metadata__"):
+        tp = get_args(tp)[0]
+    if get_origin(tp) in (Union, UnionType):
+        non_none = [a for a in get_args(tp) if a is not type(None)]
+        if len(non_none) == 1:
+            return _unwrap(non_none[0])
+    return tp
+
+
+def _direct_variants(model: type[BaseModel]) -> list:
+    """Variant types of a wrapper, in validator-field order, incl. non-model types.
+
+    Validator-field resolution is the single signal: it is complete (one field per
+    schema) and ordered, unlike the `actual_instance` Union which is typed `Any` at
+    runtime for anyOf wrappers.
+    """
+    out: list = []
+    for name, f in model.model_fields.items():
+        if _VALIDATOR.match(name):
+            args = get_args(f.annotation)
+            for a in (args if args else (f.annotation,)):
+                if a is not type(None):
+                    out.append(a)
+    seen, uniq = set(), []
+    for a in out:
+        if a not in seen:
+            seen.add(a)
+            uniq.append(a)
+    return uniq
+
+
+def _leaf_models(model: type[BaseModel], seen: set | None = None) -> list:
+    """Field-bearing (non-wrapper) BaseModel leaves of a wrapper, de-duped, cycle-safe."""
+    seen = seen if seen is not None else {model}
+    leaves: list = []
+    for v in _direct_variants(model):
+        if not (isinstance(v, type) and issubclass(v, BaseModel)):
+            continue  # primitives handled at the branch level
+        if v in seen:
+            continue
+        seen.add(v)
+        leaves += _leaf_models(v, seen) if _is_wrapper(v) else [v]
+    return leaves
+
+
+def _is_container_branch(variant: object) -> bool:
+    """True iff `variant` is the SCM container: a wrapper whose every leaf carries
+    exactly one real field (besides additional_properties) in {folder,snippet,device}."""
+    if not _is_wrapper(variant):
+        return False
+    leaves = _leaf_models(variant)
+    if not leaves:
+        return False
+    for leaf in leaves:
+        real = [f for f in leaf.model_fields if f != "additional_properties"]
+        if not (len(real) == 1 and real[0] in _CONTAINER_FIELDS):
+            return False
+    return True
+
+
+def _type_text(t: object) -> str:
+    """Render a type as plain text (no backticks): unwrap Annotated/Optional, format
+    list/dict parameters recursively. Covers the payload-field annotation buckets."""
+    t = _unwrap(t)
+    origin = get_origin(t)
+    if origin in (list, set, frozenset, tuple):
+        args = get_args(t)
+        inner = ", ".join(_type_text(a) for a in args) if args else "Any"
+        return f"{origin.__name__}[{inner}]"
+    if origin is dict:
+        args = get_args(t)
+        if len(args) == 2:
+            return f"dict[{_type_text(args[0])}, {_type_text(args[1])}]"
+        return "dict"
+    name = getattr(t, "__name__", None)
+    return name if name else str(t).replace("typing.", "")
+
+
+def _type_label(t: object) -> str:
+    """A single-backticked code span for a variant/field type (no nested backticks)."""
+    return f"`{_type_text(t)}`"
+
+
+def _scalar_labels(model: type[BaseModel]) -> list[str]:
+    """Clean scalar (non-model) variant labels from the `actual_instance` Union.
+
+    The validator-field annotations are noisy `Annotated[...]` forms; the
+    `actual_instance` Union is the user-facing type (e.g. `int | str`,
+    `List[str] | object`). `Any` (all-model anyOf) yields no scalars.
+    """
+    ann = model.model_fields["actual_instance"].annotation
+    if get_origin(ann) not in (Union, UnionType):
+        return []
+    out, seen = [], set()
+    for m in get_args(ann):
+        if m is type(None) or (isinstance(m, type) and issubclass(m, BaseModel)):
+            continue
+        label = _type_label(m)
+        if label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out
+
+
+def _classify_branches(model: type[BaseModel]) -> list:
+    """One entry per variant: payload (model, with leaves) | container | scalar."""
+    branches: list = []
+    for v in _direct_variants(model):
+        if isinstance(v, type) and issubclass(v, BaseModel):
+            label = v.__name__
+            if _is_container_branch(v):
+                branches.append({"kind": "container", "label": label})
+            elif _is_wrapper(v):
+                branches.append({"kind": "payload", "label": label, "leaves": _leaf_models(v)})
+            else:
+                branches.append({"kind": "payload", "label": label, "leaves": [v]})
+        # non-model variants -> resolved cleanly as scalars from actual_instance below
+    for label in _scalar_labels(model):
+        branches.append({"kind": "scalar", "label": label})
+    return branches
+
+
+def _model_autoref(t: object) -> str | None:
+    """An mkdocstrings cross-reference (``[`Name`][dotted.Name]``) to `t`'s OWN reference
+    page, or None if `t` is not a model that gets a page. The page guard mirrors
+    `_emit`'s own predicate (`_public_model(mod) is the model`, skipping `_`-private
+    modules it never pages), so a link can never target an ungenerated page — which would
+    abort `mkdocs build --strict`."""
+    if isinstance(t, type) and issubclass(t, BaseModel):
+        base = t.__module__.rsplit(".", 1)[-1]
+        if not base.startswith("_") and _public_model(t.__module__) is t:
+            return f"[`{t.__name__}`][{t.__module__}.{t.__name__}]"
+    return None
+
+
+def _contains_model(t: object) -> bool:
+    """True if `t` (unwrapped) is, or contains as a parameter, a documented-model leaf."""
+    t = _unwrap(t)
+    return bool(_model_autoref(t)) or any(_contains_model(a) for a in get_args(t))
+
+
+def _linked_type(t: object) -> str:
+    """Render `t` with documented-model leaves as autoref links and the container syntax
+    (`list[...]`, `dict[...]`) as plain text. Only called when `t` contains a model."""
+    t = _unwrap(t)
+    link = _model_autoref(t)
+    if link:
+        return link
+    origin = get_origin(t)
+    if origin in (list, set, frozenset, tuple):
+        args = get_args(t)
+        inner = ", ".join(_linked_type(a) for a in args) if args else "Any"
+        return f"{origin.__name__}[{inner}]"
+    if origin is dict and len(get_args(t)) == 2:
+        k, v = get_args(t)
+        return f"dict[{_linked_type(k)}, {_linked_type(v)}]"
+    return _type_label(t).replace("|", r"\|")  # a non-model leaf inside the container
+
+
+def _type_cell(t: object) -> str:
+    """The Type cell for a field table. A documented-model leaf becomes a clickable
+    mkdocstrings autoref; a container keeps its shape with the inner model linked
+    (`list[`<link>`]`). Types with no documented model stay a single plain, pipe-escaped
+    code span — byte-identical to before."""
+    if not _contains_model(t):
+        return _type_label(t).replace("|", r"\|")  # pipes would break the table
+    return _linked_type(t)
+
+
+def _default_cell(f: object) -> str:
+    """The field's default as a code span, or `—` (required field / factory default)."""
+    if getattr(f, "default_factory", None) is not None:
+        return "—"
+    d = getattr(f, "default", PydanticUndefined)
+    if d is PydanticUndefined:
+        return "—"
+    return f"`{d!r}`".replace("|", r"\|")
+
+
+def _desc_cell(f: object) -> str:
+    """The field's schema description as one table cell (whitespace collapsed, pipes
+    escaped), or `—`."""
+    d = (getattr(f, "description", None) or "").strip()
+    return " ".join(d.split()).replace("|", r"\|") if d else "—"
+
+
+def _field_table(model: type[BaseModel]) -> str:
+    """A plain-markdown `| Field | Type | Required | Default | Description |` table of a
+    model's fields. Plain markdown (no `:::` anchors) so it can inline a leaf that ALSO
+    has its own page without colliding primary anchors (mkdocs --strict); model-typed
+    fields cross-link via `_type_cell`."""
+    rows = []
+    for name, f in model.model_fields.items():
+        if name == "additional_properties":
+            continue
+        req = "Yes" if f.is_required() else "No"
+        rows.append(
+            f"| `{name}` | {_type_cell(f.annotation)} | {req} | "
+            f"{_default_cell(f)} | {_desc_cell(f)} |"
+        )
+    if not rows:
+        return ""
+    return (
+        "| Field | Type | Required | Default | Description |\n"
+        "| --- | --- | --- | --- | --- |\n" + "\n".join(rows) + "\n"
+    )
+
+
+def _model_prose(model: type[BaseModel]) -> str:
+    """A genuine one-line description for a model page (e.g. the SCM placement hint), or
+    '' for OAG boilerplate / a bare class-name docstring (which add nothing)."""
+    doc = (model.__doc__ or "").strip()
+    if not doc:
+        return ""
+    first = " ".join(doc.splitlines()[0].split())
+    if not first or first == model.__name__:
+        return ""
+    if "OpenAPI" in first or "Open API" in first or first.startswith("This "):
+        return ""  # OAG leaks the spec's API-level description into model docstrings
+    return first.replace("|", r"\|")
+
+
+# Path A heading-only autodoc: keeps the model's autoref anchor (so field-table
+# cross-links + resource-page signature crossrefs still resolve under --strict) while
+# `extensions: []` drops griffe-pydantic's Config/Validators/Fields and
+# `show_docstring_description: false` drops the OAG boilerplate. The 5-col table is the body.
+_MODEL_HEADING_OPTS = (
+    "    options:\n"
+    "      extensions: []\n"
+    "      members: false\n"
+    "      show_docstring_description: false\n"
+    "      show_docstring_attributes: false\n"
+    "      show_root_heading: true\n"
+    "      show_bases: false\n"
+)
+
+
+# --- driver (side effects below; everything above is import-safe & pure) ---
+# This script lives at <sdk-root>/docs/scripts/gen_ref_pages.py, so parents[2]
+# is the SDK root (scripts -> docs -> root) where the package directory lives.
+src = Path(__file__).resolve().parents[2] / PACKAGE
+assert src.is_dir(), src  # fail loudly if the package path drifts
 
 nav = mkdocs_gen_files.Nav()
 
-# --- Resource wrappers: one page per <Object>Resource class (the public op surface).
-facade = importlib.import_module(f"{PACKAGE}.extras.facade")
-resources_mod = f"{PACKAGE}.extras.resources"
-for obj_attr, (wrapper_cls, _api_attr) in facade._WRAPPERS.items():
-    parts = ("resources", obj_attr)
-    doc_path = Path(*parts).with_suffix(".md")
-    full = Path("reference", doc_path)
-    nav[parts] = doc_path.as_posix()
-    with mkdocs_gen_files.open(full, "w") as fd:
-        fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
-    mkdocs_gen_files.set_edit_path(full, src / "extras" / "resources.py")
 
-# --- Models: one page per models/ module (oneOf wrappers link their variants).
-for path in sorted((src / "models").rglob("*.py")):
-    module = path.relative_to(src).with_suffix("")
-    parts = tuple(module.parts)
-    if parts[-1] == "__init__" or parts[-1].startswith("_"):
-        continue
-    doc_path = Path(*parts).with_suffix(".md")
-    full = Path("reference", doc_path)
-    nav[parts] = doc_path.as_posix()
-    dotted = ".".join((PACKAGE, *parts))
-    model = _public_model(dotted)
-    variants = _oneof_variants(model) if model is not None else []
-    with mkdocs_gen_files.open(full, "w") as fd:
-        fd.write(f"::: {dotted}\n")
-        if variants:
-            fd.write("\nOne of the following variants:\n\n")
-            # Variant pages are siblings of the wrapper page (both under
-            # models/), so a bare "<module>.md" relative link resolves.
-            for v in variants:
-                fd.write(f"- [{v.__name__}]({v.__module__.rsplit('.', 1)[-1]}.md)\n")
-    mkdocs_gen_files.set_edit_path(full, path)
+def _emit(dotted_pkg: str, pkg_src: Path, prefix: tuple[str, ...]) -> None:
+    """Emit the reference pages for one package (`dotted_pkg`, rooted at `pkg_src`).
+
+    `prefix` is prepended to every nav key / doc path so a federated sub-package
+    groups under `reference/<slug>/…`; an empty prefix reproduces the flat
+    single-spec layout exactly.
+    """
+    assert pkg_src.is_dir(), pkg_src  # fail loudly if a sub-package path drifts
+
+    # --- Resource wrappers: one page per <Object>Resource class (the public op surface).
+    facade = importlib.import_module(f"{dotted_pkg}.extras.facade")
+    resources_mod = f"{dotted_pkg}.extras.resources"
+    for obj_attr, (wrapper_cls, _api_attr) in facade._WRAPPERS.items():
+        parts = (*prefix, "resources", obj_attr)
+        doc_path = Path(*parts).with_suffix(".md")
+        full = Path("reference", doc_path)
+        nav[parts] = doc_path.as_posix()
+        with mkdocs_gen_files.open(full, "w") as fd:
+            fd.write(f"::: {resources_mod}.{wrapper_cls.__name__}\n")
+        mkdocs_gen_files.set_edit_path(full, pkg_src / "extras" / "resources.py")
+
+    # --- Models: one page per models/ module (wrappers inline their payload fields).
+    for path in sorted((pkg_src / "models").rglob("*.py")):
+        module = path.relative_to(pkg_src).with_suffix("")
+        mod_parts = tuple(module.parts)
+        if mod_parts[-1] == "__init__" or mod_parts[-1].startswith("_"):
+            continue
+        parts = (*prefix, *mod_parts)
+        doc_path = Path(*parts).with_suffix(".md")
+        full = Path("reference", doc_path)
+        nav[parts] = doc_path.as_posix()
+        dotted = ".".join((dotted_pkg, *mod_parts))
+        model = _public_model(dotted)
+        with mkdocs_gen_files.open(full, "w") as fd:
+            if model is None:
+                # a models/ module with no single public model -> plain module autodoc.
+                fd.write(f"::: {dotted}\n")
+            elif _is_wrapper(model):
+                # oneOf/anyOf wrapper: the global mkdocstrings filter strips its
+                # scaffolding, leaving the docstring; inline each variant's payload as a
+                # field table (no `:::` — re-autodoc'ing a leaf with its own page would
+                # collide primary anchors and abort `mkdocs build --strict`).
+                fd.write(f"::: {dotted}\n")
+                branches = _classify_branches(model)
+                for b in branches:
+                    if b["kind"] != "payload":
+                        continue
+                    leaves = b["leaves"]
+                    multi = len(leaves) > 1
+                    fd.write(f"\n**{b['label']}**" + (" — one of:" if multi else "") + "\n\n")
+                    for leaf in leaves:
+                        if multi or leaf.__name__ != b["label"]:
+                            fd.write(f"*{leaf.__name__}*\n\n")
+                        table = _field_table(leaf)
+                        fd.write((table + "\n") if table else "_No documented fields._\n\n")
+                scalars = [b["label"] for b in branches if b["kind"] == "scalar"]
+                if scalars:
+                    fd.write("\n**Accepts:** " + " · ".join(scalars) + "\n")
+                if any(b["kind"] == "container" for b in branches):
+                    # The standard SCM placement container is collapsed to one line —
+                    # its folder/snippet/device leaves are uniform across every object.
+                    fd.write("\n**Placement:** `folder` · `snippet` · `device` "
+                             "(standard SCM container)\n")
+            else:
+                # plain model: a heading-only autodoc block (keeps the autoref anchor) +
+                # an optional genuine one-liner + the 5-col field table — no griffe-pydantic
+                # Config/Validators and no OAG boilerplate (Path A).
+                fd.write(f"::: {dotted}.{model.__name__}\n")
+                fd.write(_MODEL_HEADING_OPTS)
+                prose = _model_prose(model)
+                if prose:
+                    fd.write(f"\n*{prose}*\n")
+                table = _field_table(model)
+                fd.write(("\n" + table) if table else "\n_No documented fields._\n")
+        mkdocs_gen_files.set_edit_path(full, path)
+
+
+# Federation detect: a federated distribution exposes `_SUBPACKAGES` (slug ->
+# sub-facade Client) on its top-level package — loop it and group by slug. A
+# single-spec package has no such registry, so render its one surface flat
+# (empty prefix), byte-identical to the pre-federation output.
+pkg = importlib.import_module(PACKAGE)
+subpkgs = getattr(pkg, "_SUBPACKAGES", None)
+if subpkgs:
+    for slug in subpkgs:
+        _emit(f"{PACKAGE}.{slug}", src / slug, (slug,))
+else:
+    _emit(PACKAGE, src, ())
 
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as fd:
     fd.writelines(nav.build_literate_nav())

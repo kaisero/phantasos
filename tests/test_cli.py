@@ -32,6 +32,8 @@ def test_cli_build_returns_zero_on_success(
         package: str,
         library: str = "urllib3",
         oneof_discriminator_lookup: bool = True,
+        *,
+        skip_validate_spec: bool = False,
     ) -> None:
         pkg = Path(out_dir) / package
         (pkg / "api").mkdir(parents=True)
@@ -92,9 +94,9 @@ def test_build_runs_transforms_then_hook(
     monkeypatch.setattr(
         "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
     )
-    monkeypatch.setattr("phantasos.generator.sdk.render.vendor", lambda *a: [])
+    monkeypatch.setattr("phantasos.generator.sdk.render.vendor", lambda *a, **k: [])
     monkeypatch.setattr(
-        "phantasos.generator.sdk.patches.apply_generic_patches", lambda d: {}
+        "phantasos.generator.sdk.patches.apply_generic_patches", lambda d, **k: {}
     )
     monkeypatch.setattr(
         "phantasos.generator.sdk.smoke.smoke",
@@ -149,6 +151,8 @@ def test_build_writes_ignore_and_scaffolds(
         package: str,
         library: str = "urllib3",
         oneof_discriminator_lookup: bool = True,
+        *,
+        skip_validate_spec: bool = False,
     ) -> None:
         assert (Path(out_dir) / ".openapi-generator-ignore").exists()
         calls.append("generate")

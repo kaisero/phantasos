@@ -9,7 +9,7 @@ from {{ package }}.extras.facade import Client
 
 client = Client.from_env()
 
-for item in client.{{ showcase.attr }}.list(all_pages=True).data:
+for item in client.{{ showcase.call_path }}.list(all_pages=True).data:
     print(item)
 ```
 

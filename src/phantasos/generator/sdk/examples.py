@@ -5,6 +5,13 @@ real-shaped, type-driven example. Values are honest placeholders: enums use a
 real first value; ``str -> "example"``, ``int -> 0``, ``float -> 0.0``,
 ``bool -> False``, ``datetime -> "2026-01-01T00:00:00Z"``. Domain-perfect
 values come from the optional per-product ``docs.examples`` override.
+
+Placeholders must also CONSTRUCT the model: a bare Mapping field (``dict`` /
+``object`` / ``Any``) gets ``{}`` (not ``"example"``); a constrained int gets
+the smallest value its ``ge``/``gt``/``le``/``lt`` metadata allows; and a
+required field that can't be filled validly (an unresolved forward-ref) drops
+its whole level to the honest opaque ``Name(...)`` rather than emit a
+runnable-looking-but-invalid example.
 """
 
 from __future__ import annotations
@@ -13,8 +20,8 @@ import datetime
 import enum
 import json
 import re
-from types import UnionType
-from typing import Union, get_args, get_origin
+from collections.abc import Iterable, Mapping
+from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -29,23 +36,53 @@ _SCALARS = {
 }
 
 
+# OAG anyOf/oneOf wrappers carry one `<any|one>of_schema_N_validator` field per
+# branch — the reliable variant signal. `actual_instance` is unreliable: anyOf
+# emits it as `Any` at runtime (the Union is TYPE_CHECKING-only), so resolve
+# variants from the validator fields. (Local copy by design — generator/sdk and
+# the docs gen-script duplicate this resolver rather than share it.)
+_VALIDATOR = re.compile(r"(any|one)of_schema_\d+_validator$")
+# A SCM container branch is a wrapper whose every leaf is a single placement
+# field — collapsed in examples so the body shows a real PAYLOAD, not `folder=`.
+_CONTAINER_FIELDS = {"folder", "snippet", "device"}
+
+
 def _is_wrapper(model: type[BaseModel]) -> bool:
-    return "actual_instance" in getattr(model, "model_fields", {})
+    return any(_VALIDATOR.match(f) for f in getattr(model, "model_fields", {}))
 
 
 def _variants(model: type[BaseModel]) -> list[type[BaseModel]]:
-    inner = _unwrap_optional(model.model_fields["actual_instance"].annotation)
-    args = get_args(inner) if get_origin(inner) in (Union, UnionType) else ()
-    # issubclass(a, BaseModel) already excludes NoneType — an explicit
-    # `a is not type(None)` here is redundant and trips mypy's
-    # comparison-overlap check under `strict = true`.
-    return [a for a in args if isinstance(a, type) and issubclass(a, BaseModel)]
+    out: list[type[BaseModel]] = []
+    for name, field in model.model_fields.items():
+        if not _VALIDATOR.match(name):
+            continue
+        a = _unwrap_optional(field.annotation)  # `Optional[Variant]` -> Variant
+        if isinstance(a, type) and issubclass(a, BaseModel):
+            out.append(a)
+    return list(dict.fromkeys(out))  # de-dupe, preserve order
+
+
+def _is_container(model: type[BaseModel]) -> bool:
+    """True iff every branch is a leaf with a single placement field.
+
+    Keys only on the ``{folder,snippet,device}`` leaf signature (generic; no
+    spec identifiers), so the SCM container branch is skipped as a body example.
+    """
+    if not _is_wrapper(model):
+        return False
+    for leaf in _variants(model):
+        if _is_wrapper(leaf):
+            return False
+        real = [f for f in leaf.model_fields if f != "additional_properties"]
+        if not (len(real) == 1 and real[0] in _CONTAINER_FIELDS):
+            return False
+    return True
 
 
 def _pick_variant(
     model: type[BaseModel], variant: str | None
 ) -> type[BaseModel] | None:
-    vs = _variants(model)
+    vs = [v for v in _variants(model) if not _is_container(v)]  # skip container
     if variant:
         for v in vs:
             if v.__name__ == variant:
@@ -76,7 +113,49 @@ def _enum_literal(base: type) -> str:
     return json.dumps(first)
 
 
-def _value(tp: object, seen: frozenset[type]) -> str:
+def _int_literal(meta: Iterable[Any]) -> str:
+    """Smallest int satisfying any ``ge``/``gt``/``le``/``lt`` constraint (else 0).
+
+    Reads pydantic ``FieldInfo.metadata`` (annotated-types ``Ge``/``Gt``/… each
+    expose the matching attribute) so a constrained int yields a value the model
+    ACCEPTS — ``ge=1 -> 1``, ``gt=0 -> 1`` — instead of an out-of-bounds ``0``.
+    """
+    lo: int | None = None
+    hi: int | None = None
+    for m in meta:
+        ge, gt = getattr(m, "ge", None), getattr(m, "gt", None)
+        le, lt = getattr(m, "le", None), getattr(m, "lt", None)
+        if ge is not None:
+            lo = ge if lo is None else max(lo, ge)
+        if gt is not None:
+            lo = gt + 1 if lo is None else max(lo, gt + 1)
+        if le is not None:
+            hi = le if hi is None else min(hi, le)
+        if lt is not None:
+            hi = lt - 1 if hi is None else min(hi, lt - 1)
+    value = 0
+    if lo is not None and value < lo:
+        value = lo
+    if hi is not None and value > hi:
+        value = hi
+    return str(value)
+
+
+def _is_mapping(base: object) -> bool:
+    """True for a bare Mapping field: ``dict`` / ``object`` / ``Any`` / Mapping.
+
+    Such a field has no declared properties, so the model wants ``{}`` — a string
+    ``"example"`` is rejected with a ``dict_type`` ValidationError.
+    """
+    if base is dict or base is object or base is Any:
+        return True
+    if get_origin(base) is dict:
+        return True
+    return isinstance(base, type) and issubclass(base, Mapping)
+
+
+def _value(tp: object, seen: frozenset[type], meta: Iterable[Any] = ()) -> str | None:
+    """Synthesized value for a field; ``None`` means it can't be filled validly."""
     base = _unwrap_optional(tp)
     if _enum_values(base):
         return _enum_literal(base)  # type: ignore[arg-type]
@@ -84,6 +163,8 @@ def _value(tp: object, seen: frozenset[type]) -> str:
     if origin in (list, set):
         args = get_args(base)
         item = _value(args[0], seen) if args else '"example"'
+        if item is None:
+            return None  # unfillable item -> drop the level upstream
         if "\n" in item:
             inner = _continuation_indent(item, _INDENT)
             return f"[\n{_INDENT}{inner},\n]"
@@ -92,38 +173,57 @@ def _value(tp: object, seen: frozenset[type]) -> str:
         return _model_expr(base, seen)
     if isinstance(base, type) and issubclass(base, datetime.date):
         return '"2026-01-01T00:00:00Z"'
+    if base is int:  # before the scalar table so constraints are honoured
+        return _int_literal(meta)
     if isinstance(base, type):
         for typ, literal in _SCALARS.items():
             if base is typ:
                 return literal
-    return '"example"'
+    if _is_mapping(base):
+        return "{}"
+    if isinstance(base, type):
+        return '"example"'  # an unrecognised concrete type (UUID, IP, ...)
+    return None  # ForwardRef / unresolved annotation: caller makes the level opaque
 
 
-def _model_expr(model: type[BaseModel], seen: frozenset[type]) -> str:
+def _model_expr(
+    model: type[BaseModel], seen: frozenset[type], *, variant: str | None = None
+) -> str:
     if model in seen:
         return f"{model.__name__}(...)"
     seen = seen | {model}
     if _is_wrapper(model):
-        variant = _pick_variant(model, None)
-        return _model_expr(variant, seen) if variant else f"{model.__name__}(...)"
+        # WRAP the child as one positional arg: the SDK accepts only the fully
+        # nested form `Wrapper(SubWrapper(Leaf(...)))` (the bare leaf raises
+        # ValidationError). A payload sub-wrapper descends to its leaf here.
+        chosen = _pick_variant(model, variant)
+        if chosen is None:
+            return f"{model.__name__}(...)"
+        inner = _continuation_indent(_model_expr(chosen, seen), _INDENT)
+        return f"{model.__name__}({inner})"
     lines = [f"{model.__name__}("]
     for name, field in model.model_fields.items():
         if not field.is_required():
             continue
-        value = _continuation_indent(_value(field.annotation, seen), _INDENT)
+        rendered = _value(field.annotation, seen, field.metadata)
+        if rendered is None:
+            # A required field can't be filled validly: an honest opaque level
+            # beats a runnable-looking example that raises ValidationError (D3).
+            return f"{model.__name__}(...)"
+        value = _continuation_indent(rendered, _INDENT)
         lines.append(f"{_INDENT}{name}={value},")
     lines.append(")")
     return "\n".join(lines)
 
 
 def synthesize_body(model: type[BaseModel], *, variant: str | None = None) -> str:
-    """Real-shaped constructor expression for ``model`` (required fields only)."""
-    if _is_wrapper(model):
-        chosen = _pick_variant(model, variant)
-        if chosen is not None:
-            return _model_expr(chosen, frozenset({model}))
-        return f"{model.__name__}(...)"
-    return _model_expr(model, frozenset())
+    """Real-shaped constructor expression for ``model`` (required fields only).
+
+    A wrapper body is emitted FULLY nested — ``Wrapper(SubWrapper(Leaf(...)))`` —
+    because the SDK rejects the unwrapped leaf; ``variant`` selects the top-level
+    branch (a container branch is skipped in favour of a real payload).
+    """
+    return _model_expr(model, frozenset(), variant=variant)
 
 
 # ---------------------------------------------------------------------------

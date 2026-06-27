@@ -157,6 +157,7 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
         ],
         "showcase": {
             "attr": "widgets",
+            "call_path": "widgets",  # single-spec: no sub-package prefix
             "has_create": True,
             "has_read": True,
             "has_list": True,

@@ -47,6 +47,32 @@ def test_count_operations_excludes_helpers(tmp_path: Path) -> None:
     assert smoke._count_operations(str(tmp_path), "demo_ops") == 2
 
 
+def test_count_operations_federated_sums_nested_api_dirs(tmp_path: Path) -> None:
+    # Federated layout: api/ files live under prisma_access/<slug>/api/, not at
+    # the top level. The count must recurse and SUM across sub-packages.
+    root = tmp_path / "prisma_access"
+    objects_api = root / "objects" / "api"
+    posture_api = root / "posture" / "api"
+    objects_api.mkdir(parents=True)
+    posture_api.mkdir(parents=True)
+    (objects_api / "x_api.py").write_text(
+        "class XApi:\n"
+        "    def list_x(self):\n"
+        "        return []\n"
+        "    def get_x(self):\n"
+        "        return None\n"
+        "    def get_x_with_http_info(self):\n"
+        "        return None\n",
+        encoding="utf-8",
+    )
+    (posture_api / "y_api.py").write_text(
+        "class YApi:\n    def list_y(self):\n        return []\n",
+        encoding="utf-8",
+    )
+    # 2 (objects: list_x + get_x) + 1 (posture: list_y) = 3; helper excluded.
+    assert smoke._count_operations(str(tmp_path), "prisma_access") == 3
+
+
 def test_sanitized_env_strips_leaky_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIRTUAL_ENV", "/parent/venv")
     monkeypatch.setenv("PYTHONPATH", "/parent/src")

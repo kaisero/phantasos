@@ -84,11 +84,15 @@ def patch_apostrophe_enums(models_dir: Path) -> int:
     return fixed
 
 
-def rebase_lenient_enums(pkg_dir: Path) -> int:
+def rebase_lenient_enums(pkg_dir: Path, *, package: str | None = None) -> int:
+    # `_lenient.py` lives at `<pkg_dir>/_lenient.py`, so the import must carry the
+    # FULL dotted import path of the package — for a federated sub-package
+    # `prisma_access.objects` that is `prisma_access.objects._lenient`, NOT the leaf
+    # `objects._lenient` (which `pkg_dir.name` would yield). Single-spec callers omit
+    # `package`, so it defaults to the leaf (unchanged).
+    pkg = package or pkg_dir.name
     (pkg_dir / "_lenient.py").write_text(LENIENT_SOURCE, encoding="utf-8")
-    import_line = (
-        f"from {pkg_dir.name}._lenient import LenientStrEnum, LenientIntEnum\n"
-    )
+    import_line = f"from {pkg}._lenient import LenientStrEnum, LenientIntEnum\n"
     rebased = 0
     for path in sorted((pkg_dir / "models").glob("*.py")):
         text = path.read_text(encoding="utf-8")
@@ -199,13 +203,69 @@ def patch_drop_empty_additional_properties(models_dir: Path) -> int:
     return count
 
 
-def apply_generic_patches(pkg_dir: Path) -> dict[str, int]:
+_OF_SCHEMAS = re.compile(r"_OF_SCHEMAS\s*=\s*\[([^\]]*)\]")
+_OF_MEMBER = re.compile(r'"([A-Z][A-Za-z0-9_]*)"')
+
+
+def patch_oneof_missing_imports(models_dir: Path, *, package: str | None = None) -> int:
+    """Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
+
+    OAG lists each branch in ``*_OF_SCHEMAS`` and the ``Union[...]`` annotation, but
+    for a branch it also represents as a primitive validator (e.g. a numeric branch
+    titled ``Number`` -> ``oneof_schema_1_validator: Optional[float]``) it emits NO
+    ``from .models.<x> import <X>`` line. With ``from __future__ import annotations``
+    the dangling name survives import but fails ``model_rebuild()`` (introspect / docs)
+    with ``NameError: name '<X>' is not defined``. Surfaces only once the deep payload
+    is restored (SCM flatten). Idempotent; adds an import only when the sibling model
+    file actually exists.
+    """
+    pkg = package or models_dir.parent.name
+    defined: dict[str, str] = {}  # ClassName -> module stem (sibling that defines it)
+    texts: dict[Path, str] = {}
+    for path in sorted(models_dir.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = texts[path] = path.read_text(encoding="utf-8")
+        for cls in re.findall(r"^class\s+([A-Z][A-Za-z0-9_]*)\(", text, re.M):
+            defined[cls] = path.stem
+    count = 0
+    for path, text in texts.items():
+        members: set[str] = set()
+        for block in _OF_SCHEMAS.findall(text):
+            members |= set(_OF_MEMBER.findall(block))
+        missing = sorted(
+            m
+            for m in members
+            if m in defined and defined[m] != path.stem and f"import {m}\n" not in text
+        )
+        if not missing:
+            continue
+        lines = "".join(f"from {pkg}.models.{defined[m]} import {m}\n" for m in missing)
+        # Insert after the last existing model import (the Tcp/Udp imports OAG did
+        # emit); fall back to after the future import.
+        anchor = f"from {pkg}.models."
+        idx = text.rfind(anchor)
+        if idx != -1:
+            eol = text.index("\n", idx) + 1
+        else:
+            fut = "from __future__ import annotations\n"
+            eol = text.index(fut) + len(fut) if fut in text else 0
+        text = text[:eol] + lines + text[eol:]
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+def apply_generic_patches(
+    pkg_dir: Path, *, package: str | None = None
+) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),
-        "lenient_enums": rebase_lenient_enums(pkg_dir),
+        "lenient_enums": rebase_lenient_enums(pkg_dir, package=package),
         "oneof_first_match": patch_oneof_first_match(models),
         "oneof_unwrap": patch_oneof_unwrap_serializer(models),
+        "oneof_missing_imports": patch_oneof_missing_imports(models, package=package),
         "drop_empty_additional_properties": patch_drop_empty_additional_properties(
             models
         ),

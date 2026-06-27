@@ -67,9 +67,11 @@ def _oag_cmd(
     package: str,
     library: str,
     oneof_discriminator_lookup: bool,
+    *,
+    skip_validate_spec: bool = False,
 ) -> list[str]:
     lookup = "true" if oneof_discriminator_lookup else "false"
-    return [
+    cmd = [
         str(provision.resolve_java()),
         "-jar",
         str(ensure_jar()),
@@ -92,6 +94,9 @@ def _oag_cmd(
         "--inline-schema-options",
         "RESOLVE_INLINE_ENUMS=true",
     ]
+    if skip_validate_spec:
+        cmd.append("--skip-validate-spec")
+    return cmd
 
 
 def generate(
@@ -100,9 +105,18 @@ def generate(
     package: str,
     library: str = "urllib3",
     oneof_discriminator_lookup: bool = True,
+    *,
+    skip_validate_spec: bool = False,
 ) -> None:
     subprocess.run(
-        _oag_cmd(spec_path, out_dir, package, library, oneof_discriminator_lookup),
+        _oag_cmd(
+            spec_path,
+            out_dir,
+            package,
+            library,
+            oneof_discriminator_lookup,
+            skip_validate_spec=skip_validate_spec,
+        ),
         check=True,
         stdout=subprocess.DEVNULL,
     )

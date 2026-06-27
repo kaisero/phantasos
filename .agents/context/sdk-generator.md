@@ -16,11 +16,51 @@ smoke-checks the result. The output is a pure build artifact — never hand-edit
 `build.build()` in `build.py` is the orchestrator; it runs the stages in order
 and returns a stats dict. To trace the pipeline, open these files in sequence:
 
+> **Single-spec vs federated.** A product with a `spec:` runs the single-spec path
+> (`_build_single`). A product with `subpackages:` (e.g. `prisma-access`) runs
+> `_build_federated`: it loops each sub-package through the shared generate→patch→
+> vendor→`_about` core (`_generate_one`), emitting `<package>/<slug>/…` via a dotted
+> `--package-name`, then scaffolds the one distribution. Each sub is vendored with
+> `suppress_auth=True` (facade `has_auth=False`, no `auth.py`) and its own per-sub
+> `operations:` overrides; `vendor`/`patches` take the dotted `package` +
+> `distribution_root` so nested-package imports (`_lenient`, resource model imports,
+> introspection root) resolve. After the loop, **`runtime.hoist_runtime()`** collapses
+> the N near-identical OAG runtime copies (`api_client`, `configuration`, `rest`,
+> `exceptions`, `api_response`) into one shared `<package>/_runtime/` and repoints
+> every runtime-targeting import (incl. each sub's `__init__.py` re-exports) to
+> absolute `<package>._runtime.X` via a libcst transformer (see `runtime.py`). Then
+> `_render_shared_auth()` renders the one `<package>/_auth.py` (the bearer/config
+> factories — `federated=True`, `has_retry=False`), and `_render_composer()` writes
+> the composing `<package>/__init__.py` **last** (overwriting OAG's empty parent
+> stub): a `Client` that builds ONE `SdkConfiguration` + ONE `RESTClientObject` pool
+> fanned out to N thin `_BearerApiClient` handles (each tagged `.models`), injected
+> into each sub's facade `Client`, plus the `_SUBPACKAGES` registry (slug → facade
+> `Client`) that docs/CLI enumerate. The first sub-facade wires `default_retry()`
+> onto the shared config, since `_auth.py` rendered without it.
+
 1. **Preprocess** — `preprocess.load()` then `preprocess.clean()` in
    `preprocess.py` apply the generic, spec-agnostic transforms; the product's
    `transforms:` block drives `preprocess.hoist_items()` / `tag_operations()`,
    and a product `hooks.py::preprocess(spec)` runs last. The result is dumped via
    `preprocess.dump()` to `<out>/.phantasos/preprocessed.yaml`.
+
+   > **SCM body reshape (federated loop).** The federated build also runs two
+   > guarded transforms per sub-spec (after `clean`/`fold_server_prefix`):
+   > `flatten_scm_bodies()` and `relax_readonly_required()`. SCM specs give each
+   > "configurable object" a `properties` block (`name`, value fields, …) **plus** a
+   > sibling `oneOf`/`anyOf` enforcing "exactly one of folder/snippet/device" — and
+   > OAG keeps only the composition, discarding the payload, so the generated body
+   > model can express *nothing but* the placement container. `flatten_scm_bodies`
+   > lifts every reachable oneOf/anyOf **leaf** property back onto `properties`
+   > (merge-don't-clobber, lifted leaves stay optional) and drops the composition —
+   > but **only** for schemas whose leaf set contains the placement marker
+   > `{folder, snippet, device}` (the corruption guard that spares the real nested
+   > value-unions like ike-crypto lifetime), top-level `components.schemas` only.
+   > Across the 12 specs it fires on **119** schemas (pinned in `test_sdk_build.py`).
+   > `relax_readonly_required` then drops server-assigned `readOnly` fields (`id`,
+   > `fqdn`, …) from each schema's `required`, so `create()` no longer demands a
+   > value the client cannot supply. The reshaped bodies are validated end-to-end by
+   > the live CRUD round-trip (`overrides/tests/test_scm_crud_live.py`).
 2. **Generate** — `generate.write_openapi_generator_ignore()` then
    `generate.generate()` in `generate.py` invoke OAG (python generator).
    Provisioning is lazy and lives in this stage: `generate.generate()` calls
@@ -30,7 +70,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    by earlier builds.
 3. **Patches** — when enabled, `patches.apply_generic_patches()` in `patches.py`
    fixes apostrophe enums, rebases enums onto lenient bases, and rewrites oneOf
-   to first-match. It also attaches pydantic `model_serializer`s so `model_dump()`
+   to first-match. `patch_oneof_missing_imports()` adds the model import OAG omits
+   for a oneOf branch it also renders as a primitive validator (e.g. a numeric branch
+   titled `Number` → `oneof_schema_1_validator: Optional[float]` but no import) — a
+   dangling forward ref that only surfaces once the SCM flatten restores deep payloads
+   and `model_rebuild()` (introspect/docs) trips `NameError`. It also attaches pydantic `model_serializer`s so `model_dump()`
    unwraps each oneOf wrapper to its `actual_instance` (no scaffolding leak) and
    omits empty `additional_properties` bags (non-empty bags preserved); the wrap
    handler respects `exclude=`, so the `to_dict()` request path is byte-unchanged.
@@ -63,16 +107,33 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > via `cli_operations` (which stamps each op with its
    > `object_attr`/`clean_method`/`has_body` routing); the author-named
    > `docs.showcase_resource` is a **singular wrapper-object key** (e.g.
-   > `application`, validated against `_WRAPPERS`, fail-fast). `classify_operations`
+   > `application`, validated against `_WRAPPERS`, fail-fast). For a **federated**
+   > distribution the facade/IR/models live under `<package>.<sub>.*`, so
+   > `docs.showcase_subpackage` (e.g. `objects`) retargets the
+   > `_wrapper_objects`/`cli_operations`/`models`-import at `<package>.<sub>`; the
+   > showcase then carries a clean `attr` (the object id) plus a dotted `call_path`
+   > (`<sub>.<object>`) so the guides render `client.objects.address.<verb>(...)`.
+   > Single-spec products leave `showcase_subpackage` unset — `call_path == attr`,
+   > targeting is byte-identical. `classify_operations`
    > maps each op's CLEAN verb to a CRUD slot directly (create/get→read/list/
    > update/delete) — no raw-prefix verb heuristic — picking the fewest-path-params
    > binding per verb; `_op_dict` emits the wrapper call shape (request body under
    > the `body` kwarg + required path params). The `examples.py` synthesizer
    > (surface-independent) turns each body model into a real-shaped constructor;
    > `docs.examples.<slot>` can override a slot verbatim. The API Reference
-   > (`scripts/gen_ref_pages.py.jinja`) autodocs one mkdocstrings page per
-   > `<Object>Resource` (keyed off `_WRAPPERS`) + every `models/` module — NOT the
-   > raw `api/` classes or the `extras` helpers (those are taught in the guides).
+   > (`scripts/gen_ref_pages.py.jinja`) emits one page per `<Object>Resource` (keyed
+   > off `_WRAPPERS`, a full mkdocstrings autodoc) + one per `models/` module — NOT the
+   > raw `api/` classes or the `extras` helpers (those are taught in the guides). A model
+   > page is a hand-rendered `Field|Type|Required|Default|Description` table
+   > (`_field_table`), not autodoc: a wrapper inlines its variants' field tables; a plain
+   > model is a heading-only autodoc block (`_MODEL_HEADING_OPTS` — `extensions: []` drops
+   > griffe-pydantic's Config/Validators, `show_docstring_description: false` the OAG
+   > boilerplate) that keeps the model's autoref anchor, then the table + a genuine
+   > one-liner (`_model_prose`, e.g. the SCM placement hint; boilerplate dropped).
+   > It runtime-detects federation via `_SUBPACKAGES` on the imported package: a
+   > federated distribution loops the sub-packages and groups every wrapper + model
+   > page under `reference/<slug>/…`; a single-spec package renders flat
+   > (byte-identical to the pre-federation output).
    > Per-method wrapper docstrings carry, beyond each op `summary`, a synthesized
    > `**Example:**` block (`examples.reference_example`, threaded via `wrapper.py`'s
    > `_reference_example_for`, gated on `docs`): the `client.<object>.<verb>(...)`
@@ -82,9 +143,17 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > (shown verbatim, even for `update`). The reference pages also render the typed
    > signature with clickable request-body model cross-refs via three `mkdocs.yml`
    > mkdocstrings keys (`show_signature_annotations`/`separate_signature`/
-   > `signature_crossrefs`). The `!^_` filter hides wrapper internals
+   > `signature_crossrefs`); field-table Type cells likewise cross-link any field whose
+   > type is a documented model — incl. inside `list[Model]` (`_type_cell`/`_linked_type`
+   > emit a plain-markdown mkdocstrings autoref, `--strict`-safe — guarded by `_emit`'s
+   > own page predicate so it never targets an ungenerated page; the heading-only model
+   > page is what keeps that anchor resolvable). The `!^_` filter hides wrapper internals
    > (`_bindings`/`_serialize`/`_select`/…). The `sdk-docs` nox session builds the
-   > real prisma-browser SDK with docs ON and asserts `mkdocs build --strict`.
+   > real prisma-browser SDK (single-spec, flat reference) **and** the federated
+   > prisma-access SDK (12 sub-packages → `reference/<slug>/…`) with docs ON and
+   > asserts `mkdocs build --strict`; the prisma-access `[[sdk-docs.assert]]` guards
+   > check `search/search_index.json` for the per-sub `reference/<slug>/` prefixes,
+   > proving each federated sub renders at least one reference page.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless
@@ -177,6 +246,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 - `preprocess.py` — Spec preprocessing — generic transforms + parameterized spec-specific helpers.
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
 - `render.py` — Vendor step: render selected component templates into the SDK's extras/.
+- `runtime.py` — Federated runtime-hoist pass (libcst).
 - `smoke.py` — Smoke check: import every generated module (in isolation) and count operations.
 - `wrapper.py` — SDK operation-override helpers + object-granular wrapper render context.
 <!-- /GENERATED:module-map -->
@@ -188,7 +258,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `build(loaded, run_smoke)`
 - `docs.py`
   - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
-  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples)`
+  - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples, subpackage)`
   - `build_docs_context(loaded, project_dir)` — Wrapper introspect of the showcase object -> docs context dict.
 - `examples.py`
   - `synthesize_body(model, variant)` — Real-shaped constructor expression for ``model`` (required fields only).
@@ -198,28 +268,38 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
   - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
   - `ensure_jar()`
-  - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup)`
+  - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
 - `patches.py`
   - `patch_apostrophe_enums(models_dir)`
-  - `rebase_lenient_enums(pkg_dir)`
+  - `rebase_lenient_enums(pkg_dir, package)`
   - `patch_oneof_first_match(models_dir)`
   - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
-  - `apply_generic_patches(pkg_dir)`
+  - `patch_oneof_missing_imports(models_dir, package)` — Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
+  - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
   - `load(path)`
   - `dump(spec, yaml, path)`
   - `collapse_allof(schemas, node, stats)` — Collapse `allOf` whose single structural branch resolves to a non-object.
   - `fix_strings_and_enums(node, stats)` — Repair mojibake strings and dedupe enum members (after repair).
+  - `strip_external_tags(spec, stats)` — Remove the non-standard top-level `ExternalTags` key (trips OAG validation).
   - `clean(spec, stats)` — Run all generic, spec-agnostic transforms.
   - `hoist_items(spec, hoists, stats)` — Hoist nested inline array-item objects into named components.
+  - `normalize_operation_ids(spec, strip_suffix, dots_to_underscore, unify_separator, stats)` — Rewrite every operation's ``operationId`` for OAG-friendly method names.
+  - `fold_server_prefix(spec, base_url, stats)` — Fold a spec's ``servers[]`` URL path-prefix into every operation path.
+  - `resolve_sub_host(spec, base_url)` — The host a federated sub should use.
+  - `spec_declares_header(spec, header_name)` — True if the spec declares ``header_name`` as an ``in: header`` parameter.
+  - `flatten_scm_bodies(spec, stats)` — Lift oneOf/anyOf leaf properties back onto an SCM "configurable object".
+  - `relax_readonly_required(spec, stats)` — Drop server-assigned (``readOnly``) fields from each schema's ``required``.
   - `tag_operations(spec, ops, stats)` — Add tags + operationId to operations that lack them.
 - `provision.py`
   - class `ProvisionError` — Raised when the Java toolchain cannot be provisioned.
   - `cache_dir()` — Shared on-disk cache for the OAG jar and the managed JRE.
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
-  - `vendor(pkg_dir, loaded, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
+  - `vendor(pkg_dir, loaded, package, context, distribution_root, suppress_auth, operations, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
+- `runtime.py`
+  - `hoist_runtime(project_dir, root_package, slugs)` — Collapse the per-sub OAG runtime into one shared ``<root>/_runtime/``.
 - `smoke.py`
   - class `SmokeError` — Raised when the isolated smoke environment cannot be provisioned.
   - `smoke(project_dir, package, run)` — Verify a built SDK: count operations and (unless skipped) import-walk it.

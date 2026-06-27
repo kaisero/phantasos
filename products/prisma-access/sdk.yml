@@ -1,0 +1,89 @@
+package: prisma_access
+output: ../../../prisma-access-sdk
+base_url: https://api.strata.paloaltonetworks.com
+auth: {type: scm_oauth}
+# Opt-in user docs (mkdocs). Federated: gen_ref_pages loops `_SUBPACKAGES` and
+# groups every sub's wrapper + model pages under `reference/<slug>/…`. The guides
+# showcase the FIRST sub-package's clean CRUD object — `client.objects.address`
+# (`showcase_subpackage` selects the sub whose `.models`/wrappers the docs context
+# introspects; `showcase_resource` is its wrapper object).
+docs:
+  showcase_subpackage: objects
+  showcase_resource: address
+  site_name: Prisma Access SDK
+# Full 12-spec federation (P2.2). `objects` is FIRST = the runtime-hoist donor (clean
+# CRUD). Each sub owns its spec; anchorless None-classified ops (PUT replaces / non-CRUD
+# verb-phrase actions with no CRUD sibling) are bound or hidden via per-sub `operations:`
+# (the facade vendor raises on an unbound one — naming the op). posture declares no
+# `security` in its spec; that is FINE — the transport-level `_BearerApiClient` attaches
+# the bearer regardless (no spec mutation / inject_security).
+subpackages:
+  - {slug: objects, spec: openapi/objects.yaml}
+  - slug: network_services
+    spec: openapi/network-services.yaml
+    skip_validate_spec: true   # OAS 3.1 false positive under OAG validation
+    operations:
+      # The spec's operationId has a typo ("vlanl"), so the PUT can't anchor to the
+      # vlan_interface object by name — bind it explicitly as a replace.
+      vlan_interfaces.update_vlanl_interfaces_by_id: {resource: vlan_interface, method: replace}
+  - slug: ztna_connector
+    spec: openapi/ztna-connector.yaml
+    normalize_operation_ids: {strip_suffix: .v2, dots_to_underscore: true, unify_separator: _}
+    operations:
+      # ztna's non-CRUD ops carry no CRUD anchor on their api class, so bind each to
+      # an explicit (object, method) — the design's "operations: for residue".
+      connector.download_connector_packet_capture_file: {resource: connector_packet_capture, method: download}
+      tenant.start_offboarding: {resource: tenant, method: start_offboarding}
+      tenant.start_onboarding: {resource: tenant, method: start_onboarding}
+  - {slug: config_operations, spec: openapi/config-operations.yaml}
+  - slug: config_setup
+    spec: openapi/config-setup.yaml
+    operations:
+      # snippet_snapshots api class carries NO CRUD op — its 7 POST/PUT actions have
+      # no object to anchor to; bind each to the `snippet_snapshot` object (verb-phrase
+      # names itself: compare/convert/diff/load/publish/save, update_*→replace).
+      snippet_snapshots.compare_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.convert_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.diff_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.load_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.publish_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.save_snippet_snapshot: {resource: snippet_snapshot}
+      snippet_snapshots.update_snippet_snapshot: {resource: snippet_snapshot}
+      # PUT replace whose `_by_snippet_id` tail blocks the name-anchor to its object.
+      subscribed_tenants.update_subscribed_tenant_by_snippet_id: {resource: subscribed_tenant, method: replace}
+      # POST validation action on its own api class (no CRUD sibling).
+      trust_validations.validate_trust: {resource: trust_validation, method: validate}
+  - {slug: deployment_services, spec: openapi/deployment-services.yaml}
+  - {slug: device_settings, spec: openapi/device-settings.yaml}
+  - {slug: identity_services, spec: openapi/identity-services.yaml}
+  - slug: incidents
+    spec: openapi/incidents.yaml
+    operations:
+      # POST search action — no CRUD anchor on its api class; bind to the `incident`
+      # object (the sibling get maps to `incident_detail`).
+      incidents_apis.search_incidents: {resource: incident, method: search}
+  - {slug: mobile_agent, spec: openapi/mobile-agent.yaml}
+  - slug: posture
+    spec: openapi/posture.yaml
+    operations:
+      # POST that mints a presigned upload URL (has an introspectable body — a real
+      # resource action, not a multipart upload to hide); bind to `config_upload`.
+      config_file_upload.initiate_config_upload: {resource: config_upload, method: initiate}
+  - {slug: security_services, spec: openapi/security-services.yaml}
+
+# Client-level request headers the SDK sends by default (declared here, NOT
+# derived from any spec). Applied on each sub-package's ApiClient handle from the
+# environment at construction; `required_for` fails loud when its env is unset.
+# OAG applies default_headers last, so this client-level default takes precedence
+# over a per-call `_headers` value. incidents REQUIRES X-PANW-Region
+# (PrismaRegionHeader, required: true); prisma-tenant is optional everywhere.
+default_headers:
+  X-PANW-Region: {env: PANW_REGION, required_for: [incidents, ztna_connector]}
+  prisma-tenant: {env: PRISMA_TENANT, required: false}
+
+project:
+  distribution: prisma-access-sdk
+  description: Python SDK for Palo Alto Networks Prisma Access
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-access-sdk

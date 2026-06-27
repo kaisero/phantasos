@@ -126,3 +126,31 @@ def test_patches_skip_when_to_str_anchor_absent(tmp_path: Path) -> None:
     assert (tmp_path / "inner_no_anchor.py").read_text(
         encoding="utf-8"
     ) == inner_no_anchor
+
+
+def test_oneof_missing_imports_adds_only_existing_siblings(tmp_path: Path) -> None:
+    """A oneOf wrapper that names a branch model in its `_OF_SCHEMAS` list but lacks
+    the import (OAG's primitive-titled-branch defect, e.g. `Number`) gets it added —
+    but only when the sibling module exists, and idempotently."""
+    (tmp_path / "number.py").write_text(
+        "from pydantic import BaseModel\n\n\nclass Number(BaseModel):\n    pass\n",
+        encoding="utf-8",
+    )
+    wrapper = (
+        "from __future__ import annotations\n"
+        "from pydantic import BaseModel\n"
+        "from typing import Optional, Union\n"
+        "from pkg.models.tcp import Tcp\n\n"
+        'PROTO_ONE_OF_SCHEMAS = ["Number", "Tcp", "Ghost"]\n\n\n'
+        "class Proto(BaseModel):\n"
+        "    actual_instance: Optional[Union[Number, Tcp]] = None\n"
+    )
+    (tmp_path / "proto.py").write_text(wrapper, encoding="utf-8")
+
+    assert patches.patch_oneof_missing_imports(tmp_path, package="pkg") == 1
+    text = (tmp_path / "proto.py").read_text(encoding="utf-8")
+    assert "from pkg.models.number import Number\n" in text  # existing sibling added
+    assert "import Ghost" not in text  # no module file -> not invented
+    assert "import Tcp" in text  # the one OAG did emit is untouched
+    # idempotent
+    assert patches.patch_oneof_missing_imports(tmp_path, package="pkg") == 0

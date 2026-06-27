@@ -7,14 +7,33 @@ scaffold with a wrapper-shaped showcase context (object attr, clean verbs, `body
 kwarg) and assert the emitted Markdown is wrapper-correct.
 """
 
+import ast
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import jinja2
 import pytest
+from pydantic import BaseModel, StrictInt, StrictStr
 
 from phantasos import scaffold
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
+
+_GEN_REF = (
+    Path(__file__).parent.parent
+    / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
+)
+
+
+def _render_gen_ref(package: str) -> str:
+    """Render the gen_ref_pages script template directly (package + has_docs only)."""
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(_GEN_REF.parent)),
+        keep_trailing_newline=True,
+        autoescape=jinja2.select_autoescape(),
+        undefined=jinja2.StrictUndefined,
+    )
+    return env.get_template(_GEN_REF.name).render(package=package, has_docs=True)
 
 
 def _ctx(**over: Any) -> dict[str, Any]:
@@ -60,6 +79,7 @@ def _ctx(**over: Any) -> dict[str, Any]:
         # False -> partial CRUD, no update example rendered).
         "showcase": {
             "attr": "application",
+            "call_path": "application",  # single-spec: no sub-package prefix
             "has_create": True,
             "has_read": True,
             "has_list": True,
@@ -171,6 +191,7 @@ def test_getting_started_handles_read_body_arg(tmp_path: Path) -> None:
     # carry body_code, not placeholder) under StrictUndefined.
     showcase: dict[str, Any] = {
         "attr": "thing",
+        "call_path": "thing",
         "has_create": False,
         "has_read": True,
         "has_list": False,
@@ -218,6 +239,8 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
         "!^additional_properties$",
         "!^actual_instance$",
         "!^oneof_schema_",
+        "!^anyof_schema_",  # NEW
+        "!^any_of_schemas$",  # NEW
     ):
         assert pat in mk, pat
     # Tier 0: render the body model type in the signature, as a clickable
@@ -240,11 +263,53 @@ def test_gen_ref_pages_walks_wrapper_resources(tmp_path: Path) -> None:
     # raw api/ classes.
     assert "_WRAPPERS" in script
     assert "extras.resources" in script
-    # oneOf wrapper variant-link rendering is preserved for models.
-    assert "actual_instance" in script
-    assert "One of the following variants" in script
+    # Wrapper pages render inline classified branches (payload field tables +
+    # collapsed SCM container), not the old variant link list.
+    assert "_is_wrapper" in script
+    assert "_classify_branches" in script
+    assert "Placement:" in script
+    assert "One of the following variants" not in script  # old link list is gone
     # the raw api/ subpackage is no longer walked.
     assert 'SUBPACKAGES = ("api", "models")' not in script
+    # valid Python after the legacy single-spec render
+    ast.parse(script)
+
+
+def test_gen_ref_pages_federated_loops_subpackages() -> None:
+    # A federated distribution (prisma_access) exposes `_SUBPACKAGES` on its
+    # top-level package; the script must runtime-detect it and loop the
+    # sub-packages, grouping every wrapper + model page under reference/<slug>/.
+    script = _render_gen_ref("prisma_access")
+    assert 'PACKAGE = "prisma_access"' in script
+    # runtime federation detect against the composer registry (not a jinja flag).
+    assert "_SUBPACKAGES" in script
+    assert 'getattr(pkg, "_SUBPACKAGES", None)' in script
+    # federated dispatch: per slug, the dotted sub-package is prisma_access.<slug>
+    # and the (slug,) prefix makes nav keys / doc paths reference/<slug>/...
+    assert "for slug in subpkgs:" in script
+    assert 'f"{PACKAGE}.{slug}"' in script  # -> prisma_access.<slug>.extras/.models
+    assert "(slug,)" in script  # nav/path prefix -> reference/<slug>/...
+    # single-spec dispatch still present (flat, empty prefix).
+    assert "_emit(PACKAGE, src, ())" in script
+    # the per-page identifiers are built from the dotted sub-package.
+    assert 'f"{dotted_pkg}.extras.resources"' in script
+    ast.parse(script)  # valid Python in the federated render
+
+
+def test_gen_ref_pages_single_spec_byte_identical_modulo_package() -> None:
+    # Federation is a RUNTIME detect, so the rendered script is package-agnostic:
+    # a federated and a single-spec render differ ONLY in the PACKAGE constant.
+    # That pins the legacy single-spec output as byte-identical (the `else:`
+    # branch is reached purely by the absence of `_SUBPACKAGES`).
+    federated = _render_gen_ref("prisma_access")
+    single = _render_gen_ref("prisma_browser")
+    ast.parse(single)
+    diff = [
+        (a, b)
+        for a, b in zip(single.splitlines(), federated.splitlines(), strict=True)
+        if a != b
+    ]
+    assert diff == [('PACKAGE = "prisma_browser"', 'PACKAGE = "prisma_access"')]
 
 
 def test_mkdocs_yaml_safe_with_colon_in_text(tmp_path: Path) -> None:
@@ -321,3 +386,218 @@ def test_docs_context_slots_are_real_wrapper_methods() -> None:
         assert not verb.startswith("_")
         # and it is NOT a raw *Api method name leaking through
         assert "_by_id" not in verb and "_application" not in verb
+
+
+# ---------------------------------------------------------------------------
+# Wrapper inline-rendering helpers (gate-resident: SYNTHETIC wrappers only — the
+# real prisma_access assertions live in tests/test_sdk_docs_wrapper_rendering.py,
+# because prisma-access is NOT built under `nox -s gate`, only `sdk-docs`).
+# ---------------------------------------------------------------------------
+
+
+def _load_gen_helpers(package: str = "prisma_browser") -> dict[str, Any]:
+    """Exec the side-effect-free helper region of the rendered gen script (C4).
+
+    The script imports ``mkdocs_gen_files`` (not a phantasos dep) and runs a
+    driver with side effects; we stub the import and exec only the region BEFORE
+    the ``# --- driver`` sentinel (docstring + imports + pure helper defs).
+    """
+    import sys
+    import types
+
+    script = _render_gen_ref(package)
+    head, sep, _ = script.partition("# --- driver")
+    assert sep, "driver sentinel missing from gen_ref_pages template"
+    sys.modules.setdefault("mkdocs_gen_files", types.ModuleType("mkdocs_gen_files"))
+    ns: dict[str, Any] = {}
+    exec(compile(head, "<gen_ref_helpers>", "exec"), ns)  # noqa: S102
+    return ns
+
+
+# --- Synthetic OAG-shaped wrappers (mirror the real generator output; no
+#     prisma_access import). A wrapper has `<any|one>of_schema_N_validator`
+#     fields + `actual_instance` + `<any|one>_of_schemas`, exactly like OAG emits.
+
+
+class _Static(BaseModel):
+    static: list[StrictStr]
+    additional_properties: dict[str, Any] = {}
+
+
+class _Dynamic(BaseModel):
+    filter: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _GroupType(BaseModel):  # payload wrapper-of-leaves (anyOf)
+    anyof_schema_1_validator: _Static | None = None
+    anyof_schema_2_validator: _Dynamic | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _FolderLeaf(BaseModel):
+    folder: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _SnippetLeaf(BaseModel):
+    snippet: StrictStr
+    additional_properties: dict[str, Any] = {}
+
+
+class _ContainerType(BaseModel):  # standard SCM {folder,snippet,device} container
+    anyof_schema_1_validator: _FolderLeaf | None = None
+    anyof_schema_2_validator: _SnippetLeaf | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _AddressGroups(BaseModel):  # top anyOf: a payload branch + a container branch
+    anyof_schema_1_validator: _GroupType | None = None
+    anyof_schema_2_validator: _ContainerType | None = None
+    actual_instance: Any = None
+    any_of_schemas: set[str] = set()
+
+
+class _AppRisk(BaseModel):  # oneOf scalar union (int | str), like ApplicationsRisk
+    oneof_schema_1_validator: Annotated[StrictStr, "x"] | None = None
+    oneof_schema_2_validator: Annotated[StrictInt, "x"] | None = None
+    actual_instance: int | str | None = None
+    one_of_schemas: set[str] = set()
+
+
+class _UrlInput(BaseModel):
+    url: StrictStr
+
+
+class _Zones(BaseModel):  # oneOf list/dict scalars, like ZonesNetwork
+    oneof_schema_1_validator: list[Annotated[StrictStr, "x"]] | None = None
+    oneof_schema_5_validator: dict[str, Any] | None = None
+    actual_instance: list[str] | object | None = None
+    one_of_schemas: set[str] = set()
+
+
+class _AddRemoveUrls(BaseModel):
+    add: list[StrictStr] = []
+    remove: list[StrictStr] = []
+    additional_properties: dict[str, Any] = {}
+
+
+class _PatchUrls(BaseModel):  # MIXED model + scalar (like browser PatchUrls)
+    oneof_schema_1_validator: Annotated[list[_UrlInput], "x"] | None = None
+    oneof_schema_2_validator: _AddRemoveUrls | None = None
+    actual_instance: _AddRemoveUrls | list[_UrlInput] | None = None
+    one_of_schemas: set[str] = set()
+
+
+def test_wrapper_resolver_handles_anyof_and_scalars() -> None:
+    h = _load_gen_helpers()
+    assert h["_is_wrapper"](_AddressGroups)
+    assert not h["_is_wrapper"](_Static)
+    # variant ORDER follows validator-field order (test-locked).
+    direct = [t.__name__ for t in h["_direct_variants"](_AddressGroups)]
+    assert direct == ["_GroupType", "_ContainerType"]
+    # a scalar-only wrapper is never classified to an empty branch list.
+    assert h["_classify_branches"](_Zones)
+
+
+def test_container_branch_detected_and_payload_isolated() -> None:
+    h = _load_gen_helpers()
+    assert h["_is_container_branch"](_ContainerType)
+    assert not h["_is_container_branch"](_GroupType)
+    branches = h["_classify_branches"](_AddressGroups)
+    kinds = {b["label"]: b["kind"] for b in branches}
+    assert kinds["_ContainerType"] == "container"
+    assert kinds["_GroupType"] == "payload"
+    leaves = [
+        leaf.__name__
+        for b in branches
+        if b["kind"] == "payload"
+        for leaf in b["leaves"]
+    ]
+    assert {"_Static", "_Dynamic"} <= set(leaves)
+
+
+def test_scalar_labels_come_from_actual_instance() -> None:
+    h = _load_gen_helpers()
+    classify = h["_classify_branches"]
+    # int | str -> clean code-span labels (NOT the Annotated[...] validator fields).
+    labels = [b["label"] for b in classify(_AppRisk) if b["kind"] == "scalar"]
+    assert labels == ["`int`", "`str`"]
+    # list/dict scalar wrapper: deduped, never empty.
+    zones = [b["label"] for b in classify(_Zones) if b["kind"] == "scalar"]
+    assert "`list[str]`" in zones
+    assert zones
+
+
+def test_mixed_scalar_and_model_wrapper() -> None:
+    h = _load_gen_helpers()
+    branches = h["_classify_branches"](_PatchUrls)
+    payload = [b["label"] for b in branches if b["kind"] == "payload"]
+    scalars = [b["label"] for b in branches if b["kind"] == "scalar"]
+    assert payload == ["_AddRemoveUrls"]
+    assert scalars == ["`list[_UrlInput]`"]
+
+
+def test_type_label_covers_annotation_buckets() -> None:
+    # the 192 distinct payload-field annotation shapes reduce to 5 buckets (C9).
+    h = _load_gen_helpers()
+    tl = h["_type_label"]
+    assert tl(_UrlInput) == "`_UrlInput`"  # plain class
+    assert tl(_UrlInput | None) == "`_UrlInput`"  # Optional-of-model X | None
+    assert tl(list[_UrlInput]) == "`list[_UrlInput]`"  # List[...]
+    assert tl(Annotated[int, "meta"]) == "`int`"  # Annotated[...] unwrapped
+    assert tl(dict[str, Any]) == "`dict[str, Any]`"  # Dict[...]
+    # no nested backticks (C5)
+    assert "``" not in tl(list[_UrlInput])
+
+
+def test_field_table_renders_plain_markdown() -> None:
+    h = _load_gen_helpers()
+    table = h["_field_table"](_AddRemoveUrls)
+    assert "| Field | Type | Required |" in table
+    assert "| `add` |" in table
+    assert "additional_properties" not in table  # scaffolding excluded
+    assert ":::" not in table  # plain markdown only — no autodoc anchors (C1)
+
+
+def test_field_table_cross_links_documented_model_types() -> None:
+    # R3: a field whose type is a model that gets its OWN reference page renders as an
+    # mkdocstrings autoref link; primitives and undocumented models stay plain text
+    # (the latter keeps `mkdocs --strict` green — no link to a page that doesn't exist).
+    import sys
+    import types
+
+    h = _load_gen_helpers()
+
+    # A model whose module<->class names follow the per-file convention `_public_model`
+    # keys on, registered so it imports — i.e. exactly a model `_emit` WOULD page.
+    paged_mod = types.ModuleType("r3widget")
+
+    class R3Widget(BaseModel):
+        size: int = 0
+
+    R3Widget.__module__ = "r3widget"
+    paged_mod.R3Widget = R3Widget  # type: ignore[attr-defined]
+    sys.modules["r3widget"] = paged_mod
+    try:
+
+        class _Leaf(BaseModel):
+            kind: StrictStr  # primitive -> plain code span
+            widget: R3Widget | None = None  # documented model -> autoref cross-link
+            tags: list[R3Widget] = []  # list[Model]: container kept, inner linked
+            legacy: _UrlInput | None = None  # model with NO page -> plain span
+
+        table = h["_field_table"](_Leaf)
+        assert "| Field | Type | Required | Default | Description |" in table
+        assert "[`R3Widget`][r3widget.R3Widget]" in table  # clickable cross-reference
+        # D2: list[Model] preserves the container and links the inner model
+        assert "list[[`R3Widget`][r3widget.R3Widget]]" in table
+        # primitive unchanged: capitalised Yes, em-dash Default/Description
+        assert "| `kind` | `str` | Yes | — | — |" in table
+        # an undocumented model is NOT linked — plain span only, no autoref brackets
+        assert "`_UrlInput`" in table
+        assert "[`_UrlInput`]" not in table
+    finally:
+        sys.modules.pop("r3widget", None)

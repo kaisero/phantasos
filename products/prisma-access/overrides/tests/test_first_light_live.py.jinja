@@ -1,0 +1,57 @@
+"""Live base-path smoke for the {{ package }} first-light sub-packages.
+
+P1.4 deliverable. The composer (P2.1) that wires one shared transport + per-handle
+``.models`` is NOT built yet, so this exercises the raw mechanism directly: build a
+transport-level bearer client per sub, point its ``.models`` at that sub's namespace,
+and make one real authenticated read. A ``NotFoundException`` (404) means the
+sub's base-path did NOT resolve (the F4 silent-404 risk — P1.2's deferred
+``configuration.py`` donor-collapse); any other outcome means the path resolved.
+
+Skips (never fails) when live credentials are absent, so offline runs and
+credential-less contributors are unaffected. NOT yet enrolled in ``nox -s live``
+(that runs the frozen ``test_sdk_crud_live.py`` oracle and a single facade) — wire
+this in once the composer + a {{ package }} facade exist (P2/P4).
+"""
+
+import os
+
+import pytest
+
+from {{ package }}._auth import api_client_from_env
+from {{ package }}._runtime.exceptions import NotFoundException
+from {{ package }}.objects import AddressesApi
+from {{ package }}.objects import models as objects_models
+from {{ package }}.network_services import SecurityZonesApi
+from {{ package }}.network_services import models as network_services_models
+from {{ package }}.ztna_connector import ConnectorApi
+from {{ package }}.ztna_connector import models as ztna_connector_models
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+# (slug, models module, one representative authenticated read per first-light sub).
+# rev-2 S3: check base-path for ALL three subs, not just one.
+_SUBS = [
+    ("objects", objects_models,
+     lambda ac: AddressesApi(ac).list_addresses(folder="Shared", limit=1)),
+    ("network_services", network_services_models,
+     lambda ac: SecurityZonesApi(ac).list_zones(folder="Shared", limit=1)),
+    ("ztna_connector", ztna_connector_models,
+     lambda ac: ConnectorApi(ac).list_connect_images()),
+]
+
+
+@pytest.mark.parametrize("slug, models, call", _SUBS, ids=[s[0] for s in _SUBS])
+def test_subpackage_base_path_resolves(slug, models, call):
+    """A real authenticated read on each sub must not 404 (base-path resolved)."""
+    ac = api_client_from_env()
+    ac.models = models  # rev-2 B1: per-handle namespace, instance attr
+    try:
+        call(ac)
+    except NotFoundException as exc:  # 404 => base-path wrong (F4 silent-404)
+        pytest.fail(f"{slug} base-path did not resolve (404): {exc}")
+    # Any non-404 outcome (200/400/401/403/...) proves the base-path resolved.

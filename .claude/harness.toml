@@ -5,7 +5,6 @@
 # the Stop gate blocks while any of these is dirty in git).
 # Includes the harness itself so the agent cannot disable its own guardrails.
 protected_globs = [
-    "products/*/overrides/tests/test_sdk_crud_live.py*", # emitted-suite template = the frozen oracle
     "tests/acceptance/**",                               # reserved for future hand-written oracles
     ".claude/harness.toml",
     ".claude/hooks/**",

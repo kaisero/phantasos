@@ -135,6 +135,55 @@ def test_nested_error_without_wrapper_still_works() -> None:
     assert mod.error_message(exc) == "plain"
 
 
+_AUTH_PARAMS = {
+    "config_class_name": "SdkConfiguration",
+    "base_url": "https://h",
+    "token_url": "https://t",
+    "client_id_env": "CID",
+    "client_secret_env": "CSEC",
+    "scope_env": "SCOPE",
+    "base_url_env": "BURL",
+    "has_retry": False,
+}
+_GOLDEN_SINGLE = Path(__file__).parent / "golden" / "scm_oauth_single_spec.golden.txt"
+
+
+def _render_auth(**extra: object) -> str:
+    return (
+        render._env()
+        .get_template("auth/scm_oauth.py.jinja")
+        .render(**{**_AUTH_PARAMS, **extra})
+    )
+
+
+def test_federated_auth_emits_bearer_client_and_config_factory() -> None:
+    """federated=True appends the transport-level bearer client + config factories."""
+    txt = _render_auth(federated=True)
+    assert "class _BearerApiClient(ApiClient):" in txt
+    assert "def update_params_for_auth" in txt
+    # Unconditional bearer at the transport layer (works for posture's empty auth).
+    bearer = 'headers["Authorization"] = f"Bearer {self.configuration.access_token}"'
+    assert bearer in txt
+    assert "def configuration_from_env" in txt
+    assert "def configuration_from_credentials" in txt
+    # Runtime imported ABSOLUTELY (rev-2 S1) — _auth.py sits at the package root,
+    # so `..` would escape it.
+    assert "from prisma_access._runtime.api_client import ApiClient" in txt
+    assert "from prisma_access._runtime.configuration import Configuration" in txt
+    assert "from ..api_client import ApiClient" not in txt
+    ast.parse(txt)
+
+
+def test_single_spec_auth_render_is_byte_identical() -> None:
+    """federated unset/false keeps the single-spec extras/auth.py byte-unchanged."""
+    golden = _GOLDEN_SINGLE.read_text(encoding="utf-8")
+    assert _render_auth() == golden  # default (federated unset)
+    assert _render_auth(federated=False) == golden  # explicit false
+    # The federated-only surface must NOT leak into single-spec output.
+    assert "_BearerApiClient" not in golden
+    assert "from ..api_client import ApiClient" in golden
+
+
 def _make_pkg(tmp_path: Path) -> Path:
     """Create a minimal generated package dir with an api/__init__.py."""
     pkg = tmp_path / "demo"
@@ -531,3 +580,110 @@ def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
         _purge_pb_extras()
         if str(_SDK) in sys.path:
             sys.path.remove(str(_SDK))
+
+
+def test_composer_emits_client_and_subpackages_registry() -> None:
+    """The composer renders one Client, the shared-pool wiring, and _SUBPACKAGES."""
+    # The sdk package re-exports the build() function (shadowing the build module
+    # as an attribute), so import the helper from the module path directly.
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "network_services", "ztna_connector"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+    )
+    assert "_SUBPACKAGES = {" in txt
+    assert '"objects":' in txt
+    assert "class Client" in txt
+    assert "self.objects =" in txt
+    assert "rest_client" in txt  # shared pool wiring
+    assert ".models = _objects_models" in txt  # rev-2 B1 instance attr
+    assert "configuration_from_env" in txt  # auth config factory
+    # Renders to valid Python (no Jinja syntax slips through).
+    ast.parse(txt)
+    # No default_headers passed -> no `import os`, no apply loop (single-spec /
+    # header-less federated products are unaffected).
+    assert "import os" not in txt
+    assert "default_headers" not in txt
+
+
+def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
+    """default_headers render an env-sourced apply ONLY on subs whose spec declares
+    the header (spec-driven scoping via `declared_by`) + a fail-loud guard on the
+    slug a header is `required_for`."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "incidents"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        headers=[
+            {
+                "name": "X-PANW-Region",
+                "env": "PANW_REGION",
+                "required": False,
+                "required_for": ["incidents"],
+                "declared_by": ["incidents"],  # objects never declares it
+            },
+            {
+                "name": "prisma-tenant",
+                "env": "PRISMA_TENANT",
+                "required": False,
+                "required_for": [],
+                "declared_by": ["incidents"],
+            },
+        ],
+    )
+    assert "import os" in txt
+    assert 'os.environ.get("PANW_REGION")' in txt
+    assert 'os.environ.get("PRISMA_TENANT")' in txt
+    # Header is set on the ApiClient handle's .default_headers (rev-2 B6), not config.
+    assert '_ac_incidents.default_headers["X-PANW-Region"] = _v' in txt
+    # spec-driven scoping: objects does NOT declare X-PANW-Region -> no apply emitted.
+    assert '_ac_objects.default_headers["X-PANW-Region"]' not in txt
+    # required_for guard: incidents raises a clear RuntimeError naming env + sub.
+    assert "raise RuntimeError(" in txt
+    assert "'incidents' is unset" in txt
+    assert "set the PANW_REGION environment variable" in txt
+    # objects is NOT required_for X-PANW-Region -> no raise for it.
+    assert "'objects' is unset" not in txt
+    # prisma-tenant is optional everywhere -> never raises.
+    assert "PRISMA_TENANT environment variable" not in txt
+    ast.parse(txt)
+
+
+def test_composer_emits_per_sub_host_override() -> None:
+    """A sub on a different gateway gets a host-overridden config copy (sharing the
+    TokenManager + pool); others use the shared configuration."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "ztna_connector"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        host_overrides={"ztna_connector": "https://api.sase.paloaltonetworks.com"},
+    )
+    assert "import copy" in txt
+    # ztna_connector: copied config with the override host, handle built from the copy
+    assert "_cfg_ztna_connector = copy.copy(configuration)" in txt
+    assert '_cfg_ztna_connector.host = "https://api.sase.paloaltonetworks.com"' in txt
+    assert "_ac_ztna_connector = _BearerApiClient(_cfg_ztna_connector)" in txt
+    # objects: shared configuration, no copy
+    assert "_ac_objects = _BearerApiClient(configuration)" in txt
+    assert "_cfg_objects" not in txt
+    ast.parse(txt)
+
+
+def test_composer_no_copy_import_when_no_host_overrides() -> None:
+    """No host overrides -> no `import copy` (would be an unused import)."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+    )
+    assert "import copy" not in txt
+    assert "_ac_objects = _BearerApiClient(configuration)" in txt
+    ast.parse(txt)
