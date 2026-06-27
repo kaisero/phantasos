@@ -7,6 +7,7 @@ install. SDK-specific tests live with each generated SDK, not here.
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -23,6 +24,13 @@ from phantasos.generator.cli.cliconfig import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+# Tests assert colour behaviour explicitly: CliRunner invokes run non-TTY (Rich emits
+# plain text), and the few colour-positive tests force their own terminal. An ambient
+# FORCE_COLOR (some CI/agent shells set it) overrides Rich's auto-detection and leaks
+# ANSI into the "plain output" assertions. Drop it so emitted-CLI output is
+# deterministic regardless of the caller's environment.
+os.environ.pop("FORCE_COLOR", None)
 
 
 @contextmanager
