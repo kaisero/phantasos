@@ -238,6 +238,8 @@ def test_mkdocs_enables_griffe_pydantic_and_filters(tmp_path: Path) -> None:
         "!^additional_properties$",
         "!^actual_instance$",
         "!^oneof_schema_",
+        "!^anyof_schema_",  # NEW
+        "!^any_of_schemas$",  # NEW
     ):
         assert pat in mk, pat
     # Tier 0: render the body model type in the signature, as a clickable
