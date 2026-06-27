@@ -327,6 +327,69 @@ def spec_declares_header(spec: Any, header_name: str) -> bool:
     return False
 
 
+_PLACEMENT = {"folder", "snippet", "device"}
+
+
+def _leaf_props(node: Any) -> Any:
+    """Yield ``(name, property_schema)`` for every leaf reachable through
+    oneOf/anyOf (any depth).
+
+    A leaf is a composition branch carrying ``properties`` — ALL of which are
+    yielded (multi-field branches like nat-rules' destination-translation, which
+    has ``required: []``, must not be reduced to their required fields), or a
+    bare ``required``-only branch (yielded as plain strings).
+
+    KNOWN LIMITATION: a ``{$ref, title}`` branch (the rare alternative form — e.g.
+    ``dhcp`` on layer3-/vlan-interfaces) yields nothing. That field is not lifted;
+    this is documented, not a silent drop.
+    """
+    for key in ("oneOf", "anyOf"):
+        for b in node.get(key) or []:
+            if not isinstance(b, dict):
+                continue
+            if "oneOf" in b or "anyOf" in b:
+                yield from _leaf_props(b)
+                continue
+            props = b.get("properties") or {}
+            if props:
+                for n, sch in props.items():  # ALL props, not just `required`
+                    yield n, sch
+            else:
+                for n in b.get("required") or []:  # required-only branch
+                    yield n, {"type": "string"}
+
+
+def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
+    """Lift oneOf/anyOf leaf properties back onto an SCM "configurable object".
+
+    openapi-generator keeps only the composition when a schema has ``properties``
+    + a sibling ``oneOf``/``anyOf``, discarding the payload. This re-merges every
+    reachable leaf onto ``properties`` (merge-don't-clobber; lifted leaves stay
+    optional) and removes the composition — but ONLY for schemas whose reachable
+    leaf set contains a placement marker (``folder``/``snippet``/``device``), the
+    universal SCM configurable-object signature. Real discriminated unions lacking
+    that marker are left untouched (the corruption guard). Loops top-level
+    ``components.schemas`` only.
+    """
+    schemas = (spec.get("components") or {}).get("schemas") or {}
+    for s in schemas.values():
+        if not isinstance(s, dict) or "properties" not in s:
+            continue
+        if "oneOf" not in s and "anyOf" not in s:
+            continue
+        leaves = dict(_leaf_props(s))
+        if not (_PLACEMENT & set(leaves)):  # GUARD: only configurable SCM objects
+            continue
+        props = s["properties"]
+        for n, sch in leaves.items():
+            if n not in props:  # merge-don't-clobber
+                props[n] = sch  # intentionally NOT added to `required`
+        s.pop("oneOf", None)
+        s.pop("anyOf", None)
+        if stats is not None:
+            stats["flatten_scm_bodies"] = stats.get("flatten_scm_bodies", 0) + 1
+
+
 def tag_operations(
     spec: Any,
     ops: list[tuple[str, str, str, str]],

@@ -8,6 +8,7 @@ latin-1->utf-8 mojibake repair, and the `hoist_items` / `tag_operations`
 skip-and-apply paths that the build-driven tests never reach directly.
 """
 
+import copy
 from collections import defaultdict
 from typing import Any
 
@@ -448,3 +449,244 @@ def test_resolve_sub_host_falls_back_to_base_when_no_servers() -> None:
 
     base = "https://api.strata.paloaltonetworks.com"
     assert resolve_sub_host({}, base) == base
+
+
+# ---- flatten_scm_bodies ---------------------------------------------------------
+# openapi-generator keeps only the composition (oneOf/anyOf) when a schema has
+# `properties` + a sibling oneOf/anyOf, dropping the payload. `flatten_scm_bodies`
+# lifts each reachable leaf property back onto `properties` — but ONLY for SCM
+# "configurable objects", recognized by the placement marker {folder,snippet,device}
+# appearing in the reachable leaf set. Everything else (the 15 real discriminated
+# unions) is left untouched.
+
+
+def test_flatten_placement_only_schema_flattens_and_keeps_real_schema() -> None:
+    # The base case: {properties:{name}, oneOf:[folder, snippet, device]} -> a flat
+    # model carrying name + all three placement options, oneOf removed. The lifted
+    # `folder` keeps its REAL schema (maxLength), not a synthesized bare string, and
+    # the placement options are optional (never added to `required`).
+    spec = _spec_with(
+        {
+            "Tag": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "maxLength": 63}},
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "title": "folder",
+                        "properties": {"folder": {"type": "string", "maxLength": 64}},
+                        "required": ["folder"],
+                    },
+                    {
+                        "type": "object",
+                        "title": "snippet",
+                        "properties": {"snippet": {"type": "string"}},
+                        "required": ["snippet"],
+                    },
+                    {
+                        "type": "object",
+                        "title": "device",
+                        "properties": {"device": {"type": "string"}},
+                        "required": ["device"],
+                    },
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["Tag"]
+    assert "oneOf" not in s
+    assert "anyOf" not in s
+    assert set(s["properties"]) == {"name", "folder", "snippet", "device"}
+    # real property schema lifted intact (merge-don't-clobber, not bare string)
+    assert s["properties"]["folder"] == {"type": "string", "maxLength": 64}
+    # placement options are optional, not added to required
+    assert s["required"] == ["name"]
+    assert stats["flatten_scm_bodies"] == 1
+
+
+def test_flatten_membership_plus_placement_merges_all_leaves() -> None:
+    # addresses-style: anyOf[ oneOf(value types), oneOf(placement) ]. Every value
+    # leaf and every placement leaf is merged onto `properties` (all optional).
+    spec = _spec_with(
+        {
+            "Address": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "anyOf": [
+                    {
+                        "title": "address_type",
+                        "oneOf": [
+                            {
+                                "properties": {"ip_netmask": {"type": "string"}},
+                                "required": ["ip_netmask"],
+                            },
+                            {
+                                "properties": {"fqdn": {"type": "string"}},
+                                "required": ["fqdn"],
+                            },
+                        ],
+                    },
+                    {
+                        "title": "container_type",
+                        "oneOf": [
+                            {
+                                "properties": {"folder": {"type": "string"}},
+                                "required": ["folder"],
+                            },
+                            {
+                                "properties": {"snippet": {"type": "string"}},
+                                "required": ["snippet"],
+                            },
+                            {
+                                "properties": {"device": {"type": "string"}},
+                                "required": ["device"],
+                            },
+                        ],
+                    },
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["Address"]
+    assert "anyOf" not in s
+    assert set(s["properties"]) == {
+        "name",
+        "ip_netmask",
+        "fqdn",
+        "folder",
+        "snippet",
+        "device",
+    }
+    assert stats["flatten_scm_bodies"] == 1
+
+
+def test_flatten_multifield_branch_merges_every_field() -> None:
+    # C1 regression guard: a nat-rules dest-translation branch carries MULTIPLE
+    # properties and no `required`. `_leaf_props` must yield ALL of them, not just
+    # the `required` ones — otherwise dest-NAT fields are silently dropped. The
+    # placement oneOf is what makes the gate fire.
+    spec = _spec_with(
+        {
+            "NatRules": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "anyOf": [
+                    {
+                        "oneOf": [
+                            {
+                                "title": "destination_translation",
+                                "type": "object",
+                                "properties": {
+                                    "translated_address": {"type": "string"},
+                                    "translated_port": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 65535,
+                                    },
+                                },
+                            }
+                        ]
+                    },
+                ],
+                "oneOf": [
+                    {
+                        "properties": {"folder": {"type": "string"}},
+                        "required": ["folder"],
+                    },
+                    {
+                        "properties": {"snippet": {"type": "string"}},
+                        "required": ["snippet"],
+                    },
+                    {
+                        "properties": {"device": {"type": "string"}},
+                        "required": ["device"],
+                    },
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["NatRules"]
+    assert "oneOf" not in s
+    assert "anyOf" not in s
+    assert "translated_address" in s["properties"]
+    assert "translated_port" in s["properties"]
+    # the real (integer, bounded) schema is lifted, not a synthesized string
+    assert s["properties"]["translated_port"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+    }
+    assert {"folder", "snippet", "device"} <= set(s["properties"])
+    assert stats["flatten_scm_bodies"] == 1
+
+
+def test_flatten_leaves_no_placement_union_untouched() -> None:
+    # Over-reach guard: a real discriminated union with no placement marker (e.g. a
+    # schedule's hourly/daily) must be left exactly as-is. No flatten, no stat bump.
+    spec = _spec_with(
+        {
+            "Schedule": {
+                "type": "object",
+                "properties": {"x": {"type": "string"}},
+                "oneOf": [
+                    {
+                        "properties": {"hourly": {"type": "array"}},
+                        "required": ["hourly"],
+                    },
+                    {"properties": {"daily": {"type": "array"}}, "required": ["daily"]},
+                ],
+            }
+        }
+    )
+    before = copy.deepcopy(spec)
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    assert spec == before
+    assert "flatten_scm_bodies" not in stats
+
+
+def test_flatten_collision_merges_does_not_clobber() -> None:
+    # zones-style: a real `folder` property already exists AND a `folder` placement
+    # branch. Merge-don't-clobber keeps the existing property untouched and adds
+    # only the missing snippet/device — no `folder_1`.
+    spec = _spec_with(
+        {
+            "Zone": {
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string", "description": "real folder prop"}
+                },
+                "oneOf": [
+                    {
+                        "properties": {"folder": {"type": "string", "maxLength": 64}},
+                        "required": ["folder"],
+                    },
+                    {
+                        "properties": {"snippet": {"type": "string"}},
+                        "required": ["snippet"],
+                    },
+                    {
+                        "properties": {"device": {"type": "string"}},
+                        "required": ["device"],
+                    },
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["Zone"]
+    assert s["properties"]["folder"] == {
+        "type": "string",
+        "description": "real folder prop",
+    }
+    assert "folder_1" not in s["properties"]
+    assert set(s["properties"]) == {"folder", "snippet", "device"}
+    assert stats["flatten_scm_bodies"] == 1
