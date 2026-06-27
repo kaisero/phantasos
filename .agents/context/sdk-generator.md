@@ -43,6 +43,24 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    `transforms:` block drives `preprocess.hoist_items()` / `tag_operations()`,
    and a product `hooks.py::preprocess(spec)` runs last. The result is dumped via
    `preprocess.dump()` to `<out>/.phantasos/preprocessed.yaml`.
+
+   > **SCM body reshape (federated loop).** The federated build also runs two
+   > guarded transforms per sub-spec (after `clean`/`fold_server_prefix`):
+   > `flatten_scm_bodies()` and `relax_readonly_required()`. SCM specs give each
+   > "configurable object" a `properties` block (`name`, value fields, …) **plus** a
+   > sibling `oneOf`/`anyOf` enforcing "exactly one of folder/snippet/device" — and
+   > OAG keeps only the composition, discarding the payload, so the generated body
+   > model can express *nothing but* the placement container. `flatten_scm_bodies`
+   > lifts every reachable oneOf/anyOf **leaf** property back onto `properties`
+   > (merge-don't-clobber, lifted leaves stay optional) and drops the composition —
+   > but **only** for schemas whose leaf set contains the placement marker
+   > `{folder, snippet, device}` (the corruption guard that spares the real nested
+   > value-unions like ike-crypto lifetime), top-level `components.schemas` only.
+   > Across the 12 specs it fires on **119** schemas (pinned in `test_sdk_build.py`).
+   > `relax_readonly_required` then drops server-assigned `readOnly` fields (`id`,
+   > `fqdn`, …) from each schema's `required`, so `create()` no longer demands a
+   > value the client cannot supply. The reshaped bodies are validated end-to-end by
+   > the live CRUD round-trip (`overrides/tests/test_scm_crud_live.py`).
 2. **Generate** — `generate.write_openapi_generator_ignore()` then
    `generate.generate()` in `generate.py` invoke OAG (python generator).
    Provisioning is lazy and lives in this stage: `generate.generate()` calls
@@ -52,7 +70,11 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    by earlier builds.
 3. **Patches** — when enabled, `patches.apply_generic_patches()` in `patches.py`
    fixes apostrophe enums, rebases enums onto lenient bases, and rewrites oneOf
-   to first-match. It also attaches pydantic `model_serializer`s so `model_dump()`
+   to first-match. `patch_oneof_missing_imports()` adds the model import OAG omits
+   for a oneOf branch it also renders as a primitive validator (e.g. a numeric branch
+   titled `Number` → `oneof_schema_1_validator: Optional[float]` but no import) — a
+   dangling forward ref that only surfaces once the SCM flatten restores deep payloads
+   and `model_rebuild()` (introspect/docs) trips `NameError`. It also attaches pydantic `model_serializer`s so `model_dump()`
    unwraps each oneOf wrapper to its `actual_instance` (no scaffolding leak) and
    omits empty `additional_properties` bags (non-empty bags preserved); the wrap
    handler respects `exclude=`, so the `to_dict()` request path is byte-unchanged.
@@ -243,6 +265,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `patch_oneof_first_match(models_dir)`
   - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
+  - `patch_oneof_missing_imports(models_dir, package)` — Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
   - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
   - `load(path)`

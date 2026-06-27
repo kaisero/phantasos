@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Generated SDKs for SCM-family specs (prisma-access) now reshape each "configurable
+  object" body so it can carry its real fields. openapi-generator keeps only the
+  `oneOf`/`anyOf` "exactly one of folder/snippet/device" container and discards the
+  sibling payload, leaving body models that can express nothing but placement; a new
+  guarded preprocess transform (`flatten_scm_bodies`, fires on 119 schemas across the
+  12 specs) lifts every reachable composition leaf back onto the model as optional
+  fields, while `relax_readonly_required` drops server-assigned `readOnly` fields
+  (`id`, …) from `required` so `create()` no longer demands them. Real nested
+  value-unions (lacking the placement marker) are left untouched. A live CRUD
+  round-trip on `objects.tag` and `objects.address` proves the reshaped bodies are
+  accepted on-wire (`{name, ip_netmask, folder}`, not just `{folder}`).
 - Generated SDK reference docs now render openapi-generator anyOf/oneOf **wrapper**
   model pages as the real payload (synthesized field tables, grouped by branch) with
   the SCM container collapsed to a one-line `Placement:`, instead of the
@@ -110,6 +121,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The SDK patch step now repairs an openapi-generator defect where a `oneOf` wrapper
+  names a branch model it also renders as a primitive validator (e.g. a numeric
+  `Number` branch) without importing it — a dangling forward reference that only
+  surfaces once the SCM body reshape restores deep payloads and breaks
+  `model_rebuild()` during introspection/docs.
 - Generated CLIs now render clean payloads for oneOf endpoints (e.g. `show access-and-data-policy`): the openapi-generator wrapper scaffolding (`actual_instance`, `one_of_schemas`, `oneof_schema_*_validator`, `discriminator_value_class_map`) no longer leaks into `--output json/yaml`, and empty `additional_properties: {}` bags are omitted (non-empty bags — fields the spec hasn't caught up to — are preserved). Two generic SDK serializer patches drive this, so every `model_dump()` consumer benefits; the outbound request path (which uses `to_dict()`) is unchanged. Curated/default table columns for oneOf list commands now resolve against the real variant fields (e.g. `application`, `access-and-data-policy`) instead of showing the wrapper.
 - Generated CLIs (with an auth component) now report a clean, actionable error instead of a raw traceback when no credentials are configured on the first command: a descriptor-driven pre-flight names the missing required credential variables (and the active environment, if any) and points to both `environment create` and the credential env vars (exit code `2`). A genuine auth failure when credentials *are* present (e.g. a token-endpoint error) is likewise reported cleanly with exit code `1`; `--verbose` still surfaces the traceback. The SCM `base_url` credential is now correctly treated as optional (the SDK host has a default).
 - Generated CLIs now report a clear error when a `show <object>` is backed only by a get-by-id operation and the API exposes no list endpoint (e.g. `show access-and-data-rule`, `show access-and-data-section`): instead of the generic `no operation for '…' matches the given arguments`, the CLI prints `'show <object>' has no list operation` with a hint to fetch a single object by `--id` (exit code `2`). Detected at build time via a new `Command.get_by_id_only` IR flag.

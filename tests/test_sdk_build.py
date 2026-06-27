@@ -150,7 +150,11 @@ def test_full_federation_twelve_subpackages(
     # the hoist's delete-per-sub-runtime step and intermittently leak a per-sub
     # `api_client.py`. A per-run output dir makes the build hermetic.
     loaded.output_dir = tmp_path / "prisma-access-sdk"
-    build(loaded, run_smoke=False)
+    result = build(loaded, run_smoke=False)
+    # SCM body reshape fires on exactly 119 configurable-object schemas across the 12
+    # specs (108 placement-only + 11 value-type/membership). Measured on the real
+    # specs; pinned so a spec change that silently alters the reshaped surface fails.
+    assert result["preprocess"]["flatten_scm_bodies"] == 119
     root = loaded.output_dir / "prisma_access"
     for slug in _ALL_SLUGS:
         assert (root / slug / "__init__.py").exists()

@@ -140,20 +140,26 @@ def _page(pages: dict[str, str], suffix: str) -> str:
     return matches[0]
 
 
-def test_anyof_wrapper_inlines_payload_and_collapses_container() -> None:
+def test_anyof_wrapper_inlines_variant_field_tables() -> None:
+    """A surviving prisma_access anyOf/oneOf wrapper inlines each variant's fields as
+    a table, leaks no generator scaffolding, and emits exactly one autodoc block.
+
+    (Previously pinned AddressGroups — now flattened to a plain model by the SCM body
+    reshape, along with every other SCM "configurable object", so the only anyOf/oneOf
+    wrappers left in prisma_access are the real nested value-unions like this one
+    (ike-crypto lifetime = seconds|minutes|hours|days). That keeps prisma_access
+    wrapper-page coverage alive on a model the reshape deliberately does NOT touch.)
+    """
     pages = _capture("prisma_access", _PA_SDK)
-    ag = _page(pages, "objects/models/address_groups.md")
-    # payload leaves rendered inline as field tables
-    assert "Static" in ag and "Dynamic" in ag
-    assert "| Field | Type | Required |" in ag
-    # SCM container collapsed to one line; no folder/snippet field rows
-    assert "Placement:" in ag
-    assert "| `folder` |" not in ag and "| `snippet` |" not in ag
+    lt = _page(pages, "network_services/models/ike_crypto_profiles_lifetime.md")
+    # each variant rendered inline as a field table
+    assert "Seconds" in lt and "Minutes" in lt
+    assert "| Field | Type | Required |" in lt
     # no oneOf/anyOf scaffolding leaked
     for noise in ("anyof_schema_", "any_of_schemas", "actual_instance"):
-        assert noise not in ag, noise
+        assert noise not in lt, noise
     # exactly ONE autodoc block (the wrapper's own) -> no duplicate primary anchors
-    assert ag.count("::: ") == 1
+    assert lt.count("::: ") == 1
 
 
 def test_scalar_only_wrapper_lists_its_types_never_blank() -> None:
@@ -183,56 +189,55 @@ def test_plain_model_page_is_byte_identical_single_autodoc() -> None:
 
 
 def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:
-    """A real anyOf wrapper body synthesizes the FULLY nested, constructable
-    form ``AddressGroups(GroupType(Static(...)))`` — never an opaque placeholder,
-    and never the bare leaf the model rejects (C2). Skipped on the gate (no
-    prisma-access build); the real-model construction is the proof string/unit
-    tests can't give.
+    """A real oneOf wrapper body synthesizes the nested, constructable form
+    ``PolicyItem(RuleSummary(...))`` — never an opaque ``PolicyItem(...)`` placeholder,
+    and never the bare leaf the wrapper rejects. Skipped on the gate (no built SDKs);
+    the real-model construction is the proof string/unit tests can't give.
+
+    (Previously exercised AddressGroups(GroupType(Static(…))) — AddressGroups is now a
+    flat model after the SCM body reshape, so its leaf wrapper modules are gone. The
+    same synthesize-and-construct invariant now rides prisma_browser's surviving
+    ``PolicyItem`` oneOf wrapper.)
     """
     import importlib
 
     from phantasos.generator.sdk.examples import synthesize_body
 
-    added = str(_PA_SDK) not in sys.path
+    added = str(_BR_SDK) not in sys.path
     if added:
-        sys.path.insert(0, str(_PA_SDK))
-    # Purge any SYNTHETIC `prisma_access` other tests cached so the import
-    # resolves against the real built SDK on sys.path.
+        sys.path.insert(0, str(_BR_SDK))
     stashed = {
         k: sys.modules.pop(k)
         for k in list(sys.modules)
-        if k == "prisma_access" or k.startswith("prisma_access.")
+        if k == "prisma_browser" or k.startswith("prisma_browser.")
     }
     try:
-        base = "prisma_access.objects.models"
-        ag = importlib.import_module(f"{base}.address_groups")
-        gt = importlib.import_module(f"{base}.group_type")
-        st = importlib.import_module(f"{base}.static")
-        dy = importlib.import_module(f"{base}.dynamic")
-        out = synthesize_body(ag.AddressGroups)
-        assert "AddressGroups(...)" not in out  # not opaque
-        assert "AddressGroups(GroupType(Static(" in out  # full nesting
-        assert "folder=" not in out and "snippet=" not in out  # container skipped
-        # the proof unit tests can't give: it actually constructs (bare/unwrapped
-        # forms raise ValidationError on the real model).
+        base = "prisma_browser.models"
+        pi = importlib.import_module(f"{base}.policy_item")
+        rs = importlib.import_module(f"{base}.rule_summary")
+        sec = importlib.import_module(f"{base}.section")
+        out = synthesize_body(pi.PolicyItem)
+        assert "PolicyItem(...)" not in out  # not opaque
+        assert "PolicyItem(RuleSummary(" in out  # nested into the first variant
+        # the proof unit tests can't give: it actually constructs (a bare/unwrapped
+        # form raises ValidationError on the real wrapper).
         ns = {
-            "AddressGroups": ag.AddressGroups,
-            "GroupType": gt.GroupType,
-            "Static": st.Static,
-            "Dynamic": dy.Dynamic,
+            "PolicyItem": pi.PolicyItem,
+            "RuleSummary": rs.RuleSummary,
+            "Section": sec.Section,
         }
         obj = eval(out, ns)  # noqa: S307
-        assert type(obj.actual_instance.actual_instance).__name__ == "Static"
+        assert type(obj.actual_instance).__name__ == "RuleSummary"
     finally:
         for k in [
             k
             for k in sys.modules
-            if k == "prisma_access" or k.startswith("prisma_access.")
+            if k == "prisma_browser" or k.startswith("prisma_browser.")
         ]:
             del sys.modules[k]
         sys.modules.update(stashed)
-        if added and str(_PA_SDK) in sys.path:
-            sys.path.remove(str(_PA_SDK))
+        if added and str(_BR_SDK) in sys.path:
+            sys.path.remove(str(_BR_SDK))
 
 
 def test_every_wrapper_page_has_a_single_autodoc_block() -> None:

@@ -1,0 +1,95 @@
+"""Live SCM CRUD round-trip — the gating proof the flattened bodies are accepted.
+
+openapi-generator drops the oneOf/anyOf payload on every SCM "configurable object"
+(see the ``flatten_scm_bodies`` preprocess transform), leaving a body model that can
+only express ``folder``/``snippet``/``device``. The flatten restores the real fields
+(``name``, ``ip_netmask``/``fqdn``, ``static``/``dynamic`` …). This suite proves the
+RESHAPED bodies actually serialize their value fields onto the wire AND that the tenant
+accepts them, via real create -> get -> delete through the typed resource wrappers:
+
+  * ``tag`` — the pure-reshape case (``Tags`` has no readOnly+required ``id``), so a
+    green ``{name, folder}`` create proves the payload restore alone.
+  * ``address`` — the membership case (``ip_netmask`` lifted from a value-type union;
+    ``id`` was readOnly+required until ``relax_readonly_required``), exercised through
+    replace (PUT) too.
+
+Skips (never fails) when live credentials are absent, so offline runs and
+credential-less contributors are unaffected.
+"""
+
+import os
+import uuid
+
+import pytest
+
+import {{ package }}
+from {{ package }}._auth import configuration_from_env
+from {{ package }}.objects.models import Addresses, Tags
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def client():
+    # The composer Client shares one transport pool across its sub-facades; a
+    # short-lived test process reclaims it on exit (no close() on the composer).
+    return {{ package }}.Client(configuration_from_env())
+
+
+def _name() -> str:
+    return f"phx-crud-{uuid.uuid4().hex[:12]}"
+
+
+def test_tag_create_get_delete_reshaped_body(client):
+    """A flattened ``Tags`` body serializes ``{name, folder}`` (not just ``{folder}``)
+    and the tenant accepts the full create -> get -> delete round-trip."""
+    name = _name()
+    body = Tags(name=name, folder="Shared")
+
+    # The literal on-wire body: exactly what param_serialize JSON-encodes.
+    wire = client.objects.api_client.sanitize_for_serialization(body)
+    print(f"ON-WIRE tag create body: {wire}")
+    assert wire.get("name") == name, f"name dropped from wire body: {wire}"
+    assert wire.get("folder") == "Shared", f"folder missing from wire body: {wire}"
+
+    created = client.objects.tag.create(body=body)
+    assert created.name == name
+    try:
+        fetched = client.objects.tag.get(id=created.id)
+        assert fetched.name == name
+        assert fetched.folder == "Shared"
+    finally:
+        client.objects.tag.delete(id=created.id)
+
+
+def test_address_create_replace_delete_membership_body(client):
+    """The membership case: a flattened ``Addresses`` body carries the lifted
+    ``ip_netmask`` value field through create -> get -> replace(PUT) -> delete."""
+    name = _name()
+    body = Addresses(name=name, ip_netmask="10.0.0.0/24", folder="Shared")
+
+    wire = client.objects.api_client.sanitize_for_serialization(body)
+    print(f"ON-WIRE address create body: {wire}")
+    assert wire.get("name") == name
+    assert wire.get("ip_netmask") == "10.0.0.0/24", f"value field dropped: {wire}"
+
+    created = client.objects.address.create(body=body)
+    assert created.name == name
+    assert created.ip_netmask == "10.0.0.0/24"
+    try:
+        fetched = client.objects.address.get(id=created.id)
+        assert fetched.ip_netmask == "10.0.0.0/24"
+
+        # replace (PUT): same flat model, a changed value field round-trips.
+        replaced = client.objects.address.replace(
+            id=created.id,
+            body=Addresses(name=name, ip_netmask="10.0.0.0/25", folder="Shared"),
+        )
+        assert replaced.ip_netmask == "10.0.0.0/25"
+    finally:
+        client.objects.address.delete(id=created.id)

@@ -213,6 +213,12 @@ def _build_federated(
         # paths — the federated SDK shares ONE bare host, so a prefix left in servers
         # would be dropped and every call 404s (in-path-prefix specs are a no-op).
         preprocess.fold_server_prefix(sub_spec, loaded.config.base_url, stats)
+        # SCM body reshape: restore the oneOf/anyOf payload OAG drops on configurable
+        # objects, then drop server-assigned readOnly fields from `required` so create()
+        # doesn't demand them. Both are guarded, top-level-schemas-only, no-op
+        # elsewhere.
+        preprocess.flatten_scm_bodies(sub_spec, stats)
+        preprocess.relax_readonly_required(sub_spec, stats)
         norm = sub.config.normalize_operation_ids
         if norm is not None:
             preprocess.normalize_operation_ids(
