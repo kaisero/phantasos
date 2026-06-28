@@ -235,6 +235,11 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
+    if c.subpackage:
+        # Federated: nest under the sub-package COMMAND name (kebab); the snake slug
+        # stays on the IR/dispatch (the `_REGISTRY` `subpackage` column drives C2's
+        # `client.<sub>.<object>.<verb>()`). Single-spec (subpackage None) is a no-op.
+        typer_path = [c.subpackage.replace("_", "-"), *typer_path]
     # Dedup flags via the shared helper so the docs command reference can't drift
     # from the emitted flag set (design D2): path wins over body, body over query.
     deduped_body, deduped_query = dedupe_flags(c)
@@ -243,6 +248,7 @@ def _command_view(
         "func_name": _func_name(c),
         "summary": c.summary,
         "typer_path": typer_path,
+        "subpackage": c.subpackage,
         "sdk_resource": c.sdk_resource,
         "verb": c.verb,
         "variant": c.variant,
@@ -371,9 +377,13 @@ def _render_commands(
     all_views = [
         _command_view(c, variant_groups, models=ir.models) for c in ir.commands
     ]
+    # Federated builds stamp every command with a sub-package slug; that gates the
+    # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
+    # (subpackage None) keeps the byte-identical 2-level loop.
+    federated = any(c.subpackage for c in ir.commands)
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, **ctx
+            resources=resources, commands=all_views, federated=federated, **ctx
         ),
         encoding="utf-8",
     )
