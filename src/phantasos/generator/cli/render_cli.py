@@ -202,7 +202,9 @@ def _flag_view(
         # what JSON to pass. Escape the leading bracket like the enum path above.
         skel = synth_skeleton(models, f.model_ref, full=False)
         compact = json.dumps(skel, separators=(",", ":"))
-        ann = rf"\[json: {f.model_ref}] e.g. {compact}"
+        # ponytail: rsplit no-op on bare refs → single-spec output unchanged
+        label = f.model_ref.rsplit(".", 1)[-1]
+        ann = rf"\[json: {label}] e.g. {compact}"
         help_text = f"{f.help}  {ann}" if f.help else ann
     return {
         "name": f.name,

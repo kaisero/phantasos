@@ -14,7 +14,9 @@ import pytest
 
 from phantasos.generator.cli.classify import build_ir, merge_federated_irs
 from phantasos.generator.cli.cliconfig import CliConfig
+from phantasos.generator.cli.docs import _flag_row, _schema_rows
 from phantasos.generator.cli.ir import CliIR, Command, synth_skeleton
+from phantasos.generator.cli.render_cli import _flag_view
 
 FEDSDK = Path(__file__).parent / "fixtures" / "fedsdk"
 FAKESDK = Path(__file__).parent / "fixtures" / "fakesdk"
@@ -103,3 +105,62 @@ def test_single_spec_registry_keys_stay_bare() -> None:
         for flag in cmd.body_flags:
             if flag.model_ref:
                 assert "." not in flag.model_ref
+
+
+# --- B2 display-label leak tests ---
+
+
+def test_federated_help_annotation_shows_bare_model_name() -> None:
+    """--help label must show PageInfo, NOT alpha.PageInfo (B2 display-label fix).
+
+    The qualified model_ref is preserved for synth_skeleton lookup; only the
+    human-facing label is stripped.
+    """
+    ir, _ = build_ir("fedsdk", FEDSDK, CliConfig())
+    create_widget = next(
+        c for c in ir.commands if c.object == "widget" and c.verb == "create"
+    )
+    page_flag = next(f for f in create_widget.body_flags if f.param == "page_info")
+    assert page_flag.model_ref == "alpha.PageInfo"  # qualified ref kept for lookup
+
+    view = _flag_view(page_flag, models=ir.models)
+    help_literal = view["help_literal"]
+    assert isinstance(help_literal, str)
+    assert "PageInfo" in help_literal  # bare name present
+    assert "alpha.PageInfo" not in help_literal  # slug NOT leaked into label
+    # skeleton still resolves via the qualified ref
+    skel = synth_skeleton(ir.models, page_flag.model_ref, full=True)
+    assert set(skel) == {"cursor"}
+
+
+def test_federated_docs_type_column_shows_bare_model_name() -> None:
+    """_flag_row / _schema_rows type columns show bare names for federated refs."""
+    ir, _ = build_ir("fedsdk", FEDSDK, CliConfig())
+    create_widget = next(
+        c for c in ir.commands if c.object == "widget" and c.verb == "create"
+    )
+    page_flag = next(f for f in create_widget.body_flags if f.param == "page_info")
+
+    row = _flag_row(page_flag, ir.models, key="create:widget")
+    assert row["type"] == "PageInfo"  # bare, not "alpha.PageInfo"
+    # schema rows for the model itself should also use bare nested refs
+    assert page_flag.model_ref is not None
+    schema_rows = _schema_rows(ir.models, page_flag.model_ref)
+    for r in schema_rows:
+        t = r.get("type", "")
+        assert isinstance(t, str) and "." not in str(t).split("[")[-1].rstrip("]")
+
+
+def test_single_spec_help_annotation_unchanged_by_bare_strip() -> None:
+    """rsplit('.', 1)[-1] is a no-op on bare refs — single-spec output unchanged."""
+    ir, _ = build_ir("fakesdk", FAKESDK, CliConfig())
+    for cmd in ir.commands:
+        for flag in cmd.body_flags:
+            if flag.model_ref:
+                assert "." not in flag.model_ref  # already bare
+                view = _flag_view(flag, models=ir.models)
+                label = str(view.get("help_literal", ""))
+                # bare model name appears, no qualified form leaks
+                if label:
+                    assert flag.model_ref in label
+                    assert f".{flag.model_ref}" not in label

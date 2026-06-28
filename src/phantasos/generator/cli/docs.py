@@ -148,9 +148,12 @@ def _schema_rows(
             {
                 "name": mf.alias,
                 "type": (
-                    f"list[{mf.model_ref}]"
-                    if mf.model_ref_list
-                    else mf.model_ref or mf.py_type
+                    # ponytail: rsplit no-op on bare refs → single-spec unchanged
+                    f"list[{mf.model_ref.rsplit('.', 1)[-1]}]"
+                    if mf.model_ref_list and mf.model_ref
+                    else (
+                        mf.model_ref.rsplit(".", 1)[-1] if mf.model_ref else mf.py_type
+                    )
                 ),
                 "required": mf.required,
                 "help": _cell(mf.description or _ref_description(models, mf.model_ref)),
@@ -182,7 +185,8 @@ def _flag_row(
         schema = _schema_rows(models, f.model_ref)
     return {
         "name": f.name,
-        "type": (f.model_ref or f.py_type),
+        # ponytail: rsplit no-op on bare refs → single-spec unchanged
+        "type": (f.model_ref.rsplit(".", 1)[-1] if f.model_ref else f.py_type),
         "type_anchor": _anchor(key, f.name) if schema else None,
         "required": f.required,
         "choices": [_cell(c) for c in f.choices] if f.choices else None,
