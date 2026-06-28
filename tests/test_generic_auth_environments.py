@@ -1,19 +1,22 @@
 """PR1 tests: AuthComponent base class + enforced credential_fields; scm_oauth rename.
 
 PR2 tests: CliIR carries credential_fields; render_cli threads auth component through.
+D1 tests: ConnectionField IR descriptor; render_cli threads default_headers through.
 """
 
 import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from phantasos.config import BUILTIN_AUTH, AuthComponent, ScmOAuth
 from phantasos.generator.cli.classify import build_cli_ir
 from phantasos.generator.cli.cliconfig import CliConfig
 from phantasos.generator.cli.introspect import introspect
-from phantasos.generator.cli.ir import CredentialField
+from phantasos.generator.cli.ir import ConnectionField, CredentialField
 from phantasos.generator.cli.render_cli import render_cli
+from phantasos.productconfig import HeaderSpec
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
@@ -90,3 +93,60 @@ def test_no_auth_gives_empty_credential_fields(tmp_path: Path) -> None:
         (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
     )
     assert emitted["credential_fields"] == []
+
+
+# ---------------------------------------------------------------------------
+# D1: ConnectionField IR descriptor from default_headers
+# ---------------------------------------------------------------------------
+
+
+def test_connection_fields_enriched_from_default_headers(tmp_path: Path) -> None:
+    """render_cli with default_headers -> ir.json carries connection_fields."""
+    default_headers = {
+        "X-PANW-Region": HeaderSpec(env="PANW_REGION", required_for=["incidents"]),
+        "prisma-tenant": HeaderSpec(env="PRISMA_TENANT", required=True),
+    }
+    ir = build_cli_ir(introspect("fakesdk", _FIXTURE), CliConfig())[0]
+    render_cli(
+        ir,
+        package="fakesdk_cli",
+        out_dir=tmp_path,
+        env_prefix="FAKESDK",
+        default_headers=default_headers,
+    )
+
+    emitted = json.loads(
+        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
+    )
+    cf = emitted["connection_fields"]
+    assert len(cf) == 2
+    by_name = {f["name"]: f for f in cf}
+    assert by_name["X-PANW-Region"]["env"] == "PANW_REGION"
+    assert by_name["X-PANW-Region"]["required_for"] == ["incidents"]
+    assert by_name["X-PANW-Region"]["required"] is False
+    assert by_name["prisma-tenant"]["env"] == "PRISMA_TENANT"
+    assert by_name["prisma-tenant"]["required"] is True
+    assert by_name["prisma-tenant"]["required_for"] == []
+
+
+def test_no_default_headers_gives_empty_connection_fields(tmp_path: Path) -> None:
+    """No default_headers -> ir.json has empty connection_fields."""
+    ir = build_cli_ir(introspect("fakesdk", _FIXTURE), CliConfig())[0]
+    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
+
+    emitted = json.loads(
+        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
+    )
+    assert emitted["connection_fields"] == []
+
+
+def test_connection_field_model() -> None:
+    """ConnectionField is a frozen pydantic descriptor."""
+    cf = ConnectionField(name="X-Foo", env="FOO_VAR", required_for=["bar"])
+    assert cf.name == "X-Foo"
+    assert cf.env == "FOO_VAR"
+    assert cf.required is False
+    assert cf.required_for == ["bar"]
+    # frozen — pydantic raises ValidationError on attribute assignment
+    with pytest.raises(ValidationError):
+        cf.name = "mutate"

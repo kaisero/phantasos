@@ -7,18 +7,20 @@ import keyword
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from ...productconfig import HeaderSpec
 from . import ir as _ir_module
 from .cliconfig import CliDocsConfig
 from .docs import build_cli_docs_context
 from .flags import dedupe_flags
 from .flags import leaf as _leaf
 from .flags import query_panel as _query_panel
-from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
+from .ir import CliIR, Command, ConnectionField, Flag, ModelSchema, synth_skeleton
 
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
@@ -317,9 +319,15 @@ def _format_generated(paths: list[Path]) -> None:
     )
 
 
-def _enrich_ir(ir: CliIR, auth: object | None, errors: object | None) -> CliIR:
-    """Enrich the IR with credential descriptors from the auth component and the
-    error-envelope descriptor from the error component (if present).
+def _enrich_ir(
+    ir: CliIR,
+    auth: object | None,
+    errors: object | None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
+) -> CliIR:
+    """Enrich the IR with credential descriptors from the auth component, the
+    error-envelope descriptor from the error component, and connection-field
+    descriptors from default_headers (if present).
 
     Done BEFORE any template render or the ir.json write so templates and the
     serialized IR see the same enriched copy. ``model_copy`` returns a new
@@ -331,6 +339,18 @@ def _enrich_ir(ir: CliIR, auth: object | None, errors: object | None) -> CliIR:
     # diagnostics carries NO product-specific error keys.
     if errors is not None and hasattr(errors, "error_fields"):
         ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
+    # Connection-header descriptors from ProductConfig.default_headers.
+    if default_headers:
+        connection_fields = [
+            ConnectionField(
+                name=header_name,
+                env=spec.env,
+                required=spec.required,
+                required_for=list(spec.required_for),
+            )
+            for header_name, spec in default_headers.items()
+        ]
+        ir = ir.model_copy(update={"connection_fields": connection_fields})
     return ir
 
 
@@ -458,6 +478,7 @@ def render_cli(
     distribution: str | None = None,
     auth: object | None = None,
     errors: object | None = None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
     docs: CliDocsConfig | None = None,
     docs_site_name: str | None = None,
     docs_repo_url: str | None = None,
@@ -484,10 +505,10 @@ def render_cli(
         "env_prefix": resolved_prefix,
         "distribution": distribution or package,
     }
-    # Enrich the IR (credential + error-envelope descriptors) BEFORE any template
-    # render or the ir.json write, so templates and the serialized IR see the same
-    # enriched copy.
-    ir = _enrich_ir(ir, auth, errors)
+    # Enrich the IR (credential + error-envelope + connection-field descriptors)
+    # BEFORE any template render or the ir.json write, so templates and the
+    # serialized IR see the same enriched copy.
+    ir = _enrich_ir(ir, auth, errors, default_headers)
     ctx["ir"] = ir
     written: list[str] = []
 

@@ -424,6 +424,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `dedupe_flags(c)` — Return (body, query) flags deduped against path params (path wins), then
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
+  - class `ConnectionField` — Describes one request header sourced from an env var (e.g. region/tenant).
   - class `ErrorEnvelope` — Config-driven description of a product's error body, threaded onto the IR so
   - class `Flag`
   - class `MethodBinding`
@@ -438,7 +439,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `build_model_registry(package, sdk_path, inv)`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, default_headers, docs, docs_site_name, docs_repo_url, docs_description)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->

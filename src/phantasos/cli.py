@@ -147,6 +147,7 @@ def cli_build(
         distribution=str(scaffold_ctx["distribution"]),
         auth=loaded.auth,
         errors=loaded.errors,
+        default_headers=getattr(loaded.config, "default_headers", None) or None,
         docs=cfg.docs,
         docs_site_name=docs_site_name,
         docs_repo_url=scaffold_ctx.get("repo_url"),
