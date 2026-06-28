@@ -742,8 +742,12 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
     merged into one CliIR via `merge_federated_irs`. A single-spec SDK (no
     `_SUBPACKAGES`) keeps the unchanged single-pass path.
 
-    `cfg` drives the single-spec build. Per-sub cli.yml sections are task B3; for
-    now each sub builds against an empty `CliConfig`.
+    `cfg` drives the single-spec build. For a federated build, each sub gets its
+    own `cli.yml` delta from `cfg.subpackages[slug]` (an empty `CliConfig` if
+    absent). FAIL-LOUD (federated only): after merging, any non-CRUD op left
+    unmapped (no `request:`/`hide:` in its sub's section) is a HARD build error,
+    so a command is never silently dropped on drift. The single-spec path keeps
+    today's behavior — it returns `unmapped` for cli.py to print as a stderr note.
     """
     with on_sys_path(sdk_path):
         top = importlib.import_module(package)
@@ -758,6 +762,14 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
         sub_pkg = f"{package}.{slug}"
         inv = cli_operations(sub_pkg, sdk_path)
         models = build_model_registry(sub_pkg, sdk_path, inv)
-        ir_sub, unmapped_sub = build_cli_ir(inv, CliConfig(), models=models)
+        sub_cfg = cfg.subpackages.get(slug, CliConfig())
+        ir_sub, unmapped_sub = build_cli_ir(inv, sub_cfg, models=models)
         subs.append((slug, ir_sub, unmapped_sub))
-    return merge_federated_irs(package, version, subs)
+    ir, unmapped = merge_federated_irs(package, version, subs)
+    if unmapped:
+        raise ValueError(
+            "federated build: non-CRUD op(s) with no cli.yml mapping: "
+            + ", ".join(sorted(unmapped))
+            + " — add a `subpackages.<slug>.request` (or `.hide`) entry"
+        )
+    return ir, unmapped

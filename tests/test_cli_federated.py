@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from phantasos.generator.cli.classify import build_ir, merge_federated_irs
-from phantasos.generator.cli.cliconfig import CliConfig
+from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping
 from phantasos.generator.cli.docs import _flag_row, _schema_rows
 from phantasos.generator.cli.ir import CliIR, Command, synth_skeleton
 from phantasos.generator.cli.render_cli import _flag_view
@@ -22,8 +22,28 @@ FEDSDK = Path(__file__).parent / "fixtures" / "fedsdk"
 FAKESDK = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
+def _fed_cfg() -> CliConfig:
+    """A federated cli.yml that maps beta's non-CRUD `compute`.
+
+    B3 makes a federated build fail loud on any non-CRUD op with no
+    `request:`/`hide:` mapping, so every fedsdk build now needs `compute`
+    mapped. Shared by the B1/B2 federated tests (orthogonal to what they assert).
+    """
+    return CliConfig(
+        subpackages={
+            "beta": CliConfig(
+                request={
+                    "gadgets.compute_gadget": RequestMapping(
+                        object="gadget", action="compute"
+                    )
+                }
+            )
+        }
+    )
+
+
 def test_federated_build_stamps_each_command_with_its_slug() -> None:
-    ir, unmapped = build_ir("fedsdk", FEDSDK, CliConfig())
+    ir, unmapped = build_ir("fedsdk", FEDSDK, _fed_cfg())
     assert ir.sdk_package == "fedsdk"
     # the composing Client lives on the top-level package, not a sub-facade.
     assert ir.facade_module == "fedsdk"
@@ -35,8 +55,10 @@ def test_federated_build_stamps_each_command_with_its_slug() -> None:
     assert by_object[("gadget", "delete")] == "beta"
     # every command in a federated build carries a slug.
     assert all(c.subpackage in {"alpha", "beta"} for c in ir.commands)
-    # beta's non-CRUD `compute` is unmapped (no request mapping), slug-prefixed.
-    assert any(u.startswith("beta.") and "compute" in u for u in unmapped)
+    # B3: beta's non-CRUD `compute` is mapped by the federated cli.yml (an unmapped
+    # one would now fail the build), surfacing as a beta-stamped command; none left.
+    assert by_object[("gadget", "request")] == "beta"
+    assert not unmapped
     # the federated merge slug-qualifies every registry key (B2).
     assert "alpha.WidgetInput" in ir.models and "beta.GadgetInput" in ir.models
 
@@ -74,7 +96,7 @@ def test_federated_merge_namespaces_colliding_models() -> None:
     so alpha's `--page-info` flag resolved to beta's shape. B2 slug-qualifies keys
     AND rewrites refs, keeping both models distinct and each flag pointing home.
     """
-    ir, _ = build_ir("fedsdk", FEDSDK, CliConfig())
+    ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
 
     # both subs' PageInfo survive under distinct slug-qualified keys, un-overwritten.
     assert "alpha.PageInfo" in ir.models and "beta.PageInfo" in ir.models
@@ -116,7 +138,7 @@ def test_federated_help_annotation_shows_bare_model_name() -> None:
     The qualified model_ref is preserved for synth_skeleton lookup; only the
     human-facing label is stripped.
     """
-    ir, _ = build_ir("fedsdk", FEDSDK, CliConfig())
+    ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
     create_widget = next(
         c for c in ir.commands if c.object == "widget" and c.verb == "create"
     )
@@ -135,7 +157,7 @@ def test_federated_help_annotation_shows_bare_model_name() -> None:
 
 def test_federated_docs_type_column_shows_bare_model_name() -> None:
     """_flag_row / _schema_rows type columns show bare names for federated refs."""
-    ir, _ = build_ir("fedsdk", FEDSDK, CliConfig())
+    ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
     create_widget = next(
         c for c in ir.commands if c.object == "widget" and c.verb == "create"
     )
@@ -164,3 +186,60 @@ def test_single_spec_help_annotation_unchanged_by_bare_strip() -> None:
                 if label:
                     assert flag.model_ref in label
                     assert f".{flag.model_ref}" not in label
+
+
+# --- B3 federated cli.yml subpackages + fail-loud tests ---
+
+
+def test_federated_cli_yml_flows_per_sub_delta() -> None:
+    """A federated `cli.yml` with `subpackages.<slug>` deltas feeds each sub's own
+    `build_cli_ir`: alpha's `columns` delta reshapes widget's table; beta's
+    `request` delta turns its non-CRUD `compute` into a command (no longer unmapped).
+    """
+    cfg = CliConfig(
+        subpackages={
+            "alpha": CliConfig(columns={"widget": ["name"]}),
+            "beta": CliConfig(
+                request={
+                    "gadgets.compute_gadget": RequestMapping(
+                        object="gadget", action="compute"
+                    )
+                }
+            ),
+        }
+    )
+    ir, unmapped = build_ir("fedsdk", FEDSDK, cfg)
+
+    # alpha's per-sub `columns` delta applied to widget (default would include `id`).
+    widget_show = next(
+        c for c in ir.commands if c.object == "widget" and c.verb == "show"
+    )
+    assert [(c.header, c.path) for c in widget_show.columns] == [("name", "name")]
+
+    # beta's per-sub `request` delta mapped `compute` -> a beta-stamped command.
+    compute = next(
+        c for c in ir.commands if c.object == "gadget" and c.verb == "request"
+    )
+    assert compute.action == "compute"
+    assert compute.subpackage == "beta"
+    # nothing left unmapped -> the federated build succeeds.
+    assert not unmapped
+
+
+def test_federated_unmapped_non_crud_raises() -> None:
+    """A federated build whose `cli.yml` does NOT map beta's `compute` is a HARD
+    error naming the op + its sub — a command must never be silently dropped on drift.
+    """
+    with pytest.raises(ValueError, match=r"compute.*beta|beta.*compute|compute"):
+        build_ir("fedsdk", FEDSDK, CliConfig())
+
+
+def test_single_spec_unmapped_non_crud_does_not_raise() -> None:
+    """Fail-loud is FEDERATED-ONLY: a single-spec build with unmapped non-CRUD ops
+    (fakesdk's `suspend_widget`/`revoke_widget`/`update_widget_positions`) still only
+    surfaces them in `unmapped` (cli.py prints a stderr note) — never raises.
+    """
+    ir, unmapped = build_ir("fakesdk", FAKESDK, CliConfig())
+    assert ir.commands
+    assert unmapped  # surfaced, not raised
+    assert any("suspend" in u or "revoke" in u for u in unmapped)
