@@ -11,7 +11,7 @@ from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
 from . import cli_commands as _cli_commands
 from . import config_commands as _config_commands
-{%- if ir.credential_fields %}
+{%- if has_env %}
 from . import environment_commands as _environment_commands
 {%- endif %}
 
@@ -70,7 +70,7 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
     app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
-{%- if ir.credential_fields %}
+{%- if has_env %}
     app.add_typer(
         _environment_commands.environment_app,
         name="environment",

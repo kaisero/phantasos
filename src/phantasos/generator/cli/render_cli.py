@@ -265,6 +265,34 @@ def _command_view(
     }
 
 
+def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
+    """Per connection field: its global-flag name + Python identifier + env var.
+
+    Flag name = the header's last hyphen segment, lowercased
+    (``X-PANW-Region`` -> ``region``). If two headers derive the same name, BOTH
+    fall back to the full kebab header (``x-panw-region``) so the flags stay
+    distinct. The flag name is also the storage key in ``environments.yml`` and
+    the ``environment create`` prompt label.
+    """
+    shorts = [f.name.split("-")[-1].lower() for f in fields]
+    counts: dict[str, int] = {}
+    for s in shorts:
+        counts[s] = counts.get(s, 0) + 1
+    views: list[dict[str, object]] = []
+    for f, short in zip(fields, shorts, strict=True):
+        flag = short if counts[short] == 1 else f.name.lower().replace("_", "-")
+        views.append(
+            {
+                "header": f.name,
+                "env": f.env,
+                "flag": flag,
+                "py_name": _py_name(flag.replace("-", "_")),
+                "required": f.required,
+            }
+        )
+    return views
+
+
 def _module_enum_flags(
     cmds: list[dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -510,6 +538,11 @@ def render_cli(
     # serialized IR see the same enriched copy.
     ir = _enrich_ir(ir, auth, errors, default_headers)
     ctx["ir"] = ir
+    # Connection fields ride the SAME named-environment seams as credentials, so
+    # that infrastructure is emitted whenever EITHER is present. `has_env` gates
+    # the shared parts; `connection_views` carries the per-field flag derivation.
+    ctx["connection_views"] = _connection_views(list(ir.connection_fields))
+    ctx["has_env"] = bool(ir.credential_fields or ir.connection_fields)
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
@@ -525,9 +558,10 @@ def render_cli(
     written.append(str((gen / "spec.py").relative_to(out_dir)))
     # `config environment` commands — rendered with STATIC per-field typer options
     # generated from ir.credential_fields (no `click` dependency; typer only).
-    # Emitted ONLY for auth CLIs; a no-auth CLI never references it (app.py's
+    # Emitted ONLY for CLIs with named-environment fields (credentials OR
+    # connection headers); a CLI with neither never references it (app.py's
     # registration is gated on the same condition).
-    if ir.credential_fields:
+    if ir.credential_fields or ir.connection_fields:
         render(
             "_generated/environment_commands.py.jinja",
             gen / "environment_commands.py",

@@ -103,7 +103,17 @@ They wire the three pipeline stages together:
    same way: its `error_fields()` populates `ir.error_envelope`, so the emitted
    `diagnostics._error_headline` is config-driven (peel `wrappers` → `error_field` →
    `errors_field` → product-AGNOSTIC `fallback_keys`) and carries NO product-specific
-   error keys; with no error component the default generic envelope applies. It
+   error keys; with no error component the default generic envelope applies. The
+   `default_headers` parameter (the product's `ProductConfig.default_headers`,
+   region/tenant `HeaderSpec`s) is enriched the same way into
+   `ir.connection_fields`: non-secret "environment fields" that ride the SAME
+   named-environment seams as credentials (prompted/stored per environment,
+   exported to their `env` var BEFORE the SDK client is built, overridable by a
+   per-field global `--<field>` flag). A `has_env` ctx flag (`credential_fields or
+   connection_fields`) gates the SHARED environment infrastructure so it is emitted
+   whenever EITHER is present; `connection_views` carries each header's derived flag
+   name (`field.name.split("-")[-1].lower()`, colliding pairs fall back to the full
+   kebab header). It
    `ruff`-formats only the files it wrote, then emits
    the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
@@ -282,16 +292,27 @@ keys / param names / objects fail the build loudly.
   (`output.py`). Spec: `docs/specs/2026-06-13-cli-yaml-rich-coloring-design.md`.
 - **Common options panel** — shared `--output`/`--pager`/`--quiet` etc. help
   panel. Spec: `docs/specs/2026-06-11-cli-common-options-panel-design.md`.
-- **Named environments** (auth CLIs only) — credentials stored in
-  `~/.{distribution}/environments.yml` (`environments:` + `default_environment:`,
-  `${VAR}` refs expanded at read time). Top-level `environment` command group
-  (`create`/`activate`/`show`/`delete`; `show` never prints values, `delete`
-  --force-gates the active env, first create auto-activates; `create`'s
+- **Named environments** (auth OR connection-header CLIs — anything with
+  `has_env`) — credentials stored in `~/.{distribution}/environments.yml`
+  (`environments:` + `default_environment:`, `${VAR}` refs expanded at read time).
+  Top-level `environment` command group (`create`/`activate`/`show`/`delete`;
+  `show` never prints secret values but DOES show non-secret connection values,
+  `delete` --force-gates the active env, first create auto-activates; `create`'s
   per-credential options are built from `ir.credential_fields`). Active env
   resolves `-e/--environment` flag > `{PREFIX}_ENVIRONMENT` env var >
   `default_environment`; per-field credential env vars still override the env.
   Helpers in the emitted `config.py` (`resolve_environment`, `default_environment`)
   + `runtime.py` (`select_environment`); commands in `environment_commands.py.jinja`.
+- **Connection headers** (region/tenant; `ir.connection_fields`) — non-secret
+  environment fields stored per environment under their derived flag-name key and
+  exported to their `env` var in `runtime._client` BEFORE the SDK client is built
+  (the SDK reads e.g. `PANW_REGION` from the environment — no header kwarg). Each
+  emits one global `--<field>` flag (Connection help-panel) layered
+  `--flag > {field.env} env var > active-environment value`. The `--flag` value is
+  threaded through `runtime.set_connection_overrides` (a per-command contextvar);
+  `config.resolve_connection` resolves the active-env value; the per-field env-var
+  baked list is `config._CONN_FIELDS`. Single-spec CLIs (no `default_headers`) emit
+  none of this. (Command-aware `required_for` pre-flight is a separate task.)
 - **Structured logging** — a rotating JSON-Lines log at
   `~/.{distribution}/logs/{distribution}.jsonl` (`0o600`, gzip-rotated);
   `warnings` (incl. the SDK lenient-enum pass-through) and CLI diagnostics go to

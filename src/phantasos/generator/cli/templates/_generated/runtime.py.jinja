@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-{% if ir.credential_fields -%}
+{% if has_env -%}
 import contextvars
 {% endif -%}
 import functools
 import importlib
 import inspect
 import json
-{%- if ir.credential_fields %}
+{%- if has_env %}
 import os
 {%- endif %}
 import shlex
@@ -43,7 +43,7 @@ def _facade_from_env(**kw: Any) -> Any:
     """Tiny seam over the facade's ``Client.from_env`` so tests can monkeypatch
     the credential threading without standing up a real client."""
     return importlib.import_module(_ir().facade_module).Client.from_env(**kw)
-{% if ir.credential_fields %}
+{% if has_env %}
 
 # Per-invocation environment selection. A contextvar (not a module global) so the
 # selection is scoped to the running command and never leaks across CliRunner
@@ -71,6 +71,24 @@ def _selected_environment() -> str | None:
         or os.environ.get("{{ env_prefix }}_ENVIRONMENT")
         or _config.default_environment()
     )
+{% endif -%}
+{% if ir.connection_fields %}
+
+# Per-invocation connection-header overrides (the global --<field> flags),
+# keyed by env var. A contextvar so each command's overrides are scoped to it
+# and never leak across CliRunner invocations sharing the imported module.
+_CONN_OVERRIDES: contextvars.ContextVar[dict[str, str | None]] = (
+    contextvars.ContextVar("conn_overrides", default={})
+)
+
+
+def set_connection_overrides(overrides: dict[str, str | None]) -> None:
+    """Record this command's connection-field overrides (None = flag not given)."""
+    _CONN_OVERRIDES.set(overrides)
+
+
+def _connection_overrides() -> dict[str, str | None]:
+    return _CONN_OVERRIDES.get()
 {% endif %}
 
 
@@ -80,7 +98,7 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
         load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
     except ModuleNotFoundError:
         pass
-{%- if ir.credential_fields %}
+{%- if has_env %}
     from . import config as _config
 
     # Resolve the active named environment (if any), then let presence-based env
@@ -95,6 +113,8 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
             f"unknown environment '{name}' (run 'environment show')",
             code=2,
         )
+{%- endif %}
+{%- if ir.credential_fields %}
     env = _config.resolve_environment(name) if name else {}
     overrides: dict[str, Any] = {}
     missing: list[str] = []
@@ -124,6 +144,20 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
                 f"or set {joined} (e.g. in a .env file)"
             ),
         )
+{%- endif %}
+{%- if ir.connection_fields %}
+    # Connection headers: export each to its env var BEFORE building the client
+    # (the SDK reads them from the environment; there is no kwarg path).
+    # Precedence: --<field> flag > exported env var > active-environment value.
+    conn_overrides = _connection_overrides()
+    for env_var, active_val in _config.resolve_connection(name).items():
+        flag_val = conn_overrides.get(env_var)
+        if flag_val is not None:
+            os.environ[env_var] = flag_val
+        elif env_var not in os.environ and active_val is not None:
+            os.environ[env_var] = active_val
+{%- endif %}
+{%- if ir.credential_fields %}
     try:
         return _facade_from_env(**overrides)
     except RuntimeError as exc:

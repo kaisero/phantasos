@@ -39,7 +39,7 @@ def {{ c.func_name }}(
         help="Page output taller than the terminal (default from config).",
         rich_help_panel="Common",
     ),
-{%- if ir.credential_fields %}
+{%- if has_env %}
     environment: str | None = typer.Option(
         None,
         "--environment",
@@ -48,13 +48,28 @@ def {{ c.func_name }}(
         rich_help_panel="Common",
     ),
 {%- endif %}
+{%- for cv in connection_views %}
+    {{ cv.py_name }}: str | None = typer.Option(
+        None,
+        "--{{ cv.flag }}",
+        help="Override the '{{ cv.header }}' connection value ({{ cv.env }}).",
+        rich_help_panel="Connection",
+    ),
+{%- endfor %}
 ) -> None:
 {%- if c.summary %}
     """{{ c.summary }}"""
 {%- endif %}
-{%- if ir.credential_fields %}
+{%- if has_env %}
     if environment is not None:
         _rt.select_environment(environment)
+{%- endif %}
+{%- if connection_views %}
+    _rt.set_connection_overrides({
+{%- for cv in connection_views %}
+        {{ cv.env|tojson }}: {{ cv.py_name }},
+{%- endfor %}
+    })
 {%- endif %}
     _rt.run(
         "{{ c.key }}",
