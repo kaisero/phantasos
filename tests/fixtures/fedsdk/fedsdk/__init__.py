@@ -38,6 +38,12 @@ class Client:
     def __init__(self, api_client: Any = None) -> None:
         self._api_client = api_client
 
+    @classmethod
+    def from_env(cls, **kwargs: Any) -> Client:
+        """Construction entry point the federation-aware runtime calls (the real
+        composing `prisma_access.Client` exposes the same `from_env`)."""
+        return cls()
+
     @cached_property
     def alpha(self) -> Any:
         return _AlphaClient(self._api_client)

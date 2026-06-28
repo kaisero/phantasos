@@ -151,10 +151,10 @@ ignore_missing_imports = true
 module = ["jmespath", "jmespath.*"]
 ignore_missing_imports = true
 
-# The fakesdk fixture is excluded from analysis (above); its symbols are imported
-# by a couple of tests, so resolve those import sites to Any.
+# The fakesdk/fedsdk fixtures are excluded from analysis (above); their symbols are
+# imported by a couple of tests, so resolve those import sites to Any.
 [[tool.mypy.overrides]]
-module = ["fakesdk", "fakesdk.*"]
+module = ["fakesdk", "fakesdk.*", "fedsdk", "fedsdk.*"]
 ignore_missing_imports = true
 
 # PyYAML ships no type stubs; the emitted-CLI tests use it trivially (safe_load).

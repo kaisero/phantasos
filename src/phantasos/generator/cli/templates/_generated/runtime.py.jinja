@@ -137,29 +137,45 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
 {%- endif %}
 
 
-def _models() -> Any:
-    return importlib.import_module(f"{_ir().sdk_package}.models")
+def _models(cmd: Command) -> Any:
+    # Federated: each sub-package ships its own `models` module
+    # (`{pkg}.{sub}.models`) — there is NO top-level `{pkg}.models`. Single-spec
+    # keeps the bare path. `_build_body` then `getattr`s the BARE body_model name.
+    pkg = _ir().sdk_package
+    if cmd.subpackage:
+        return importlib.import_module(f"{pkg}.{cmd.subpackage}.models")
+    return importlib.import_module(f"{pkg}.models")
 
 
-def _sdk_exc() -> type[BaseException]:
+def _sdk_exc(cmd: Command) -> type[BaseException]:
+    # Federated: the SDK base exception lives under `_runtime` (the top-level package
+    # has no `exceptions` module); single-spec keeps the bare `{pkg}.exceptions`.
+    pkg = _ir().sdk_package
+    mod_name = f"{pkg}._runtime.exceptions" if cmd.subpackage else f"{pkg}.exceptions"
     try:
-        mod = importlib.import_module(f"{_ir().sdk_package}.exceptions")
+        mod = importlib.import_module(mod_name)
     except ModuleNotFoundError:
         return Exception
     base = getattr(mod, "OpenApiException", None)
     return base if isinstance(base, type) else Exception
 
 
-def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
+def _accepted_params(cmd: Command, sdk_method: str) -> set[str] | None:
     """Param names the bound wrapper method accepts, or None if undeterminable /
     **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
     facade's typed wrapper class, never an instantiated client. The wrapper verb
     accepts the clean param surface (e.g. ``sort``/``order``/``all_pages`` for a
     list), so cli.yml-injected defaults are filtered against it, not the raw
-    ``*Api`` signature."""
+    ``*Api`` signature. Federated: the wrappers live on the SUB's facade
+    (`{pkg}.{sub}.extras.facade`), not the top-level composing package."""
     try:
-        facade = importlib.import_module(_ir().facade_module)
-        wrapper_cls = facade._WRAPPERS[resource][0]
+        if cmd.subpackage:
+            facade = importlib.import_module(
+                f"{_ir().sdk_package}.{cmd.subpackage}.extras.facade"
+            )
+        else:
+            facade = importlib.import_module(_ir().facade_module)
+        wrapper_cls = facade._WRAPPERS[cmd.sdk_resource][0]
         fn = getattr(wrapper_cls, sdk_method)
         sig = inspect.signature(fn)
     except Exception:
@@ -358,11 +374,22 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
     dry-run sees the exact request the live call would build. Falls back to a
     call reference if the wrapper lacks the serialize seam (test fakes)."""
     try:
-        pkg = _ir().sdk_package
-        api_client_mod = importlib.import_module(f"{pkg}.api_client")
-        config_mod = importlib.import_module(f"{pkg}.configuration")
-        facade = importlib.import_module(_ir().facade_module)
-        client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
+        if cmd.subpackage:
+            # Federated: build just this SUB's facade (credential-free) and navigate
+            # to its object wrapper. The top-level package has no `api_client`/
+            # `configuration` module and its composing `Client` wants credentials —
+            # the per-sub facade serializes without either.
+            sub = f"{_ir().sdk_package}.{cmd.subpackage}"
+            sub_mod = importlib.import_module(sub)
+            facade = importlib.import_module(f"{sub}.extras.facade")
+            api_client = sub_mod.ApiClient(sub_mod.Configuration())
+        else:
+            pkg = _ir().sdk_package
+            api_client_mod = importlib.import_module(f"{pkg}.api_client")
+            config_mod = importlib.import_module(f"{pkg}.configuration")
+            facade = importlib.import_module(_ir().facade_module)
+            api_client = api_client_mod.ApiClient(config_mod.Configuration())
+        client = facade.Client(api_client)
         api = getattr(client, cmd.sdk_resource)
         serialize = getattr(api, "_serialize", None)
         if serialize is None:
@@ -469,7 +496,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 kwargs[k] = _coerce(path_flags[k], v)
         if cmd.variant and cmd.variant_param:
             kwargs[cmd.variant_param] = cmd.variant
-        accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+        accepted = _accepted_params(cmd, binding.sdk_method)
         for k, v in query.items():
             if v is None:
                 continue
@@ -488,7 +515,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     http_capture: dict[str, str] = {}
     try:
         if binding.body_model:
-            models_mod = _models()
+            models_mod = _models(cmd)
             extra: dict[str, Any] = {}
             if cmd.variant and cmd.variant_param:
                 model_cls = getattr(models_mod, binding.body_model, None)
@@ -504,19 +531,21 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             _dry_run(cmd, binding, kwargs)
             return
         client = _client(verbose=verbose)
-        # Dispatch through the typed object wrapper: `client.<object>` is the
-        # resource wrapper, `binding.sdk_method` is its clean verb (e.g. `get`,
-        # `list`, `create`). The wrapper translates `body`/enum params to the raw
-        # `*Api` surface internally.
-        api = getattr(client, cmd.sdk_resource)
+        # Dispatch through the typed object wrapper. Federated: the composing client
+        # exposes one handle per sub-package, so navigate `client.<sub>.<object>`;
+        # single-spec (subpackage None) stays one level: `client.<object>`. Either
+        # way `binding.sdk_method` is the wrapper's clean verb (e.g. `get`, `list`,
+        # `create`), which translates `body`/enum params to the raw `*Api` surface.
+        sub_client = getattr(client, cmd.subpackage) if cmd.subpackage else client
+        api = getattr(sub_client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
         # Observe the actual outgoing request: every generated SDK method routes
         # through api_client.call_api(method, url, ...) with the query string
-        # already appended to url. Wrap it at the FACADE level (the wrappers share
-        # one api_client) for the duration of the call (first invocation wins
+        # already appended to url. Wrap it at the (sub-)facade level (the wrappers
+        # share one api_client) for the duration of the call (first invocation wins
         # under --all; restored in finally). Non-OAG clients (test fakes) lack the
         # shape -> fields simply absent.
-        api_client = getattr(client, "api_client", None)
+        api_client = getattr(sub_client, "api_client", None)
         original_call = getattr(api_client, "call_api", None)
         if callable(original_call):
             def _capturing_call(*args: Any, **kw: Any) -> Any:
@@ -557,7 +586,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             )
     except InputError as exc:
         _fail_input(exc)
-    except (_sdk_exc(), ValidationError) as exc:
+    except (_sdk_exc(cmd), ValidationError) as exc:
         _history.record(_history_entry(cmd, binding, "error", exc=exc,
                                        http=http_capture))
         if verbose:

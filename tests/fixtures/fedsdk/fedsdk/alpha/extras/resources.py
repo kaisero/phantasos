@@ -43,6 +43,19 @@ class _ResourceBase:
         b = self._select(verb, present)
         return getattr(self._api, b["raw_method"])(**self._to_raw(kwargs, b))
 
+    def _serialize(self, verb: str, **kwargs: Any) -> tuple[str, str, dict, Any]:
+        """The dry-run seam: return the (method, url, headers, body) the live call
+        would build — without performing it. A trimmed analog of the real wrapper's
+        ``_serialize`` (which delegates to OAG's ``<op>_serialize``); enough to prove
+        the runtime navigates ``client.<sub>.<object>._serialize(...)`` per-sub."""
+        present = {k for k, v in kwargs.items() if v is not None}
+        b = self._select(verb, present)
+        raw = self._to_raw(kwargs, b)
+        body = raw.get(b["body"]) if b["body"] else None
+        if hasattr(body, "model_dump"):  # OAG's serialize returns a JSON-ready body
+            body = body.model_dump(by_alias=True)
+        return ("POST", f"https://fedsdk.test/{b['raw_method']}", {}, body)
+
 
 class WidgetResource(_ResourceBase):
     """Typed wrapper for ``widget`` (backed by ``WidgetsApi``)."""
