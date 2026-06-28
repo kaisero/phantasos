@@ -14,19 +14,25 @@ class Status(BaseModel):
     level: int
 
 
+class PageInfo(BaseModel):
+    """Beta's PageInfo — same NAME as alpha.models.PageInfo, DIFFERENT field.
+    Reachable from the request body root (GadgetInput.page_info) so it enters the
+    CLI model registry — the live cross-sub key collision B2 namespaces.
+    """
+
+    total: int | None = None
+
+
 class GadgetInput(BaseModel):
     name: str
     watts: int
+    page_info: PageInfo | None = None
 
 
 class Gadget(BaseModel):
     id: str
     name: str
     status: Status | None = None
-
-
-class PageInfo(BaseModel):
-    cursor: str | None = None
 
 
 class GadgetList(BaseModel):

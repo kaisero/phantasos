@@ -661,6 +661,27 @@ def build_cli_ir(
     return ir, unmapped
 
 
+def _qualify_sub_refs(slug: str, ir_sub: CliIR) -> None:
+    """Slug-qualify every registry POINTER in one sub's IR, in place.
+
+    A sub's registry is self-contained (no cross-sub refs), so every bare
+    `model_ref`/`variant_ref` resolves to a model in THIS sub — prefix each with
+    `f"{slug}."` to match the qualified keys the merge stores. Done before merging
+    so flags/fields and the registry keys move together.
+    """
+    q = f"{slug}."
+    for schema in ir_sub.models.values():
+        for mf in schema.fields:
+            if mf.model_ref:
+                mf.model_ref = q + mf.model_ref
+            if mf.variant_refs:
+                mf.variant_refs = [q + v for v in mf.variant_refs]
+    for cmd in ir_sub.commands:
+        for flag in (*cmd.path_params, *cmd.body_flags, *cmd.query_flags):
+            if flag.model_ref:
+                flag.model_ref = q + flag.model_ref
+
+
 def merge_federated_irs(
     package: str,
     sdk_version: str,
@@ -669,8 +690,13 @@ def merge_federated_irs(
     """Merge per-sub CliIRs into ONE federated CliIR.
 
     Each sub's commands are stamped with its snake slug (`Command.subpackage`) and
-    concatenated; unmapped ops are slug-prefixed for clarity; models are merged
-    NAIVELY (flat — model-name collisions across subs are namespaced in task B2).
+    concatenated; unmapped ops are slug-prefixed for clarity; models are merged under
+    SLUG-QUALIFIED keys (`f"{slug}.{ClassName}"`) so two subs defining a same-named
+    model (e.g. both expose a `PageInfo`) stay distinct instead of last-sub-wins.
+    Each sub's registry refs (`Flag.model_ref`, `ModelField.model_ref` /
+    `variant_refs`) are rewritten to the qualified key in lockstep, so key and ref
+    stay consistent and `synth_skeleton`/docs/`--help` resolve to the RIGHT sub's
+    model. Single-spec builds run no merge and keep bare keys (`build_cli_ir`).
     `facade_module` points at the top-level package, which exposes the COMPOSING
     `Client` (not a sub-facade); the runtime navigates `client.<slug>.<object>`.
 
@@ -683,6 +709,7 @@ def merge_federated_irs(
     models: dict[str, ModelSchema] = {}
     object_owner: dict[str, str] = {}
     for slug, ir_sub, unmapped_sub in subs:
+        _qualify_sub_refs(slug, ir_sub)
         for cmd in ir_sub.commands:
             owner = object_owner.get(cmd.object)
             if owner is not None and owner != slug:
@@ -695,7 +722,7 @@ def merge_federated_irs(
             cmd.subpackage = slug
             commands.append(cmd)
         unmapped.extend(f"{slug}.{u}" for u in unmapped_sub)
-        models.update(ir_sub.models)  # naive flat merge; B2 namespaces collisions
+        models.update({f"{slug}.{name}": s for name, s in ir_sub.models.items()})
     ir = CliIR(
         sdk_package=package,
         sdk_version=sdk_version,

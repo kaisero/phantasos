@@ -14,19 +14,25 @@ class Status(BaseModel):
     note: str
 
 
+class PageInfo(BaseModel):
+    """Alpha's PageInfo — collides by NAME with beta.models.PageInfo (DISTINCT
+    fields). Reachable from the request body root (WidgetInput.page_info) so it
+    enters the CLI model registry — the live cross-sub key collision B2 namespaces.
+    """
+
+    cursor: str | None = None
+
+
 class WidgetInput(BaseModel):
     name: str
     size: int
+    page_info: PageInfo | None = None
 
 
 class Widget(BaseModel):
     id: str
     name: str
     status: Status | None = None
-
-
-class PageInfo(BaseModel):
-    cursor: str | None = None
 
 
 class WidgetList(BaseModel):
