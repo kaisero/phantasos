@@ -42,6 +42,7 @@ from .ir import (
     SubVerb,
     Verb,
 )
+from .modelschema import build_model_registry
 
 __all__ = [
     "_SKIP_FRAGMENTS",
@@ -50,10 +51,12 @@ __all__ = [
     "_singularize",
     "_strip_id_suffix",
     "build_cli_ir",
+    "build_ir",
     "classify_name",
     "cli_operations",
     "detect_id_param",
     "fields_to_flags",
+    "merge_federated_irs",
     "resolve_variants",
     "select_method_for_verb",
 ]
@@ -656,3 +659,78 @@ def build_cli_ir(
         models=models or {},
     )
     return ir, unmapped
+
+
+def merge_federated_irs(
+    package: str,
+    sdk_version: str,
+    subs: list[tuple[str, CliIR, list[str]]],
+) -> tuple[CliIR, list[str]]:
+    """Merge per-sub CliIRs into ONE federated CliIR.
+
+    Each sub's commands are stamped with its snake slug (`Command.subpackage`) and
+    concatenated; unmapped ops are slug-prefixed for clarity; models are merged
+    NAIVELY (flat — model-name collisions across subs are namespaced in task B2).
+    `facade_module` points at the top-level package, which exposes the COMPOSING
+    `Client` (not a sub-facade); the runtime navigates `client.<slug>.<object>`.
+
+    S1 (cross-sub object-uniqueness): two subs defining the same `Command.object`
+    raise a clear build error naming the object + both subs. Objects are globally
+    unique across prisma-access today; this guards a future regression.
+    """
+    commands: list[Command] = []
+    unmapped: list[str] = []
+    models: dict[str, ModelSchema] = {}
+    object_owner: dict[str, str] = {}
+    for slug, ir_sub, unmapped_sub in subs:
+        for cmd in ir_sub.commands:
+            owner = object_owner.get(cmd.object)
+            if owner is not None and owner != slug:
+                raise ValueError(
+                    f"federated build: object {cmd.object!r} is defined by both "
+                    f"sub-packages {owner!r} and {slug!r}; objects must be unique "
+                    "across sub-packages"
+                )
+            object_owner[cmd.object] = slug
+            cmd.subpackage = slug
+            commands.append(cmd)
+        unmapped.extend(f"{slug}.{u}" for u in unmapped_sub)
+        models.update(ir_sub.models)  # naive flat merge; B2 namespaces collisions
+    ir = CliIR(
+        sdk_package=package,
+        sdk_version=sdk_version,
+        facade_module=package,  # the composing Client lives on the top-level package
+        commands=commands,
+        models=models,
+    )
+    return ir, unmapped
+
+
+def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[str]]:
+    """Build the CliIR for a single- OR federated-spec SDK.
+
+    A federated distribution exposes `_SUBPACKAGES` (snake slug -> sub-facade
+    `Client`) on its top-level package (detected exactly as the SDK-docs
+    `gen_ref_pages` does). Each sub is introspected/classified independently and
+    merged into one CliIR via `merge_federated_irs`. A single-spec SDK (no
+    `_SUBPACKAGES`) keeps the unchanged single-pass path.
+
+    `cfg` drives the single-spec build. Per-sub cli.yml sections are task B3; for
+    now each sub builds against an empty `CliConfig`.
+    """
+    with on_sys_path(sdk_path):
+        top = importlib.import_module(package)
+        subpkgs = getattr(top, "_SUBPACKAGES", None)
+        version = getattr(top, "__version__", "0.0.0")
+    if not subpkgs:
+        inv = cli_operations(package, sdk_path)
+        models = build_model_registry(package, sdk_path, inv)
+        return build_cli_ir(inv, cfg, models=models)
+    subs: list[tuple[str, CliIR, list[str]]] = []
+    for slug in subpkgs:
+        sub_pkg = f"{package}.{slug}"
+        inv = cli_operations(sub_pkg, sdk_path)
+        models = build_model_registry(sub_pkg, sdk_path, inv)
+        ir_sub, unmapped_sub = build_cli_ir(inv, CliConfig(), models=models)
+        subs.append((slug, ir_sub, unmapped_sub))
+    return merge_federated_irs(package, version, subs)

@@ -17,7 +17,18 @@ union variants, hidden ops, table columns, query defaults). The emitted
 ## How it works
 
 Host commands live in `phantasos/cli.py` (`cli_discover`, `cli_build`) — NOT in
-this package. They wire the three pipeline stages together:
+this package. Both route through `classify.build_ir(package, sdk_path, cfg)`, which
+detects a **federated** SDK (one exposing a `_SUBPACKAGES` dict — snake slug →
+sub-facade `Client` — on its top-level package, the same seam the SDK-docs
+`gen_ref_pages` keys off). Single-spec SDKs (no `_SUBPACKAGES`) take the unchanged
+single-pass path below. A federated SDK runs the introspect→classify stages **per
+sub** (`f"{package}.{slug}"`, against an empty per-sub `CliConfig` until federated
+cli.yml lands) and `merge_federated_irs` folds the results into ONE `CliIR`: every
+`Command` stamped with its `subpackage` (the snake slug), unmapped ops slug-prefixed,
+models merged flat (model-name collisions across subs are namespaced in a later
+task), and `facade_module` set to the top-level package (which exposes the composing
+`Client`, not a sub-facade). A cross-sub object-name collision is a hard build error.
+They wire the three pipeline stages together:
 
 1. **Introspect** — The pure introspection and classification helpers
    (`introspect`, `classify_name`, `detect_id_param`, the `OperationInventory`
@@ -385,6 +396,8 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `ResolvedVariant`
   - `resolve_variants(op, vmap)` — Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
   - `build_cli_ir(inv, cfg, models)`
+  - `merge_federated_irs(package, sdk_version, subs)` — Merge per-sub CliIRs into ONE federated CliIR.
+  - `build_ir(package, sdk_path, cfg)` — Build the CliIR for a single- OR federated-spec SDK.
 - `cliconfig.py`
   - class `RequestMapping`
   - class `Override`

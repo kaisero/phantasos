@@ -30,21 +30,20 @@ def _load_or_exit(product: str) -> LoadedProduct:
 
 
 def _build_ir_or_exit(loaded: LoadedProduct) -> tuple[CliIR, CliConfig, list[str]]:
-    from .generator.cli.classify import build_cli_ir, cli_operations
+    from .generator.cli.classify import build_ir
     from .generator.cli.cliconfig import load_cli_config
-    from .generator.cli.modelschema import build_model_registry
 
     cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
     try:
-        # Wrapper-backed inventory: dispatch goes through the typed
-        # client.<object>.<verb>(...) wrappers; the command tree is still
-        # classified off the RAW operation names.
-        inv = cli_operations(loaded.config.package, Path(loaded.output_dir))
+        # build_ir detects a federated SDK (`_SUBPACKAGES` on the top-level
+        # package), introspects each sub, and merges into one CliIR (commands
+        # stamped with their slug). A single-spec SDK keeps the unchanged path.
+        # Either way the command tree is classified off the RAW operation names
+        # and dispatch goes through the typed client.<object>.<verb>(...) wrappers.
+        ir, unmapped = build_ir(loaded.config.package, Path(loaded.output_dir), cfg)
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc
-    models = build_model_registry(loaded.config.package, Path(loaded.output_dir), inv)
-    ir, unmapped = build_cli_ir(inv, cfg, models=models)
     return ir, cfg, unmapped
 
 
