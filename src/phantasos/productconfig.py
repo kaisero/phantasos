@@ -139,6 +139,20 @@ class HeaderSpec(BaseModel):
     required_for: list[str] = Field(default_factory=list)
 
 
+class LiveProbe(BaseModel):
+    """Per-sub-package probe override for the federated live smoke.
+
+    Keys that are absent fall back to auto-detection at runtime. `args` values
+    may be ``$ENV`` strings — stored RAW here, resolved by the emitted test.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    object: str | None = None  # facade object to probe; None = auto-pick at runtime
+    verb: str = "list"
+    args: dict[str, str] = Field(default_factory=dict)
+    skip: bool = False
+
+
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -172,6 +186,9 @@ class ProductConfig(BaseModel):
     # ApiClient handle by the federated composer (declared here, NOT derived
     # from any spec). Fail-loud on a missing value happens at construction.
     default_headers: dict[str, HeaderSpec] = Field(default_factory=dict)
+    # sub-package slug -> probe override; federated products only.
+    # Absent keys are auto-probed at runtime by the emitted live-smoke test.
+    live_smoke: dict[str, LiveProbe] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _exactly_one_spec_mode(self) -> ProductConfig:
@@ -184,6 +201,10 @@ class ProductConfig(BaseModel):
             )
         if not federated and self.spec is None:
             self.spec = "./openapi.yml"  # restore legacy default
+        if not federated and self.live_smoke:
+            raise ValueError(
+                "`live_smoke` is federated-only; single-spec products must not set it"
+            )
         if federated:  # slug is a package/dir/import path — validate at the boundary
             seen: set[str] = set()
             for sub in self.subpackages:

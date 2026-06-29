@@ -9,6 +9,7 @@ from phantasos.config import ScmOAuth
 from phantasos.productconfig import (
     HeaderSpec,
     Hoist,
+    LiveProbe,
     ProductConfig,
     TagOperation,
     Transforms,
@@ -461,6 +462,67 @@ def test_federated_load_builds_per_sub_contexts(tmp_path: Path) -> None:
     assert subs["objects"].context["spec_version"] == "1.2.3"
     assert subs["objects"].spec_path == (tmp_path / "openapi/objects.yaml").resolve()
     assert subs["posture"].context["spec_version"] == "4.5.6"
+
+
+# --- live_smoke ---
+
+
+def test_live_probe_defaults() -> None:
+    p = LiveProbe()
+    assert p.object is None
+    assert p.verb == "list"
+    assert p.args == {}
+    assert p.skip is False
+
+
+def test_live_smoke_parses_on_federated_product() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "subpackages": [
+                {"slug": "incidents", "spec": "openapi/incidents.yaml"},
+                {"slug": "foo", "spec": "openapi/foo.yaml"},
+            ],
+            "live_smoke": {
+                "incidents": {
+                    "object": "incident",
+                    "verb": "search",
+                    "args": {"x_panw_region": "$PANW_REGION"},
+                },
+                "foo": {"skip": True},
+            },
+        }
+    )
+    assert isinstance(cfg.live_smoke["incidents"], LiveProbe)
+    assert cfg.live_smoke["incidents"].object == "incident"
+    assert cfg.live_smoke["incidents"].verb == "search"
+    # $ENV ref stored RAW — not resolved at parse time
+    assert cfg.live_smoke["incidents"].args == {"x_panw_region": "$PANW_REGION"}
+    assert cfg.live_smoke["incidents"].skip is False
+    assert cfg.live_smoke["foo"].skip is True
+    assert cfg.live_smoke["foo"].object is None
+    assert cfg.live_smoke["foo"].verb == "list"
+    assert cfg.live_smoke["foo"].args == {}
+
+
+def test_live_smoke_absent_defaults_empty() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.live_smoke == {}
+
+
+def test_live_smoke_on_single_spec_is_error() -> None:
+    with pytest.raises(ValidationError, match=r"live_smoke.*federated"):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://x",
+                "spec": "./openapi.yml",
+                "live_smoke": {"incidents": {"object": "incident"}},
+            }
+        )
 
 
 def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary validation
