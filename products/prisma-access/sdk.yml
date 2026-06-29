@@ -81,6 +81,19 @@ default_headers:
   X-PANW-Region: {env: PANW_REGION, required_for: [incidents, ztna_connector]}
   prisma-tenant: {env: PRISMA_TENANT, required: false}
 
+# Per-sub live-smoke probe overrides (federated live smoke). A sub auto-picks a
+# zero-arg `list` collection (`requires == []`); `incidents` is the ONLY sub with
+# no collection GET (search / get-by-id only), so it needs an explicit probe.
+# `incident.search` requires `x_panw_region` (binding `requires: ['x_panw_region']`,
+# so a no-arg call would raise pre-HTTP and bypass the status rule). The wrapper
+# param maps to the `X-PANW-Region` HEADER; the composer also injects that header
+# from `default_headers` and OAG applies it LAST (`header_params.update(default_headers)`
+# in api_client.param_serialize) — same dict key, so a SINGLE header, no duplicate
+# and no wire conflict (composer value wins, identical $PANW_REGION). $ENV args are
+# resolved at test runtime.
+live_smoke:
+  incidents: {object: incident, verb: search, args: {x_panw_region: $PANW_REGION}}
+
 project:
   distribution: prisma-access-sdk
   description: Python SDK for Palo Alto Networks Prisma Access
