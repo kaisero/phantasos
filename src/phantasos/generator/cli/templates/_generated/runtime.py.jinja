@@ -89,6 +89,51 @@ def set_connection_overrides(overrides: dict[str, str | None]) -> None:
 
 def _connection_overrides() -> dict[str, str | None]:
     return _CONN_OVERRIDES.get()
+
+
+def _preflight_connection(cmd: Command) -> None:
+    """Exit 2 if a connection field required for this command's sub-package is missing.
+
+    A field is required for this invocation when field.required is True OR
+    cmd.subpackage is in field.required_for. Resolution mirrors _client():
+    --flag override > exported env var > active-environment value.
+    """
+    from . import config as _config
+
+    name = _selected_environment()
+    conn_overrides = _connection_overrides()
+    conn_resolved = _config.resolve_connection(name)
+    for f in _ir().connection_fields:
+        needed = f.required or (
+            cmd.subpackage is not None and cmd.subpackage in f.required_for
+        )
+        if not needed:
+            continue
+        val = (
+            conn_overrides.get(f.env)
+            or os.environ.get(f.env)
+            or conn_resolved.get(f.env)
+        )
+        if not val:
+            flag = f.name.split("-")[-1].lower()
+            sub = cmd.subpackage
+            if sub and sub in f.required_for:
+                why = f"the '{sub}' sub-package requires {f.env}"
+            else:
+                why = f"{f.env} is required"
+            headline = (
+                f"environment '{name}' is missing {f.env}: {why}"
+                if name
+                else f"missing {f.env}: {why}"
+            )
+            _diag.fail(
+                headline,
+                code=2,
+                hint=(
+                    f"set {f.env} (env var or .env), pass --{flag}, "
+                    f"or run 'environment create <name> --{flag} <value>'"
+                ),
+            )
 {% endif %}
 
 
@@ -564,6 +609,9 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         if dry_run:
             _dry_run(cmd, binding, kwargs)
             return
+{%- if ir.connection_fields %}
+        _preflight_connection(cmd)
+{%- endif %}
         client = _client(verbose=verbose)
         # Dispatch through the typed object wrapper. Federated: the composing client
         # exposes one handle per sub-package, so navigate `client.<sub>.<object>`;

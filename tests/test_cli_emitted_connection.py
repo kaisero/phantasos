@@ -275,3 +275,141 @@ def test_single_spec_has_no_connection_flag_or_export(tmp_path: Path) -> None:
     config_src = (gen / "config.py").read_text(encoding="utf-8")
     assert "resolve_connection" not in config_src
     assert "_CONN_FIELDS" not in config_src
+
+
+# D3: command-aware connection pre-flight tests
+
+
+def test_preflight_exits_2_for_beta_without_region(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3: 'show beta gadget' with no region → exit 2 naming FEDSDK_REGION + beta."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("FEDSDK_REGION", raising=False)
+    with _fed_cli(tmp_path / "out"):
+        main = importlib.import_module("fedsdk_cli.main")
+        result = CliRunner().invoke(main.app, ["show", "beta", "gadget"])
+    assert result.exit_code == 2, result.output
+    out = _strip_ansi(result.output)
+    assert "FEDSDK_REGION" in out
+    assert "beta" in out
+    # clean message, not a raw RuntimeError traceback
+    assert "RuntimeError" not in out
+    assert "Traceback" not in out
+
+
+def test_preflight_passes_for_alpha_without_region(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3: 'show alpha widget' with no region → pre-flight does not block.
+
+    Alpha is not in region's required_for list.
+    """
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("FEDSDK_REGION", raising=False)
+    with _fed_cli(tmp_path / "out"):
+        rt = importlib.import_module("fedsdk_cli._generated.runtime")
+        main = importlib.import_module("fedsdk_cli.main")
+
+        class _Rec:
+            def __getattr__(self, name: str) -> Any:
+                def _call(*, all_pages: bool = False, **kw: Any) -> Any:
+                    return []
+
+                return _call
+
+        class _AlphaSub:
+            widget = _Rec()
+
+        class _FakeFed:
+            alpha = _AlphaSub()
+
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
+        result = CliRunner().invoke(
+            main.app, ["show", "alpha", "widget", "--output", "json"]
+        )
+    # pre-flight must NOT exit-2 for alpha (region not required for alpha sub)
+    assert result.exit_code == 0, result.output
+
+
+def test_preflight_passes_with_region_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3: 'show beta gadget --region us' → pre-flight passes."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("FEDSDK_REGION", raising=False)
+    with _fed_cli(tmp_path / "out"):
+        rt = importlib.import_module("fedsdk_cli._generated.runtime")
+        main = importlib.import_module("fedsdk_cli.main")
+
+        class _Rec:
+            def __getattr__(self, name: str) -> Any:
+                def _call(*, all_pages: bool = False, **kw: Any) -> Any:
+                    return []
+
+                return _call
+
+        class _BetaSub:
+            gadget = _Rec()
+
+        class _FakeFed:
+            beta = _BetaSub()
+
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
+        result = CliRunner().invoke(
+            main.app, ["show", "beta", "gadget", "--region", "us", "--output", "json"]
+        )
+    # pre-flight must pass when region is provided via --region flag
+    assert result.exit_code == 0, result.output
+
+
+def test_preflight_passes_with_region_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3: 'show beta gadget' with FEDSDK_REGION set in env → pre-flight passes."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("FEDSDK_REGION", "us-west")
+    with _fed_cli(tmp_path / "out"):
+        rt = importlib.import_module("fedsdk_cli._generated.runtime")
+        main = importlib.import_module("fedsdk_cli.main")
+
+        class _Rec:
+            def __getattr__(self, name: str) -> Any:
+                def _call(*, all_pages: bool = False, **kw: Any) -> Any:
+                    return []
+
+                return _call
+
+        class _BetaSub:
+            gadget = _Rec()
+
+        class _FakeFed:
+            beta = _BetaSub()
+
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
+        result = CliRunner().invoke(
+            main.app, ["show", "beta", "gadget", "--output", "json"]
+        )
+    # FEDSDK_REGION in env is enough — pre-flight must pass
+    assert result.exit_code == 0, result.output
+
+
+def test_single_spec_has_no_connection_preflight(tmp_path: Path) -> None:
+    """D3: single-spec CLI must not emit _preflight_connection code."""
+    out = _render_single_spec(tmp_path)
+    runtime_src = (out / "fakesdk_cli" / "_generated" / "runtime.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_preflight_connection" not in runtime_src
