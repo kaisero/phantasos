@@ -429,9 +429,24 @@ def _render_commands(
     # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
     # (subpackage None) keeps the byte-identical 2-level loop.
     # `federated` is already in ctx (added in render_cli() before the _GENERATED loop).
+    # F2: derive sub_help / obj_help from IR for the federated help text dicts.
+    # ponytail: first non-empty summary/description per sub/object; no new data source.
+    sub_help: dict[str, str] = {}
+    obj_help: dict[str, str] = {}
+    for c in ir.commands:
+        if c.subpackage:
+            sub_k = c.subpackage.replace("_", "-")
+            if sub_k not in sub_help:
+                sub_help[sub_k] = c.summary or c.description or ""
+        if c.object not in obj_help:
+            obj_help[c.object] = c.summary or c.description or ""
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, **ctx
+            resources=resources,
+            commands=all_views,
+            sub_help=sub_help,
+            obj_help=obj_help,
+            **ctx,
         ),
         encoding="utf-8",
     )

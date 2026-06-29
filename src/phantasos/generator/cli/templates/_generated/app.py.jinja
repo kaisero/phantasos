@@ -40,6 +40,9 @@ _REGISTRY = [
     ({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.subpackage|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
 {%- endfor %}
 ]
+# F2: sub-package and object help texts for `show <sub> --help` / `show <sub> <obj> --help`.
+_SUB_HELP = {{ sub_help | tojson }}
+_OBJ_HELP = {{ obj_help | tojson }}
 {%- else -%}
 # (key, verb, typer_path, resource, func_name)
 _REGISTRY = [
@@ -103,7 +106,12 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
                 if sub is None:
                     sub = typer.Typer(no_args_is_help=True)
                     object_apps[prefix] = sub
-                    parent.add_typer(sub, name=path[depth - 1])
+                    # depth 1 = sub-package level; depth 2+ = object level.
+                    _help = (
+                        _SUB_HELP.get(path[depth - 1]) if depth == 1
+                        else _OBJ_HELP.get(path[depth - 1])
+                    ) or None
+                    parent.add_typer(sub, name=path[depth - 1], help=_help)
                 parent = sub
             parent.command(path[-1])(fn)
     app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
