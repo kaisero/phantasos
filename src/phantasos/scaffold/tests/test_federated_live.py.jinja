@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import socket
 
 import pytest
 
@@ -41,7 +42,7 @@ _LIVE_SMOKE: dict[str, dict] = {{ live_smoke_literal }}
 # ERROR instead of skipping — guard them all here so it cleanly SKIPS.
 _REQUIRED_ENV = {{ live_required_env_literal }}
 _FAIL_STATUSES = {404, 401, 424}
-_TIMEOUT = 30  # seconds; bounded so a hung tenant cannot stall the suite
+_TIMEOUT = 30  # seconds; socket-level cap so a hung tenant cannot stall the suite
 
 pytestmark = pytest.mark.skipif(
     any(not os.environ.get(var) for var in _REQUIRED_ENV),
@@ -50,9 +51,16 @@ pytestmark = pytest.mark.skipif(
 
 
 def _resolve_env(value: str) -> str:
-    """Resolve a ``$ENV`` reference to its environment value (raw passthrough else)."""
+    """Resolve a ``$ENV`` reference to its environment value (raw passthrough else).
+
+    Skips (rather than empty-string) when the var is unset: a baked ``$WIDGET_ID``
+    with no value would otherwise probe a bogus id and FAIL on the resulting 404,
+    misreporting a wiring defect."""
     if isinstance(value, str) and value.startswith("$"):
-        return os.environ.get(value[1:], "")
+        name = value[1:]
+        if name not in os.environ:
+            pytest.skip(f"live_smoke arg env ${name} is unset")
+        return os.environ[name]
     return value
 
 
@@ -97,6 +105,19 @@ def _resolve(slug: str) -> tuple[str, str, dict]:
     return obj, "list", {}
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _bound_transport_timeout():
+    """Bound urllib3 connect/read so a hung tenant cannot stall the suite. The typed
+    wrapper verb takes no per-call timeout and ``pytest-timeout`` isn't installed, so
+    cap the socket default for this module (restored on teardown)."""
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(_TIMEOUT)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(previous)
+
+
 @pytest.mark.parametrize("slug", sorted(_sdk._SUBPACKAGES))
 def test_subpackage_wiring_resolves(slug: str) -> None:
     """One real authenticated read per sub proves its auth/base-path/region wiring."""
@@ -104,7 +125,7 @@ def test_subpackage_wiring_resolves(slug: str) -> None:
     client = _sdk.Client.from_env()
     method = getattr(getattr(getattr(client, slug), obj), verb)
     try:
-        method(_request_timeout=_TIMEOUT, **kwargs)
+        method(**kwargs)  # typed wrapper verb: only its own params, no per-call timeout
     except ApiException as exc:
         if exc.status in _FAIL_STATUSES:
             pytest.fail(

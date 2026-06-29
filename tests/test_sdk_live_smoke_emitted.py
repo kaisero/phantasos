@@ -90,7 +90,8 @@ def test_federated_render_parses_and_has_safety_rails() -> None:
     ast.parse(src)  # imports clean (syntax)
     assert "sorted(_sdk._SUBPACKAGES)" in src  # loops the registry
     assert "_FAIL_STATUSES = {404, 401, 424}" in src  # outcome rule
-    assert "_request_timeout=" in src  # bounded timeout passed
+    assert "setdefaulttimeout(_TIMEOUT)" in src  # bounded transport-level (socket)
+    assert "_request_timeout" not in src  # the typed wrapper verb cannot accept it
     assert "limit=1" not in src  # zero-arg call, never a baked limit
     assert '["requires"] == []' in src  # auto-pick filters zero-arg lists
     assert "PANW_REGION" in src  # region var in the skip-guard
@@ -105,6 +106,24 @@ def test_auto_pick_finds_zero_arg_list(tmp_path: Path) -> None:
     with on_sys_path(FIXTURE):
         assert mod._auto_object(mod._wrappers("alpha")) == "widget"
         assert mod._resolve("alpha") == ("widget", "list", {})
+
+
+def test_probe_call_reaches_dispatch_without_pre_http_error(tmp_path: Path) -> None:
+    """The emitted probe must invoke the wrapper verb with ONLY its resolved kwargs.
+
+    The wrapper verb (here fedsdk's ``WidgetResource.list(self, limit=None)`` — a real
+    generated-style signature) accepts neither ``_request_timeout`` nor arbitrary
+    ``**kwargs``; passing one raises a pre-HTTP ``TypeError`` that escapes the
+    ``ApiException``/transport rules and proves zero wiring while staying green. Run the
+    emitted probe end-to-end against the live fedsdk wrappers (auto-pick resolves
+    ``alpha.widget.list`` with ``{}``) and require it to dispatch — no
+    ``TypeError``/``ValueError`` before the request reaches HTTP."""
+    mod = _load(_render(_FED_CTX), tmp_path)
+    with on_sys_path(FIXTURE):
+        try:
+            mod.test_subpackage_wiring_resolves("alpha")
+        except (TypeError, ValueError) as exc:  # pre-HTTP arg-binding failure
+            pytest.fail(f"probe raised a pre-HTTP {type(exc).__name__}: {exc}")
 
 
 def test_no_zero_arg_list_is_skipped_not_a_pre_http_error(tmp_path: Path) -> None:
