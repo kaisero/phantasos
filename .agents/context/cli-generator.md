@@ -264,6 +264,25 @@ These two halves feed **four surfaces**, all off the single registry:
   `test_config`) that `scaffold.render_scaffold` layers over the built-in SDK
   scaffold, mirroring `products/<name>/overrides/` for SDKs.
 
+## N-level Typer nesting
+
+`templates/_generated/app.py.jinja` emits the Typer factory. For a **single-spec** build the output is byte-identical to the pre-federation factory — the template's `{% else %}` branch is untouched. For a **federated** build the template gates on a `federated` context flag and produces a deeper command hierarchy: **verb → sub-package → object** (so `prisma-access show objects address` maps cleanly), with a fourth level for `request <sub> <object> <action>` and for oneOf-variant commands.
+
+Sub-package command names are rendered as **kebab-case** (`network_services` → `network-services`) while `Command.subpackage` stays the original snake slug — lookup by `cmd.subpackage` is always unambiguous. Intermediate Typer sub-apps (one per `(verb, *path[:depth])` tuple) are created on demand and keyed into a dict; the template registers each intermediate app exactly once regardless of how many objects share the same verb/sub prefix.
+
+## Runtime federation dispatch
+
+`templates/_generated/runtime.py.jinja` is the dispatch core. When `cmd.subpackage` is set (a federated command), every seam that needs to know the concrete sub-package resolves off that slug rather than the top-level package:
+
+- `_models` → `{pkg}.{sub}.models` (response coercion and type lookups)
+- `_accepted_params` → `{pkg}.{sub}.extras.facade._WRAPPERS` (dry-run and param filtering)
+- `_sdk_exc` → `{pkg}._runtime.exceptions` for federated SDKs (runtime lives at the top level); `{pkg}.exceptions` for single-spec SDKs
+- `_dry_run` delegates to the sub wrapper's `_serialize` method
+
+Dispatch itself is two-level: `getattr(getattr(client, cmd.subpackage), cmd.sdk_resource)` — first resolve the sub-package attribute on the composing `Client`, then the resource attribute on the sub-facade's client. Single-spec commands (`cmd.subpackage` unset) fall through to the unchanged `getattr(client, cmd.sdk_resource)` path.
+
+The command-aware connection-field pre-flight (`_preflight_connection`) is already documented under *Emitted features → Connection headers*.
+
 ## Layered config of emitted CLIs
 
 Each generated CLI resolves every user-facing setting through one layered flow:
