@@ -146,7 +146,7 @@ class LiveProbe(BaseModel):
     may be ``$ENV`` strings — stored RAW here, resolved by the emitted test.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid")
     object: str | None = None  # facade object to probe; None = auto-pick at runtime
     verb: str = "list"
     args: dict[str, str] = Field(default_factory=dict)
