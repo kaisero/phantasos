@@ -140,7 +140,8 @@ def test_full_federation_twelve_subpackages(
     ``import prisma_access`` exposes ``Client`` + a 12-entry ``_SUBPACKAGES``
     registry, every ``prisma_access.<slug>`` imports cleanly, and constructing
     ``Client(cfg)`` with the stubbed-token config exposes all 12 ``.<slug>``
-    facade handles (one config + one pool fanned out, retry landed via the first).
+    facade handles (one config + one pool fanned out; whichever handle is accessed
+    first wires retry — idempotent, so order-independent).
     """
     loaded = load_product("prisma-access")
     # Build into an isolated tmp dir, NOT the shared sibling `prisma-access-sdk/`
@@ -335,9 +336,9 @@ def test_full_federation_twelve_subpackages(
         # client.objects.<object> is a usable typed wrapper (clean verbs only).
         assert hasattr(client.objects.address, "create")
         assert not hasattr(client.objects.address, "create_address")
-        # Retry got wired onto the SHARED config by the first-ACCESSED sub-facade's
-        # __init__ (idempotent `if retries is None`, so order-independent; here the
-        # `.objects` access above wired it). The shared _auth.py rendered with
+        # Retry got wired onto the SHARED config by whichever sub-facade's __init__
+        # runs first (idempotent `if retries is None`, so order-independent). The
+        # shared _auth.py rendered with
         # has_retry=False, so the composer must not ship a retry-less client.
         assert cfg.retries is not None
     finally:

@@ -90,7 +90,7 @@ def test_duplicate_object_across_subs_raises() -> None:
         ("alpha", _stub_ir("thing"), []),
         ("beta", _stub_ir("thing"), []),
     ]
-    with pytest.raises(ValueError, match=r"thing.*alpha.*beta|thing"):
+    with pytest.raises(ValueError, match=r"thing.*alpha.*beta"):
         merge_federated_irs("fed", "0.0.1", subs)
 
 
@@ -238,7 +238,7 @@ def test_federated_unmapped_non_crud_raises() -> None:
     map enrolls ALL `_SUBPACKAGES`, so the build still reaches beta (only possible
     if the empty map iterates every sub) and fails loud on its unmapped `compute`.
     """
-    with pytest.raises(ValueError, match=r"compute.*beta|beta.*compute|compute"):
+    with pytest.raises(ValueError, match=r"compute.*beta|beta.*compute"):
         build_ir("fedsdk", FEDSDK, CliConfig())
 
 

@@ -259,9 +259,9 @@ def test_live_objects_address_crud_round_trip(
     assert created.exit_code == 0, created.output
     addr = _parse_json(created.output)
     addr_id = addr["id"]
-    assert addr["name"] == name
 
     try:
+        assert addr["name"] == name
         got = runner.invoke(
             app,
             ["show", "objects", "address", "--id", addr_id, "--output", "json"],

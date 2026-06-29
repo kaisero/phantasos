@@ -145,8 +145,11 @@ def activate(name: str) -> None:
 
 @environment_app.command("show")
 def show_environments() -> None:
-    """List the defined environments (with non-secret connection values; secrets
-    are never shown)."""
+{%- if ir.connection_fields %}
+    """List the defined environments (with non-secret connection values; secrets are never shown)."""
+{%- else %}
+    """List the defined environment names (never their field values)."""
+{%- endif %}
     environments = _config._raw_environments()
     if not environments:
         _diag.info("no environments defined")
