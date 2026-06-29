@@ -92,7 +92,7 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     # (a oneOf variant / request action). Intermediate sub-apps are keyed by
     # `(verb, *path[:depth])` so each level is created once and reused.
     object_apps: dict[tuple[str, ...], typer.Typer] = {}
-    for key, verb, subpackage, path, resource, func_name in _REGISTRY:
+    for key, verb, _subpackage, path, resource, func_name in _REGISTRY:
         if key in exclude or verb not in verb_apps:
             continue
         fn = getattr(resources[resource], func_name)

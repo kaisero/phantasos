@@ -136,6 +136,9 @@ def test_single_spec_app_loop_byte_identical(tmp_path: Path) -> None:
     app = (tmp_path / "fakesdk_cli" / "_generated" / "app.py").read_text()
     # single-spec keeps the exact pre-federation 5-tuple registry + 2-level loop
     assert "# (key, verb, typer_path, resource, func_name)" in app
+    # boundary pin: a blank line precedes the registry comment — guards the
+    # `{% if federated -%}` whitespace gotcha (a `{%- if %}` would eat it).
+    assert "\n\n# (key, verb, typer_path, resource, func_name)" in app
     assert _SINGLE_SPEC_LOOP in app
     assert "subpackage" not in app  # no extra registry column leaks in
     assert "range(1, len(path))" not in app  # N-level loop stays federated-only

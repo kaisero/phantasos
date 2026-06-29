@@ -4,13 +4,14 @@ from __future__ import annotations
 
 {% if federated %}import difflib
 from importlib.resources import files
-from .spec import CliIR as _CliIR
 {% endif %}import typer
 from rich.table import Table
 
 from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
+{% if federated %}from .spec import CliIR as _CliIR
+{% endif %}
 
 cli_show_app = typer.Typer(no_args_is_help=True, help="CLI meta information.")
 

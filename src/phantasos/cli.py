@@ -44,6 +44,11 @@ def _build_ir_or_exit(loaded: LoadedProduct) -> tuple[CliIR, CliConfig, list[str
     except ImportError as exc:
         typer.echo(f"ERROR: SDK not importable — build it first ({exc})", err=True)
         raise typer.Exit(2) from exc
+    except ValueError as exc:
+        # federated build errors (enrollment typo, fail-loud unmapped non-CRUD op)
+        # surface as a clean exit-2, not a raw traceback.
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(2) from exc
     return ir, cfg, unmapped
 
 

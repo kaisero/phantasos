@@ -1,7 +1,7 @@
-"""`environment` commands: manage named credential environments.
+"""`environment` commands: manage named environments (credentials + connection settings).
 
-The ``create`` command exposes one ``--<field>`` option per credential field,
-generated as STATIC typer options from the auth component's descriptor — so this
+The ``create`` command exposes one ``--<field>`` option per credential and
+connection field, generated as STATIC typer options from the descriptors — so this
 module depends only on ``typer`` (no direct ``click`` dependency).
 
 Environments live in the dedicated ``~/.{distribution}/environments.yml`` file
@@ -102,7 +102,7 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
 
 
 environment_app = typer.Typer(
-    no_args_is_help=True, help="Manage named credential environments."
+    no_args_is_help=True, help="Manage named environments."
 )
 
 

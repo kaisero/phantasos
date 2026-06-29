@@ -121,6 +121,24 @@ def test_federated_merge_namespaces_colliding_models() -> None:
     assert set(skel) == {"cursor"}
 
 
+def test_federated_merge_qualifies_nested_refs_and_variants() -> None:
+    """B2 (coverage): the per-sub ref rewrite slug-qualifies a body model's NESTED
+    `model_ref` (WidgetInput.page_info -> alpha.PageInfo) AND its inline-union
+    `variant_refs` (WidgetInput.target oneOf TargetA|TargetB) — not just the
+    top-level body flag. A flat merge would leave these bare / cross-sub-wrong.
+    """
+    ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
+    fields = {mf.alias: mf for mf in ir.models["alpha.WidgetInput"].fields}
+    # B2-2: the nested model_ref (previously unobserved) is qualified to alpha's.
+    assert fields["page_info"].model_ref == "alpha.PageInfo"
+    # B2-1: the inline-union variant_refs (previously unexercised) are qualified.
+    variants = fields["target"].variant_refs
+    assert variants is not None
+    assert set(variants) == {"alpha.TargetA", "alpha.TargetB"}
+    # and both variant models resolve in the registry under their qualified keys.
+    assert "alpha.TargetA" in ir.models and "alpha.TargetB" in ir.models
+
+
 def test_single_spec_registry_keys_stay_bare() -> None:
     """Behavioral parity: the single-spec path runs no merge, so registry keys and
     body-flag `model_ref`s stay BARE (unqualified) — unchanged from before B2."""

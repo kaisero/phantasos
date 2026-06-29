@@ -23,10 +23,26 @@ class PageInfo(BaseModel):
     cursor: str | None = None
 
 
+class TargetA(BaseModel):
+    """oneOf-variant A — exercises the inline-union variant_refs slug-qualification."""
+
+    kind_a: str | None = None
+
+
+class TargetB(BaseModel):
+    """oneOf-variant B — distinct from TargetA (same collision-canary purpose for
+    variant_refs as PageInfo is for a nested model_ref)."""
+
+    kind_b: int | None = None
+
+
 class WidgetInput(BaseModel):
     name: str
     size: int
     page_info: PageInfo | None = None
+    # inline oneOf union field -> a ModelField with variant_refs (TargetA|TargetB),
+    # so the merge's per-sub ref rewrite must slug-qualify the variants too.
+    target: TargetA | TargetB | None = None
 
 
 class Widget(BaseModel):

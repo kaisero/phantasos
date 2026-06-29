@@ -756,7 +756,6 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
     with on_sys_path(sdk_path):
         top = importlib.import_module(package)
         subpkgs = getattr(top, "_SUBPACKAGES", None)
-        version = getattr(top, "__version__", "0.0.0")
     if not subpkgs:
         inv = cli_operations(package, sdk_path)
         models = build_model_registry(package, sdk_path, inv)
@@ -772,10 +771,8 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
         if unknown:
             raise ValueError(
                 "federated cli.yml subpackages: enrolled sub(s) "
-                + ", ".join(sorted(unknown))
-                + " not in the SDK's _SUBPACKAGES ("
-                + ", ".join(subpkgs)
-                + ")"
+                f"{', '.join(sorted(unknown))} not in the SDK's "
+                f"_SUBPACKAGES ({', '.join(subpkgs)})"
             )
         enrolled = [slug for slug in subpkgs if slug in cfg.subpackages]
     else:
@@ -788,11 +785,12 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
         sub_cfg = cfg.subpackages.get(slug, CliConfig())
         ir_sub, unmapped_sub = build_cli_ir(inv, sub_cfg, models=models)
         subs.append((slug, ir_sub, unmapped_sub))
+    version = getattr(top, "__version__", "0.0.0")
     ir, unmapped = merge_federated_irs(package, version, subs)
     if unmapped:
         raise ValueError(
             "federated build: non-CRUD op(s) with no cli.yml mapping: "
-            + ", ".join(sorted(unmapped))
-            + " — add a `subpackages.<slug>.request` (or `.hide`) entry"
+            f"{', '.join(sorted(unmapped))} — add a "
+            "`subpackages.<slug>.request` (or `.hide`) entry"
         )
     return ir, unmapped

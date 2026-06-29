@@ -41,6 +41,9 @@ def _surface(sub: str) -> set[tuple[str | None, str | None]]:
 def test_subpackages_registry_enumerates_alpha_and_beta() -> None:
     fedsdk = _import("fedsdk")
     assert set(fedsdk._SUBPACKAGES) == {"alpha", "beta"}
+    # value-type contract: each value is the sub-facade Client (callable/constructible),
+    # not an instance — mirrors the real prisma_access `_SUBPACKAGES` registry.
+    assert all(callable(v) for v in fedsdk._SUBPACKAGES.values())
 
 
 def test_alpha_exposes_widget_crud_surface() -> None:

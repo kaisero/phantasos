@@ -63,6 +63,9 @@ class ConnectionField(BaseModel):
     env: str  # env var, e.g. "PANW_REGION"
     required: bool = False
     required_for: list[str] = Field(default_factory=list)
+    # CLI flag name (collision-aware; baked in _enrich_ir so the runtime pre-flight
+    # hint and the emitted --flag never diverge). Empty until enriched.
+    flag: str = ""
 
 
 class ErrorEnvelope(BaseModel):

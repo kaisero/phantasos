@@ -109,13 +109,18 @@ def _preflight_connection(cmd: Command) -> None:
         )
         if not needed:
             continue
+        # ponytail: or-chain treats an empty string as absent (an empty region
+        # header is meaningless and the SDK would reject it); _client() uses
+        # is-not-None — the divergence only matters for an explicit `--flag ""`.
         val = (
             conn_overrides.get(f.env)
             or os.environ.get(f.env)
             or conn_resolved.get(f.env)
         )
         if not val:
-            flag = f.name.split("-")[-1].lower()
+            # f.flag is the collision-aware flag baked onto the IR at build time,
+            # so the hint always matches the emitted --flag (fallback for safety).
+            flag = f.flag or f.name.split("-")[-1].lower()
             sub = cmd.subpackage
             if sub and sub in f.required_for:
                 why = f"the '{sub}' sub-package requires {f.env}"

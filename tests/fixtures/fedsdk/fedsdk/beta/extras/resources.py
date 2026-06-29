@@ -4,8 +4,9 @@ Mirrors ``alpha``'s wrapper surface but adds a non-CRUD action (``compute``) on 
 ``gadget`` object — the clean verb that is NOT create/get/list/update/delete, which
 federated classification/dispatch must carry through.
 
-ponytail: a trimmed copy of fakesdk's ``_ResourceBase`` — no pagination/serialize
-seams (unused offline). Add them if a federated task needs --all or dry-run paths.
+The binding shape (incl. ``enums`` + ``serialize_name``) and the
+``_call(verb, present, kwargs)`` signature match ``fakesdk``. ponytail: trimmed —
+no pagination/``--all`` seam (unused offline).
 """
 
 from __future__ import annotations
@@ -29,16 +30,19 @@ class _ResourceBase:
 
     def _to_raw(self, kwargs: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
         raw: dict[str, Any] = {}
+        enums = b["enums"]
         for wrapper_name, raw_name in b["param_map"].items():
             value = kwargs.get(wrapper_name)
-            if value is not None:
-                raw[raw_name] = value
+            if value is None:
+                continue
+            if wrapper_name in enums and isinstance(value, str):
+                value = globals()[enums[wrapper_name]](value)
+            raw[raw_name] = value
         if b["body"] is not None and kwargs.get("body") is not None:
             raw[b["body"]] = kwargs["body"]
         return raw
 
-    def _call(self, verb: str, kwargs: dict[str, Any]) -> Any:
-        present = {k for k, v in kwargs.items() if v is not None}
+    def _call(self, verb: str, present: set[str], kwargs: dict[str, Any]) -> Any:
         b = self._select(verb, present)
         return getattr(self._api, b["raw_method"])(**self._to_raw(kwargs, b))
 
@@ -50,67 +54,99 @@ class GadgetResource(_ResourceBase):
         "create": [
             {
                 "raw_method": "create_gadget",
+                "serialize_name": "_create_gadget_serialize",
                 "requires": [],
                 "param_map": {},
                 "body": "gadget_input",
+                "enums": {},
             }
         ],
         "get": [
             {
                 "raw_method": "get_gadget_by_id",
+                "serialize_name": "_get_gadget_by_id_serialize",
                 "requires": ["id"],
                 "param_map": {"id": "id"},
                 "body": None,
+                "enums": {},
             }
         ],
         "list": [
             {
                 "raw_method": "list_gadgets",
+                "serialize_name": "_list_gadgets_serialize",
                 "requires": [],
                 "param_map": {"limit": "limit"},
                 "body": None,
+                "enums": {},
             }
         ],
         "update": [
             {
                 "raw_method": "update_gadget",
+                "serialize_name": "_update_gadget_serialize",
                 "requires": ["id"],
                 "param_map": {"id": "id"},
                 "body": "gadget_input",
+                "enums": {},
             }
         ],
         "delete": [
             {
                 "raw_method": "delete_gadget_by_id",
+                "serialize_name": "_delete_gadget_by_id_serialize",
                 "requires": ["id"],
                 "param_map": {"id": "id"},
                 "body": None,
+                "enums": {},
             }
         ],
         "compute": [
             {
                 "raw_method": "compute_gadget",
+                "serialize_name": "_compute_gadget_serialize",
                 "requires": [],
                 "param_map": {},
                 "body": "gadget_input",
+                "enums": {},
             }
         ],
     }
 
     def create(self, body: GadgetInput | None = None) -> Gadget:
-        return self._call("create", {"body": body})
+        return self._call(
+            "create",
+            {k for k, v in {"body": body}.items() if v is not None},
+            {"body": body},
+        )
 
     def get(self, id: str | None = None) -> Gadget:
-        return self._call("get", {"id": id})
+        return self._call(
+            "get", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
+        )
 
     def list(self, limit: int | None = None) -> GadgetList:
-        return self._call("list", {"limit": limit})
+        return self._call(
+            "list",
+            {k for k, v in {"limit": limit}.items() if v is not None},
+            {"limit": limit},
+        )
 
     def update(self, id: str | None = None, body: GadgetInput | None = None) -> Gadget:
-        return self._call("update", {"id": id, "body": body})
+        return self._call(
+            "update",
+            {k for k, v in {"id": id, "body": body}.items() if v is not None},
+            {"id": id, "body": body},
+        )
 
     def delete(self, id: str | None = None) -> None:
-        return self._call("delete", {"id": id})
+        return self._call(
+            "delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
+        )
 
     def compute(self, body: GadgetInput | None = None) -> Status:
-        return self._call("compute", {"body": body})
+        return self._call(
+            "compute",
+            {k for k, v in {"body": body}.items() if v is not None},
+            {"body": body},
+        )

@@ -265,22 +265,34 @@ def _command_view(
     }
 
 
-def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
-    """Per connection field: its global-flag name + Python identifier + env var.
+def _derive_connection_flags(names: list[str]) -> list[str]:
+    """CLI flag name per connection header (the single source of this derivation).
 
     Flag name = the header's last hyphen segment, lowercased
     (``X-PANW-Region`` -> ``region``). If two headers derive the same name, BOTH
     fall back to the full kebab header (``x-panw-region``) so the flags stay
-    distinct. The flag name is also the storage key in ``environments.yml`` and
-    the ``environment create`` prompt label.
+    distinct. Used by ``_connection_views`` (the emitted flag) AND ``_enrich_ir``
+    (baked onto the IR so the runtime pre-flight hint can't diverge).
     """
-    shorts = [f.name.split("-")[-1].lower() for f in fields]
+    shorts = [n.split("-")[-1].lower() for n in names]
     counts: dict[str, int] = {}
     for s in shorts:
         counts[s] = counts.get(s, 0) + 1
+    return [
+        short if counts[short] == 1 else name.lower().replace("_", "-")
+        for name, short in zip(names, shorts, strict=True)
+    ]
+
+
+def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
+    """Per connection field: its global-flag name + Python identifier + env var.
+
+    The flag name is also the storage key in ``environments.yml`` and the
+    ``environment create`` prompt label.
+    """
+    flags = _derive_connection_flags([f.name for f in fields])
     views: list[dict[str, object]] = []
-    for f, short in zip(fields, shorts, strict=True):
-        flag = short if counts[short] == 1 else f.name.lower().replace("_", "-")
+    for f, flag in zip(fields, flags, strict=True):
         views.append(
             {
                 "header": f.name,
@@ -369,15 +381,29 @@ def _enrich_ir(
         ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
     # Connection-header descriptors from ProductConfig.default_headers.
     if default_headers:
+        flags = _derive_connection_flags(list(default_headers))
         connection_fields = [
             ConnectionField(
                 name=header_name,
                 env=spec.env,
                 required=spec.required,
                 required_for=list(spec.required_for),
+                flag=flag,
             )
-            for header_name, spec in default_headers.items()
+            for (header_name, spec), flag in zip(
+                default_headers.items(), flags, strict=True
+            )
         ]
+        # ponytail: guard the one real collision risk — a connection flag clashing
+        # with a credential field's flag (both become global --options). Reserved
+        # Typer options (--output/--environment/…) aren't enumerated here.
+        cred_flags = {cf.name.lower().replace("_", "-") for cf in ir.credential_fields}
+        clash = {str(c.flag) for c in connection_fields} & cred_flags
+        if clash:
+            raise ValueError(
+                f"connection flag(s) {', '.join(sorted(clash))} collide with "
+                "credential flags — rename the header or its env var"
+            )
         ir = ir.model_copy(update={"connection_fields": connection_fields})
     return ir
 
@@ -431,15 +457,17 @@ def _render_commands(
     # `federated` is already in ctx (added in render_cli() before the _GENERATED loop).
     # F2: derive sub_help / obj_help from IR for the federated help text dicts.
     # ponytail: first non-empty summary/description per sub/object; no new data source.
+    # Only the federated app.py branch reads these, so skip the work for single-spec.
     sub_help: dict[str, str] = {}
     obj_help: dict[str, str] = {}
-    for c in ir.commands:
-        if c.subpackage:
-            sub_k = c.subpackage.replace("_", "-")
-            if sub_k not in sub_help:
-                sub_help[sub_k] = c.summary or c.description or ""
-        if c.object not in obj_help:
-            obj_help[c.object] = c.summary or c.description or ""
+    if ctx.get("federated"):
+        for c in ir.commands:
+            if c.subpackage:
+                sub_k = c.subpackage.replace("_", "-")
+                if sub_k not in sub_help:
+                    sub_help[sub_k] = c.summary or c.description or ""
+            if c.object not in obj_help:
+                obj_help[c.object] = c.summary or c.description or ""
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
             resources=resources,
@@ -577,7 +605,7 @@ def render_cli(
     # Emitted ONLY for CLIs with named-environment fields (credentials OR
     # connection headers); a CLI with neither never references it (app.py's
     # registration is gated on the same condition).
-    if ir.credential_fields or ir.connection_fields:
+    if ctx["has_env"]:
         render(
             "_generated/environment_commands.py.jinja",
             gen / "environment_commands.py",

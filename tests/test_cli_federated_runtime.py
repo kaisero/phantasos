@@ -179,6 +179,25 @@ def test_federated_list_dispatch(
         assert kw.get("limit") == 5  # coerced + accepted by the sub wrapper
 
 
+def test_accepted_params_resolves_per_sub_facade(tmp_path: Path) -> None:
+    """`_accepted_params` resolves the SUB's facade `_WRAPPERS` (not a fail-open
+    None), so a cli.yml-injected default for an unaccepted param would actually be
+    dropped. A wrong/missing federated path returns None and silently drops nothing —
+    this pins the per-sub resolution that `test_federated_list_dispatch` can't (its
+    `limit` is user-supplied, so the drop branch never fires)."""
+    with _fed_runtime(tmp_path) as rt:
+        cmd = Command(
+            verb="show",
+            object="widget",
+            key="show:widget",
+            sdk_resource="widget",
+            subpackage="alpha",
+        )
+        # WidgetResource.list(self, limit=None) -> {"limit"} via fedsdk.alpha's facade.
+        # If _accepted_params resolved the wrong (top-level) facade it would be None.
+        assert rt._accepted_params(cmd, "list") == {"limit"}
+
+
 def test_federated_dry_run_serializes_via_sub_wrapper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

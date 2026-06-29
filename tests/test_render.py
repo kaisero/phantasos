@@ -650,7 +650,11 @@ def test_composer_handles_are_lazy_first_access() -> None:
     # 3. The required-header raise is INSIDE the per-sub builder (after its `def`),
     #    so constructing the Client never reads the header — only touching the sub
     #    does.
-    assert txt.index("def incidents(self)") < txt.index("raise RuntimeError")
+    inc = txt.index("def incidents(self)")
+    nxt = txt.index("def ", inc + len("def incidents(self)"))
+    # the required-header raise sits BETWEEN incidents' def and the next method def
+    # — i.e. genuinely inside the incidents builder, not merely somewhere after.
+    assert "raise RuntimeError" in txt[inc:nxt]
     ast.parse(txt)
 
 

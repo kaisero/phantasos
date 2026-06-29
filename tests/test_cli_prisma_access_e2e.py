@@ -108,6 +108,15 @@ def built_cli(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, An
         }
     finally:
         _purge()
+        # also drop the SDK itself on teardown (the mid-yield _purge keeps it — the
+        # app needs it at runtime — but leaving it resident after the sdk path is
+        # removed would leak a stale prisma_access into later modules).
+        for m in [
+            n
+            for n in sys.modules
+            if n == "prisma_access" or n.startswith("prisma_access.")
+        ]:
+            del sys.modules[m]
         for p in added:
             if p in sys.path:
                 sys.path.remove(p)
