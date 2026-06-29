@@ -596,7 +596,13 @@ def test_composer_emits_client_and_subpackages_registry() -> None:
     assert "_SUBPACKAGES = {" in txt
     assert '"objects":' in txt
     assert "class Client" in txt
-    assert "self.objects =" in txt
+    # Lazy handles: each sub is a `cached_property` built on first access (NOT an
+    # eager `self.objects = ...` in __init__) so an objects-only call never
+    # constructs incidents/ztna_connector.
+    assert "from functools import cached_property" in txt
+    assert "@cached_property" in txt
+    assert "def objects(self)" in txt
+    assert "self.objects =" not in txt
     assert "rest_client" in txt  # shared pool wiring
     assert ".models = _objects_models" in txt  # rev-2 B1 instance attr
     assert "configuration_from_env" in txt  # auth config factory
@@ -606,6 +612,46 @@ def test_composer_emits_client_and_subpackages_registry() -> None:
     # header-less federated products are unaffected).
     assert "import os" not in txt
     assert "default_headers" not in txt
+
+
+def test_composer_handles_are_lazy_first_access() -> None:
+    """Each sub-package handle is built LAZILY on first access (cached_property),
+    the required-header raise lives INSIDE the per-sub builder (not __init__), and
+    retry wiring is order-independent (no facade is constructed in __init__, so no
+    sub is privileged as "first")."""
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects", "incidents", "ztna_connector"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        headers=[
+            {
+                "name": "X-PANW-Region",
+                "env": "PANW_REGION",
+                "required": False,
+                "required_for": ["incidents", "ztna_connector"],
+                "declared_by": ["incidents", "ztna_connector"],
+            },
+        ],
+    )
+    # 1. Every sub is a cached_property builder.
+    for slug in ("objects", "incidents", "ztna_connector"):
+        assert f"def {slug}(self)" in txt
+    assert txt.count("@cached_property") == 3
+
+    # 2. No handle is built in __init__ -> the FIRST `_BearerApiClient(` (i.e. any
+    #    facade construction) appears only after the first `@cached_property`. With
+    #    nothing privileged as "first sub", whichever sub-facade is ACCESSED first
+    #    wires retry idempotently onto the shared config -> order-independent.
+    assert txt.index("@cached_property") < txt.index("_BearerApiClient(")
+    assert "self.incidents =" not in txt and "self.ztna_connector =" not in txt
+
+    # 3. The required-header raise is INSIDE the per-sub builder (after its `def`),
+    #    so constructing the Client never reads the header — only touching the sub
+    #    does.
+    assert txt.index("def incidents(self)") < txt.index("raise RuntimeError")
+    ast.parse(txt)
 
 
 def test_composer_emits_default_header_apply_and_required_for_guard() -> None:
