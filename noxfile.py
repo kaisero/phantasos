@@ -267,9 +267,11 @@ def live(session: nox.Session) -> None:
     # (triggered by docs context build during sdk build) can import the SDK package.
     # introspect() adds the SDK dir to sys.path; we only need the deps in the venv.
     session.install(*sdk_runtime_deps())
+    built_a_cli = False
     for product in _stage_products("live"):
         session.run("phantasos", "sdk", "build", product, "--no-smoke")
-        out_dir = load_product(product).output_dir
+        loaded = load_product(product)
+        out_dir = loaded.output_dir
         session.install(str(out_dir))
         # Run every emitted live suite (`test_*_live.py`): single-spec products ship
         # the frozen `test_sdk_crud_live.py` oracle; the federated prisma-access ships
@@ -278,6 +280,19 @@ def live(session: nox.Session) -> None:
         if not live_tests:
             session.error(f"{product}: no live test (tests/test_*_live.py) emitted")
         session.run("pytest", "-v", *(str(p) for p in live_tests))
+        # If the product ships a cli.yml, build its CLI too — proving the CLI build's
+        # B3 fail-loud (every non-CRUD op mapped) on the host path against the
+        # freshly-built SDK.
+        if (Path(loaded.base_dir) / "cli.yml").exists():
+            session.run("phantasos", "cli", "build", product)
+            built_a_cli = True
+    # End-to-end proof for the federated prisma-access CLI: an OFFLINE smoke (built
+    # CLI imports + --help/which/discover/show-help/request-help resolve + an objects
+    # dry-run runs region-free, all no-network/no-creds) PLUS a live objects CRUD
+    # round-trip that skips without creds. The test self-targets prisma-access and
+    # self-skips if its SDK isn't built, so run it once after the SDKs are in place.
+    if built_a_cli:
+        session.run("pytest", "-v", "tests/test_cli_prisma_access_e2e.py")
 
 
 @nox.session(name="sdk-docs", venv_backend="uv")

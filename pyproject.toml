@@ -162,10 +162,11 @@ ignore_missing_imports = true
 module = ["yaml"]
 ignore_missing_imports = true
 
-# prisma_browser is a GENERATED SDK, absent at type-check time (built by `nox -s smoke`);
-# the real-SDK tests import it inside skip-guarded bodies.
+# prisma_browser / prisma_access are GENERATED SDKs, absent at type-check time (built
+# by `nox -s smoke` / `sdk build`); the real-SDK tests import them inside skip-guarded
+# bodies.
 [[tool.mypy.overrides]]
-module = ["prisma_browser", "prisma_browser.*"]
+module = ["prisma_browser", "prisma_browser.*", "prisma_access", "prisma_access.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
