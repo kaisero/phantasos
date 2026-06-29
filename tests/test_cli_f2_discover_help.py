@@ -60,18 +60,13 @@ def test_federated_discover_groups_by_subpackage() -> None:
 
 
 def test_federated_discover_has_stub_invocations() -> None:
-    """render_table includes at least one example invocation per sub-package."""
+    """render_table includes the exact example invocation lines per sub-package."""
     ir, unmapped = build_ir("fedsdk", FEDSDK, _fed_cfg())
     out = render_table(ir, unmapped)
 
-    # A representative stub line (e.g. "fedsdk show alpha widget")
-    assert "alpha" in out
-    assert "beta" in out
-    # the stub shows the verb-sub-object form
-    assert any(
-        word in out
-        for word in ["show alpha widget", "show alpha", "show beta gadget", "show beta"]
-    )
+    # Exact stub lines emitted by _render_federated_table
+    assert "example: fedsdk show alpha widget" in out
+    assert "example: fedsdk show beta gadget" in out
 
 
 def test_single_spec_discover_unchanged() -> None:
@@ -129,7 +124,7 @@ def test_fedsdk_show_alpha_help_has_group_line(
     tmp_path: Path,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    """show alpha --help shows a help line for the alpha group."""
+    """show alpha --help shows the _SUB_HELP["alpha"] text as the group description."""
     from typer.testing import CliRunner
 
     out = _render_fedsdk(tmp_path)
@@ -139,9 +134,9 @@ def test_fedsdk_show_alpha_help_has_group_line(
         runner = CliRunner()
         r = runner.invoke(app, ["show", "alpha", "--help"])
         assert r.exit_code == 0, r.output
-        # alpha group has a non-empty help line (appears in the help output)
-        assert "alpha" in r.output.lower() or len(r.output.strip()) > 0
-        # More than just usage: there should be a description + "widget" as a command
+        # _SUB_HELP["alpha"] is wired as the alpha sub-Typer help; it must appear.
+        assert "Create a widget." in r.output
+        # widget appears as a subcommand
         assert "widget" in r.output
 
 
@@ -175,7 +170,7 @@ def test_fedsdk_show_alpha_widget_help_shows_object_description(
     tmp_path: Path,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    """show alpha widget --help shows the object's description."""
+    """show alpha widget --help shows the show:widget command's docstring summary."""
     from typer.testing import CliRunner
 
     out = _render_fedsdk(tmp_path)
@@ -185,12 +180,34 @@ def test_fedsdk_show_alpha_widget_help_shows_object_description(
         runner = CliRunner()
         r = runner.invoke(app, ["show", "alpha", "widget", "--help"])
         assert r.exit_code == 0, r.output
-        # The object-level help shows a description (not just an empty Usage block)
-        assert "widget" in r.output.lower()
-        # The description from the first widget command (e.g. "widget") is present
-        lines = [ln.strip() for ln in r.output.splitlines() if ln.strip()]
-        # There are multiple lines (usage + description + commands)
-        assert len(lines) > 2
+        # show:widget carries summary="Get a widget by id." as its docstring.
+        # Must appear in help; fails if summary is dropped.
+        assert "Get a widget by id." in r.output
+
+
+def test_fedsdk_request_beta_gadget_obj_help(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """request beta gadget --help shows the _OBJ_HELP["gadget"] text (depth-2 path).
+
+    `request:gadget:compute` has typer_path=["beta","gadget","compute"] (len 3).
+    At depth 2 the "gadget" intermediate sub-Typer is wired with
+    _OBJ_HELP["gadget"]="Create a gadget." — the only len-3 path in the fedsdk fixture.
+    """
+    from typer.testing import CliRunner
+
+    out = _render_fedsdk(tmp_path)
+    with render_and_import(out, "fedsdk_cli"):
+        app_mod = importlib.import_module("fedsdk_cli._generated.app")
+        app = app_mod.build_generated_app()
+        runner = CliRunner()
+        r = runner.invoke(app, ["request", "beta", "gadget", "--help"])
+        assert r.exit_code == 0, r.output
+        # _OBJ_HELP["gadget"] is wired as the depth-2 gadget sub-Typer help.
+        assert "Create a gadget." in r.output
+        # The "compute" leaf command is listed under it.
+        assert "compute" in r.output
 
 
 def test_single_spec_emitted_app_unchanged(tmp_path: Path) -> None:
