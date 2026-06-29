@@ -23,21 +23,25 @@ FAKESDK = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
 def _fed_cfg() -> CliConfig:
-    """A federated cli.yml that maps beta's non-CRUD `compute`.
+    """A federated cli.yml ENROLLING both subs (alpha CRUD-only, beta + its
+    non-CRUD `compute`).
 
-    B3 makes a federated build fail loud on any non-CRUD op with no
-    `request:`/`hide:` mapping, so every fedsdk build now needs `compute`
-    mapped. Shared by the B1/B2 federated tests (orthogonal to what they assert).
+    The `subpackages:` map is the enrollment allowlist (G1): a sub must be listed
+    to be built. So both alpha and beta are listed — alpha with an empty delta
+    (CRUD-only, no mappings needed), beta mapping its non-CRUD `compute` (B3 fails
+    loud on an unmapped non-CRUD op). Shared by the B1/B2 federated tests
+    (orthogonal to what they assert).
     """
     return CliConfig(
         subpackages={
+            "alpha": CliConfig(),
             "beta": CliConfig(
                 request={
                     "gadgets.compute_gadget": RequestMapping(
                         object="gadget", action="compute"
                     )
                 }
-            )
+            ),
         }
     )
 
@@ -229,9 +233,42 @@ def test_federated_cli_yml_flows_per_sub_delta() -> None:
 def test_federated_unmapped_non_crud_raises() -> None:
     """A federated build whose `cli.yml` does NOT map beta's `compute` is a HARD
     error naming the op + its sub — a command must never be silently dropped on drift.
+
+    Doubles as the empty/absent-`subpackages:` backward-compat proof (G1): an empty
+    map enrolls ALL `_SUBPACKAGES`, so the build still reaches beta (only possible
+    if the empty map iterates every sub) and fails loud on its unmapped `compute`.
     """
     with pytest.raises(ValueError, match=r"compute.*beta|beta.*compute|compute"):
         build_ir("fedsdk", FEDSDK, CliConfig())
+
+
+# --- G1 enrollment allowlist tests ---
+
+
+def test_federated_enrollment_allowlist_restricts_to_listed_subs() -> None:
+    """A NON-empty `subpackages:` map is the enrollment allowlist: only the listed
+    subs (∩ `_SUBPACKAGES`) are built; a `_SUBPACKAGES` sub absent from the map is
+    skipped entirely.
+
+    Enrolling ONLY alpha builds alpha's CRUD and skips beta completely — so beta's
+    unmapped non-CRUD `compute` never even fails loud. This is exactly what makes
+    the real P0 thin-slice (objects + incidents) buildable without mapping the
+    other subs' non-CRUD ops.
+    """
+    ir, unmapped = build_ir(
+        "fedsdk", FEDSDK, CliConfig(subpackages={"alpha": CliConfig()})
+    )
+    assert {c.subpackage for c in ir.commands} == {"alpha"}
+    assert not any(c.object == "gadget" for c in ir.commands)  # beta not enrolled
+    assert not unmapped
+
+
+def test_federated_enrollment_unknown_sub_raises() -> None:
+    """A sub LISTED in `subpackages:` but absent from the SDK's `_SUBPACKAGES` is a
+    typo — fail loud naming it (never silently skipped)."""
+    cfg = CliConfig(subpackages={"alpha": CliConfig(), "gamma": CliConfig()})
+    with pytest.raises(ValueError, match=r"gamma"):
+        build_ir("fedsdk", FEDSDK, cfg)
 
 
 def test_single_spec_unmapped_non_crud_does_not_raise() -> None:

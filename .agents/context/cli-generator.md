@@ -22,12 +22,24 @@ detects a **federated** SDK (one exposing a `_SUBPACKAGES` dict — snake slug �
 sub-facade `Client` — on its top-level package, the same seam the SDK-docs
 `gen_ref_pages` keys off). Single-spec SDKs (no `_SUBPACKAGES`) take the unchanged
 single-pass path below. A federated SDK runs the introspect→classify stages **per
-sub** (`f"{package}.{slug}"`, against an empty per-sub `CliConfig` until federated
-cli.yml lands) and `merge_federated_irs` folds the results into ONE `CliIR`: every
-`Command` stamped with its `subpackage` (the snake slug), unmapped ops slug-prefixed,
-models merged flat (model-name collisions across subs are namespaced in a later
-task), and `facade_module` set to the top-level package (which exposes the composing
-`Client`, not a sub-facade). A cross-sub object-name collision is a hard build error.
+sub** (`f"{package}.{slug}"`, each against its own delta from `cfg.subpackages[slug]`
+in the federated cli.yml) and `merge_federated_irs` folds the results into ONE
+`CliIR`: every `Command` stamped with its `subpackage` (the snake slug), unmapped ops
+slug-prefixed, models merged under slug-qualified keys (`f"{slug}.{ClassName}"`, refs
+rewritten in lockstep), and `facade_module` set to the top-level package (which
+exposes the composing `Client`, not a sub-facade). A cross-sub object-name collision
+is a hard build error, as is a federated non-CRUD op left with no cli.yml mapping
+(fail-loud, federated-only).
+
+**Enrollment allowlist (federated):** `cfg.subpackages` doubles as the enrollment
+allowlist — a *non-empty* map builds CLI ONLY for its listed subs (∩ `_SUBPACKAGES`,
+iterated in `_SUBPACKAGES` order); a sub not listed is skipped entirely, so a
+federated CLI can ship a thin slice (e.g. prisma-access P0 = `objects` + `incidents`)
+without mapping every other sub's non-CRUD ops. An *empty/absent* map enrolls ALL
+subs (a config-less federated build stays backward-compatible). A sub listed but
+absent from `_SUBPACKAGES` is a typo → hard error. Region/tenant connection headers
+are NOT in cli.yml: they live once in the product's sdk.yml `default_headers` and
+flow into the CLI build via `load_product`.
 They wire the three pipeline stages together:
 
 1. **Introspect** — The pure introspection and classification helpers

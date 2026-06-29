@@ -39,13 +39,14 @@ def _fed_cfg() -> CliConfig:
     """Map beta's non-CRUD `compute` (else the federated build fails loud)."""
     return CliConfig(
         subpackages={
+            "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
             "beta": CliConfig(
                 request={
                     "gadgets.compute_gadget": RequestMapping(
                         object="gadget", action="compute"
                     )
                 }
-            )
+            ),
         }
     )
 

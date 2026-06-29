@@ -742,9 +742,13 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
     merged into one CliIR via `merge_federated_irs`. A single-spec SDK (no
     `_SUBPACKAGES`) keeps the unchanged single-pass path.
 
-    `cfg` drives the single-spec build. For a federated build, each sub gets its
-    own `cli.yml` delta from `cfg.subpackages[slug]` (an empty `CliConfig` if
-    absent). FAIL-LOUD (federated only): after merging, any non-CRUD op left
+    `cfg` drives the single-spec build. For a federated build, `cfg.subpackages`
+    is the ENROLLMENT ALLOWLIST: a non-empty map builds ONLY its listed subs
+    (∩ `_SUBPACKAGES`); an empty/absent map enrolls ALL subs (backward-compatible
+    config-less build). Each enrolled sub gets its own `cli.yml` delta from
+    `cfg.subpackages[slug]` (an empty `CliConfig` if its value is `{}`). A sub
+    listed but absent from `_SUBPACKAGES` is a typo → hard error. FAIL-LOUD
+    (federated only): after merging, any non-CRUD op left
     unmapped (no `request:`/`hide:` in its sub's section) is a HARD build error,
     so a command is never silently dropped on drift. The single-spec path keeps
     today's behavior — it returns `unmapped` for cli.py to print as a stderr note.
@@ -757,8 +761,27 @@ def build_ir(package: str, sdk_path: Path, cfg: CliConfig) -> tuple[CliIR, list[
         inv = cli_operations(package, sdk_path)
         models = build_model_registry(package, sdk_path, inv)
         return build_cli_ir(inv, cfg, models=models)
+    # ENROLLMENT ALLOWLIST: a non-empty `subpackages:` map lists exactly the subs
+    # to build (∩ `_SUBPACKAGES`, in `_SUBPACKAGES` order) — a sub not listed is
+    # skipped, so the federated CLI can ship a thin slice without mapping the rest
+    # of the SDK's non-CRUD ops. An empty/absent map enrolls ALL subs (config-less
+    # federated build stays backward-compatible). A listed sub absent from
+    # `_SUBPACKAGES` is a typo → fail loud.
+    if cfg.subpackages:
+        unknown = set(cfg.subpackages) - set(subpkgs)
+        if unknown:
+            raise ValueError(
+                "federated cli.yml subpackages: enrolled sub(s) "
+                + ", ".join(sorted(unknown))
+                + " not in the SDK's _SUBPACKAGES ("
+                + ", ".join(subpkgs)
+                + ")"
+            )
+        enrolled = [slug for slug in subpkgs if slug in cfg.subpackages]
+    else:
+        enrolled = list(subpkgs)
     subs: list[tuple[str, CliIR, list[str]]] = []
-    for slug in subpkgs:
+    for slug in enrolled:
         sub_pkg = f"{package}.{slug}"
         inv = cli_operations(sub_pkg, sdk_path)
         models = build_model_registry(sub_pkg, sdk_path, inv)

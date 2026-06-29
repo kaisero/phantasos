@@ -31,13 +31,14 @@ def _fed_cfg() -> CliConfig:
     loud); yields the len-3 `request beta gadget compute` path C1 must nest."""
     return CliConfig(
         subpackages={
+            "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
             "beta": CliConfig(
                 request={
                     "gadgets.compute_gadget": RequestMapping(
                         object="gadget", action="compute"
                     )
                 }
-            )
+            ),
         }
     )
 
