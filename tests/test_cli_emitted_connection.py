@@ -306,7 +306,8 @@ def test_preflight_passes_for_alpha_without_region(
 ) -> None:
     """D3: 'show alpha widget' with no region → pre-flight does not block.
 
-    Alpha is not in region's required_for list.
+    Alpha is not in region's required_for list. A dispatch sentinel proves
+    _facade_from_env was actually invoked (not just 'not exit-2 for another reason').
     """
     from typer.testing import CliRunner
 
@@ -316,6 +317,8 @@ def test_preflight_passes_for_alpha_without_region(
     with _fed_cli(tmp_path / "out"):
         rt = importlib.import_module("fedsdk_cli._generated.runtime")
         main = importlib.import_module("fedsdk_cli.main")
+
+        dispatched: dict[str, bool] = {}
 
         class _Rec:
             def __getattr__(self, name: str) -> Any:
@@ -330,12 +333,42 @@ def test_preflight_passes_for_alpha_without_region(
         class _FakeFed:
             alpha = _AlphaSub()
 
-        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
+        def _stub(**kw: Any) -> Any:
+            dispatched["reached"] = True  # ponytail: sentinel proves dispatch reached
+            return _FakeFed()
+
+        monkeypatch.setattr(rt, "_facade_from_env", _stub)
         result = CliRunner().invoke(
             main.app, ["show", "alpha", "widget", "--output", "json"]
         )
     # pre-flight must NOT exit-2 for alpha (region not required for alpha sub)
     assert result.exit_code == 0, result.output
+    # _facade_from_env must have been called — proves dispatch was reached, not merely
+    # that pre-flight didn't fire (it could have short-circuited for another reason).
+    assert dispatched.get("reached"), (
+        "dispatch never reached: pre-flight may have wrongly gated alpha, "
+        "or 'show alpha widget' is not a real command"
+    )
+
+
+def test_preflight_skips_for_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3: --dry-run skips _preflight_connection; beta without region must NOT exit 2.
+
+    Guards against the pre-flight ever being moved before the dry-run early return.
+    """
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("FEDSDK_REGION", raising=False)
+    with _fed_cli(tmp_path / "out"):
+        main = importlib.import_module("fedsdk_cli.main")
+        result = CliRunner().invoke(main.app, ["show", "beta", "gadget", "--dry-run"])
+    # --dry-run returns before _preflight_connection; a region-requiring 'beta' command
+    # must NOT exit 2 under --dry-run even when FEDSDK_REGION is unset.
+    assert result.exit_code != 2, result.output
 
 
 def test_preflight_passes_with_region_flag(
