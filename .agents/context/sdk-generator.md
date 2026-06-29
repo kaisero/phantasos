@@ -158,6 +158,28 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
    > asserts `mkdocs build --strict`; the prisma-access `[[sdk-docs.assert]]` guards
    > check `search/search_index.json` for the per-sub `reference/<slug>/` prefixes,
    > proving each federated sub renders at least one reference page.
+
+   > **Federated live smoke (scaffold component; federated-only).** The built-in
+   > `scaffold/tests/test_federated_live.py.jinja` emits a runtime-introspecting
+   > live smoke for federated distributions only. `_scaffold` merges
+   > `_live_smoke_context(loaded, project_dir)` into the render context: single-spec
+   > products get `federated=False` so the template renders whitespace and
+   > `render_scaffold` drops it (single-spec SDKs emit nothing new); federated
+   > products bake the `live_smoke` override map + the skip-guard env vars
+   > (`_live_required_env` = required auth creds + any `required`/`required_for`
+   > `default_headers`, e.g. `PANW_REGION`) as Python literals. The emitted test
+   > loops `sorted(_SUBPACKAGES)` and, per sub, makes ONE real authenticated
+   > collection read — a baked override (`$ENV` args resolved at runtime; `skip`
+   > honored) or an AUTO-PICK of the first name-sorted object whose `_bindings`
+   > carry a ZERO-ARG `list` (`requires == []`), called zero-arg. Scope is auth +
+   > base-path + region **wiring**: `ApiException.status ∈ {404,401,424}` fails;
+   > anything else passes; urllib3 transport errors skip. The file name ends
+   > `_live.py` so `noxfile.py`'s `glob("tests/test_*_live.py")` collects it; it
+   > skips without creds. Any `live_smoke` override is validated against the
+   > just-built SDK at build time (`_validate_live_smoke` — slug ∈ subpackages,
+   > object ∈ `_WRAPPERS`, verb a `_bindings` entry, reusing `cli_operations`).
+   > This supersedes the retired per-product `test_first_light_live.py.jinja`;
+   > `test_scm_crud_live.py` remains the functional CRUD oracle.
 5. **Provenance** — `build.build()` writes `<package>/_about.py` with the spec,
    phantasos, and OAG versions.
 6. **Smoke** — `smoke.smoke()` in `smoke.py` counts operations and (unless

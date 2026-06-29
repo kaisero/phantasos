@@ -10,3 +10,16 @@ from __future__ import annotations
 
 class OpenApiException(Exception):  # noqa: N818
     """Base exception for all SDK errors (mirrors OAG's `OpenApiException`)."""
+
+
+class ApiException(OpenApiException):
+    """HTTP error carrying a numeric `status` (mirrors OAG's `ApiException`).
+
+    The emitted federated live smoke imports this and inspects `.status` to tell a
+    wiring failure (404/401/424) from a benign response; kept minimal here.
+    """
+
+    def __init__(self, status: int | None = None, reason: str | None = None) -> None:
+        self.status = status
+        self.reason = reason
+        super().__init__(f"({status}) {reason}")

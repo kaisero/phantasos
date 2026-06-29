@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value-unions (lacking the placement marker) are left untouched. A live CRUD
   round-trip on `objects.tag` and `objects.address` proves the reshaped bodies are
   accepted on-wire (`{name, ip_netmask, folder}`, not just `{folder}`).
+- **Federated SDKs now ship a runtime live smoke** (`tests/test_federated_live.py`,
+  emitted only for federated distributions). It loops the composer's `_SUBPACKAGES`
+  and makes one real authenticated collection read per sub — auto-picking the first
+  object with a zero-arg `list`, or a per-sub `live_smoke:` override (`$ENV` args
+  resolved at runtime) — to prove each sub's auth/base-path/region **wiring**
+  (a 404/401/424 fails; `test_scm_crud_live.py` remains the functional proof).
+  Overrides are validated against the built SDK at build time. Skips without live
+  credentials. Supersedes the prisma-access first-light smoke.
 - Generated SDK reference docs now render openapi-generator anyOf/oneOf **wrapper**
   model pages as the real payload (synthesized field tables, grouped by branch) with
   the SCM container collapsed to a one-line `Placement:`, instead of the

@@ -275,7 +275,9 @@ def live(session: nox.Session) -> None:
         session.install(str(out_dir))
         # Run every emitted live suite (`test_*_live.py`): single-spec products ship
         # the frozen `test_sdk_crud_live.py` oracle; the federated prisma-access ships
-        # `test_first_light_live.py` (per-sub base-path read). All skip without creds.
+        # the generator-scaffolded `test_federated_live.py` (one real authenticated
+        # read per `_SUBPACKAGES` sub, auto-picked) + `test_scm_crud_live.py`. All
+        # skip without creds.
         live_tests = sorted(out_dir.glob("tests/test_*_live.py"))
         if not live_tests:
             session.error(f"{product}: no live test (tests/test_*_live.py) emitted")

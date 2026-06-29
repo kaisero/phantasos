@@ -1,0 +1,117 @@
+{% if federated | default(false) %}"""Runtime live smoke for the federated {{ package }} distribution.
+
+SCOPE — auth + base-path + region WIRING, per sub-package. One real authenticated
+collection read against every sub in ``_SUBPACKAGES`` proves its handle is wired:
+the bearer is attached, the base-path resolves, and any required region header is
+applied. It is NOT a per-object correctness check — the functional proof is the
+CRUD oracle (``test_scm_crud_live.py``). A ``404``/``401``/``424`` means the wiring
+is wrong (base-path / auth / region header), so those FAIL; any other status passes
+(the request reached the tenant). Transport/network errors SKIP, never fail.
+
+Probe per sub: a baked ``live_smoke`` override if present (``skip`` -> skip; ``$ENV``
+arg values resolved here at runtime), else AUTO-PICK the first name-sorted object
+with a ZERO-ARG ``list`` collection (``requires == []``) and call it zero-arg. A sub
+with no such list and no override FAILS clearly — never a pre-HTTP error that would
+bypass the status rule. Skips (never fails) without live credentials, so offline
+runs and credential-less contributors are unaffected. Auto-collected by
+``nox -s live`` via ``glob("tests/test_*_live.py")``.
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+
+import pytest
+
+import {{ package }} as _sdk
+from {{ package }}._runtime.exceptions import ApiException
+
+try:  # urllib3 transport failures escape ApiException — skip, don't fail.
+    from urllib3.exceptions import HTTPError as _TransportError
+except ImportError:  # pragma: no cover
+    _TransportError = ()  # type: ignore[assignment]
+
+# Baked live_smoke overrides (sub slug -> probe dict). $ENV arg values are RAW here
+# and resolved at runtime by _resolve_env; absent subs are auto-probed.
+_LIVE_SMOKE: dict[str, dict] = {{ live_smoke_literal }}
+
+# Auth creds + any required region header. Without these the composer raises at
+# construction/first-access (a RuntimeError, not an HTTP error), so the smoke would
+# ERROR instead of skipping — guard them all here so it cleanly SKIPS.
+_REQUIRED_ENV = {{ live_required_env_literal }}
+_FAIL_STATUSES = {404, 401, 424}
+_TIMEOUT = 30  # seconds; bounded so a hung tenant cannot stall the suite
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live credentials/region not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+def _resolve_env(value: str) -> str:
+    """Resolve a ``$ENV`` reference to its environment value (raw passthrough else)."""
+    if isinstance(value, str) and value.startswith("$"):
+        return os.environ.get(value[1:], "")
+    return value
+
+
+def _wrappers(slug: str) -> dict:
+    """The sub's ``obj -> (wrapper_cls, api_attr)`` registry (the ``_WRAPPERS`` seam
+    the auto-pick reads ``_bindings`` from)."""
+    return importlib.import_module(f"{{ package }}.{slug}.extras.facade")._WRAPPERS
+
+
+def _auto_object(wrappers: dict) -> str | None:
+    """First name-sorted object with a ZERO-ARG ``list`` binding (``requires == []``).
+
+    Filtering on ``requires == []`` and calling it zero-arg is deliberate: a
+    missing-arg pick raises ``ValueError``/``TypeError`` BEFORE any HTTP call and
+    would bypass the status rule (a green no-op)."""
+    for name in sorted(wrappers):
+        wrapper_cls = wrappers[name][0]
+        for binding in wrapper_cls._bindings.get("list", []):
+            if binding["requires"] == []:
+                return name
+    return None
+
+
+def _resolve(slug: str) -> tuple[str, str, dict]:
+    """Return ``(object, verb, kwargs)`` for the sub, or raise ``pytest.skip`` /
+    ``pytest.fail`` — never a pre-HTTP ``ValueError``/``TypeError``."""
+    wrappers = _wrappers(slug)
+    probe = _LIVE_SMOKE.get(slug)
+    if probe is not None:
+        if probe.get("skip"):
+            pytest.skip(f"{slug}: live_smoke override marks skip")
+        obj = probe.get("object") or _auto_object(wrappers)
+        if obj is None:
+            pytest.fail(f"{slug}: live_smoke override has no object and no zero-arg list")
+        kwargs = {k: _resolve_env(v) for k, v in (probe.get("args") or {}).items()}
+        return obj, probe.get("verb") or "list", kwargs
+    obj = _auto_object(wrappers)
+    if obj is None:
+        pytest.fail(
+            f"{slug}: no zero-arg list collection to probe and no live_smoke override"
+        )
+    return obj, "list", {}
+
+
+@pytest.mark.parametrize("slug", sorted(_sdk._SUBPACKAGES))
+def test_subpackage_wiring_resolves(slug: str) -> None:
+    """One real authenticated read per sub proves its auth/base-path/region wiring."""
+    obj, verb, kwargs = _resolve(slug)
+    client = _sdk.Client.from_env()
+    method = getattr(getattr(getattr(client, slug), obj), verb)
+    try:
+        method(_request_timeout=_TIMEOUT, **kwargs)
+    except ApiException as exc:
+        if exc.status in _FAIL_STATUSES:
+            pytest.fail(
+                f"{slug}.{obj}.{verb}: {exc.status} — wiring failed "
+                "(base-path/auth/region). See test_scm_crud_live.py for the "
+                "functional CRUD proof."
+            )
+    except _TransportError as exc:  # network/transport, not a wiring defect
+        pytest.skip(f"{slug}.{obj}.{verb}: transport error ({exc})")
+{% endif %}
