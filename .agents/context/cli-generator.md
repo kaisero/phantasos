@@ -324,7 +324,8 @@ keys / param names / objects fail the build loudly.
   threaded through `runtime.set_connection_overrides` (a per-command contextvar);
   `config.resolve_connection` resolves the active-env value; the per-field env-var
   baked list is `config._CONN_FIELDS`. Single-spec CLIs (no `default_headers`) emit
-  none of this. (Command-aware `required_for` pre-flight is a separate task.)
+  none of this. Command-aware pre-flight (`_preflight_connection` in `runtime.py`): each `ConnectionField` carries a `required_for` list of sub-package slugs; the pre-flight exits 2 for any command whose `cmd.subpackage` appears in that list (or whose field is globally `required: true`), naming the missing env var and why; commands in other sub-packages pass through unchecked (objects CRUD runs region-unset while a sub that declares the header required would block).
+- **`which <object>`** (federated CLIs only; `cli_commands.py.jinja`) — an emitted top-level command that looks up a named object in `ir.json` and prints its sub-package + supported verbs; `difflib.get_close_matches` produces `did-you-mean` suggestions for unknown names (exit 1 on miss). Wired into the generated `app.py` in the "CLI" panel when the IR is federated.
 - **Structured logging** — a rotating JSON-Lines log at
   `~/.{distribution}/logs/{distribution}.jsonl` (`0o600`, gzip-rotated);
   `warnings` (incl. the SDK lenient-enum pass-through) and CLI diagnostics go to
