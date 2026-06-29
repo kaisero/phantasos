@@ -106,6 +106,7 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
                     parent.add_typer(sub, name=path[depth - 1])
                 parent = sub
             parent.command(path[-1])(fn)
+    app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
     return app
 {%- else %}
     object_apps: dict[tuple[str, str], typer.Typer] = {}

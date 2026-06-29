@@ -428,10 +428,10 @@ def _render_commands(
     # Federated builds stamp every command with a sub-package slug; that gates the
     # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
     # (subpackage None) keeps the byte-identical 2-level loop.
-    federated = any(c.subpackage for c in ir.commands)
+    # `federated` is already in ctx (added in render_cli() before the _GENERATED loop).
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, federated=federated, **ctx
+            resources=resources, commands=all_views, **ctx
         ),
         encoding="utf-8",
     )
@@ -543,6 +543,7 @@ def render_cli(
     # the shared parts; `connection_views` carries the per-field flag derivation.
     ctx["connection_views"] = _connection_views(list(ir.connection_fields))
     ctx["has_env"] = bool(ir.credential_fields or ir.connection_fields)
+    ctx["federated"] = any(c.subpackage for c in ir.commands)
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
