@@ -222,6 +222,75 @@ def test_offline_objects_dry_run_without_region_or_creds(
     assert "Traceback" not in out and "RuntimeError" not in out
 
 
+# --- P1: the newly-enrolled subs (all 12 now mapped) ------------------------
+
+
+def test_offline_request_new_sub_leaf_resolves(built_cli: dict[str, Any]) -> None:
+    """A P1-enrolled sub's non-CRUD `request` leaf resolves and is well-formed.
+
+    ``config_setup`` (enrolled in P1) maps ``publish_snippet_snapshot`` to
+    ``request config-setup snippet-snapshot publish``. Its ``--help`` must resolve to
+    a real leaf command (exit 0, body flags rendered) — never "No such command".
+    Mirrors ``test_offline_request_incidents_help``, one level deeper (a P1 sub's leaf).
+    """
+    res = CliRunner().invoke(
+        built_cli["app"],
+        ["request", "config-setup", "snippet-snapshot", "publish", "--help"],
+    )
+    assert res.exit_code == 0, res.output
+    out = _strip_ansi(res.output)
+    assert "No such command" not in out
+    assert "--validation" in out  # a body flag — proves the leaf carries its body
+
+
+def test_offline_ztna_command_region_preflight_exits_2(
+    built_cli: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A ``ztna_connector`` command pre-flights X-PANW-Region (ztna IS in the header's
+    ``required_for``): with PANW_REGION unset the command exits 2 BEFORE any network,
+    naming the missing env var — unlike an ``objects`` command, which needs no region
+    (``test_offline_objects_dry_run_without_region_or_creds``).
+
+    The connection pre-flight runs ahead of the credential check, so it fires first
+    even with credentials also unset. ``show ztna-connector connector`` with no
+    ``--id`` is a list dispatch — a REAL invocation, not ``--dry-run`` (which returns
+    before the pre-flight). The PANW_REGION substring distinguishes the pre-flight
+    from a bare "no such command" exit-2.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))  # isolate: no real environments.yml
+    for var in ("PANW_REGION", "PRISMA_ACCESS_ENVIRONMENT", *_REQUIRED_ENV):
+        monkeypatch.delenv(var, raising=False)
+    res = CliRunner().invoke(built_cli["app"], ["show", "ztna-connector", "connector"])
+    assert res.exit_code == 2, res.output
+    assert "PANW_REGION" in _strip_ansi(res.output)
+
+
+def test_offline_remote_network_collision_keeps_body_region_flag(
+    built_cli: dict[str, Any],
+) -> None:
+    """The connection-flag/body-field collision fix (T0, commit 6f63aff):
+    ``remote_network`` carries a ``region`` BODY field that clashed with the global
+    ``--region`` connection flag (X-PANW-Region) — declaring the param twice was a
+    SyntaxError at import. The fix drops only the *connection* ``--region`` for this
+    command (its env / active-env / pre-flight path still enforces the header) and
+    keeps the body ``--region``; the non-colliding ``--tenant`` connection flag stays.
+
+    NB: the fix commit cited ``network_services``, but in the built 12-sub CLI
+    ``remote_network`` classifies under ``deployment_services`` — neither sub is in
+    X-PANW-Region's ``required_for``, so the command needs no region.
+    """
+    res = CliRunner().invoke(
+        built_cli["app"],
+        ["create", "deployment-services", "remote-network", "--help"],
+    )
+    assert res.exit_code == 0, res.output  # no double-declared param -> no SyntaxError
+    out = _strip_ansi(res.output)
+    assert "--region" in out  # the BODY field survives
+    assert "--tenant" in out  # the non-colliding connection flag survives
+    # the colliding *connection* --region (whose help names PANW_REGION) was dropped
+    assert "PANW_REGION" not in out
+
+
 # --- live CRUD round-trip (skips cleanly without credentials) ---------------
 
 

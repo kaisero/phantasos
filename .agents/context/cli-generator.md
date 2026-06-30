@@ -35,7 +35,10 @@ is a hard build error, as is a federated non-CRUD op left with no cli.yml mappin
 allowlist — a *non-empty* map builds CLI ONLY for its listed subs (∩ `_SUBPACKAGES`,
 iterated in `_SUBPACKAGES` order); a sub not listed is skipped entirely, so a
 federated CLI can ship a thin slice (e.g. prisma-access P0 = `objects` + `incidents`)
-without mapping every other sub's non-CRUD ops. An *empty/absent* map enrolls ALL
+without mapping every other sub's non-CRUD ops, then widen to the full surface — P1
+enrolls all 12 prisma-access subs, each listed sub mapping its non-CRUD ops into the
+`request` namespace (32 across config/identity/network/posture/security/ztna) so the
+fail-loud build stays green. An *empty/absent* map enrolls ALL
 subs (a config-less federated build stays backward-compatible). A sub listed but
 absent from `_SUBPACKAGES` is a typo → hard error. Region/tenant connection headers
 are NOT in cli.yml: they live once in the product's sdk.yml `default_headers` and
@@ -339,7 +342,14 @@ keys / param names / objects fail the build loudly.
   exported to their `env` var in `runtime._client` BEFORE the SDK client is built
   (the SDK reads e.g. `PANW_REGION` from the environment — no header kwarg). Each
   emits one global `--<field>` flag (Connection help-panel) layered
-  `--flag > {field.env} env var > active-environment value`. The `--flag` value is
+  `--flag > {field.env} env var > active-environment value`. **Per-command collision
+  filter** (`render_cli._command_view`): a global connection flag is omitted from the
+  signature AND `set_connection_overrides` call of any command whose own path/body/query
+  field already renders that `py_name` — declaring the parameter twice would be a
+  `SyntaxError` (e.g. prisma-access `remote_network`'s `region` body field vs the
+  X-PANW-Region flag). The header value still flows from env / active-env / config and
+  the pre-flight still enforces it; only the redundant per-command flag is dropped, and
+  non-colliding connection flags on the same command are untouched. The `--flag` value is
   threaded through `runtime.set_connection_overrides` (a per-command contextvar);
   `config.resolve_connection` resolves the active-env value; the per-field env-var
   baked list is `config._CONN_FIELDS`. Single-spec CLIs (no `default_headers`) emit
