@@ -333,8 +333,8 @@ def build_cli_docs_context(
     subpackages: list[dict[str, object]] | None = (
         [
             {
-                "slug": slug,
-                "title": slug,
+                "slug": slug,  # snake: the reference/<slug>/ path + nox asserts
+                "title": slug.replace("_", "-"),  # kebab: matches the CLI command group
                 "objects": _group([c for c in ir.commands if c.subpackage == slug]),
             }
             for slug in slugs
