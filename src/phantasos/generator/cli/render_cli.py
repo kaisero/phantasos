@@ -538,12 +538,24 @@ def _render_docs(
 
     render_doc("docs/index.md.jinja", "docs/index.md")
     render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
-    for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
-        render_doc(
-            "docs/reference_object.md.jinja",
-            f"docs/reference/{obj['object']}.md",
-            obj=obj,
-        )
+    subpackages = cast("list[dict[str, object]] | None", doc_ctx["subpackages"])
+    if subpackages:
+        # Federated: one folder per sub-package — reference/<slug>/<object>.md
+        # (mirrors the SDK docs' reference/<slug>/… grouping).
+        for sub in subpackages:
+            for obj in cast("list[dict[str, object]]", sub["objects"]):
+                render_doc(
+                    "docs/reference_object.md.jinja",
+                    f"docs/reference/{sub['slug']}/{obj['object']}.md",
+                    obj=obj,
+                )
+    else:
+        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+            render_doc(
+                "docs/reference_object.md.jinja",
+                f"docs/reference/{obj['object']}.md",
+                obj=obj,
+            )
     render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
     render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
     if doc_ctx["has_auth"]:

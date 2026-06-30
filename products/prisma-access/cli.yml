@@ -113,3 +113,12 @@ subpackages:
 # product config (`load_product` -> ProductConfig.default_headers), so a per-command
 # pre-flight requires X-PANW-Region for `incidents` commands (its `required_for`) and
 # never for `objects`. Re-declaring them here would duplicate the SSoT.
+
+# --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
+# FEDERATED: the command reference is grouped by sub-package -> object
+# (reference/<slug>/<object>.md, one nav section + folder per sub-package), mirroring
+# the federated SDK docs' reference/<slug>/… layout. The showcase drives the
+# Quickstart; `objects address` is the canonical SCM object CRUD surface.
+docs:
+  site_name: Prisma Access CLI
+  showcase_object: address

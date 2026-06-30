@@ -67,7 +67,12 @@ def render_invocation(
     """A one-line invocation example (required flags only) or the verbatim override."""
     if override is not None:
         return override.strip()
-    parts = [distribution, command.verb, command.object]
+    parts = [distribution, command.verb]
+    if command.subpackage:
+        # Federated: the object nests under its (kebab) sub-package command
+        # (`<dist> <verb> <sub> <object>`); single-spec (None) is a no-op.
+        parts.append(command.subpackage.replace("_", "-"))
+    parts.append(command.object)
     third = leaf(command)
     if third:
         parts.append(third)

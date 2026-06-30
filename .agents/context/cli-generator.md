@@ -385,7 +385,16 @@ autodoc Python; the CLI's user surface is the command tree). See
   repo_url, description)` shapes the render context (per-object command groups, the
   `showcase` object/variant, guide-gating flags, credentials, the `error_envelope`
   sub-dict). It validates `showcase_object` against the IR objects (fail-loud);
-  `CONTEXT_KEYS` pins the producer/template contract.
+  `CONTEXT_KEYS` pins the producer/template contract. **Federation-aware:** when any
+  `Command` carries a `subpackage`, it ALSO emits a `subpackages` key — a list of
+  `{slug, title, objects}` groups (sorted by slug) — and `render_cli` writes one
+  reference folder per sub-package (`docs/reference/<slug>/<object>.md`) with a nav
+  section per sub, mirroring the federated SDK docs' `reference/<slug>/…` shape (the
+  SHAPE is mirrored, not the code — separation of duty). Single-spec IRs leave
+  `subpackages` `None` and render the flat `reference/<object>.md` layout, byte-identical
+  to before. The `showcase.path` (and `examples.render_invocation`) prepend the kebab
+  sub-package segment so federated Quickstart/per-command examples read
+  `prisma-access create objects address …`.
 - `examples.py` — synthesizes required-only invocation examples (`render_invocation`)
   + a per-flag value strategy (`example_value`). Deliberately NOT shared with
   `sdk/examples.py` (different output: shell vs Python constructor); it DOES share
@@ -398,7 +407,10 @@ autodoc Python; the CLI's user surface is the command tree). See
   (showcase-driven, honoring `showcase_variant`), per-object `reference_object`,
   four guides (output/errors always; authentication gated on credentials,
   pagination on any paginated command), and `mkdocs.yml` with an explicit
-  IR-generated `nav`.
+  IR-generated `nav`. The `mkdocs.yml` nav gates on `subpackages`: a federated build
+  nests the Command Reference as sub-package → object; the single-spec `{% else %}`
+  branch is the verbatim flat loop (byte-identical). `reference_object` is unchanged
+  for both — only the page path/nav level differs.
 - Scaffold seam: `build_cli_scaffold_context` sets `cli_docs = (cli.yml docs is not
   None)` while keeping the SDK `has_docs` flag False — so the shared SDK-flavored
   docs templates never fire for a CLI. The shared `pyproject.toml` / `noxfile.py` /
