@@ -219,6 +219,11 @@ def _build_federated(
         # elsewhere.
         preprocess.flatten_scm_bodies(sub_spec, stats)
         preprocess.relax_readonly_required(sub_spec, stats)
+        # OAS `\p{}` Unicode-property patterns are invalid in Python's `re` (only the
+        # 3rd-party `regex` supports them) -> the generated validator would PatternError
+        # at deserialize time. Translate to Python-valid, permissive equivalents (e.g.
+        # ztna's `^[\p{L}\p{N}\p{P}...]*$` response patterns).
+        preprocess.translate_property_patterns(sub_spec, stats)
         norm = sub.config.normalize_operation_ids
         if norm is not None:
             preprocess.normalize_operation_ids(

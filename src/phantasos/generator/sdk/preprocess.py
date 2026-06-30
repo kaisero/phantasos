@@ -8,6 +8,7 @@ for its own quirks (these used to be hard-coded constants in preprocess_spec.py)
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -432,6 +433,91 @@ def relax_readonly_required(spec: Any, stats: dict[str, int] | None = None) -> N
                 stats["readonly_required_relaxed"] = (
                     stats.get("readonly_required_relaxed", 0) + dropped
                 )
+
+
+# Unicode general-category -> permissive Python-`re`-valid equivalent. `re`'s str
+# patterns are already Unicode-aware (\d/\w/\s match Unicode), so these approximate
+# the property classes well. Permissive ON PURPOSE: these patterns validate
+# server-sent RESPONSE data, so the translation must never reject a value the server
+# considered valid — over-matching (e.g. also accepting a symbol) is harmless.
+_PROP_EQUIV = {
+    # letters + marks -> any Unicode "letter-ish" word char (not digit/underscore)
+    **dict.fromkeys(
+        ["L", "Lu", "Ll", "Lt", "Lm", "Lo", "M", "Mn", "Mc", "Me"], r"[^\W\d_]"
+    ),
+    # numbers -> Unicode digit
+    **dict.fromkeys(["N", "Nd", "Nl", "No"], r"\d"),
+    # punctuation + symbols -> any non-word, non-space char
+    **dict.fromkeys(
+        ["P", "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po", "S", "Sm", "Sc", "Sk", "So"],
+        r"[^\w\s]",
+    ),
+    # separators -> whitespace
+    **dict.fromkeys(["Z", "Zs", "Zl", "Zp"], r"\s"),
+}
+_PROP_FALLBACK = r"[^\W\d_]"
+_PROP_RE = re.compile(r"\\p\{([A-Za-z]+)\}")
+_CLASS_RE = re.compile(r"\[((?:[^\]\\]|\\.)*)\]")
+
+
+def _translate_class(body: str) -> str:
+    """Turn a positive char-class body containing `\\p{}` into a `(?:...)` of
+    Python-valid alternatives (the `\\p{}` tokens can't live inside `[...]`)."""
+    props = _PROP_RE.findall(body)
+    rest = _PROP_RE.sub("", body)  # the literal/simple-escape remainder
+    alts = ([f"[{rest}]"] if rest else []) + [
+        _PROP_EQUIV.get(p, _PROP_FALLBACK) for p in props
+    ]
+    return "(?:" + "|".join(dict.fromkeys(alts)) + ")"  # order-preserving dedup
+
+
+def translate_unicode_property_regex(pattern: str) -> str:
+    """Translate `\\p{X}` Unicode-property escapes to Python-`re`-valid regex.
+
+    Python's `re` rejects `\\p{...}` (only the 3rd-party `regex` supports it), so an
+    OAS `pattern:` such as ``^[\\p{L}\\p{N}\\p{P}\\s,.:_-]*$`` makes the generated
+    pydantic validator raise ``PatternError`` at import/validation time. A positive
+    character class containing `\\p{}` becomes a `(?:...)` alternation of equivalents
+    (see ``_PROP_EQUIV``); any stray `\\p{}` outside a class is mapped standalone.
+    Negated classes (`[^...]`) are left untouched (rare; restructuring would flip
+    the meaning)."""
+    if r"\p{" not in pattern:
+        return pattern
+    out = _CLASS_RE.sub(
+        lambda m: (
+            _translate_class(m.group(1))
+            if (r"\p{" in m.group(1) and not m.group(1).startswith("^"))
+            else m.group(0)
+        ),
+        pattern,
+    )
+    return _PROP_RE.sub(lambda m: _PROP_EQUIV.get(m.group(1), _PROP_FALLBACK), out)
+
+
+def translate_property_patterns(spec: Any, stats: dict[str, int] | None = None) -> None:
+    """Rewrite every `pattern:` in the spec that uses `\\p{}` so the generated SDK's
+    `re.match(...)` compiles under Python's `re` (see
+    ``translate_unicode_property_regex``). Walks the whole spec — patterns appear on
+    any string schema, nested anywhere."""
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            p = node.get("pattern")
+            if isinstance(p, str) and r"\p{" in p:
+                new = translate_unicode_property_regex(p)
+                if new != p:
+                    node["pattern"] = new
+                    if stats is not None:
+                        stats["property_patterns_translated"] = (
+                            stats.get("property_patterns_translated", 0) + 1
+                        )
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(spec)
 
 
 def tag_operations(

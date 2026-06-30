@@ -849,3 +849,41 @@ def test_flatten_collision_merges_does_not_clobber() -> None:
     assert "folder_1" not in s["properties"]
     assert set(s["properties"]) == {"folder", "snippet", "device"}
     assert stats["flatten_scm_bodies"] == 1
+
+
+def test_translate_unicode_property_regex_compiles_and_matches() -> None:
+    import re
+
+    # ztna's response pattern — raises re.PatternError under Python's `re`
+    src = r"^[\p{L}\p{N}\p{P}\s,.:_-]*$"
+    out = p.translate_unicode_property_regex(src)
+    assert r"\p{" not in out
+    rx = re.compile(out)  # the ORIGINAL would raise re.PatternError here
+    # permissive + Unicode-safe: must accept letters (incl. non-ASCII), digits, punct
+    for s in ("Hello, World 123", "café", "tag-1: value.", "", "naïve_name", "日本語!"):
+        assert rx.match(s), s
+    # patterns without `\p{}` are returned byte-identical
+    plain = r"^[a-zA-Z0-9-]{1,63}$"
+    assert p.translate_unicode_property_regex(plain) == plain
+
+
+def test_translate_property_patterns_walks_spec_and_counts() -> None:
+    import re
+
+    spec: dict[str, Any] = {
+        "components": {
+            "schemas": {
+                "A": {"properties": {"name": {"pattern": r"^[\p{L}\p{N}]+$"}}},
+                # B has no `\p{}` -> must be left untouched
+                "B": {"properties": {"id": {"pattern": r"^[a-z]+$"}}},
+            }
+        }
+    }
+    stats: dict[str, int] = {}
+    p.translate_property_patterns(spec, stats)
+    schemas = spec["components"]["schemas"]
+    a = schemas["A"]["properties"]["name"]["pattern"]
+    assert r"\p{" not in a
+    re.compile(a)  # valid Python regex
+    assert schemas["B"]["properties"]["id"]["pattern"] == r"^[a-z]+$"
+    assert stats["property_patterns_translated"] == 1
