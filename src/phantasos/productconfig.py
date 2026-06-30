@@ -149,7 +149,9 @@ class LiveProbe(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     object: str | None = None  # facade object to probe; None = auto-pick at runtime
     verb: str = "list"
-    args: dict[str, str] = Field(default_factory=dict)
+    # kwarg-name -> value passed to the probed verb. A `$ENV` string is resolved by
+    # the emitted test; a non-string (e.g. a `{}` request body) passes through as-is.
+    args: dict[str, Any] = Field(default_factory=dict)
     skip: bool = False
 
 

@@ -96,6 +96,8 @@ def test_federated_render_parses_and_has_safety_rails() -> None:
     assert '["requires"] == []' in src  # auto-pick filters zero-arg lists
     assert "PANW_REGION" in src  # region var in the skip-guard
     assert "CLIENT_ID" in src and "SCOPE" in src
+    assert "except ValidationError" in src  # response-deser error tolerated...
+    assert 'frame.name == "response_deserialize"' in src  # ...only if it reached HTTP
 
 
 # --------------------------------------------------------------------------- #
@@ -157,6 +159,32 @@ def test_override_resolves_env_args_at_runtime(
     monkeypatch.setenv("WIDGET_ID", "w-42")
     with on_sys_path(FIXTURE):
         assert mod._resolve("alpha") == ("widget", "get", {"id": "w-42"})
+
+
+def test_reached_server_tolerates_only_response_deser_errors(tmp_path: Path) -> None:
+    """A response-deserialization error (the body arrived, the over-strict generated
+    model couldn't parse it) is a wiring PASS; a pre-HTTP arg-validation error (a bad
+    probe/override) is not. The emitted `_reached_server` tells them apart by a
+    `response_deserialize` frame in the traceback — so a real prisma-access run stays
+    green on config_setup's shape-mismatched list responses without masking a bad
+    probe."""
+    mod = _load(_render(_FED_CTX), tmp_path)
+
+    def response_deserialize() -> None:  # the SDK runtime frame on the response path
+        raise ValueError("over-strict model couldn't parse the body that arrived")
+
+    def wrapper_function() -> None:  # pydantic validate_call frame: pre-HTTP, bad args
+        raise ValueError("missing required argument")
+
+    try:
+        response_deserialize()
+    except ValueError as exc:
+        assert mod._reached_server(exc) is True
+
+    try:
+        wrapper_function()
+    except ValueError as exc:
+        assert mod._reached_server(exc) is False
 
 
 def test_override_skip_skips(tmp_path: Path) -> None:

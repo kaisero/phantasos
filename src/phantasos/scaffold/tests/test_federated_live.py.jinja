@@ -22,8 +22,10 @@ from __future__ import annotations
 import importlib
 import os
 import socket
+import traceback
 
 import pytest
+from pydantic import ValidationError
 
 import {{ package }} as _sdk
 from {{ package }}._runtime.exceptions import ApiException
@@ -118,6 +120,20 @@ def _bound_transport_timeout():
         socket.setdefaulttimeout(previous)
 
 
+def _reached_server(exc: BaseException) -> bool:
+    """True if ``exc`` was raised while DESERIALIZING a response — i.e. the request
+    reached the tenant. A pydantic error on the response path means the body DID
+    arrive but the (often over-strict / wrong-shaped) generated model couldn't parse
+    it: that is a model-fidelity issue (``test_scm_crud_live.py``'s job), NOT a wiring
+    defect — auth/base-path/region all worked. A PRE-HTTP arg-validation error (a bad
+    probe/override) has no ``response_deserialize`` frame, so it is re-raised and fails
+    loudly instead of masquerading as a wiring pass."""
+    return any(
+        frame.name == "response_deserialize"
+        for frame in traceback.extract_tb(exc.__traceback__)
+    )
+
+
 @pytest.mark.parametrize("slug", sorted(_sdk._SUBPACKAGES))
 def test_subpackage_wiring_resolves(slug: str) -> None:
     """One real authenticated read per sub proves its auth/base-path/region wiring."""
@@ -133,6 +149,9 @@ def test_subpackage_wiring_resolves(slug: str) -> None:
                 "(base-path/auth/region). See test_scm_crud_live.py for the "
                 "functional CRUD proof."
             )
+    except ValidationError as exc:  # response arrived but the model couldn't parse it
+        if not _reached_server(exc):  # pre-HTTP arg-validation = bad probe → fail loud
+            raise
     except _TransportError as exc:  # network/transport, not a wiring defect
         pytest.skip(f"{slug}.{obj}.{verb}: transport error ({exc})")
 {% endif %}

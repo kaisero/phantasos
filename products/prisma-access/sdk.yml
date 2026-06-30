@@ -82,17 +82,33 @@ default_headers:
   prisma-tenant: {env: PRISMA_TENANT, required: false}
 
 # Per-sub live-smoke probe overrides (federated live smoke). A sub auto-picks a
-# zero-arg `list` collection (`requires == []`); `incidents` is the ONLY sub with
-# no collection GET (search / get-by-id only), so it needs an explicit probe.
-# `incident.search` requires `x_panw_region` (binding `requires: ['x_panw_region']`,
-# so a no-arg call would raise pre-HTTP and bypass the status rule). The wrapper
-# param maps to the `X-PANW-Region` HEADER; the composer also injects that header
-# from `default_headers` and OAG applies it LAST (`header_params.update(default_headers)`
-# in api_client.param_serialize) — same dict key, so a SINGLE header, no duplicate
-# and no wire conflict (composer value wins, identical $PANW_REGION). $ENV args are
-# resolved at test runtime.
+# zero-arg `list` collection (`requires == []`); the smoke treats a response-
+# deserialization error as a wiring PASS (the body arrived → auth/base-path/region
+# worked; an over-strict / wrong-shaped generated model is the CRUD oracle's concern),
+# so most subs need no override — incl. config_setup, whose list responses are
+# systematically shape-mismatched (e.g. `device` rows have null name/folder;
+# snippet-categories return a bare array vs. the wrapper model). The two subs below
+# were proven against the real tenant (`nox -s live`):
+#
+# - incidents: the ONLY sub with no collection GET (search / get-by-id only). The
+#   `incident.search` wrapper REQUIRES a `search_incidents_request` body (the raw op
+#   has it as a required arg), so a body-less call raises pydantic `missing_argument`
+#   PRE-HTTP — a bad-probe error the smoke re-raises (no response frame). `SearchIncidentsRequest`
+#   is all-optional, so an empty `body: {}` reaches the tenant. `x_panw_region` maps to
+#   the same `X-PANW-Region` header the composer already injects from `default_headers`
+#   (OAG applies default_headers LAST, same dict key → a SINGLE header, composer value
+#   wins, identical $PANW_REGION). Hits the strata gateway → provisioned, returns 200.
+# - ztna_connector: routed to the SASE gateway (api.sase.paloaltonetworks.com). Override
+#   to `connector_group` — the primary ZTNA resource (the verified /connector-groups
+#   endpoint, requires==[]) — instead of the alphabetical auto-pick `connect_image`, a
+#   niche endpoint. Its response models use `\p{L}\p{N}\p{P}` patterns, invalid in
+#   Python's `re`; preprocess.translate_property_patterns rewrites them to valid regex
+#   (else the typed response raises pydantic PatternError on deserialize).
+#
+# $ENV args are resolved at test runtime.
 live_smoke:
-  incidents: {object: incident, verb: search, args: {x_panw_region: $PANW_REGION}}
+  incidents: {object: incident, verb: search, args: {x_panw_region: $PANW_REGION, body: {}}}
+  ztna_connector: {object: connector_group}
 
 project:
   distribution: prisma-access-sdk
