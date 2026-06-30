@@ -127,7 +127,10 @@ def _reached_server(exc: BaseException) -> bool:
     it: that is a model-fidelity issue (``test_scm_crud_live.py``'s job), NOT a wiring
     defect — auth/base-path/region all worked. A PRE-HTTP arg-validation error (a bad
     probe/override) has no ``response_deserialize`` frame, so it is re-raised and fails
-    loudly instead of masquerading as a wiring pass."""
+    loudly instead of masquerading as a wiring pass.
+
+    NOTE: ``response_deserialize`` is the openapi-generator runtime method name (not a
+    phantasos template) — re-verify this frame name if the OAG version is bumped."""
     return any(
         frame.name == "response_deserialize"
         for frame in traceback.extract_tb(exc.__traceback__)

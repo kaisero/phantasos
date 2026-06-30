@@ -479,8 +479,9 @@ def translate_unicode_property_regex(pattern: str) -> str:
     pydantic validator raise ``PatternError`` at import/validation time. A positive
     character class containing `\\p{}` becomes a `(?:...)` alternation of equivalents
     (see ``_PROP_EQUIV``); any stray `\\p{}` outside a class is mapped standalone.
-    Negated classes (`[^...]`) are left untouched (rare; restructuring would flip
-    the meaning)."""
+    A negated class (`[^...]`) or a non-category `\\p{}` form is NOT faithfully
+    translated (none exist in current specs); ``translate_property_patterns``
+    compile-checks the result and fails the build loud if one ever slips through."""
     if r"\p{" not in pattern:
         return pattern
     out = _CLASS_RE.sub(
@@ -505,6 +506,13 @@ def translate_property_patterns(spec: Any, stats: dict[str, int] | None = None) 
             p = node.get("pattern")
             if isinstance(p, str) and r"\p{" in p:
                 new = translate_unicode_property_regex(p)
+                try:
+                    re.compile(new)  # fail loud at BUILD, not a runtime PatternError
+                except re.error as exc:
+                    raise ValueError(
+                        f"could not translate Unicode-property pattern {p!r} to "
+                        f"Python-valid regex (got {new!r}): {exc}"
+                    ) from exc
                 if new != p:
                     node["pattern"] = new
                     if stats is not None:

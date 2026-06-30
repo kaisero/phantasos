@@ -33,9 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over-strict or wrong-shaped generated model is a **pass** (the request reached the
   tenant); only a pre-HTTP arg-validation error (a bad probe) still fails. Overrides
   are validated against the built SDK at build time. Skips without live credentials.
-  Proven green against the real prisma-access tenant (all 12 sub-packages; ZTNA, which
-  the tenant isn't provisioned for, is `skip`-overridden). Supersedes the prisma-access
-  first-light smoke.
+  Proven green against the real prisma-access tenant — all 12 sub-packages, including
+  ZTNA (probed via `connector_group`; its earlier 424 was a spec base-path bug, since
+  fixed). Supersedes the prisma-access first-light smoke.
+- SDK generation translates OpenAPI `\p{...}` Unicode-property regex patterns (valid in
+  PCRE/ECMAScript, **invalid** in Python's `re`) to permissive Python-valid equivalents,
+  so generated pydantic models no longer raise `PatternError` deserializing responses
+  (e.g. ZTNA's `^[\p{L}\p{N}\p{P}...]*$` fields).
 - Generated SDK reference docs now render openapi-generator anyOf/oneOf **wrapper**
   model pages as the real payload (synthesized field tables, grouped by branch) with
   the SCM container collapsed to a one-line `Placement:`, instead of the

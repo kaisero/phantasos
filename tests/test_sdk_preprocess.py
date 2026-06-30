@@ -887,3 +887,17 @@ def test_translate_property_patterns_walks_spec_and_counts() -> None:
     re.compile(a)  # valid Python regex
     assert schemas["B"]["properties"]["id"]["pattern"] == r"^[a-z]+$"
     assert stats["property_patterns_translated"] == 1
+
+
+def test_translate_property_patterns_fails_loud_on_untranslatable() -> None:
+    import pytest
+
+    # a `\p{}` form the translator can't handle (negated property) stays invalid for
+    # Python's `re` -> must fail at BUILD, not as a runtime PatternError on deserialize
+    spec: dict[str, Any] = {
+        "components": {
+            "schemas": {"X": {"properties": {"n": {"pattern": r"^\p{^L}$"}}}}
+        }
+    }
+    with pytest.raises(ValueError, match="Python-valid regex"):
+        p.translate_property_patterns(spec)
