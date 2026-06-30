@@ -1489,7 +1489,7 @@ ExternalTags:
     tags:
     - Discovered-Application
 paths:
-  /sse/connector/v2.0/api/license:
+  /sse/connector/2/v2.0/api/license:
     get:
       summary: Get Tenant License Info
       description: Retrieve the license details through this Application Programming
@@ -1510,7 +1510,7 @@ paths:
       tags:
       - Tenant
       operationId: get.license.v2
-  /sse/connector/v2.0/api/tenant:start-onboarding:
+  /sse/connector/2/v2.0/api/tenant:start-onboarding:
     post:
       summary: Start Tenant Onboarding
       description: Create the tenant:start onboarding details through this Application
@@ -1525,7 +1525,7 @@ paths:
       tags:
       - Tenant
       operationId: start_onboarding.v2
-  /sse/connector/v2.0/api/tenant:start-offboarding:
+  /sse/connector/2/v2.0/api/tenant:start-offboarding:
     post:
       summary: Start Tenant Offboarding
       description: Initiates tenant deletion. This marks the tenant for deletion and
@@ -1550,7 +1550,7 @@ paths:
       tags:
       - Tenant
       operationId: start_offboarding.v2
-  /sse/connector/v2.0/api/tenant:status:
+  /sse/connector/2/v2.0/api/tenant:status:
     get:
       summary: Get Tenant Status
       description: Retrieves the current status of the tenant.
@@ -1570,7 +1570,7 @@ paths:
       tags:
       - Tenant
       operationId: get.tenant.status.v2
-  /sse/connector/v2.0/api/connector-groups:
+  /sse/connector/2/v2.0/api/connector-groups:
     get:
       summary: List Connector Groups
       description: Retrieve the connector groups details through this Application
@@ -1621,7 +1621,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/connector_group-new'
-  /sse/connector/v2.0/api/connector-groups/{oid}:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}:
     get:
       summary: Get Connector Group
       description: Retrieve the {oid} details through this Application Programming
@@ -1698,7 +1698,7 @@ paths:
       tags:
       - Connector-Group
       operationId: delete.connector-group.v2
-  /sse/connector/v2.0/api/connector-groups/filters:
+  /sse/connector/2/v2.0/api/connector-groups/filters:
     get:
       summary: List Connector Group Filters
       description: Get filter values for connector group fields.
@@ -1725,7 +1725,7 @@ paths:
       tags:
       - Connector-Group
       operationId: list.connector_group.filters.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/connectors:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/connectors:
     get:
       summary: List Connectors per Connector Group
       description: Retrieve the connectors details through this Application Programming
@@ -1752,7 +1752,7 @@ paths:
       tags:
       - Connector-Group
       operationId: list.connector_group.connectors.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/applications:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/applications:
     get:
       summary: List FQDNs per Connector Group
       description: Retrieve the applications details through this Application Programming
@@ -1779,7 +1779,7 @@ paths:
       tags:
       - Connector-Group
       operationId: list.connector_group.fqdn_rules.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/subnets:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/subnets:
     get:
       summary: List Subnets per Connector Group
       description: Retrieve the subnets details through this Application Programming
@@ -1806,7 +1806,7 @@ paths:
       tags:
       - Connector-Group
       operationId: list.connector_group.subnet_rules.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/wildcards:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/wildcards:
     get:
       summary: List Wildcards per Connector Group
       description: Retrieve the wildcards details through this Application Programming
@@ -1833,7 +1833,7 @@ paths:
       tags:
       - Connector-Group
       operationId: list.connector_group.wildcards.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/scheduled-upgrade:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/scheduled-upgrade:
     post:
       summary: Create Connector Group Scheduled Upgrade
       description: Create the scheduled upgrade details through this Application Programming
@@ -1918,7 +1918,7 @@ paths:
       tags:
       - Connector-Group
       operationId: delete.connector_group.scheduled_upgrade.v2
-  /sse/connector/v2.0/api/connector-groups/{oid}/scheduled-upgrade-status:
+  /sse/connector/2/v2.0/api/connector-groups/{oid}/scheduled-upgrade-status:
     get:
       summary: Get Connector Group Scheduled Upgrade Status
       description: Retrieves the scheduled upgrade status for a connector group, including
@@ -1942,7 +1942,7 @@ paths:
       tags:
       - Connector-Group
       operationId: get.connector_group.scheduled_upgrade_status.v2
-  /sse/connector/v2.0/api/connectors:
+  /sse/connector/2/v2.0/api/connectors:
     get:
       summary: List Connectors
       description: Retrieve the connectors details through this Application Programming
@@ -1993,7 +1993,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/connector-new'
-  /sse/connector/v2.0/api/connectors/{oid}:
+  /sse/connector/2/v2.0/api/connectors/{oid}:
     get:
       summary: Get Connector
       description: Retrieve the {oid} details through this Application Programming
@@ -2070,7 +2070,7 @@ paths:
       tags:
       - Connector
       operationId: delete.connector.v2
-  /sse/connector/v2.0/api/connectors/filters:
+  /sse/connector/2/v2.0/api/connectors/filters:
     get:
       summary: List Connector Filters
       description: Get filter values for connector fields.
@@ -2097,7 +2097,7 @@ paths:
       tags:
       - Connector
       operationId: list.connector.filters.v2
-  /sse/connector/v2.0/api/connectors/{oid}/quiesce:
+  /sse/connector/2/v2.0/api/connectors/{oid}/quiesce:
     get:
       summary: Get Connector Quiesce State
       description: Retrieve the quiesce details through this Application Programming
@@ -2151,7 +2151,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/connector.quiesce'
-  /sse/connector/v2.0/api/connectors/{oid}/scheduled-upgrade:
+  /sse/connector/2/v2.0/api/connectors/{oid}/scheduled-upgrade:
     post:
       summary: Create Connector Scheduled Upgrade
       description: Create the scheduled upgrade details through this Application Programming
@@ -2236,7 +2236,7 @@ paths:
       tags:
       - Connector
       operationId: delete.connector.scheduled_upgrade.v2
-  /sse/connector/v2.0/api/connectors/{oid}/scheduled-upgrade-status:
+  /sse/connector/2/v2.0/api/connectors/{oid}/scheduled-upgrade-status:
     get:
       summary: Get Connector Scheduled Upgrade Status
       description: Retrieves the detailed scheduled upgrade status for a specific
@@ -2262,7 +2262,7 @@ paths:
       tags:
       - Connector
       operationId: get.connector.scheduled_upgrade_status.v2
-  /sse/connector/v2.0/api/connectors/{oid}/pcaps:
+  /sse/connector/2/v2.0/api/connectors/{oid}/pcaps:
     get:
       summary: List Connector Packet Capture Files
       description: 'This Application Programming Interface is used to get the list
@@ -2314,7 +2314,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/packet_capture.create'
-  /sse/connector/v2.0/api/connectors/{oid}/pcaps/{id}:stop:
+  /sse/connector/2/v2.0/api/connectors/{oid}/pcaps/{id}:stop:
     post:
       summary: Stop Connector Packet Capture
       description: This Application Programming Interface will stop an in-progress
@@ -2336,7 +2336,7 @@ paths:
       tags:
       - Connector
       operationId: stop.connector.packet_capture.v2
-  /sse/connector/v2.0/api/connectors/{oid}/pcaps/{id}:download:
+  /sse/connector/2/v2.0/api/connectors/{oid}/pcaps/{id}:download:
     get:
       summary: Download Connector Packet Capture File
       description: This Application Programming Interface downloads the captured packet
@@ -2354,7 +2354,7 @@ paths:
       tags:
       - Connector
       operationId: download.connector.packet_capture_file.v2
-  /sse/connector/v2.0/api/connectors/{oid}/tech-support-files:
+  /sse/connector/2/v2.0/api/connectors/{oid}/tech-support-files:
     get:
       summary: List Connector Tech Support Files
       description: 'This Application Programming Interface is used to get the list
@@ -2399,7 +2399,7 @@ paths:
       tags:
       - Connector
       operationId: generate.connector.tech_support_file.v2
-  /sse/connector/v2.0/api/connectors/{oid}/tech-support-files/{id}:stop:
+  /sse/connector/2/v2.0/api/connectors/{oid}/tech-support-files/{id}:stop:
     post:
       summary: Stop Connector Tech Support Generation
       description: This Application Programming Interface will stop an in-progress
@@ -2417,7 +2417,7 @@ paths:
       tags:
       - Connector
       operationId: stop.connector.tech_support_file.v2
-  /sse/connector/v2.0/api/connectors/{oid}/tech-support-files/{id}:download:
+  /sse/connector/2/v2.0/api/connectors/{oid}/tech-support-files/{id}:download:
     get:
       summary: Download Connector Tech Support File
       description: This Application Programming Interface downloads a tech support
@@ -2435,7 +2435,7 @@ paths:
       tags:
       - Connector
       operationId: download.connector.tech_support_file.v2
-  /sse/connector/v2.0/api/connector-images:
+  /sse/connector/2/v2.0/api/connector-images:
     get:
       summary: List Connector Image Versions
       description: Retrieve the connector images details through this Application
@@ -2457,7 +2457,7 @@ paths:
       tags:
       - Connector
       operationId: list.connect_images.v2
-  /sse/connector/v2.0/api/applications:
+  /sse/connector/2/v2.0/api/applications:
     get:
       summary: List FQDNs
       description: Retrieve the applications details through this Application Programming
@@ -2508,7 +2508,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/fqdn_rule-new'
-  /sse/connector/v2.0/api/applications/{oid}:
+  /sse/connector/2/v2.0/api/applications/{oid}:
     get:
       summary: Get FQDN
       description: Retrieve the {oid} details through this Application Programming
@@ -2585,7 +2585,7 @@ paths:
       tags:
       - FQDN
       operationId: delete.fqdn_rule.v2
-  /sse/connector/v2.0/api/applications/filters:
+  /sse/connector/2/v2.0/api/applications/filters:
     get:
       summary: List FQDN Filters
       description: Get filter values for FQDN rule fields.
@@ -2612,7 +2612,7 @@ paths:
       tags:
       - FQDN
       operationId: get.fqdn_rule.filters.v2
-  /sse/connector/v2.0/api/subnets:
+  /sse/connector/2/v2.0/api/subnets:
     get:
       summary: List Subnets
       description: Retrieve the subnets details through this Application Programming
@@ -2663,7 +2663,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/subnet_rule-new'
-  /sse/connector/v2.0/api/subnets/{oid}:
+  /sse/connector/2/v2.0/api/subnets/{oid}:
     get:
       summary: Get Subnet
       description: Retrieve the {oid} details through this Application Programming
@@ -2740,7 +2740,7 @@ paths:
       tags:
       - Subnet
       operationId: delete.subnet_rule.v2
-  /sse/connector/v2.0/api/subnets/filters:
+  /sse/connector/2/v2.0/api/subnets/filters:
     get:
       summary: List Subnet Filters
       description: Get filter values for subnet rule fields.
@@ -2767,7 +2767,7 @@ paths:
       tags:
       - Subnet
       operationId: list.subnet_rules.filters.v2
-  /sse/connector/v2.0/api/wildcards:
+  /sse/connector/2/v2.0/api/wildcards:
     get:
       summary: List Wildcards
       description: Retrieve the wildcards details through this Application Programming
@@ -2818,7 +2818,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/wildcard-new'
-  /sse/connector/v2.0/api/wildcards/{oid}:
+  /sse/connector/2/v2.0/api/wildcards/{oid}:
     get:
       summary: Get Wildcard
       description: Retrieve the {oid} details through this Application Programming
@@ -2895,7 +2895,7 @@ paths:
       tags:
       - Wildcard
       operationId: delete.wildcard.v2
-  /sse/connector/v2.0/api/wildcards/filters:
+  /sse/connector/2/v2.0/api/wildcards/filters:
     get:
       summary: List Wildcard Filters
       description: Get filter values for wildcard fields.
@@ -2922,7 +2922,7 @@ paths:
       tags:
       - Wildcard
       operationId: list.wildcard.filters.v2
-  /sse/connector/v2.0/api/discovered-applications:
+  /sse/connector/2/v2.0/api/discovered-applications:
     get:
       summary: List Discovered Applications
       description: Retrieve the discovered applications details through this Application
@@ -2950,7 +2950,7 @@ paths:
       tags:
       - Discovered-Application
       operationId: list.discovered_application.v2
-  /sse/connector/v2.0/api/discovered-applications/filters:
+  /sse/connector/2/v2.0/api/discovered-applications/filters:
     get:
       summary: List Discovered Application Filters
       description: Get filter values for discovered application fields.
