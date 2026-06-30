@@ -64,7 +64,7 @@ def {{ c.func_name }}(
     if environment is not None:
         _rt.select_environment(environment)
 {%- endif %}
-{%- if c.connection_views %}
+{%- if connection_views %}
     _rt.set_connection_overrides({
 {%- for cv in c.connection_views %}
         {{ cv.env|tojson }}: {{ cv.py_name }},

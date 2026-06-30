@@ -161,6 +161,68 @@ def test_command_view_drops_connection_flag_colliding_with_body_field() -> None:
     assert "tenant" in kept  # no collision -> kept
 
 
+def test_render_emits_no_duplicate_connection_param(tmp_path: Path) -> None:
+    """End-to-end render guard for the collision fix (the unit test above checks the
+    view data; this checks the EMITTED module so a template regression can't pass):
+    a command whose body field collides with a connection flag emits a module that
+    compiles (no duplicate-parameter SyntaxError), with the connection flag dropped on
+    the colliding command but kept on a non-colliding sibling."""
+    from phantasos.generator.cli.ir import (
+        CliIR,
+        Command,
+        ConnectionField,
+        Flag,
+        MethodBinding,
+    )
+
+    ir = CliIR(
+        sdk_package="x",
+        sdk_version="0.0.0",
+        connection_fields=[
+            ConnectionField(name="X-PANW-Region", env="PANW_REGION"),
+            ConnectionField(name="Prisma-Tenant", env="PRISMA_TENANT"),
+        ],
+        commands=[
+            Command(
+                verb="update",
+                object="net",
+                key="update:net",
+                sdk_resource="nets",
+                bindings=[MethodBinding(sdk_method="update_net", sub_verb="update")],
+                body_flags=[
+                    Flag(
+                        name="--region",
+                        param="region",
+                        py_type="str",
+                        kind="scalar",
+                        required=False,
+                    )
+                ],
+            ),
+            Command(
+                verb="show",
+                object="gadget",
+                key="show:gadget",
+                sdk_resource="gadgets",
+                bindings=[MethodBinding(sdk_method="list_gadgets", sub_verb="list")],
+            ),
+        ],
+    )
+    render_cli(ir, package="x_cli", out_dir=tmp_path)
+    gen = tmp_path / "x_cli" / "_generated" / "commands"
+    nets = (gen / "nets.py").read_text()
+    gadgets = (gen / "gadgets.py").read_text()
+    compile(nets, "nets.py", "exec")  # would raise SyntaxError on a duplicate param
+    compile(gadgets, "gadgets.py", "exec")
+    # colliding command: the connection --region is dropped, only the body --region
+    # remains; the non-colliding --tenant connection flag stays.
+    assert nets.count('"--region"') == 1
+    assert '"--tenant"' in nets
+    # sibling (no body `region`): keeps BOTH connection flags.
+    assert '"--region"' in gadgets
+    assert '"--tenant"' in gadgets
+
+
 def test_render_cli_emits_diagnostics_module(tmp_path: Path) -> None:
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
     assert (tmp_path / "fakesdk_cli" / "_generated" / "diagnostics.py").exists()
