@@ -229,6 +229,7 @@ def _command_view(
     variant_groups: set[tuple[str, str]],
     *,
     models: dict[str, ModelSchema] | None = None,
+    connection_views: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     leaf = _leaf(c)
     if leaf:
@@ -245,6 +246,18 @@ def _command_view(
     # Dedup flags via the shared helper so the docs command reference can't drift
     # from the emitted flag set (design D2): path wins over body, body over query.
     deduped_body, deduped_query = dedupe_flags(c)
+    all_flags = [
+        *(_flag_view(f) for f in c.path_params),
+        *(_flag_view(f, models=models) for f in deduped_body),
+        *(_flag_view(f, _query_panel(f)) for f in deduped_query),
+    ]
+    # Drop a GLOBAL connection flag (--region/--tenant) that collides with this
+    # command's own path/body/query flag of the same name — two same-named params
+    # would be a SyntaxError (e.g. network_services `remote_network` carries a `region`
+    # body field that clashes with the X-PANW-Region connection flag). The connection
+    # value still flows from env / active-env / config; only the redundant per-command
+    # flag is omitted (the command-aware pre-flight still enforces it where required).
+    taken = {f["py_name"] for f in all_flags}
     return {
         "key": c.key,
         "func_name": _func_name(c),
@@ -257,10 +270,9 @@ def _command_view(
         "path_params": [_flag_view(f) for f in c.path_params],
         "body_flags": [_flag_view(f, models=models) for f in deduped_body],
         "query_flags": [_flag_view(f) for f in deduped_query],
-        "all_flags": [
-            *(_flag_view(f) for f in c.path_params),
-            *(_flag_view(f, models=models) for f in deduped_body),
-            *(_flag_view(f, _query_panel(f)) for f in deduped_query),
+        "all_flags": all_flags,
+        "connection_views": [
+            cv for cv in (connection_views or []) if cv["py_name"] not in taken
         ],
     }
 
@@ -424,10 +436,13 @@ def _render_commands(
     variant_groups: set[tuple[str, str]] = {
         (c.verb, c.object) for c in ir.commands if c.variant or c.action
     }
+    conn_views = cast("list[dict[str, object]]", ctx.get("connection_views") or [])
     by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
     for c in ir.commands:
         by_resource[c.sdk_resource].append(
-            _command_view(c, variant_groups, models=ir.models)
+            _command_view(
+                c, variant_groups, models=ir.models, connection_views=conn_views
+            )
         )
     for resource, cmds in by_resource.items():
         dest = gen / "commands" / f"{resource}.py"
@@ -449,7 +464,8 @@ def _render_commands(
     written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
     # app factory
     all_views = [
-        _command_view(c, variant_groups, models=ir.models) for c in ir.commands
+        _command_view(c, variant_groups, models=ir.models, connection_views=conn_views)
+        for c in ir.commands
     ]
     # Federated builds stamp every command with a sub-package slug; that gates the
     # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec

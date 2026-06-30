@@ -3,6 +3,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import pytest
 
@@ -123,6 +124,41 @@ def test_render_rejects_reserved_cli_object(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="reserved"):
         render_cli(ir, package="x_cli", out_dir=tmp_path)
+
+
+def test_command_view_drops_connection_flag_colliding_with_body_field() -> None:
+    """A GLOBAL connection flag (--region/--tenant) whose py_name matches a command's
+    own body field is omitted from THAT command's view — else the emitted function
+    would declare the parameter twice (SyntaxError; e.g. network_services
+    `remote_network` has a `region` body field). Non-colliding flags are kept."""
+    from phantasos.generator.cli.ir import Command, Flag, MethodBinding
+    from phantasos.generator.cli.render_cli import _command_view
+
+    cmd = Command(
+        verb="update",
+        object="remote-network",
+        key="update:remote-network",
+        sdk_resource="remote_networks",
+        bindings=[MethodBinding(sdk_method="update_remote_network", sub_verb="update")],
+        body_flags=[
+            Flag(
+                name="--region",
+                param="region",
+                py_type="str",
+                kind="scalar",
+                required=False,
+            )
+        ],
+    )
+    conn: list[dict[str, object]] = [
+        {"py_name": "region", "flag": "region", "header": "X-PANW-Region", "env": "R"},
+        {"py_name": "tenant", "flag": "tenant", "header": "Prisma-Tenant", "env": "T"},
+    ]
+    view = _command_view(cmd, set(), connection_views=conn)
+    cmd_conn = cast("list[dict[str, object]]", view["connection_views"])
+    kept = {cv["py_name"] for cv in cmd_conn}
+    assert "region" not in kept  # collides with the body field -> dropped
+    assert "tenant" in kept  # no collision -> kept
 
 
 def test_render_cli_emits_diagnostics_module(tmp_path: Path) -> None:

@@ -48,7 +48,7 @@ def {{ c.func_name }}(
         rich_help_panel="Common",
     ),
 {%- endif %}
-{%- for cv in connection_views %}
+{%- for cv in c.connection_views %}
     {{ cv.py_name }}: str | None = typer.Option(
         None,
         "--{{ cv.flag }}",
@@ -64,9 +64,9 @@ def {{ c.func_name }}(
     if environment is not None:
         _rt.select_environment(environment)
 {%- endif %}
-{%- if connection_views %}
+{%- if c.connection_views %}
     _rt.set_connection_overrides({
-{%- for cv in connection_views %}
+{%- for cv in c.connection_views %}
         {{ cv.env|tojson }}: {{ cv.py_name }},
 {%- endfor %}
     })
