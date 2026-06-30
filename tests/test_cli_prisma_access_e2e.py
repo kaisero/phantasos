@@ -265,30 +265,27 @@ def test_offline_ztna_command_region_preflight_exits_2(
     assert "PANW_REGION" in _strip_ansi(res.output)
 
 
-def test_offline_remote_network_collision_keeps_body_region_flag(
+def test_offline_remote_network_has_body_region_and_no_connection_panel(
     built_cli: dict[str, Any],
 ) -> None:
-    """The connection-flag/body-field collision fix (T0, commit 6f63aff):
-    ``remote_network`` carries a ``region`` BODY field that clashed with the global
-    ``--region`` connection flag (X-PANW-Region) — declaring the param twice was a
-    SyntaxError at import. The fix drops only the *connection* ``--region`` for this
-    command (its env / active-env / pre-flight path still enforces the header) and
-    keeps the body ``--region``; the non-colliding ``--tenant`` connection flag stays.
-
-    NB: the fix commit cited ``network_services``, but in the built 12-sub CLI
-    ``remote_network`` classifies under ``deployment_services`` — neither sub is in
-    X-PANW-Region's ``required_for``, so the command needs no region.
+    """Per-command connection override flags were removed — region comes from the named
+    environment (or env var) only, never a per-command `--region`/`--tenant`.
+    ``deployment_services`` `remote_network` carries a ``region`` BODY field, so it
+    surfaces as a real payload ``--region`` flag; there is NO Connection panel and no
+    ``--tenant`` anywhere (the redundant prisma-tenant header was removed). This also
+    means the old connection-vs-body collision class is gone (no connection flag to
+    clash with the body `region`). Region for region-requiring subs is enforced by
+    the pre-flight against env / active-env (see the ztna region pre-flight test).
     """
     res = CliRunner().invoke(
         built_cli["app"],
         ["create", "deployment-services", "remote-network", "--help"],
     )
-    assert res.exit_code == 0, res.output  # no double-declared param -> no SyntaxError
+    assert res.exit_code == 0, res.output
     out = _strip_ansi(res.output)
-    assert "--region" in out  # the BODY field survives
-    assert "--tenant" in out  # the non-colliding connection flag survives
-    # the colliding *connection* --region (whose help names PANW_REGION) was dropped
-    assert "PANW_REGION" not in out
+    assert "--region" in out  # the BODY field survives (a real payload flag)
+    assert "--tenant" not in out  # no connection override; prisma-tenant removed
+    assert "Connection" not in out  # the per-command Connection panel is gone
 
 
 # --- live CRUD round-trip (skips cleanly without credentials) ---------------

@@ -75,11 +75,12 @@ subpackages:
 # derived from any spec). Applied on each sub-package's ApiClient handle from the
 # environment at construction; `required_for` fails loud when its env is unset.
 # OAG applies default_headers last, so this client-level default takes precedence
-# over a per-call `_headers` value. incidents REQUIRES X-PANW-Region
-# (PrismaRegionHeader, required: true); prisma-tenant is optional everywhere.
+# over a per-call `_headers` value. incidents + ztna_connector REQUIRE
+# X-PANW-Region (the gateway routes by it). No tenant header: the tenant is carried
+# by the OAuth `tsg_id` scope, so a separate prisma-tenant header is redundant (it
+# was optional everywhere and never sent) — removed.
 default_headers:
   X-PANW-Region: {env: PANW_REGION, required_for: [incidents, ztna_connector]}
-  prisma-tenant: {env: PRISMA_TENANT, required: false}
 
 # Per-sub live-smoke probe overrides (federated live smoke). A sub auto-picks a
 # zero-arg `list` collection (`requires == []`); the smoke treats a response-

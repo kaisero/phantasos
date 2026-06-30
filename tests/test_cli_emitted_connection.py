@@ -1,14 +1,16 @@
-"""D2: the emitted CLI surfaces a product's connection-header fields (region/tenant).
+"""The emitted CLI surfaces a product's connection-header field (region) via the
+NAMED ENVIRONMENT only — there is NO per-command override flag.
 
 Connection fields (`ir.connection_fields`, contributed by `default_headers`) ride
-the SAME seams as credentials: prompted/stored per named environment, exported to
-their `env` var BEFORE the SDK Client is built (the SDK reads `FEDSDK_REGION` etc.
-from the environment), and overridable by a per-field global flag layered
-`--flag > env var > active-environment value`.
+the named-environment seam: `environment create` prompts/stores them, and they are
+exported to their `env` var BEFORE the SDK Client is built (the SDK reads
+`FEDSDK_REGION` from the environment). Resolution is `env var > active-environment
+value` — no per-command flag (it would clutter every command and could collide with
+a same-named body field).
 
 The federated `fedsdk` fixture is the vehicle: rendered WITH a `Region`/`FEDSDK_REGION`
 header so `ir.connection_fields` is populated. Single-spec `fakesdk` (no headers)
-must emit and behave identically — no `--region` flag, no connection export.
+emits no connection surface at all.
 """
 
 from __future__ import annotations
@@ -151,36 +153,6 @@ def test_active_environment_region_exported_before_client(
         assert seen["region"] == "eu"
 
 
-def test_flag_overrides_active_environment_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    home = tmp_path / "home"
-    (home / ".fedsdk").mkdir(parents=True)
-    (home / ".fedsdk" / "environments.yml").write_text(
-        "default_environment: prod\nenvironments:\n  prod: {region: eu}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("FEDSDK_REGION", raising=False)
-    monkeypatch.delenv("FEDSDK_ENVIRONMENT", raising=False)
-    with _fed_cli(tmp_path / "out"):
-        rt = importlib.import_module("fedsdk_cli._generated.runtime")
-        seen: dict[str, Any] = {}
-
-        def _fake(**kw: Any) -> Any:
-            seen["region"] = os.environ.get("FEDSDK_REGION")
-            return object()
-
-        monkeypatch.setattr(rt, "_facade_from_env", _fake)
-        rt.set_connection_overrides({"FEDSDK_REGION": "ap"})  # the --region flag
-        try:
-            rt._client()
-            assert seen["region"] == "ap"  # flag beats the active-env value (eu)
-        finally:
-            rt.set_connection_overrides({})
-
-
 def test_env_var_beats_active_environment_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -205,55 +177,6 @@ def test_env_var_beats_active_environment_value(
         monkeypatch.setattr(rt, "_facade_from_env", _fake)
         rt._client()
         assert seen["region"] == "shell"
-
-
-def test_region_flag_threads_end_to_end(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from typer.testing import CliRunner
-
-    home = tmp_path / "home"
-    (home / ".fedsdk").mkdir(parents=True)
-    (home / ".fedsdk" / "environments.yml").write_text(
-        "default_environment: prod\nenvironments:\n  prod: {region: eu}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("FEDSDK_REGION", raising=False)
-    monkeypatch.delenv("FEDSDK_ENVIRONMENT", raising=False)
-    with _fed_cli(tmp_path / "out"):
-        rt = importlib.import_module("fedsdk_cli._generated.runtime")
-        main = importlib.import_module("fedsdk_cli.main")
-
-        seen: dict[str, Any] = {}
-
-        class _Rec:
-            def __getattr__(self, name: str) -> Any:
-                def _call(*, all_pages: bool = False, **kw: Any) -> Any:
-                    return []
-
-                return _call
-
-        class _Sub:
-            def __init__(self) -> None:
-                self.widget = _Rec()
-
-        class _Fed:
-            def __init__(self) -> None:
-                self.alpha = _Sub()
-
-        def _fake(**kw: Any) -> Any:
-            seen["region"] = os.environ.get("FEDSDK_REGION")
-            return _Fed()
-
-        monkeypatch.setattr(rt, "_facade_from_env", _fake)
-        res = CliRunner().invoke(
-            main.app,
-            ["show", "alpha", "widget", "--region", "ap", "--output", "json"],
-        )
-        assert res.exit_code == 0, res.output
-        assert seen["region"] == "ap"  # the global --region flag won
 
 
 def _render_single_spec(out: Path) -> Path:
@@ -370,40 +293,6 @@ def test_preflight_skips_for_dry_run(
     # --dry-run returns before _preflight_connection; a region-requiring 'beta' command
     # must NOT exit 2 under --dry-run even when FEDSDK_REGION is unset.
     assert result.exit_code != 2, result.output
-
-
-def test_preflight_passes_with_region_flag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """D3: 'show beta gadget --region us' → pre-flight passes."""
-    from typer.testing import CliRunner
-
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("FEDSDK_REGION", raising=False)
-    with _fed_cli(tmp_path / "out"):
-        rt = importlib.import_module("fedsdk_cli._generated.runtime")
-        main = importlib.import_module("fedsdk_cli.main")
-
-        class _Rec:
-            def __getattr__(self, name: str) -> Any:
-                def _call(*, all_pages: bool = False, **kw: Any) -> Any:
-                    return []
-
-                return _call
-
-        class _BetaSub:
-            gadget = _Rec()
-
-        class _FakeFed:
-            beta = _BetaSub()
-
-        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
-        result = CliRunner().invoke(
-            main.app, ["show", "beta", "gadget", "--region", "us", "--output", "json"]
-        )
-    # pre-flight must pass when region is provided via --region flag
-    assert result.exit_code == 0, result.output
 
 
 def test_preflight_passes_with_region_env_var(

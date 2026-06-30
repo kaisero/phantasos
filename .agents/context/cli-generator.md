@@ -120,15 +120,17 @@ They wire the three pipeline stages together:
    `errors_field` → product-AGNOSTIC `fallback_keys`) and carries NO product-specific
    error keys; with no error component the default generic envelope applies. The
    `default_headers` parameter (the product's `ProductConfig.default_headers`,
-   region/tenant `HeaderSpec`s) is enriched the same way into
+   region `HeaderSpec`) is enriched the same way into
    `ir.connection_fields`: non-secret "environment fields" that ride the SAME
-   named-environment seams as credentials (prompted/stored per environment,
-   exported to their `env` var BEFORE the SDK client is built, overridable by a
-   per-field global `--<field>` flag). A `has_env` ctx flag (`credential_fields or
+   named-environment seams as credentials (prompted/stored per environment via
+   `environment create --<field>`, exported to their `env` var BEFORE the SDK client
+   is built). There is NO per-command override flag — connection settings come from
+   the named environment (or its env var) only; resolution is `env var > active
+   environment`. A `has_env` ctx flag (`credential_fields or
    connection_fields`) gates the SHARED environment infrastructure so it is emitted
-   whenever EITHER is present; `connection_views` carries each header's derived flag
-   name (`field.name.split("-")[-1].lower()`, colliding pairs fall back to the full
-   kebab header). It
+   whenever EITHER is present; `connection_views` (consumed only by the
+   `environment`/`config` templates, never per command) carries each header's derived
+   flag name (`field.name.split("-")[-1].lower()`). It
    `ruff`-formats only the files it wrote, then emits
    the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
