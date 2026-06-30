@@ -16,7 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from ...productconfig import LoadedProduct
+from ...productconfig import HeaderSpec, LiveProbe, LoadedProduct
 
 _ABOUT = '''\
 """Build provenance (written by phantasos)."""
@@ -219,6 +219,11 @@ def _build_federated(
         # elsewhere.
         preprocess.flatten_scm_bodies(sub_spec, stats)
         preprocess.relax_readonly_required(sub_spec, stats)
+        # OAS `\p{}` Unicode-property patterns are invalid in Python's `re` (only the
+        # 3rd-party `regex` supports them) -> the generated validator would PatternError
+        # at deserialize time. Translate to Python-valid, permissive equivalents (e.g.
+        # ztna's `^[\p{L}\p{N}\p{P}...]*$` response patterns).
+        preprocess.translate_property_patterns(sub_spec, stats)
         norm = sub.config.normalize_operation_ids
         if norm is not None:
             preprocess.normalize_operation_ids(
@@ -356,6 +361,93 @@ def _render_shared_auth(loaded: LoadedProduct, project_dir: Path) -> None:
     (root / "_auth.py").write_text(src, encoding="utf-8")
 
 
+def _live_required_env(
+    auth: Any | None, default_headers: dict[str, HeaderSpec]
+) -> list[str]:
+    """Env vars the emitted live smoke's skip-guard checks (auth creds + required
+    region headers). Without any of these the composer raises a RuntimeError at
+    construction/first-access, so the smoke must SKIP rather than ERROR. De-duped,
+    order-preserving (auth creds first, then headers)."""
+    env: list[str] = []
+    if auth is not None and hasattr(auth, "credential_fields"):
+        env += [cf.env_var for cf in auth.credential_fields() if cf.required]
+    for header in default_headers.values():
+        if header.required or header.required_for:
+            env.append(header.env)
+    deduped: list[str] = []
+    for e in env:
+        if e not in deduped:
+            deduped.append(e)
+    return deduped
+
+
+def _validate_live_smoke(
+    live_smoke: dict[str, LiveProbe],
+    package: str,
+    slugs: list[str],
+    sdk_path: Path,
+) -> None:
+    """Fail-loud check of each ``live_smoke`` override against the BUILT SDK.
+
+    The ``slug`` must be a known sub-package; an explicit ``object`` must be in that
+    sub's ``_WRAPPERS`` and its ``verb`` a binding on that object. Reuses
+    ``cli_operations`` (its ``object_attr``/``clean_method`` are the same
+    ``_WRAPPERS``/``_bindings`` surface the runtime auto-pick reads) — no third
+    introspector. An ``object``-less override is auto-picked at runtime, so there is
+    nothing to validate at build time (skipped, no introspection)."""
+    from ..cli.classify import cli_operations
+
+    known = set(slugs)
+    for slug, probe in live_smoke.items():
+        if slug not in known:
+            raise ValueError(
+                f"live_smoke: sub-package {slug!r} is not in subpackages "
+                f"({sorted(known)})"
+            )
+        if probe.object is None:
+            continue  # auto-picked at runtime — nothing build-time to check
+        inv = cli_operations(f"{package}.{slug}", sdk_path)
+        verbs_by_obj: dict[str, set[str]] = {}
+        for op in inv.operations:
+            if op.object_attr is not None and op.clean_method is not None:
+                verbs_by_obj.setdefault(op.object_attr, set()).add(op.clean_method)
+        if probe.object not in verbs_by_obj:
+            raise ValueError(
+                f"live_smoke[{slug!r}]: object {probe.object!r} is not in {slug}'s "
+                f"_WRAPPERS ({sorted(verbs_by_obj)})"
+            )
+        if probe.verb not in verbs_by_obj[probe.object]:
+            raise ValueError(
+                f"live_smoke[{slug!r}].{probe.object}: verb {probe.verb!r} is not a "
+                f"binding ({sorted(verbs_by_obj[probe.object])})"
+            )
+
+
+def _live_smoke_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, Any]:
+    """Scaffold-context additions for the runtime federated live smoke.
+
+    Single-spec products gate the template out (``federated=False`` -> whitespace ->
+    skipped by ``render_scaffold``). Federated products validate any ``live_smoke``
+    overrides against the just-built SDK (fail-loud) and bake the override map + the
+    skip-guard env vars as Python literals."""
+    cfg = loaded.config
+    if not loaded.subpackages:
+        return {
+            "federated": False,
+            "live_smoke_literal": "{}",
+            "live_required_env_literal": "[]",
+        }
+    slugs = [s.config.slug for s in loaded.subpackages]
+    _validate_live_smoke(cfg.live_smoke, cfg.package, slugs, project_dir)
+    baked = {slug: probe.model_dump() for slug, probe in cfg.live_smoke.items()}
+    required_env = _live_required_env(loaded.auth, cfg.default_headers)
+    return {
+        "federated": True,
+        "live_smoke_literal": repr(baked),
+        "live_required_env_literal": repr(required_env),
+    }
+
+
 def _scaffold(loaded: LoadedProduct, project_dir: Path) -> None:
     """Render the project scaffold (built-in + per-product overrides) once."""
     if loaded.config.project is None:
@@ -377,6 +469,7 @@ def _scaffold(loaded: LoadedProduct, project_dir: Path) -> None:
     context = dict(loaded.context)
     if loaded.config.docs is not None:
         context.update(docs_stage.build_docs_context(loaded, project_dir))
+    context.update(_live_smoke_context(loaded, project_dir))
     scaffold.render_scaffold(
         scaffold.builtin_dir(),
         overrides if overrides.is_dir() else None,
