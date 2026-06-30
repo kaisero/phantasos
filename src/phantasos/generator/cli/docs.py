@@ -104,10 +104,15 @@ def _json_default(o: object) -> object:
 
 
 def _usage(c: Command) -> str:
-    """Lean reference heading: ``verb object [leaf]`` — no distribution prefix and no
-    ``[OPTIONS]``. The flag tables document the options; the synthesized example shows
-    the full runnable command."""
-    parts = [c.verb, c.object]
+    """Lean reference heading: ``verb [sub-package] object [leaf]`` — no distribution
+    prefix and no ``[OPTIONS]``. The flag tables document the options; the synthesized
+    example shows the full runnable command. A federated command includes its kebab
+    sub-package segment (e.g. ``request config-operations config-version push``) so the
+    heading matches the real invocation; single-spec (no subpackage) is unchanged."""
+    parts: list[str] = [c.verb]
+    if c.subpackage:
+        parts.append(c.subpackage.replace("_", "-"))
+    parts.append(c.object)
     third = leaf(c)
     if third:
         parts.append(third)

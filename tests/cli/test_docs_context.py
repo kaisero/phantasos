@@ -187,6 +187,19 @@ def test_federated_ir_groups_by_subpackage_then_object() -> None:
     assert cast("str", create["example"]).startswith(
         "prisma-access create objects address"
     )
+    # The HEADING (usage) mirrors the real invocation: verb + kebab sub-package +
+    # object (+ leaf) — not the bare `create address` that silently dropped the
+    # sub-package and so didn't match what the user actually types.
+    assert create["usage"] == "create objects address"
+    show_rn = next(
+        c
+        for s in subs
+        for o in cast("list[dict[str, object]]", s["objects"])
+        for c in _commands(o)
+        if c["key"] == "show:remote-network"
+    )
+    # snake slug `network_services` -> kebab `network-services` in the heading
+    assert show_rn["usage"] == "show network-services remote-network"
 
 
 def test_context_key_set_is_the_documented_contract() -> None:
