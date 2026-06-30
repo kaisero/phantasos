@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import os
-{%- if ir.credential_fields %}
+{%- if has_env %}
 import re
 {%- endif %}
 from importlib.resources import files
@@ -352,7 +352,7 @@ def _known_config_paths() -> set[tuple[str, ...]]:
             for key in sub.model_fields:
                 paths.add(("configuration", section, key))
     return paths
-{% if ir.credential_fields %}
+{% if has_env %}
 
 # --- Named environments (isolated top-level keys; NOT in ConfigFile) -----------
 # The credential field surface, baked in at template time from the resolved auth
@@ -360,6 +360,13 @@ def _known_config_paths() -> set[tuple[str, ...]]:
 _ENV_FIELDS: list[dict[str, Any]] = [
 {%- for f in ir.credential_fields %}
     {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+{%- endfor %}
+]
+# Connection-header fields (region/tenant): non-secret, stored per environment
+# under their flag-name key and exported to their env var at client-build time.
+_CONN_FIELDS: list[dict[str, str]] = [
+{%- for cv in connection_views %}
+    {"key": {{ cv.flag|tojson }}, "env": {{ cv.env|tojson }}},
 {%- endfor %}
 ]
 
@@ -416,4 +423,16 @@ def resolve_environment(name: str) -> dict[str, Any]:
     if not isinstance(env, dict):
         env = {}
     return {f["name"]: _resolve_value(env.get(f["name"])) for f in _ENV_FIELDS}
+
+
+def resolve_connection(name: str | None) -> dict[str, Any]:
+    """Active-environment connection values, keyed by ENV VAR (``${VAR}`` expanded;
+    fields absent from the environment block resolve to ``None``).
+
+    Non-secret — the runtime exports each to its env var before building the SDK
+    client (the SDK reads e.g. ``{{ env_prefix }}_REGION`` from the environment)."""
+    env = _raw_environments().get(name) if name else None
+    if not isinstance(env, dict):
+        env = {}
+    return {f["env"]: _resolve_value(env.get(f["key"])) for f in _CONN_FIELDS}
 {% endif %}

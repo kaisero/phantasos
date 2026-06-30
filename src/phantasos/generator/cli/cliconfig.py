@@ -86,6 +86,12 @@ class CliConfig(BaseModel):
     # work on endpoints that require one). Query params only.
     defaults: dict[str, dict[str, Any]] = {}
     docs: CliDocsConfig | None = None
+    # FEDERATED-ONLY: snake slug -> that sub-package's `cli.yml` delta (a normal
+    # CliConfig: request/columns/variants/hide/defaults). build_ir feeds each
+    # sub's section to its own build_cli_ir. A single-spec cli.yml omits this key
+    # -> empty map -> unchanged. (Nested deltas typically don't re-nest, but the
+    # field is reused as-is — no parallel federated model.)
+    subpackages: dict[str, CliConfig] = {}
 
 
 def load_cli_config(path: Path) -> CliConfig:

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Federated (multispec) CLI generation** — `cli build` can now generate a CLI that spans a federated SDK's sub-packages, producing a `verb → sub-package → object` command hierarchy from a single `cli.yml` with a `subpackages:` enrollment map. The map is an allowlist: list the subs to include (e.g. objects + incidents for a first release), or omit it to enroll all. Cross-sub object-name collisions and unmapped federated non-CRUD operations are hard build errors. Single-spec CLIs are behaviorally unchanged.
+- **prisma-access CLI (P0: objects + incidents)** — the first federated CLI built with this system: `prisma-access show objects address list`, `prisma-access request incident search`, and the full CRUD surface for both enrolled sub-packages. Region and tenant are **connection fields** sourced from `sdk.yml` `default_headers`: stored per named environment alongside credentials, exposed as global `--region`/`--tenant` flags, and enforced by a command-aware pre-flight that only demands a field for the sub-packages that declare it (objects CRUD runs region-unset — verified live). Sub-package SDK client handles are built lazily — the region header is only required when the sub-package that needs it is first invoked.
+- **Discoverability in generated federated CLIs** — `which <object>` prints the sub-package and supported verbs for a named object, with `did-you-mean` suggestions on a miss; `phantasos cli discover` now renders per-sub-package classification tables for federated SDKs; per-object and per-sub-package `--help` surfaces the full command tree.
 - Generated SDKs for SCM-family specs (prisma-access) now reshape each "configurable
   object" body so it can carry its real fields. openapi-generator keeps only the
   `oneOf`/`anyOf` "exactly one of folder/snippet/device" container and discards the

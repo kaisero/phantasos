@@ -17,7 +17,30 @@ union variants, hidden ops, table columns, query defaults). The emitted
 ## How it works
 
 Host commands live in `phantasos/cli.py` (`cli_discover`, `cli_build`) — NOT in
-this package. They wire the three pipeline stages together:
+this package. Both route through `classify.build_ir(package, sdk_path, cfg)`, which
+detects a **federated** SDK (one exposing a `_SUBPACKAGES` dict — snake slug →
+sub-facade `Client` — on its top-level package, the same seam the SDK-docs
+`gen_ref_pages` keys off). Single-spec SDKs (no `_SUBPACKAGES`) take the unchanged
+single-pass path below. A federated SDK runs the introspect→classify stages **per
+sub** (`f"{package}.{slug}"`, each against its own delta from `cfg.subpackages[slug]`
+in the federated cli.yml) and `merge_federated_irs` folds the results into ONE
+`CliIR`: every `Command` stamped with its `subpackage` (the snake slug), unmapped ops
+slug-prefixed, models merged under slug-qualified keys (`f"{slug}.{ClassName}"`, refs
+rewritten in lockstep), and `facade_module` set to the top-level package (which
+exposes the composing `Client`, not a sub-facade). A cross-sub object-name collision
+is a hard build error, as is a federated non-CRUD op left with no cli.yml mapping
+(fail-loud, federated-only).
+
+**Enrollment allowlist (federated):** `cfg.subpackages` doubles as the enrollment
+allowlist — a *non-empty* map builds CLI ONLY for its listed subs (∩ `_SUBPACKAGES`,
+iterated in `_SUBPACKAGES` order); a sub not listed is skipped entirely, so a
+federated CLI can ship a thin slice (e.g. prisma-access P0 = `objects` + `incidents`)
+without mapping every other sub's non-CRUD ops. An *empty/absent* map enrolls ALL
+subs (a config-less federated build stays backward-compatible). A sub listed but
+absent from `_SUBPACKAGES` is a typo → hard error. Region/tenant connection headers
+are NOT in cli.yml: they live once in the product's sdk.yml `default_headers` and
+flow into the CLI build via `load_product`.
+They wire the three pipeline stages together:
 
 1. **Introspect** — The pure introspection and classification helpers
    (`introspect`, `classify_name`, `detect_id_param`, the `OperationInventory`
@@ -92,7 +115,17 @@ this package. They wire the three pipeline stages together:
    same way: its `error_fields()` populates `ir.error_envelope`, so the emitted
    `diagnostics._error_headline` is config-driven (peel `wrappers` → `error_field` →
    `errors_field` → product-AGNOSTIC `fallback_keys`) and carries NO product-specific
-   error keys; with no error component the default generic envelope applies. It
+   error keys; with no error component the default generic envelope applies. The
+   `default_headers` parameter (the product's `ProductConfig.default_headers`,
+   region/tenant `HeaderSpec`s) is enriched the same way into
+   `ir.connection_fields`: non-secret "environment fields" that ride the SAME
+   named-environment seams as credentials (prompted/stored per environment,
+   exported to their `env` var BEFORE the SDK client is built, overridable by a
+   per-field global `--<field>` flag). A `has_env` ctx flag (`credential_fields or
+   connection_fields`) gates the SHARED environment infrastructure so it is emitted
+   whenever EITHER is present; `connection_views` carries each header's derived flag
+   name (`field.name.split("-")[-1].lower()`, colliding pairs fall back to the full
+   kebab header). It
    `ruff`-formats only the files it wrote, then emits
    the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
@@ -231,6 +264,25 @@ These two halves feed **four surfaces**, all off the single registry:
   `test_config`) that `scaffold.render_scaffold` layers over the built-in SDK
   scaffold, mirroring `products/<name>/overrides/` for SDKs.
 
+## N-level Typer nesting
+
+`templates/_generated/app.py.jinja` emits the Typer factory. For a **single-spec** build the output is byte-identical to the pre-federation factory — the template's `{% else %}` branch is untouched. For a **federated** build the template gates on a `federated` context flag and produces a deeper command hierarchy: **verb → sub-package → object** (so `prisma-access show objects address` maps cleanly), with a fourth level for `request <sub> <object> <action>` and for oneOf-variant commands.
+
+Sub-package command names are rendered as **kebab-case** (`network_services` → `network-services`) while `Command.subpackage` stays the original snake slug — lookup by `cmd.subpackage` is always unambiguous. Intermediate Typer sub-apps (one per `(verb, *path[:depth])` tuple) are created on demand and keyed into a dict; the template registers each intermediate app exactly once regardless of how many objects share the same verb/sub prefix.
+
+## Runtime federation dispatch
+
+`templates/_generated/runtime.py.jinja` is the dispatch core. When `cmd.subpackage` is set (a federated command), every seam that needs to know the concrete sub-package resolves off that slug rather than the top-level package:
+
+- `_models` → `{pkg}.{sub}.models` (response coercion and type lookups)
+- `_accepted_params` → `{pkg}.{sub}.extras.facade._WRAPPERS` (dry-run and param filtering)
+- `_sdk_exc` → `{pkg}._runtime.exceptions` for federated SDKs (runtime lives at the top level); `{pkg}.exceptions` for single-spec SDKs
+- `_dry_run` delegates to the sub wrapper's `_serialize` method
+
+Dispatch itself is two-level: `getattr(getattr(client, cmd.subpackage), cmd.sdk_resource)` — first resolve the sub-package attribute on the composing `Client`, then the resource attribute on the sub-facade's client. Single-spec commands (`cmd.subpackage` unset) fall through to the unchanged `getattr(client, cmd.sdk_resource)` path.
+
+The command-aware connection-field pre-flight (`_preflight_connection`) is already documented under *Emitted features → Connection headers*.
+
 ## Layered config of emitted CLIs
 
 Each generated CLI resolves every user-facing setting through one layered flow:
@@ -271,16 +323,28 @@ keys / param names / objects fail the build loudly.
   (`output.py`). Spec: `docs/specs/2026-06-13-cli-yaml-rich-coloring-design.md`.
 - **Common options panel** — shared `--output`/`--pager`/`--quiet` etc. help
   panel. Spec: `docs/specs/2026-06-11-cli-common-options-panel-design.md`.
-- **Named environments** (auth CLIs only) — credentials stored in
-  `~/.{distribution}/environments.yml` (`environments:` + `default_environment:`,
-  `${VAR}` refs expanded at read time). Top-level `environment` command group
-  (`create`/`activate`/`show`/`delete`; `show` never prints values, `delete`
-  --force-gates the active env, first create auto-activates; `create`'s
+- **Named environments** (auth OR connection-header CLIs — anything with
+  `has_env`) — credentials stored in `~/.{distribution}/environments.yml`
+  (`environments:` + `default_environment:`, `${VAR}` refs expanded at read time).
+  Top-level `environment` command group (`create`/`activate`/`show`/`delete`;
+  `show` never prints secret values but DOES show non-secret connection values,
+  `delete` --force-gates the active env, first create auto-activates; `create`'s
   per-credential options are built from `ir.credential_fields`). Active env
   resolves `-e/--environment` flag > `{PREFIX}_ENVIRONMENT` env var >
   `default_environment`; per-field credential env vars still override the env.
   Helpers in the emitted `config.py` (`resolve_environment`, `default_environment`)
   + `runtime.py` (`select_environment`); commands in `environment_commands.py.jinja`.
+- **Connection headers** (region/tenant; `ir.connection_fields`) — non-secret
+  environment fields stored per environment under their derived flag-name key and
+  exported to their `env` var in `runtime._client` BEFORE the SDK client is built
+  (the SDK reads e.g. `PANW_REGION` from the environment — no header kwarg). Each
+  emits one global `--<field>` flag (Connection help-panel) layered
+  `--flag > {field.env} env var > active-environment value`. The `--flag` value is
+  threaded through `runtime.set_connection_overrides` (a per-command contextvar);
+  `config.resolve_connection` resolves the active-env value; the per-field env-var
+  baked list is `config._CONN_FIELDS`. Single-spec CLIs (no `default_headers`) emit
+  none of this. Command-aware pre-flight (`_preflight_connection` in `runtime.py`): each `ConnectionField` carries a `required_for` list of sub-package slugs; the pre-flight exits 2 for any command whose `cmd.subpackage` appears in that list (or whose field is globally `required: true`), naming the missing env var and why; commands in other sub-packages pass through unchecked (objects CRUD runs region-unset while a sub that declares the header required would block).
+- **`which <object>`** (federated CLIs only; `cli_commands.py.jinja`) — an emitted top-level command that looks up a named object in `ir.json` and prints its sub-package + supported verbs; `difflib.get_close_matches` produces `did-you-mean` suggestions for unknown names (exit 1 on miss). Wired into the generated `app.py` in the "CLI" panel when the IR is federated.
 - **Structured logging** — a rotating JSON-Lines log at
   `~/.{distribution}/logs/{distribution}.jsonl` (`0o600`, gzip-rotated);
   `warnings` (incl. the SDK lenient-enum pass-through) and CLI diagnostics go to
@@ -385,6 +449,8 @@ autodoc Python; the CLI's user surface is the command tree). See
   - class `ResolvedVariant`
   - `resolve_variants(op, vmap)` — Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
   - `build_cli_ir(inv, cfg, models)`
+  - `merge_federated_irs(package, sdk_version, subs)` — Merge per-sub CliIRs into ONE federated CliIR.
+  - `build_ir(package, sdk_path, cfg)` — Build the CliIR for a single- OR federated-spec SDK.
 - `cliconfig.py`
   - class `RequestMapping`
   - class `Override`
@@ -411,6 +477,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `dedupe_flags(c)` — Return (body, query) flags deduped against path params (path wins), then
 - `ir.py`
   - class `CredentialField` — Describes one credential field exposed by an auth component.
+  - class `ConnectionField` — Describes one request header sourced from an env var (e.g. region/tenant).
   - class `ErrorEnvelope` — Config-driven description of a product's error body, threaded onto the IR so
   - class `Flag`
   - class `MethodBinding`
@@ -425,7 +492,7 @@ autodoc Python; the CLI's user surface is the command tree). See
   - `build_model_registry(package, sdk_path, inv)`
 - `render_cli.py`
   - `cli_overrides_dir()`
-  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, docs, docs_site_name, docs_repo_url, docs_description)`
+  - `render_cli(ir, package, out_dir, env_prefix, distribution, auth, errors, default_headers, docs, docs_site_name, docs_repo_url, docs_description)`
 - `scaffold_context.py`
   - `build_cli_scaffold_context(loaded, ir, cli_cfg)` — CLI scaffold context = the SDK product context, overridden for the CLI.
 <!-- /GENERATED:api -->

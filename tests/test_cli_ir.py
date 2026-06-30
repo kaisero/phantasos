@@ -1,4 +1,36 @@
+import json
+
 from phantasos.generator.cli.ir import CliIR, Command, Flag, MethodBinding
+
+
+def test_command_subpackage_defaults_to_none() -> None:
+    """Command.subpackage defaults to None; serializes and round-trips correctly."""
+    cmd = Command(
+        verb="show",
+        object="widget",
+        key="show:widget",
+        sdk_resource="widgets",
+    )
+    assert cmd.subpackage is None
+    dumped = json.loads(cmd.model_dump_json())
+    assert "subpackage" in dumped
+    assert dumped["subpackage"] is None
+    back = Command.model_validate(dumped)
+    assert back.subpackage is None
+
+
+def test_command_subpackage_roundtrips_non_none() -> None:
+    """Command.subpackage preserves a non-None slug through serialization."""
+    cmd = Command(
+        verb="show",
+        object="widget",
+        key="show:widget",
+        sdk_resource="widgets",
+        subpackage="objects",
+    )
+    assert cmd.subpackage == "objects"
+    back = Command.model_validate_json(cmd.model_dump_json())
+    assert back.subpackage == "objects"
 
 
 def test_flag_defaults() -> None:

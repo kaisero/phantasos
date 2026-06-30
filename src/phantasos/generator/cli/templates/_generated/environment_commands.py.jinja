@@ -1,7 +1,7 @@
-"""`environment` commands: manage named credential environments.
+"""`environment` commands: manage named environments (credentials + connection settings).
 
-The ``create`` command exposes one ``--<field>`` option per credential field,
-generated as STATIC typer options from the auth component's descriptor — so this
+The ``create`` command exposes one ``--<field>`` option per credential and
+connection field, generated as STATIC typer options from the descriptors — so this
 module depends only on ``typer`` (no direct ``click`` dependency).
 
 Environments live in the dedicated ``~/.{distribution}/environments.yml`` file
@@ -80,6 +80,14 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
         else:
             # Prompt interactively; hide input for secret fields (no echo).
             values[f.name] = typer.prompt(_kebab(f.name), hide_input=bool(f.secret))
+{%- for cv in connection_views %}
+    # Connection field '{{ cv.header }}' — non-secret (no hidden input), stored
+    # under its flag-name key.
+    _v = field_values.get({{ cv.py_name|tojson }})
+    values[{{ cv.flag|tojson }}] = (
+        _v if _v is not None else typer.prompt({{ cv.flag|tojson }})
+    )
+{%- endfor %}
 
     environments[name] = values
     data["environments"] = environments
@@ -94,7 +102,7 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
 
 
 environment_app = typer.Typer(
-    no_args_is_help=True, help="Manage named credential environments."
+    no_args_is_help=True, help="Manage named environments."
 )
 
 
@@ -106,6 +114,11 @@ def create(
         "--{{ f.name|replace('_', '-') }}",
         help="Value for '{{ f.name }}' (literal or ${VAR} reference).",
     ),
+{% endfor %}{% for cv in connection_views %}    {{ cv.py_name }}: str | None = typer.Option(
+        None,
+        "--{{ cv.flag }}",
+        help="Value for '{{ cv.header }}' ({{ cv.env }}; literal or ${VAR} reference).",
+    ),
 {% endfor %}    force: bool = typer.Option(
         False, "--force", help="Overwrite an existing environment."
     ),
@@ -115,6 +128,7 @@ def create(
         name,
         force,
 {% for f in ir.credential_fields %}        {{ f.name }}={{ f.name }},
+{% endfor %}{% for cv in connection_views %}        {{ cv.py_name }}={{ cv.py_name }},
 {% endfor %}    )
 
 
@@ -131,7 +145,11 @@ def activate(name: str) -> None:
 
 @environment_app.command("show")
 def show_environments() -> None:
+{%- if ir.connection_fields %}
+    """List the defined environments (with non-secret connection values; secrets are never shown)."""
+{%- else %}
     """List the defined environment names (never their field values)."""
+{%- endif %}
     environments = _config._raw_environments()
     if not environments:
         _diag.info("no environments defined")
@@ -139,7 +157,19 @@ def show_environments() -> None:
     active = _config.default_environment()
     for name in environments:
         marker = " (active)" if name == active else ""
-        typer.echo(f"{name}{marker}")
+        line = f"{name}{marker}"
+{%- if ir.connection_fields %}
+        block = environments.get(name)
+        if isinstance(block, dict):
+            shown = "  ".join(
+                f"{cf['key']}={block[cf['key']]}"
+                for cf in _config._CONN_FIELDS
+                if block.get(cf["key"]) is not None
+            )
+            if shown:
+                line = f"{line}  {shown}"
+{%- endif %}
+        typer.echo(line)
     if active not in environments:
         # no default set (or it points at a deleted env) — auth uses env vars
         _diag.info("no active environment — auth falls back to environment variables")

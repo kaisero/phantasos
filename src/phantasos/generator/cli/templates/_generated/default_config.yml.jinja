@@ -51,7 +51,7 @@ configuration:
     level: info
     # null -> ~/.{{ distribution }}/logs/{{ distribution }}.jsonl
     file: null
-{% if ir.credential_fields %}
+{% if has_env %}
 # Named environments live in ~/.{{ distribution }}/environments.yml (not here).
 # Manage them with: environment create / activate / show / delete.
 {% endif -%}

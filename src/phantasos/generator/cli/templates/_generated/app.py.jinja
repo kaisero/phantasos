@@ -11,7 +11,7 @@ from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
 from . import cli_commands as _cli_commands
 from . import config_commands as _config_commands
-{%- if ir.credential_fields %}
+{%- if has_env %}
 from . import environment_commands as _environment_commands
 {%- endif %}
 
@@ -33,12 +33,24 @@ def _version_callback(value: bool | None) -> None:
 
 _VERBS = ["create", "update", "delete", "show", "request"]
 
+{% if federated -%}
+# (key, verb, subpackage, typer_path, resource, func_name)
+_REGISTRY = [
+{%- for c in commands %}
+    ({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.subpackage|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
+{%- endfor %}
+]
+# F2: sub-package and object help texts for `show <sub> --help` / `show <sub> <obj> --help`.
+_SUB_HELP = {{ sub_help | tojson }}
+_OBJ_HELP = {{ obj_help | tojson }}
+{%- else -%}
 # (key, verb, typer_path, resource, func_name)
 _REGISTRY = [
 {%- for c in commands %}
     ({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
 {%- endfor %}
 ]
+{%- endif %}
 
 
 def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
@@ -61,7 +73,7 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
     app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
-{%- if ir.credential_fields %}
+{%- if has_env %}
     app.add_typer(
         _environment_commands.environment_app,
         name="environment",
@@ -74,6 +86,37 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
         {{ resource|tojson }}: _cmd_{{ resource }},
 {%- endfor %}
     }
+{%- if federated %}
+    # N-level nesting: a `typer_path` is `[object]` (CRUD),
+    # `[sub-package, object]` (federated CRUD) or `[sub-package, object, leaf]`
+    # (a oneOf variant / request action). Intermediate sub-apps are keyed by
+    # `(verb, *path[:depth])` so each level is created once and reused.
+    object_apps: dict[tuple[str, ...], typer.Typer] = {}
+    for key, verb, _subpackage, path, resource, func_name in _REGISTRY:
+        if key in exclude or verb not in verb_apps:
+            continue
+        fn = getattr(resources[resource], func_name)
+        if len(path) == 1:
+            verb_apps[verb].command(path[0])(fn)
+        else:
+            parent = verb_apps[verb]
+            for depth in range(1, len(path)):
+                prefix = (verb, *path[:depth])
+                sub = object_apps.get(prefix)
+                if sub is None:
+                    sub = typer.Typer(no_args_is_help=True)
+                    object_apps[prefix] = sub
+                    # depth 1 = sub-package level; depth 2+ = object level.
+                    _help = (
+                        _SUB_HELP.get(path[depth - 1]) if depth == 1
+                        else _OBJ_HELP.get(path[depth - 1])
+                    ) or None
+                    parent.add_typer(sub, name=path[depth - 1], help=_help)
+                parent = sub
+            parent.command(path[-1])(fn)
+    app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
+    return app
+{%- else %}
     object_apps: dict[tuple[str, str], typer.Typer] = {}
     for key, verb, path, resource, func_name in _REGISTRY:
         if key in exclude or verb not in verb_apps:
@@ -90,3 +133,4 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
                 verb_apps[verb].add_typer(sub, name=obj)
             sub.command(leaf)(fn)
     return app
+{%- endif %}

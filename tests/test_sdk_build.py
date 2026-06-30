@@ -140,7 +140,8 @@ def test_full_federation_twelve_subpackages(
     ``import prisma_access`` exposes ``Client`` + a 12-entry ``_SUBPACKAGES``
     registry, every ``prisma_access.<slug>`` imports cleanly, and constructing
     ``Client(cfg)`` with the stubbed-token config exposes all 12 ``.<slug>``
-    facade handles (one config + one pool fanned out, retry landed via the first).
+    facade handles (one config + one pool fanned out; whichever handle is accessed
+    first wires retry — idempotent, so order-independent).
     """
     loaded = load_product("prisma-access")
     # Build into an isolated tmp dir, NOT the shared sibling `prisma-access-sdk/`
@@ -271,22 +272,25 @@ def test_full_federation_twelve_subpackages(
         assert set(pa._SUBPACKAGES) == set(_ALL_SLUGS)
         assert len(pa._SUBPACKAGES) == 12
 
-        # P3.1: X-PANW-Region is `required_for` ztna_connector + incidents, so the
-        # composer's fail-loud fires at construction when PANW_REGION is unset —
-        # naming the header, the env var, and the first required sub-package hit
-        # (order-dependent: ztna_connector sorts before incidents in _SUBPACKAGES).
-        # prisma-tenant is optional, so its env being unset must NOT raise. (Earlier
-        # subs in the loop construct before the raise, so this also wires retry onto
-        # the shared config — hence the `is None` check precedes it.)
+        # P3.1: X-PANW-Region is `required_for` ztna_connector + incidents — but the
+        # composer's handles are LAZY (each built on first access), so constructing
+        # the Client with PANW_REGION UNSET must NOT raise: an objects-only command
+        # never touches a region-requiring sub. The fail-loud raise moves to first
+        # ACCESS of `.ztna_connector`/`.incidents`, naming the header + env var + that
+        # sub. `.objects` (no required header) stays usable with region unset.
         assert cfg.retries is None  # SdkConfiguration starts with no retry
         monkeypatch.delenv("PANW_REGION", raising=False)
         monkeypatch.delenv("PRISMA_TENANT", raising=False)
+        client_noregion = pa.Client(cfg)  # no raise at construction
+        assert client_noregion.objects is not None  # objects works without region
         with pytest.raises(RuntimeError) as exc:
-            pa.Client(cfg)
+            _ = client_noregion.ztna_connector  # touching a region-requiring sub raises
         msg = str(exc.value)
         assert "X-PANW-Region" in msg and "PANW_REGION" in msg
-        # names whichever required sub is hit first (don't pin order)
-        assert "ztna_connector" in msg or "incidents" in msg
+        assert "ztna_connector" in msg
+        with pytest.raises(RuntimeError) as exc2:
+            _ = client_noregion.incidents
+        assert "incidents" in str(exc2.value)
 
         # Construct the real composing Client with the stubbed-token config (no
         # network: the TokenManager above is pre-seeded). One config, one pool,
@@ -332,9 +336,10 @@ def test_full_federation_twelve_subpackages(
         # client.objects.<object> is a usable typed wrapper (clean verbs only).
         assert hasattr(client.objects.address, "create")
         assert not hasattr(client.objects.address, "create_address")
-        # Retry got wired onto the SHARED config by the first sub-facade's
-        # __init__ (the shared _auth.py rendered with has_retry=False, so the
-        # composer must not ship a retry-less client).
+        # Retry got wired onto the SHARED config by whichever sub-facade's __init__
+        # runs first (idempotent `if retries is None`, so order-independent). The
+        # shared _auth.py rendered with
+        # has_retry=False, so the composer must not ship a retry-less client.
         assert cfg.retries is not None
     finally:
         sys.path.remove(str(loaded.output_dir))

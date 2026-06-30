@@ -7,18 +7,20 @@ import keyword
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from ...productconfig import HeaderSpec
 from . import ir as _ir_module
 from .cliconfig import CliDocsConfig
 from .docs import build_cli_docs_context
 from .flags import dedupe_flags
 from .flags import leaf as _leaf
 from .flags import query_panel as _query_panel
-from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
+from .ir import CliIR, Command, ConnectionField, Flag, ModelSchema, synth_skeleton
 
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
@@ -202,7 +204,9 @@ def _flag_view(
         # what JSON to pass. Escape the leading bracket like the enum path above.
         skel = synth_skeleton(models, f.model_ref, full=False)
         compact = json.dumps(skel, separators=(",", ":"))
-        ann = rf"\[json: {f.model_ref}] e.g. {compact}"
+        # ponytail: rsplit no-op on bare refs → single-spec output unchanged
+        label = f.model_ref.rsplit(".", 1)[-1]
+        ann = rf"\[json: {label}] e.g. {compact}"
         help_text = f"{f.help}  {ann}" if f.help else ann
     return {
         "name": f.name,
@@ -233,6 +237,11 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
+    if c.subpackage:
+        # Federated: nest under the sub-package COMMAND name (kebab); the snake slug
+        # stays on the IR/dispatch (the `_REGISTRY` `subpackage` column drives C2's
+        # `client.<sub>.<object>.<verb>()`). Single-spec (subpackage None) is a no-op.
+        typer_path = [c.subpackage.replace("_", "-"), *typer_path]
     # Dedup flags via the shared helper so the docs command reference can't drift
     # from the emitted flag set (design D2): path wins over body, body over query.
     deduped_body, deduped_query = dedupe_flags(c)
@@ -241,6 +250,7 @@ def _command_view(
         "func_name": _func_name(c),
         "summary": c.summary,
         "typer_path": typer_path,
+        "subpackage": c.subpackage,
         "sdk_resource": c.sdk_resource,
         "verb": c.verb,
         "variant": c.variant,
@@ -253,6 +263,46 @@ def _command_view(
             *(_flag_view(f, _query_panel(f)) for f in deduped_query),
         ],
     }
+
+
+def _derive_connection_flags(names: list[str]) -> list[str]:
+    """CLI flag name per connection header (the single source of this derivation).
+
+    Flag name = the header's last hyphen segment, lowercased
+    (``X-PANW-Region`` -> ``region``). If two headers derive the same name, BOTH
+    fall back to the full kebab header (``x-panw-region``) so the flags stay
+    distinct. Used by ``_connection_views`` (the emitted flag) AND ``_enrich_ir``
+    (baked onto the IR so the runtime pre-flight hint can't diverge).
+    """
+    shorts = [n.split("-")[-1].lower() for n in names]
+    counts: dict[str, int] = {}
+    for s in shorts:
+        counts[s] = counts.get(s, 0) + 1
+    return [
+        short if counts[short] == 1 else name.lower().replace("_", "-")
+        for name, short in zip(names, shorts, strict=True)
+    ]
+
+
+def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
+    """Per connection field: its global-flag name + Python identifier + env var.
+
+    The flag name is also the storage key in ``environments.yml`` and the
+    ``environment create`` prompt label.
+    """
+    flags = _derive_connection_flags([f.name for f in fields])
+    views: list[dict[str, object]] = []
+    for f, flag in zip(fields, flags, strict=True):
+        views.append(
+            {
+                "header": f.name,
+                "env": f.env,
+                "flag": flag,
+                "py_name": _py_name(flag.replace("-", "_")),
+                "required": f.required,
+            }
+        )
+    return views
 
 
 def _module_enum_flags(
@@ -309,9 +359,15 @@ def _format_generated(paths: list[Path]) -> None:
     )
 
 
-def _enrich_ir(ir: CliIR, auth: object | None, errors: object | None) -> CliIR:
-    """Enrich the IR with credential descriptors from the auth component and the
-    error-envelope descriptor from the error component (if present).
+def _enrich_ir(
+    ir: CliIR,
+    auth: object | None,
+    errors: object | None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
+) -> CliIR:
+    """Enrich the IR with credential descriptors from the auth component, the
+    error-envelope descriptor from the error component, and connection-field
+    descriptors from default_headers (if present).
 
     Done BEFORE any template render or the ir.json write so templates and the
     serialized IR see the same enriched copy. ``model_copy`` returns a new
@@ -323,6 +379,32 @@ def _enrich_ir(ir: CliIR, auth: object | None, errors: object | None) -> CliIR:
     # diagnostics carries NO product-specific error keys.
     if errors is not None and hasattr(errors, "error_fields"):
         ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
+    # Connection-header descriptors from ProductConfig.default_headers.
+    if default_headers:
+        flags = _derive_connection_flags(list(default_headers))
+        connection_fields = [
+            ConnectionField(
+                name=header_name,
+                env=spec.env,
+                required=spec.required,
+                required_for=list(spec.required_for),
+                flag=flag,
+            )
+            for (header_name, spec), flag in zip(
+                default_headers.items(), flags, strict=True
+            )
+        ]
+        # ponytail: guard the one real collision risk — a connection flag clashing
+        # with a credential field's flag (both become global --options). Reserved
+        # Typer options (--output/--environment/…) aren't enumerated here.
+        cred_flags = {cf.name.lower().replace("_", "-") for cf in ir.credential_fields}
+        clash = {str(c.flag) for c in connection_fields} & cred_flags
+        if clash:
+            raise ValueError(
+                f"connection flag(s) {', '.join(sorted(clash))} collide with "
+                "credential flags — rename the header or its env var"
+            )
+        ir = ir.model_copy(update={"connection_fields": connection_fields})
     return ir
 
 
@@ -369,9 +451,30 @@ def _render_commands(
     all_views = [
         _command_view(c, variant_groups, models=ir.models) for c in ir.commands
     ]
+    # Federated builds stamp every command with a sub-package slug; that gates the
+    # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
+    # (subpackage None) keeps the byte-identical 2-level loop.
+    # `federated` is already in ctx (added in render_cli() before the _GENERATED loop).
+    # F2: derive sub_help / obj_help from IR for the federated help text dicts.
+    # ponytail: first non-empty summary/description per sub/object; no new data source.
+    # Only the federated app.py branch reads these, so skip the work for single-spec.
+    sub_help: dict[str, str] = {}
+    obj_help: dict[str, str] = {}
+    if ctx.get("federated"):
+        for c in ir.commands:
+            if c.subpackage:
+                sub_k = c.subpackage.replace("_", "-")
+                if sub_k not in sub_help:
+                    sub_help[sub_k] = c.summary or c.description or ""
+            if c.object not in obj_help:
+                obj_help[c.object] = c.summary or c.description or ""
     (gen / "app.py").write_text(
         env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, **ctx
+            resources=resources,
+            commands=all_views,
+            sub_help=sub_help,
+            obj_help=obj_help,
+            **ctx,
         ),
         encoding="utf-8",
     )
@@ -446,6 +549,7 @@ def render_cli(
     distribution: str | None = None,
     auth: object | None = None,
     errors: object | None = None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
     docs: CliDocsConfig | None = None,
     docs_site_name: str | None = None,
     docs_repo_url: str | None = None,
@@ -472,11 +576,17 @@ def render_cli(
         "env_prefix": resolved_prefix,
         "distribution": distribution or package,
     }
-    # Enrich the IR (credential + error-envelope descriptors) BEFORE any template
-    # render or the ir.json write, so templates and the serialized IR see the same
-    # enriched copy.
-    ir = _enrich_ir(ir, auth, errors)
+    # Enrich the IR (credential + error-envelope + connection-field descriptors)
+    # BEFORE any template render or the ir.json write, so templates and the
+    # serialized IR see the same enriched copy.
+    ir = _enrich_ir(ir, auth, errors, default_headers)
     ctx["ir"] = ir
+    # Connection fields ride the SAME named-environment seams as credentials, so
+    # that infrastructure is emitted whenever EITHER is present. `has_env` gates
+    # the shared parts; `connection_views` carries the per-field flag derivation.
+    ctx["connection_views"] = _connection_views(list(ir.connection_fields))
+    ctx["has_env"] = bool(ir.credential_fields or ir.connection_fields)
+    ctx["federated"] = any(c.subpackage for c in ir.commands)
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
@@ -492,9 +602,10 @@ def render_cli(
     written.append(str((gen / "spec.py").relative_to(out_dir)))
     # `config environment` commands — rendered with STATIC per-field typer options
     # generated from ir.credential_fields (no `click` dependency; typer only).
-    # Emitted ONLY for auth CLIs; a no-auth CLI never references it (app.py's
+    # Emitted ONLY for CLIs with named-environment fields (credentials OR
+    # connection headers); a CLI with neither never references it (app.py's
     # registration is gated on the same condition).
-    if ir.credential_fields:
+    if ctx["has_env"]:
         render(
             "_generated/environment_commands.py.jinja",
             gen / "environment_commands.py",

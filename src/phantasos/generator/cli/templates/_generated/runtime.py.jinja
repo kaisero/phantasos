@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-{% if ir.credential_fields -%}
+{% if has_env -%}
 import contextvars
 {% endif -%}
 import functools
 import importlib
 import inspect
 import json
-{%- if ir.credential_fields %}
+{%- if has_env %}
 import os
 {%- endif %}
 import shlex
@@ -43,7 +43,7 @@ def _facade_from_env(**kw: Any) -> Any:
     """Tiny seam over the facade's ``Client.from_env`` so tests can monkeypatch
     the credential threading without standing up a real client."""
     return importlib.import_module(_ir().facade_module).Client.from_env(**kw)
-{% if ir.credential_fields %}
+{% if has_env %}
 
 # Per-invocation environment selection. A contextvar (not a module global) so the
 # selection is scoped to the running command and never leaks across CliRunner
@@ -71,6 +71,74 @@ def _selected_environment() -> str | None:
         or os.environ.get("{{ env_prefix }}_ENVIRONMENT")
         or _config.default_environment()
     )
+{% endif -%}
+{% if ir.connection_fields %}
+
+# Per-invocation connection-header overrides (the global --<field> flags),
+# keyed by env var. A contextvar so each command's overrides are scoped to it
+# and never leak across CliRunner invocations sharing the imported module.
+_CONN_OVERRIDES: contextvars.ContextVar[dict[str, str | None]] = (
+    contextvars.ContextVar("conn_overrides", default={})
+)
+
+
+def set_connection_overrides(overrides: dict[str, str | None]) -> None:
+    """Record this command's connection-field overrides (None = flag not given)."""
+    _CONN_OVERRIDES.set(overrides)
+
+
+def _connection_overrides() -> dict[str, str | None]:
+    return _CONN_OVERRIDES.get()
+
+
+def _preflight_connection(cmd: Command) -> None:
+    """Exit 2 if a connection field required for this command's sub-package is missing.
+
+    A field is required for this invocation when field.required is True OR
+    cmd.subpackage is in field.required_for. Resolution mirrors _client():
+    --flag override > exported env var > active-environment value.
+    """
+    from . import config as _config
+
+    name = _selected_environment()
+    conn_overrides = _connection_overrides()
+    conn_resolved = _config.resolve_connection(name)
+    for f in _ir().connection_fields:
+        needed = f.required or (
+            cmd.subpackage is not None and cmd.subpackage in f.required_for
+        )
+        if not needed:
+            continue
+        # ponytail: or-chain treats an empty string as absent (an empty region
+        # header is meaningless and the SDK would reject it); _client() uses
+        # is-not-None — the divergence only matters for an explicit `--flag ""`.
+        val = (
+            conn_overrides.get(f.env)
+            or os.environ.get(f.env)
+            or conn_resolved.get(f.env)
+        )
+        if not val:
+            # f.flag is the collision-aware flag baked onto the IR at build time,
+            # so the hint always matches the emitted --flag (fallback for safety).
+            flag = f.flag or f.name.split("-")[-1].lower()
+            sub = cmd.subpackage
+            if sub and sub in f.required_for:
+                why = f"the '{sub}' sub-package requires {f.env}"
+            else:
+                why = f"{f.env} is required"
+            headline = (
+                f"environment '{name}' is missing {f.env}: {why}"
+                if name
+                else f"missing {f.env}: {why}"
+            )
+            _diag.fail(
+                headline,
+                code=2,
+                hint=(
+                    f"set {f.env} (env var or .env), pass --{flag}, "
+                    f"or run 'environment create <name> --{flag} <value>'"
+                ),
+            )
 {% endif %}
 
 
@@ -80,7 +148,7 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
         load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
     except ModuleNotFoundError:
         pass
-{%- if ir.credential_fields %}
+{%- if has_env %}
     from . import config as _config
 
     # Resolve the active named environment (if any), then let presence-based env
@@ -95,6 +163,8 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
             f"unknown environment '{name}' (run 'environment show')",
             code=2,
         )
+{%- endif %}
+{%- if ir.credential_fields %}
     env = _config.resolve_environment(name) if name else {}
     overrides: dict[str, Any] = {}
     missing: list[str] = []
@@ -124,6 +194,20 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
                 f"or set {joined} (e.g. in a .env file)"
             ),
         )
+{%- endif %}
+{%- if ir.connection_fields %}
+    # Connection headers: export each to its env var BEFORE building the client
+    # (the SDK reads them from the environment; there is no kwarg path).
+    # Precedence: --<field> flag > exported env var > active-environment value.
+    conn_overrides = _connection_overrides()
+    for env_var, active_val in _config.resolve_connection(name).items():
+        flag_val = conn_overrides.get(env_var)
+        if flag_val is not None:
+            os.environ[env_var] = flag_val
+        elif env_var not in os.environ and active_val is not None:
+            os.environ[env_var] = active_val
+{%- endif %}
+{%- if ir.credential_fields %}
     try:
         return _facade_from_env(**overrides)
     except RuntimeError as exc:
@@ -137,29 +221,45 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
 {%- endif %}
 
 
-def _models() -> Any:
-    return importlib.import_module(f"{_ir().sdk_package}.models")
+def _models(cmd: Command) -> Any:
+    # Federated: each sub-package ships its own `models` module
+    # (`{pkg}.{sub}.models`) — there is NO top-level `{pkg}.models`. Single-spec
+    # keeps the bare path. `_build_body` then `getattr`s the BARE body_model name.
+    pkg = _ir().sdk_package
+    if cmd.subpackage:
+        return importlib.import_module(f"{pkg}.{cmd.subpackage}.models")
+    return importlib.import_module(f"{pkg}.models")
 
 
-def _sdk_exc() -> type[BaseException]:
+def _sdk_exc(cmd: Command) -> type[BaseException]:
+    # Federated: the SDK base exception lives under `_runtime` (the top-level package
+    # has no `exceptions` module); single-spec keeps the bare `{pkg}.exceptions`.
+    pkg = _ir().sdk_package
+    mod_name = f"{pkg}._runtime.exceptions" if cmd.subpackage else f"{pkg}.exceptions"
     try:
-        mod = importlib.import_module(f"{_ir().sdk_package}.exceptions")
+        mod = importlib.import_module(mod_name)
     except ModuleNotFoundError:
         return Exception
     base = getattr(mod, "OpenApiException", None)
     return base if isinstance(base, type) else Exception
 
 
-def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
+def _accepted_params(cmd: Command, sdk_method: str) -> set[str] | None:
     """Param names the bound wrapper method accepts, or None if undeterminable /
     **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
     facade's typed wrapper class, never an instantiated client. The wrapper verb
     accepts the clean param surface (e.g. ``sort``/``order``/``all_pages`` for a
     list), so cli.yml-injected defaults are filtered against it, not the raw
-    ``*Api`` signature."""
+    ``*Api`` signature. Federated: the wrappers live on the SUB's facade
+    (`{pkg}.{sub}.extras.facade`), not the top-level composing package."""
     try:
-        facade = importlib.import_module(_ir().facade_module)
-        wrapper_cls = facade._WRAPPERS[resource][0]
+        if cmd.subpackage:
+            facade = importlib.import_module(
+                f"{_ir().sdk_package}.{cmd.subpackage}.extras.facade"
+            )
+        else:
+            facade = importlib.import_module(_ir().facade_module)
+        wrapper_cls = facade._WRAPPERS[cmd.sdk_resource][0]
         fn = getattr(wrapper_cls, sdk_method)
         sig = inspect.signature(fn)
     except Exception:
@@ -358,11 +458,22 @@ def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> No
     dry-run sees the exact request the live call would build. Falls back to a
     call reference if the wrapper lacks the serialize seam (test fakes)."""
     try:
-        pkg = _ir().sdk_package
-        api_client_mod = importlib.import_module(f"{pkg}.api_client")
-        config_mod = importlib.import_module(f"{pkg}.configuration")
-        facade = importlib.import_module(_ir().facade_module)
-        client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
+        if cmd.subpackage:
+            # Federated: build just this SUB's facade (credential-free) and navigate
+            # to its object wrapper. The top-level package has no `api_client`/
+            # `configuration` module and its composing `Client` wants credentials —
+            # the per-sub facade serializes without either.
+            sub = f"{_ir().sdk_package}.{cmd.subpackage}"
+            sub_mod = importlib.import_module(sub)
+            facade = importlib.import_module(f"{sub}.extras.facade")
+            api_client = sub_mod.ApiClient(sub_mod.Configuration())
+        else:
+            pkg = _ir().sdk_package
+            api_client_mod = importlib.import_module(f"{pkg}.api_client")
+            config_mod = importlib.import_module(f"{pkg}.configuration")
+            facade = importlib.import_module(_ir().facade_module)
+            api_client = api_client_mod.ApiClient(config_mod.Configuration())
+        client = facade.Client(api_client)
         api = getattr(client, cmd.sdk_resource)
         serialize = getattr(api, "_serialize", None)
         if serialize is None:
@@ -469,7 +580,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 kwargs[k] = _coerce(path_flags[k], v)
         if cmd.variant and cmd.variant_param:
             kwargs[cmd.variant_param] = cmd.variant
-        accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+        accepted = _accepted_params(cmd, binding.sdk_method)
         for k, v in query.items():
             if v is None:
                 continue
@@ -488,7 +599,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     http_capture: dict[str, str] = {}
     try:
         if binding.body_model:
-            models_mod = _models()
+            models_mod = _models(cmd)
             extra: dict[str, Any] = {}
             if cmd.variant and cmd.variant_param:
                 model_cls = getattr(models_mod, binding.body_model, None)
@@ -503,20 +614,25 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         if dry_run:
             _dry_run(cmd, binding, kwargs)
             return
+{%- if ir.connection_fields %}
+        _preflight_connection(cmd)
+{%- endif %}
         client = _client(verbose=verbose)
-        # Dispatch through the typed object wrapper: `client.<object>` is the
-        # resource wrapper, `binding.sdk_method` is its clean verb (e.g. `get`,
-        # `list`, `create`). The wrapper translates `body`/enum params to the raw
-        # `*Api` surface internally.
-        api = getattr(client, cmd.sdk_resource)
+        # Dispatch through the typed object wrapper. Federated: the composing client
+        # exposes one handle per sub-package, so navigate `client.<sub>.<object>`;
+        # single-spec (subpackage None) stays one level: `client.<object>`. Either
+        # way `binding.sdk_method` is the wrapper's clean verb (e.g. `get`, `list`,
+        # `create`), which translates `body`/enum params to the raw `*Api` surface.
+        sub_client = getattr(client, cmd.subpackage) if cmd.subpackage else client
+        api = getattr(sub_client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
         # Observe the actual outgoing request: every generated SDK method routes
         # through api_client.call_api(method, url, ...) with the query string
-        # already appended to url. Wrap it at the FACADE level (the wrappers share
-        # one api_client) for the duration of the call (first invocation wins
+        # already appended to url. Wrap it at the (sub-)facade level (the wrappers
+        # share one api_client) for the duration of the call (first invocation wins
         # under --all; restored in finally). Non-OAG clients (test fakes) lack the
         # shape -> fields simply absent.
-        api_client = getattr(client, "api_client", None)
+        api_client = getattr(sub_client, "api_client", None)
         original_call = getattr(api_client, "call_api", None)
         if callable(original_call):
             def _capturing_call(*args: Any, **kw: Any) -> Any:
@@ -557,7 +673,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             )
     except InputError as exc:
         _fail_input(exc)
-    except (_sdk_exc(), ValidationError) as exc:
+    except (_sdk_exc(cmd), ValidationError) as exc:
         _history.record(_history_entry(cmd, binding, "error", exc=exc,
                                        http=http_capture))
         if verbose:

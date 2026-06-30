@@ -1,0 +1,44 @@
+# CLI config for prisma-access-cli — the FEDERATED (multi-spec) product.
+# Consumed by `phantasos cli build prisma-access`. The classifier always runs over
+# the built SDK (every sub-package's typed wrappers); this file only supplies what
+# it can't infer + the enrollment allowlist.
+
+# --- project metadata for the generated CLI project (scaffold context) ---
+project:
+  distribution: prisma-access-cli
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-access-cli
+  description: Command-line interface for Palo Alto Networks Prisma Access
+
+# --- ENROLLMENT ALLOWLIST (federated) ---------------------------------------
+# `subpackages:` keys are the enrollment allowlist: the federated build generates
+# CLI ONLY for the subs listed here (∩ the SDK's `_SUBPACKAGES`). A federated sub
+# NOT listed is skipped entirely. P0 is a THIN SLICE — `objects` + `incidents`
+# only — so the other 10 subs' non-CRUD ops need no mapping yet (P1 adds them).
+# (An empty/absent map would enroll ALL subs — config-less backward-compat.)
+#
+# Each value is that sub's own cli.yml delta (request/hide/columns/variants/
+# defaults). A non-CRUD op (clean verb ∉ create/get/list/update/delete) with no
+# `request:`/`hide:` entry fails the federated build loud (B3) — so every sub
+# below maps each of its non-CRUD ops.
+subpackages:
+  # objects: 19 clean-CRUD object resources (address, tag, service, …), 92 raw ops,
+  # ZERO non-CRUD ops — no deltas needed. (objects does NOT require X-PANW-Region.)
+  objects: {}
+
+  incidents:
+    # incidents has exactly one non-CRUD op: a POST search with no CRUD anchor on
+    # its api class. The SDK wrapper exposes it as `client.incidents.incident
+    # .search(body=...)`; surface it as `request incident search`. (The sibling
+    # get maps to the `incident-detail` object's `show`.)
+    request:
+      incidents_apis.search_incidents: {object: incident, action: search}
+
+# --- connection headers (region / tenant) -----------------------------------
+# NOT declared here: the region/tenant client headers (X-PANW-Region / prisma-tenant)
+# are declared ONCE in sdk.yml `default_headers` and flow into the CLI automatically
+# (D1's `default_headers` -> `connection_fields`). The CLI build reads them off the
+# product config (`load_product` -> ProductConfig.default_headers), so a per-command
+# pre-flight requires X-PANW-Region for `incidents` commands (its `required_for`) and
+# never for `objects`. Re-declaring them here would duplicate the SSoT.

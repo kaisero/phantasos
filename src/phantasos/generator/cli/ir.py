@@ -49,6 +49,25 @@ class CredentialField(BaseModel):
         return v
 
 
+class ConnectionField(BaseModel):
+    """Describes one request header sourced from an env var (e.g. region/tenant).
+
+    Parallel to CredentialField but for connection-scoped headers declared in
+    ``ProductConfig.default_headers``.  Defined here (ir.py) so it ships
+    verbatim in the emitted spec.py alongside CliIR.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str  # header name, e.g. "X-PANW-Region"
+    env: str  # env var, e.g. "PANW_REGION"
+    required: bool = False
+    required_for: list[str] = Field(default_factory=list)
+    # CLI flag name (collision-aware; baked in _enrich_ir so the runtime pre-flight
+    # hint and the emitted --flag never diverge). Empty until enriched.
+    flag: str = ""
+
+
 class ErrorEnvelope(BaseModel):
     """Config-driven description of a product's error body, threaded onto the IR so
     the emitted CLI's error headline carries NO product-specific keys.
@@ -150,6 +169,9 @@ class Command(BaseModel):
     action: str | None = None  # request-namespace action segment (e.g. "suspend");
     # distinct from `variant` (oneOf discriminator).
     key: str  # canonical "verb:object[:variant_or_action]"
+    # snake slug of the sub-package this command belongs to (federated builds only).
+    # None in single-spec builds.
+    subpackage: str | None = None
     sdk_resource: str  # facade attribute, e.g. "applications"
     # candidate SDK methods; runtime dispatch picks one by args
     bindings: list[MethodBinding] = []
@@ -224,6 +246,9 @@ class CliIR(BaseModel):
     # Credential descriptors contributed by the resolved auth component.
     # Empty list when no auth component is configured (backward-compatible default).
     credential_fields: list[CredentialField] = []
+    # Connection-header descriptors contributed by ProductConfig.default_headers.
+    # Empty list when no default_headers are configured (backward-compatible default).
+    connection_fields: list[ConnectionField] = []
     # Error-envelope descriptor contributed by the resolved error component.
     # Default is the no-component case (generic fallback only); see ErrorEnvelope.
     error_envelope: ErrorEnvelope = Field(default_factory=ErrorEnvelope)
