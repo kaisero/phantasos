@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
+{% if federated -%}
+import importlib
+{% endif -%}
 import importlib.metadata as _metadata
+{%- if federated %}
+from difflib import get_close_matches
+from typing import NamedTuple
+{%- endif %}
 
 import typer
+{%- if federated %}
+# Typer 0.26.7 fully vendors click as ``typer._click`` (no standalone-click dep);
+# ``ctx.fail`` raises ``typer._click.exceptions.UsageError``, so the lazy group must
+# catch THAT class — a top-level ``import click`` would catch the wrong one (and may
+# be absent in a real install).
+from typer.core import TyperGroup, _click
+from typer.main import get_command_from_info
+from typer.models import CommandInfo
+{%- endif %}
 
+{%- if not federated %}
 {%- for resource in resources %}
 from .commands import {{ resource }} as _cmd_{{ resource }}
 {%- endfor %}
+{%- endif %}
 from . import cli_commands as _cli_commands
 from . import config_commands as _config_commands
 {%- if has_env %}
@@ -34,15 +52,138 @@ def _version_callback(value: bool | None) -> None:
 _VERBS = ["create", "update", "delete", "show", "request"]
 
 {% if federated -%}
+class _Cmd(NamedTuple):
+    key: str
+    verb: str
+    subpackage: str | None
+    typer_path: list[str]
+    resource: str
+    func_name: str
+
+
 # (key, verb, subpackage, typer_path, resource, func_name)
 _REGISTRY = [
 {%- for c in commands %}
-    ({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.subpackage|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
+    _Cmd({{ c.key|tojson }}, {{ c.verb|tojson }}, {{ c.subpackage|tojson }}, {{ c.typer_path|tojson }}, {{ c.sdk_resource|tojson }}, {{ c.func_name|tojson }}),
 {%- endfor %}
 ]
 # F2: sub-package and object help texts for `show <sub> --help` / `show <sub> <obj> --help`.
 _SUB_HELP = {{ sub_help | tojson }}
 _OBJ_HELP = {{ obj_help | tojson }}
+# Keys excluded at build time (build_generated_app(exclude=...)). The lazy group
+# reads this so an excluded leaf neither lists nor resolves.
+# ponytail: module-global — one app per process (main.py builds once). Thread via
+# ctx if two apps with different `exclude` ever need to coexist.
+_EXCLUDE: set[str] = set()
+
+
+def _build_tree(rows: list[_Cmd]) -> dict:
+    """`verb -> path-seg... -> _Cmd` (leaf). String data only; built once at import."""
+    tree: dict = {}
+    for c in rows:
+        node = tree.setdefault(c.verb, {})
+        for seg in c.typer_path[:-1]:
+            node = node.setdefault(seg, {})
+        node[c.typer_path[-1]] = c
+    return tree
+
+
+_TREE = _build_tree(_REGISTRY)
+
+
+def _node_at(segs: list[str]) -> dict | None:
+    cur: object = _TREE
+    for seg in segs:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(seg)
+    return cur if isinstance(cur, dict) else None
+
+
+class _LazyGroup(TyperGroup):
+    """A Typer group that resolves its object / sub-package / leaf children lazily
+    from the module-global ``_TREE``, importing the one ``commands/<resource>.py``
+    module only when a leaf is actually resolved (help, completion or dispatch).
+    Eager children Typer already registered (``config``/``environment``/``which``/
+    ``show cli``/any ``add_typer``'d custom) live in ``self.commands`` and win.
+    """
+
+    def _segs(self, ctx: _click.Context) -> list[str]:
+        """This group's path below the root, ``[verb, *path]``, walked from ctx."""
+        segs: list[str] = []
+        node: _click.Context | None = ctx
+        while node is not None and node.parent is not None:
+            if node.info_name:
+                segs.append(node.info_name)
+            node = node.parent
+        segs.reverse()
+        return segs
+
+    def list_commands(self, ctx: _click.Context) -> list[str]:
+        names = list(self.commands)  # eager children, registration order
+        node = _node_at(self._segs(ctx))
+        if node:
+            for name, entry in node.items():
+                if name in self.commands:
+                    continue
+                if isinstance(entry, _Cmd) and entry.key in _EXCLUDE:
+                    continue
+                names.append(name)
+        return names  # deduped union, NOT sorted
+
+    def get_command(self, ctx: _click.Context, name: str) -> _click.Command | None:
+        eager = self.commands.get(name)
+        if eager is not None:
+            return eager
+        cache = self.__dict__.setdefault("_lazy", {})
+        if name in cache:
+            return cache[name]
+        segs = self._segs(ctx)
+        node = _node_at(segs)
+        entry = node.get(name) if node else None
+        if entry is None or (isinstance(entry, _Cmd) and entry.key in _EXCLUDE):
+            return None
+        if isinstance(entry, _Cmd):
+            cmd: _click.Command = self._leaf(entry, name)
+        else:
+            # Intermediate: a child group. depth 1 = sub-package, deeper = object.
+            help_text = (_SUB_HELP if len(segs) == 1 else _OBJ_HELP).get(name) or None
+            cmd = type(self)(
+                name=name,
+                help=help_text,
+                no_args_is_help=True,
+                rich_markup_mode=self.rich_markup_mode,
+            )
+        cache[name] = cmd
+        return cmd
+
+    def _leaf(self, entry: _Cmd, name: str) -> _click.Command:
+        mod = importlib.import_module(f"{__package__}.commands.{entry.resource}")
+        # Build the leaf via the exact call the eager build uses — NOT a throwaway
+        # typer.Typer() (that appends --install/--show-completion to the leaf).
+        info = CommandInfo(
+            name=name, callback=getattr(mod, entry.func_name), rich_help_panel=None
+        )
+        return get_command_from_info(
+            info,
+            pretty_exceptions_short=True,
+            rich_markup_mode=self.rich_markup_mode,
+        )
+
+    def resolve_command(
+        self, ctx: _click.Context, args: list[str]
+    ) -> tuple[str | None, _click.Command | None, list[str]]:
+        # Typer's built-in did-you-mean matches self.commands.keys() (empty in a
+        # lazy group); source candidates from list_commands so it still fires.
+        try:
+            return self._click_resolve_command(ctx, args)
+        except _click.exceptions.UsageError as exc:
+            if self.suggest_commands and args:
+                matches = get_close_matches(args[0], self.list_commands(ctx))
+                if matches:
+                    sugg = ", ".join(f"{m!r}" for m in matches)
+                    exc.message = f"{exc.message.rstrip('.')}. Did you mean {sugg}?"
+            raise
 {%- else -%}
 # (key, verb, typer_path, resource, func_name)
 _REGISTRY = [
@@ -57,8 +198,14 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     from . import logging_setup as _logging_setup
 
     _logging_setup.init_logging()
+{%- if federated %}
+    _EXCLUDE.clear()
+    _EXCLUDE.update(exclude or ())
+    app = typer.Typer(cls=_LazyGroup, no_args_is_help=True)
+{%- else %}
     exclude = exclude or set()
     app = typer.Typer(no_args_is_help=True)
+{%- endif %}
 
     @app.callback()
     def _root(
@@ -69,7 +216,11 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     ) -> None:
         """{{ distribution }} — generated CLI."""
 
+{%- if federated %}
+    verb_apps = {v: typer.Typer(cls=_LazyGroup, no_args_is_help=True) for v in _VERBS}
+{%- else %}
     verb_apps = {v: typer.Typer(no_args_is_help=True) for v in _VERBS}
+{%- endif %}
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
     app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
@@ -81,42 +232,17 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     )
 {%- endif %}
     verb_apps["show"].add_typer(_cli_commands.cli_show_app, name="cli")
+{%- if federated %}
+    # Lazy: verbs/sub-packages/objects/leaves are served from `_TREE` by the
+    # `_LazyGroup` (no eager `from .commands import …`, no eager N-level loop).
+    app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
+    return app
+{%- else %}
     resources = {
 {%- for resource in resources %}
         {{ resource|tojson }}: _cmd_{{ resource }},
 {%- endfor %}
     }
-{%- if federated %}
-    # N-level nesting: a `typer_path` is `[object]` (CRUD),
-    # `[sub-package, object]` (federated CRUD) or `[sub-package, object, leaf]`
-    # (a oneOf variant / request action). Intermediate sub-apps are keyed by
-    # `(verb, *path[:depth])` so each level is created once and reused.
-    object_apps: dict[tuple[str, ...], typer.Typer] = {}
-    for key, verb, _subpackage, path, resource, func_name in _REGISTRY:
-        if key in exclude or verb not in verb_apps:
-            continue
-        fn = getattr(resources[resource], func_name)
-        if len(path) == 1:
-            verb_apps[verb].command(path[0])(fn)
-        else:
-            parent = verb_apps[verb]
-            for depth in range(1, len(path)):
-                prefix = (verb, *path[:depth])
-                sub = object_apps.get(prefix)
-                if sub is None:
-                    sub = typer.Typer(no_args_is_help=True)
-                    object_apps[prefix] = sub
-                    # depth 1 = sub-package level; depth 2+ = object level.
-                    _help = (
-                        _SUB_HELP.get(path[depth - 1]) if depth == 1
-                        else _OBJ_HELP.get(path[depth - 1])
-                    ) or None
-                    parent.add_typer(sub, name=path[depth - 1], help=_help)
-                parent = sub
-            parent.command(path[-1])(fn)
-    app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
-    return app
-{%- else %}
     object_apps: dict[tuple[str, str], typer.Typer] = {}
     for key, verb, path, resource, func_name in _REGISTRY:
         if key in exclude or verb not in verb_apps:

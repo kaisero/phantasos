@@ -99,8 +99,12 @@ def test_federated_app_registers_subpackage_level(tmp_path: Path) -> None:
     assert '["alpha", "widget"]' in app  # CRUD: [subpackage, object]
     # len-3: a request action nests [subpackage, object, leaf]
     assert '["beta", "gadget", "compute"]' in app
-    # the generalized N-level loop replaced the 2-element unpack
-    assert "range(1, len(path))" in app
+    # Lazy loading: the eager N-level registration loop + per-resource imports are
+    # gone; a `_LazyGroup` serves verbs/subs/objects/leaves from a module-global tree.
+    assert "class _LazyGroup" in app
+    assert "_build_tree" in app
+    assert "_cmd_" not in app  # no eager per-resource `import … as _cmd_<resource>`
+    assert "range(1, len(path))" not in app  # the eager N-level loop is gone
     assert "obj, leaf = path" not in app
 
 
