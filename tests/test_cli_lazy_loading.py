@@ -32,6 +32,7 @@ from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping
 from phantasos.generator.cli.modelschema import build_model_registry
 from phantasos.generator.cli.render_cli import render_cli
 from phantasos.generator.opmodel._pathutil import on_sys_path
+from phantasos.productconfig import HeaderSpec
 
 FEDSDK = Path(__file__).parent / "fixtures" / "fedsdk"
 FAKESDK = Path(__file__).parent / "fixtures" / "fakesdk"
@@ -60,6 +61,25 @@ def _render_fedsdk(out: Path) -> Path:
         out_dir=out,
         env_prefix="FEDSDK",
         distribution="fedsdk",
+    )
+    return out
+
+
+# A `Region`/`FEDSDK_REGION` connection header whose `required_for=["beta"]` makes
+# the command-aware pre-flight demand a region for `beta` commands only (the vehicle
+# for the exit-code matrix's "region unset -> exit 2" row).
+_REGION_HEADERS = {"Region": HeaderSpec(env="FEDSDK_REGION", required_for=["beta"])}
+
+
+def _render_fedsdk_region(out: Path) -> Path:
+    ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
+    render_cli(
+        ir,
+        package="fedsdk_cli",
+        out_dir=out,
+        env_prefix="FEDSDK",
+        distribution="fedsdk",
+        default_headers=_REGION_HEADERS,
     )
     return out
 
@@ -113,6 +133,51 @@ def _probe(out: Path, *args: str, pkg: str = "fedsdk_cli") -> dict[str, Any]:
 
 def _strip(s: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+# Drive Typer/Click shell completion the way a real shell does — the
+# ``_<PROG>_COMPLETE=complete_bash`` env protocol + ``COMP_WORDS``/``COMP_CWORD`` —
+# in a fresh interpreter, then report the emitted completions AND which leaf command
+# modules the completion pass imported. Completion output is captured to a buffer so
+# only the JSON result reaches stdout.
+_COMPLETE_PROBE = r"""
+import contextlib, importlib, io, json, os, sys
+os.environ.pop("FORCE_COLOR", None)
+sys.path.insert(0, sys.argv[1])
+pkg = sys.argv[2]
+os.environ["COMP_WORDS"] = sys.argv[3]
+os.environ["COMP_CWORD"] = sys.argv[4]
+os.environ["_PROG_COMPLETE"] = "complete_bash"
+import typer
+app_mod = importlib.import_module(pkg + "._generated.app")
+cmd = typer.main.get_command(app_mod.build_generated_app())
+buf = io.StringIO()
+try:
+    with contextlib.redirect_stdout(buf):
+        cmd.main(args=[], prog_name="prog", complete_var="_PROG_COMPLETE")
+except SystemExit:
+    pass
+pfx = pkg + "._generated.commands."
+leaf = sorted(m for m in sys.modules if m.startswith(pfx))
+comps = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+print("PROBE_JSON:" + json.dumps({"completions": comps, "leaf": leaf}))
+"""
+
+
+def _complete(
+    out: Path, comp_words: str, comp_cword: str, *, pkg: str = "fedsdk_cli"
+) -> dict[str, Any]:
+    proc = subprocess.run(  # noqa: S603 — trusted argv (sys.executable + fixed script)
+        [sys.executable, "-c", _COMPLETE_PROBE, str(out), pkg, comp_words, comp_cword],
+        capture_output=True,
+        text=True,
+    )
+    line = next(
+        (ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE_JSON:")), None
+    )
+    assert line is not None, f"probe produced no result:\n{proc.stdout}\n{proc.stderr}"
+    result: dict[str, Any] = json.loads(line[len("PROBE_JSON:") :])
+    return result
 
 
 # --- import counts (subprocess-isolated) ---
@@ -350,3 +415,184 @@ def test_ss_did_you_mean_and_no_args_help(
         assert "show" in _strip(r_root.output)
         r_show = runner.invoke(app, ["show"])
         assert "widget" in _strip(r_show.output)
+
+
+# --- T3: broader parity (through the emitted CLI) ---
+
+
+def test_add_typer_custom_command_lists_and_runs(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """The hand-owned main.py contract: `build_generated_app()` returns a Typer app
+    you can `.add_typer(...)`. The custom command lands in the lazy root's
+    `self.commands`, so `list_commands` unions it — `--help` lists it AND it runs."""
+    import typer
+    from typer.testing import CliRunner
+
+    out = _render_fedsdk(tmp_path)
+    with render_and_import(out, "fedsdk_cli"):
+        app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
+        custom = typer.Typer(no_args_is_help=True)
+
+        @custom.command()
+        def ping() -> None:
+            """A hand-owned custom command."""
+            typer.echo("pong")
+
+        app.add_typer(custom, name="custom")
+        runner = CliRunner()
+
+        r_help = runner.invoke(app, ["--help"])
+        assert r_help.exit_code == 0, r_help.output
+        assert "custom" in _strip(r_help.output)  # unioned into the lazy listing
+
+        r_run = runner.invoke(app, ["custom", "ping"])
+        assert r_run.exit_code == 0, r_run.output
+        assert "pong" in r_run.output
+
+
+def test_show_cli_internal_child_lists_and_runs(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """The internal eager child `show cli` (an add_typer'd sub-Typer) stays listed
+    under `show --help` and its `history` command runs — proving the union handles a
+    nested eager child, not just root-level ones."""
+    from typer.testing import CliRunner
+
+    out = _render_fedsdk(tmp_path)
+    with render_and_import(out, "fedsdk_cli"):
+        app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
+        runner = CliRunner()
+
+        r_help = runner.invoke(app, ["show", "--help"])
+        assert "cli" in _strip(r_help.output)
+
+        r_hist = runner.invoke(app, ["show", "cli", "history"])
+        assert r_hist.exit_code == 0, r_hist.output
+
+
+def test_exit_code_matrix(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit exit codes at every level: `--help`->0; unknown at top/verb/object
+    ->2; `which <typo>`->1 (reads ir.json, unchanged); region pre-flight (beta,
+    region unset) ->2; `no_args_is_help` at root/verb/object renders help ->2."""
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("FEDSDK_REGION", raising=False)
+    out = _render_fedsdk_region(tmp_path / "out")
+    with render_and_import(out, "fedsdk_cli"), on_sys_path(FEDSDK):
+        app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
+        runner = CliRunner()
+
+        def code(argv: list[str]) -> int:
+            return runner.invoke(app, argv).exit_code
+
+        assert code(["--help"]) == 0
+        assert code(["bogus"]) == 2  # unknown at top (eager root)
+        assert code(["show", "bogus"]) == 2  # unknown at a verb group
+        assert code(["show", "alpha", "bogus"]) == 2  # unknown at an object group
+        assert code(["which", "wodget"]) == 1  # which miss (reads ir.json)
+        assert code(["show", "beta", "gadget"]) == 2  # region pre-flight, region unset
+        assert code([]) == 2  # no_args_is_help at root
+        assert code(["show"]) == 2  # no_args_is_help at a verb group
+        assert code(["show", "alpha"]) == 2  # no_args_is_help at an object group
+
+
+def test_get_command_never_none_for_listed_names(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """Every name `list_commands` returns MUST resolve via `get_command` (a None
+    would AttributeError during help/completion rendering) — checked at the root, a
+    verb group and an object group."""
+    import click
+    import typer
+
+    out = _render_fedsdk(tmp_path)
+    with render_and_import(out, "fedsdk_cli"):
+        app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
+        root = typer.main.get_command(app)
+        root_ctx = click.Context(root, info_name="fedsdk")
+
+        def assert_all_resolve(group: Any, ctx: Any, label: str) -> None:
+            names = group.list_commands(ctx)
+            assert names, f"{label} listed nothing"
+            for n in names:
+                assert group.get_command(ctx, n) is not None, f"{label}: {n!r} -> None"
+
+        assert_all_resolve(root, root_ctx, "root")
+        show = root.get_command(root_ctx, "show")
+        show_ctx = click.Context(show, info_name="show", parent=root_ctx)
+        assert_all_resolve(show, show_ctx, "verb show")
+        alpha = show.get_command(show_ctx, "alpha")
+        alpha_ctx = click.Context(alpha, info_name="alpha", parent=show_ctx)
+        assert_all_resolve(alpha, alpha_ctx, "object alpha")
+
+
+def test_completion_top_level_enumerates_verbs_with_no_imports(tmp_path: Path) -> None:
+    """Shell completion of the FIRST word enumerates the verbs (+ eager CLI children)
+    with ZERO `commands/*` imports — the lazy tree is never materialized to complete
+    top-level names. Checked on both federated (fedsdk) and single-spec (fakesdk)."""
+    fed = _render_fedsdk(tmp_path / "fed")
+    r = _complete(fed, "prog ", "1")
+    assert r["leaf"] == [], r["leaf"]
+    for verb in ("create", "update", "delete", "show", "request"):
+        assert verb in r["completions"], r["completions"]
+
+    fake = _render_fakesdk(tmp_path / "fake")
+    r = _complete(fake, "prog ", "1", pkg="fakesdk_cli")
+    assert r["leaf"] == [], r["leaf"]
+    assert "show" in r["completions"], r["completions"]
+
+
+def test_completion_leaf_options_imports_only_that_leaf(tmp_path: Path) -> None:
+    """Completing one leaf's options imports ONLY that leaf's module (resolving the
+    leaf to enumerate its options) — bounded to a single command, never all of them."""
+    fed = _render_fedsdk(tmp_path)
+    r = _complete(fed, "prog show alpha widget -", "4")
+    assert r["leaf"] == ["fedsdk_cli._generated.commands.widget"], r["leaf"]
+    assert "--output" in r["completions"], r["completions"]
+
+
+def test_ss_excluded_leaf_neither_lists_nor_resolves(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """`exclude=` on the single-spec path (T1 covered federated): an excluded leaf
+    key disappears from its verb's listing and fails to resolve."""
+    from typer.testing import CliRunner
+
+    out = _render_fakesdk(tmp_path)
+    with render_and_import(out, "fakesdk_cli"):
+        app_mod = importlib.import_module("fakesdk_cli._generated.app")
+        app = app_mod.build_generated_app(exclude={"show:thing"})
+        runner = CliRunner()
+
+        r_list = runner.invoke(app, ["show", "--help"])
+        assert "thing" not in _strip(r_list.output)  # excluded leaf not listed
+        r_res = runner.invoke(app, ["show", "thing"])
+        assert r_res.exit_code == 2  # and no longer resolves
+
+
+def test_no_eager_leaf_imports_in_app_source(tmp_path: Path) -> None:
+    """Perf-regression sentinel (source-level): the emitted app.py must NOT eagerly
+    import the per-resource command modules — the whole point of the lazy rewrite.
+    The subprocess import-count tests above are the canonical per-LEVEL perf guard
+    (top `--help`=0, group-of-leaves=that level, leaf=1); this is the loud tripwire
+    if anyone reintroduces module-load-time command imports.
+
+    The grep target is built from parts so this test's own source never contains the
+    literal phrase a `grep <needle> app.py` over the tree would match.
+    """
+    needle = "from ." + "commands import"
+    fed = _render_fedsdk(tmp_path / "fed")
+    fake = _render_fakesdk(tmp_path / "fake")
+    for out, pkg in ((fed, "fedsdk_cli"), (fake, "fakesdk_cli")):
+        app_text = (out / pkg / "_generated" / "app.py").read_text(encoding="utf-8")
+        assert needle not in app_text, f"{pkg} app.py has eager command imports"
