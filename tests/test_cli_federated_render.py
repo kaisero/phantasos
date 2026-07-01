@@ -142,9 +142,9 @@ def test_single_spec_app_is_lazy_2level(tmp_path: Path) -> None:
     # federated-only columns must NOT leak into the single-spec render.
     assert "subpackage" not in app
     assert "_SUB_HELP" not in app and "_OBJ_HELP" not in app
-    # the eager registration loop + per-resource imports are gone.
+    # the eager registration loop + per-resource imports are gone. (No
+    # `range(1, len(path))` assert here — the single-spec eager loop never used it.)
     assert "object_apps" not in app
-    assert "range(1, len(path))" not in app
     assert "obj, leaf = path" not in app
     assert "_cmd_" not in app
 
