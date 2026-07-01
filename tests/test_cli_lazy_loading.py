@@ -112,7 +112,9 @@ app_mod = importlib.import_module(pkg + "._generated.app")
 res = CliRunner().invoke(app_mod.build_generated_app(), sys.argv[3:])
 pfx = pkg + "._generated.commands."
 leaf = sorted(m for m in sys.modules if m.startswith(pfx))
-out = {"exit": res.exit_code, "leaf": leaf, "output": res.output}
+_META_NAMES = ("config_commands", "environment_commands", "cli_commands")
+meta = sorted(m.split(".")[-1] for m in sys.modules if m.split(".")[-1] in _META_NAMES)
+out = {"exit": res.exit_code, "leaf": leaf, "meta": meta, "output": res.output}
 print("PROBE_JSON:" + json.dumps(out))
 """
 
@@ -231,6 +233,25 @@ def test_leaf_help_imports_one_and_has_no_completion_flags(tmp_path: Path) -> No
     assert "--output" in text and "--dry-run" in text  # real leaf options
     assert "--install-completion" not in text
     assert "--show-completion" not in text
+
+
+def test_direct_command_imports_no_meta_subapps(tmp_path: Path) -> None:
+    """A plain command invocation must NOT import the config/environment/which/show-cli
+    meta sub-apps (they carry the config/history/output framework); they load only when
+    invoked. This is the framework-lazy win — the command hot path skips them."""
+    out = _render_fedsdk(tmp_path)
+    r = _probe(out, "show", "alpha", "widget", "--help")
+    assert r["exit"] == 0, r["output"]
+    assert r["meta"] == [], f"a plain command imported meta sub-apps: {r['meta']}"
+
+
+def test_meta_subapp_imports_only_when_invoked(tmp_path: Path) -> None:
+    """Invoking `config` imports only its meta module (config_commands); the others
+    (environment/which/cli) stay unimported."""
+    out = _render_fedsdk(tmp_path)
+    r = _probe(out, "config", "--help")
+    assert r["exit"] == 0, r["output"]
+    assert r["meta"] == ["config_commands"], r["meta"]
 
 
 # --- behavioral parity (in-process) ---
@@ -511,14 +532,14 @@ def test_get_command_never_none_for_listed_names(
     """Every name `list_commands` returns MUST resolve via `get_command` (a None
     would AttributeError during help/completion rendering) — checked at the root, a
     verb group and an object group."""
-    import click
     import typer
+    from typer.core import _click  # type: ignore[attr-defined]  # 0.26 vendors click
 
     out = _render_fedsdk(tmp_path)
     with render_and_import(out, "fedsdk_cli"):
         app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
-        root = typer.main.get_command(app)
-        root_ctx = click.Context(root, info_name="fedsdk")
+        root: Any = typer.main.get_command(app)
+        root_ctx = _click.Context(root, info_name="fedsdk")
 
         def assert_all_resolve(group: Any, ctx: Any, label: str) -> None:
             names = group.list_commands(ctx)
@@ -527,11 +548,11 @@ def test_get_command_never_none_for_listed_names(
                 assert group.get_command(ctx, n) is not None, f"{label}: {n!r} -> None"
 
         assert_all_resolve(root, root_ctx, "root")
-        show = root.get_command(root_ctx, "show")
-        show_ctx = click.Context(show, info_name="show", parent=root_ctx)
+        show: Any = root.get_command(root_ctx, "show")
+        show_ctx = _click.Context(show, info_name="show", parent=root_ctx)
         assert_all_resolve(show, show_ctx, "verb show")
-        alpha = show.get_command(show_ctx, "alpha")
-        alpha_ctx = click.Context(alpha, info_name="alpha", parent=show_ctx)
+        alpha: Any = show.get_command(show_ctx, "alpha")
+        alpha_ctx = _click.Context(alpha, info_name="alpha", parent=show_ctx)
         assert_all_resolve(alpha, alpha_ctx, "object alpha")
 
 

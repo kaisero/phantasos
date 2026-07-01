@@ -14,13 +14,12 @@ import typer
 # be absent in a real install).
 from typer.core import TyperGroup, _click
 from typer.main import get_command_from_info
+from typer.main import get_group as _typer_get_group
 from typer.models import CommandInfo
 
-from . import cli_commands as _cli_commands
-from . import config_commands as _config_commands
-{%- if has_env %}
-from . import environment_commands as _environment_commands
-{%- endif %}
+# The CLI meta sub-apps (config / environment / which / show cli) are imported
+# LAZILY (see `_META` + `_LazyGroup._meta`), so a plain command invocation doesn't
+# pull in the config / history / output / spec framework they carry.
 
 _DISTRIBUTION = "{{ distribution }}"
 
@@ -101,12 +100,34 @@ def _node_at(segs: list[str]) -> dict | None:
     return cur if isinstance(cur, dict) else None
 
 
+# Meta sub-apps / commands (config / environment / which / show cli), resolved
+# lazily so a plain command invocation skips their framework imports. Each row:
+# (name, parent_segs, module, attr, is_group, panel).
+_META: list[tuple[str, tuple[str, ...], str, str, bool, str | None]] = [
+    ("config", (), "config_commands", "config_app", True, "CLI"),
+{%- if has_env %}
+    ("environment", (), "environment_commands", "environment_app", True, "CLI"),
+{%- endif %}
+{%- if federated %}
+    ("which", (), "cli_commands", "which_object", False, "CLI"),
+{%- endif %}
+    ("cli", ("show",), "cli_commands", "cli_show_app", True, None),
+]
+
+
+def _meta_at(segs: list[str]) -> dict[str, tuple]:
+    """Meta entries whose parent path equals ``segs`` (root = [])."""
+    return {m[0]: m for m in _META if list(m[1]) == segs}
+
+
 class _LazyGroup(TyperGroup):
-    """A Typer group that resolves its object / sub-package / leaf children lazily
-    from the module-global ``_TREE``, importing the one ``commands/<resource>.py``
-    module only when a leaf is actually resolved (help, completion or dispatch).
-    Eager children Typer already registered (``config``/``environment``/``which``/
-    ``show cli``/any ``add_typer``'d custom) live in ``self.commands`` and win.
+    """A Typer group that resolves its children lazily: object / sub-package / leaf
+    children from the module-global ``_TREE`` (importing the one
+    ``commands/<resource>.py`` module only when a leaf is resolved), and the meta
+    sub-apps (``config``/``environment``/``which``/``show cli``) from ``_META``
+    (importing their framework module only when invoked). Any child Typer DID register
+    (the verb groups, or an ``add_typer``'d custom command) lives in ``self.commands``
+    and wins over the lazy registries.
     """
 
     def _segs(self, ctx: _click.Context) -> list[str]:
@@ -122,13 +143,17 @@ class _LazyGroup(TyperGroup):
 
     def list_commands(self, ctx: _click.Context) -> list[str]:
         names = list(self.commands)  # eager children, registration order
-        node = _node_at(self._segs(ctx))
+        segs = self._segs(ctx)
+        node = _node_at(segs)
         if node:
             for name, entry in node.items():
                 if name in self.commands:
                     continue
                 if isinstance(entry, _Cmd) and entry.key in _EXCLUDE:
                     continue
+                names.append(name)
+        for name in _meta_at(segs):  # lazy meta sub-apps/commands at this level
+            if name not in self.commands and name not in names:
                 names.append(name)
         return names  # deduped union, NOT sorted
 
@@ -142,10 +167,16 @@ class _LazyGroup(TyperGroup):
         segs = self._segs(ctx)
         node = _node_at(segs)
         entry = node.get(name) if node else None
-        if entry is None or (isinstance(entry, _Cmd) and entry.key in _EXCLUDE):
-            return None
-        if isinstance(entry, _Cmd):
-            cmd: _click.Command = self._leaf(entry, name)
+        if isinstance(entry, _Cmd) and entry.key in _EXCLUDE:
+            return None  # excluded leaf
+        cmd: _click.Command
+        if entry is None:
+            meta = _meta_at(segs).get(name)
+            if meta is None:
+                return None
+            cmd = self._meta(meta)
+        elif isinstance(entry, _Cmd):
+            cmd = self._leaf(entry, name)
         else:
             # Intermediate: a child group.
 {%- if federated %}
@@ -179,6 +210,27 @@ class _LazyGroup(TyperGroup):
             pretty_exceptions_short=True,
             rich_markup_mode=self.rich_markup_mode,
         )
+
+    def _meta(self, meta: tuple) -> _click.Command:
+        """Import + build a meta sub-app/command (config/environment/which/cli),
+        deferring its framework imports until it is actually resolved."""
+        _name, _parent, module, attr, is_group, panel = meta
+        mod = importlib.import_module(f"{__package__}.{module}")
+        obj = getattr(mod, attr)
+        cmd: _click.Command
+        if is_group:  # a typer.Typer sub-app -> a click GROUP (get_group never
+            # collapses a single-command sub-app to that command, unlike get_command)
+            cmd = _typer_get_group(obj)
+        else:  # a plain function -> a command
+            cmd = get_command_from_info(
+                CommandInfo(name=_name, callback=obj, rich_help_panel=panel),
+                pretty_exceptions_short=True,
+                rich_markup_mode=self.rich_markup_mode,
+            )
+        cmd.name = _name
+        if panel is not None:
+            cmd.rich_help_panel = panel
+        return cmd
 
     def resolve_command(
         self, ctx: _click.Context, args: list[str]
@@ -216,19 +268,8 @@ def build_generated_app(exclude: set[str] | None = None) -> typer.Typer:
     verb_apps = {v: typer.Typer(cls=_LazyGroup, no_args_is_help=True) for v in _VERBS}
     for v, t in verb_apps.items():
         app.add_typer(t, name=v)
-    app.add_typer(_config_commands.config_app, name="config", rich_help_panel="CLI")
-{%- if has_env %}
-    app.add_typer(
-        _environment_commands.environment_app,
-        name="environment",
-        rich_help_panel="CLI",
-    )
-{%- endif %}
-    verb_apps["show"].add_typer(_cli_commands.cli_show_app, name="cli")
     # Lazy: verbs/{% if federated %}sub-packages/{% endif %}objects/leaves are served
-    # from `_TREE` by the `_LazyGroup` (no eager per-resource command imports, no
-    # eager registration loop).
-{%- if federated %}
-    app.command("which", rich_help_panel="CLI")(_cli_commands.which_object)
-{%- endif %}
+    # from `_TREE`, and the meta sub-apps (config/environment/which/`show cli`) from
+    # `_META`, by the `_LazyGroup` — no eager per-resource command imports and no eager
+    # config/history/output framework imports until one is actually invoked.
     return app
