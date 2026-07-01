@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 
 _CLI_DEPS = [
-    "typer>=0.12",
+    # >=0.26.7: the lazy app (app.py) imports `typer.core._click` (typer's vendored
+    # click) and calls `get_command_from_info(...)` — both require a modern typer, and
+    # this is the version phantasos tests against. A lower floor would ImportError the
+    # emitted federated CLI at import time.
+    "typer>=0.26.7",
     "rich>=13",
     "pygments>=2",
     "pyyaml>=6",

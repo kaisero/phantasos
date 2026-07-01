@@ -166,6 +166,8 @@ class _LazyGroup(TyperGroup):
         )
         return get_command_from_info(
             info,
+            # matches the generator's Typer default; the generator never sets
+            # pretty_exceptions_short=False, so hardcoding True keeps leaf parity.
             pretty_exceptions_short=True,
             rich_markup_mode=self.rich_markup_mode,
         )

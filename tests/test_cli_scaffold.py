@@ -180,7 +180,7 @@ def test_build_context_overrides_for_cli() -> None:
     assert ctx["package"] == "prisma_browser_cli"
     assert ctx["distribution"] == "prisma-browser-cli"
     assert "prisma-browser-sdk" in ctx["dependencies"]
-    assert "typer>=0.12" in ctx["dependencies"] and "rich>=13" in ctx["dependencies"]
+    assert "typer>=0.26.7" in ctx["dependencies"] and "rich>=13" in ctx["dependencies"]
     assert "prisma_browser" not in ctx["dependencies"]  # never the import name
     assert ctx["scripts"] == {"prisma-browser-cli": "prisma_browser_cli.main:app"}
     assert ctx["has_auth"] is False and ctx["has_facade"] is False
