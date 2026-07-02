@@ -269,11 +269,35 @@ These two halves feed **four surfaces**, all off the single registry:
   `test_config`) that `scaffold.render_scaffold` layers over the built-in SDK
   scaffold, mirroring `products/<name>/overrides/` for SDKs.
 
-## N-level Typer nesting
+## N-level Typer nesting (lazy)
 
-`templates/_generated/app.py.jinja` emits the Typer factory. For a **single-spec** build the output is byte-identical to the pre-federation factory — the template's `{% else %}` branch is untouched. For a **federated** build the template gates on a `federated` context flag and produces a deeper command hierarchy: **verb → sub-package → object** (so `prisma-access show objects address` maps cleanly), with a fourth level for `request <sub> <object> <action>` and for oneOf-variant commands.
+`templates/_generated/app.py.jinja` emits the Typer factory. The command hierarchy is
+**verb → object** (single-spec) or **verb → sub-package → object** (federated, so
+`prisma-access show objects address` maps cleanly), with a fourth level for `request
+<sub> <object> <action>` and oneOf-variant commands. Sub-package command names render as
+**kebab-case** (`network_services` → `network-services`) while `Command.subpackage` stays
+the snake slug — lookup by `cmd.subpackage` is unambiguous.
 
-Sub-package command names are rendered as **kebab-case** (`network_services` → `network-services`) while `Command.subpackage` stays the original snake slug — lookup by `cmd.subpackage` is always unambiguous. Intermediate Typer sub-apps (one per `(verb, *path[:depth])` tuple) are created on demand and keyed into a dict; the template registers each intermediate app exactly once regardless of how many objects share the same verb/sub prefix.
+**Nothing is imported or registered up front.** Rather than importing every
+`commands/<resource>.py` and registering all commands at build time, the factory emits a
+static `_REGISTRY` (a `_Cmd` NamedTuple per command — string data only) folded into a
+module-global `_TREE`, plus a `_META` registry for the CLI's own sub-apps (`config`/
+`environment`/`which`/`show cli`). A **`_LazyGroup(typer.core.TyperGroup)`** (wired via
+`Typer(cls=_LazyGroup)`) resolves children on demand: `list_commands` unions the eagerly-
+registered verb groups with the registry slice for its ctx-path (order-preserving, not
+sorted); `get_command` imports the ONE `commands/<resource>.py` when a leaf is resolved
+(via `get_command_from_info`, not a throwaway `typer.Typer()` which would add
+`--install/--show-completion` to the leaf), builds an intermediate child `_LazyGroup`
+(threading `rich_markup_mode`/`no_args_is_help`/`help`) otherwise, and lazy-loads a `_META`
+sub-app via `typer.main.get_group` (never `get_command`, which would collapse a single-
+command sub-app like `show cli` to its lone command). `resolve_command` restores Typer's
+did-you-mean from `list_commands` (it otherwise reads the empty `self.commands`). This
+imports only the invoked command's module (a group-of-leaves `--help` imports that one
+level; the meta sub-apps load only when invoked), cutting cold start ~3–4× on a large CLI
+while keeping Rich help, completion, did-you-mean, and the `add_typer` contract intact.
+Coupling note: typer 0.26 fully vendors click as `typer.core._click` (no standalone dep),
+so the factory imports `_click` from there — a top-level `import click` would catch the
+wrong exception class and silently no-op did-you-mean.
 
 ## Runtime federation dispatch
 

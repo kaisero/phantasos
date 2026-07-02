@@ -211,7 +211,7 @@ def test_fedsdk_request_beta_gadget_obj_help(
         assert "compute" in r.output
 
 
-def test_single_spec_emitted_app_unchanged(tmp_path: Path) -> None:
+def test_single_spec_emitted_app_has_no_help_dicts(tmp_path: Path) -> None:
     """Single-spec app.py carries NO _SUB_HELP / _OBJ_HELP — federated-only feature."""
     from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.modelschema import build_model_registry

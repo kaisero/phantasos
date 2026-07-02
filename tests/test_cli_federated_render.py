@@ -3,9 +3,10 @@
 Renders the federated `fedsdk` CLI (subs alpha/beta) and asserts the emitted
 `app.py` nests `show alpha widget` (len-2 path `[alpha, widget]`) and the len-3
 `request beta gadget compute` (`[beta, gadget, compute]`); a Typer `CliRunner`
-proves both resolve via `--help`. Also pins the single-spec (`fakesdk`) app.py
-build loop to its exact pre-federation 2-level form (a byte-identical slice), so
-generalizing the loop to N levels did not perturb single-spec render output.
+proves both resolve via `--help`. Also proves the single-spec (`fakesdk`) app.py
+went lazy in lock-step — its 2-level `verb -> object -> leaf` commands resolve +
+dispatch through the SAME `_LazyGroup` (no eager registration loop, no per-resource
+imports, no federated-only `subpackage`/`_SUB_HELP` columns).
 """
 
 from __future__ import annotations
@@ -55,24 +56,19 @@ def _render_fed(out: Path) -> Path:
     return out
 
 
-# The exact pre-federation 2-level build loop (representative byte slice). Single-
-# spec render must keep emitting this verbatim — the N-level loop is federated-only.
-_SINGLE_SPEC_LOOP = """    object_apps: dict[tuple[str, str], typer.Typer] = {}
-    for key, verb, path, resource, func_name in _REGISTRY:
-        if key in exclude or verb not in verb_apps:
-            continue
-        fn = getattr(resources[resource], func_name)
-        if len(path) == 1:
-            verb_apps[verb].command(path[0])(fn)
-        else:  # len 2: object sub-Typer under the verb, leaf inside it
-            obj, leaf = path
-            sub = object_apps.get((verb, obj))
-            if sub is None:
-                sub = typer.Typer(no_args_is_help=True)
-                object_apps[(verb, obj)] = sub
-                verb_apps[verb].add_typer(sub, name=obj)
-            sub.command(leaf)(fn)
-    return app"""
+def _render_fakesdk(out: Path) -> Path:
+    # Request mappings give `fakesdk` its len-2 `request widget <action>` commands
+    # (object group -> leaf) — the single-spec analogue of C1's nested path.
+    cfg = CliConfig(
+        request={
+            "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+            "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+        }
+    )
+    inv = cli_operations("fakesdk", FAKESDK)
+    ir = build_cli_ir(inv, cfg, models=build_model_registry("fakesdk", FAKESDK, inv))[0]
+    render_cli(ir, package="fakesdk_cli", out_dir=out, env_prefix="FAKESDK")
+    return out
 
 
 def test_command_view_kebabs_subpackage_name() -> None:
@@ -99,8 +95,12 @@ def test_federated_app_registers_subpackage_level(tmp_path: Path) -> None:
     assert '["alpha", "widget"]' in app  # CRUD: [subpackage, object]
     # len-3: a request action nests [subpackage, object, leaf]
     assert '["beta", "gadget", "compute"]' in app
-    # the generalized N-level loop replaced the 2-element unpack
-    assert "range(1, len(path))" in app
+    # Lazy loading: the eager N-level registration loop + per-resource imports are
+    # gone; a `_LazyGroup` serves verbs/subs/objects/leaves from a module-global tree.
+    assert "class _LazyGroup" in app
+    assert "_build_tree" in app
+    assert "_cmd_" not in app  # no eager per-resource `import … as _cmd_<resource>`
+    assert "range(1, len(path))" not in app  # the eager N-level loop is gone
     assert "obj, leaf = path" not in app
 
 
@@ -127,18 +127,50 @@ def test_federated_help_resolves_nested_commands(
         assert "widget" in r3.output
 
 
-def test_single_spec_app_loop_byte_identical(tmp_path: Path) -> None:
-    inv = cli_operations("fakesdk", FAKESDK)
-    ir = build_cli_ir(
-        inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv)
-    )[0]
-    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
-    app = (tmp_path / "fakesdk_cli" / "_generated" / "app.py").read_text()
-    # single-spec keeps the exact pre-federation 5-tuple registry + 2-level loop
+def test_single_spec_app_is_lazy_2level(tmp_path: Path) -> None:
+    """Single-spec (`fakesdk`) went lazy in lock-step with federated: the eager
+    `object_apps` registration loop + per-resource imports are gone, replaced by the
+    SAME `_LazyGroup` + `_Cmd`/`_TREE` — minus the federated-only `subpackage` column
+    and `_SUB_HELP`/`_OBJ_HELP` help dicts."""
+    out = _render_fakesdk(tmp_path)
+    app = (out / "fakesdk_cli" / "_generated" / "app.py").read_text()
+    # 5-tuple registry rows (no `subpackage`); the lazy machinery is shared.
     assert "# (key, verb, typer_path, resource, func_name)" in app
-    # boundary pin: a blank line precedes the registry comment — guards the
-    # `{% if federated -%}` whitespace gotcha (a `{%- if %}` would eat it).
-    assert "\n\n# (key, verb, typer_path, resource, func_name)" in app
-    assert _SINGLE_SPEC_LOOP in app
-    assert "subpackage" not in app  # no extra registry column leaks in
-    assert "range(1, len(path))" not in app  # N-level loop stays federated-only
+    assert '_Cmd("show:widget", "show", ["widget"], "widget", "show_widget")' in app
+    assert "class _Cmd(NamedTuple):" in app
+    assert "class _LazyGroup" in app and "_build_tree" in app
+    # federated-only columns must NOT leak into the single-spec render.
+    assert "subpackage" not in app
+    assert "_SUB_HELP" not in app and "_OBJ_HELP" not in app
+    # the eager registration loop + per-resource imports are gone. (No
+    # `range(1, len(path))` assert here — the single-spec eager loop never used it.)
+    assert "object_apps" not in app
+    assert "obj, leaf = path" not in app
+    assert "_cmd_" not in app
+
+
+def test_single_spec_lazy_commands_resolve_and_list(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
+    """The lazy 2-level single-spec app dispatches through `_LazyGroup`: a len-1
+    `show widget` leaf and a len-2 `request widget suspend` (object group -> leaf)
+    both resolve via `--help`, and the object group lists its leaves."""
+    from typer.testing import CliRunner
+
+    out = _render_fakesdk(tmp_path)
+    with render_and_import(out, "fakesdk_cli"):
+        app_mod = importlib.import_module("fakesdk_cli._generated.app")
+        app = app_mod.build_generated_app()
+        assert isinstance(app_mod.build_generated_app.__globals__["_LazyGroup"], type)
+        runner = CliRunner()
+        # len-1 path: verb -> object leaf.
+        r1 = runner.invoke(app, ["show", "widget", "--help"])
+        assert r1.exit_code == 0, r1.output
+        # len-2 path: verb -> object group -> leaf.
+        r2 = runner.invoke(app, ["request", "widget", "suspend", "--help"])
+        assert r2.exit_code == 0, r2.output
+        # the object group genuinely nests: `request widget --help` lists its leaves.
+        r3 = runner.invoke(app, ["request", "widget", "--help"])
+        assert r3.exit_code == 0, r3.output
+        assert "suspend" in r3.output and "revoke" in r3.output
