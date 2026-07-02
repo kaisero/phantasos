@@ -157,11 +157,17 @@ def gate(session: nox.Session) -> None:
     Run by the Stop hook on every agent turn (see .claude/harness.toml), so it
     must stay fast: ruff + mypy + the offline pytest suite, no coverage, no
     multi-Python matrix. Runs in the invoking environment (``uv run nox``).
+
+    ``-m "not slow"`` deselects the end-to-end OAG/Java builds (the two
+    ``@pytest.mark.slow`` tests in test_sdk_build.py). On a provisioned dev
+    machine those otherwise run on every agent stop — multi-minute Java builds
+    in a gate that "must stay fast". Their coverage lives in the ``smoke`` and
+    ``cli-docs`` CI jobs, which build the same SDKs.
     """
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
     session.run("mypy")
-    session.run("pytest", "-q")
+    session.run("pytest", "-q", "-m", "not slow")
 
 
 @nox.session(venv_backend="none")
