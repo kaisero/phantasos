@@ -21,7 +21,7 @@ from typing import Any
 import jinja2
 import pytest
 
-_PA_SDK = Path("/home/ubuntu/git/prisma-access-sdk")
+_PA_SDK = Path(__file__).parent.parent.parent / "prisma-access-sdk"
 _BR_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 _GEN_REF = (
@@ -33,10 +33,13 @@ _SDKS_BUILT = (_PA_SDK / "prisma_access").is_dir() and (
     _BR_SDK / "prisma_browser"
 ).is_dir()
 
-pytestmark = pytest.mark.skipif(
-    not _SDKS_BUILT,
-    reason="built SDKs not present (run via nox -s sdk-docs / live env)",
-)
+pytestmark = [
+    pytest.mark.real_sdk,
+    pytest.mark.skipif(
+        not _SDKS_BUILT,
+        reason="built SDKs not present (run via nox -s sdk-docs / live env)",
+    ),
+]
 
 
 def _render_gen_ref(package: str) -> str:

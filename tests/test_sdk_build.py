@@ -63,9 +63,10 @@ def _oag_toolchain_cached() -> bool:
     """True only if the OAG jar *and* a usable java are already on disk.
 
     Mirrors the no-download branches of ``generate.ensure_jar`` and
-    ``provision.resolve_java`` so the offline gate (bare ``pytest -q`` — no
-    ``-m 'not slow'``) and CI *skip* the federated build rather than triggering a
-    one-time ~30 MB jar / ~40 MB JRE download on a cold cache or offline runner.
+    ``provision.resolve_java``. The stop-hook gate deselects this ``@slow`` build
+    (``pytest -q -m 'not slow'``), but a direct ``pytest`` / ``-m slow`` run or a
+    cold/offline CI runner would otherwise trigger a one-time ~30 MB jar / ~40 MB
+    JRE download — this predicate makes those *skip* instead.
     """
     # ponytail: replicates resolve_java's cache-path build (can't reuse it — it
     # downloads as a side effect, and the predicate must not touch the network).

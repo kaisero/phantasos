@@ -11,9 +11,6 @@ import pytest
 from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
 
-_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-_PKG = _SDK / "prisma_browser"
-
 _EXC_NAMES = (
     "ApiException",
     "BadRequestException",
@@ -404,7 +401,6 @@ def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
 
 
 def test_include_rejects_path_escape(tmp_path: Path) -> None:
-    import pytest
 
     pkg = tmp_path / "out" / "acme"
     (pkg / "api").mkdir(parents=True)
@@ -425,19 +421,23 @@ def test_include_rejects_path_escape(tmp_path: Path) -> None:
         render.vendor(pkg, loaded, wrapper_objects=[])
 
 
-def _emit_resources(tmp_path: Path) -> str:
+def _emit_resources(real_sdk: Path, tmp_path: Path) -> str:
     """Render extras/resources.py for the REAL prisma-browser wrapper context."""
     from phantasos.generator.opmodel import introspect
     from phantasos.generator.sdk.render import _discover_resources
     from phantasos.generator.sdk.wrapper import build_wrapper_context
 
-    inv = introspect("prisma_browser", _SDK)
+    inv = introspect("prisma_browser", real_sdk)
     overrides = load_product("prisma-browser").config.operations
-    objects = build_wrapper_context(inv, overrides, _discover_resources(_PKG))
+    objects = build_wrapper_context(
+        inv, overrides, _discover_resources(real_sdk / "prisma_browser")
+    )
 
     pkg = tmp_path / "out" / "prisma_browser"
     (pkg / "api").mkdir(parents=True)
-    init = (_PKG / "api" / "__init__.py").read_text(encoding="utf-8")
+    init = (real_sdk / "prisma_browser" / "api" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
     (pkg / "api" / "__init__.py").write_text(init, encoding="utf-8")
     prod = tmp_path / "products" / "pb"
     prod.mkdir(parents=True)
@@ -455,9 +455,8 @@ def _emit_resources(tmp_path: Path) -> str:
     return (pkg / "extras" / "resources.py").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
-def test_resources_emitted(tmp_path: Path) -> None:
-    src = _emit_resources(tmp_path)
+def test_resources_emitted(real_sdk: Path, tmp_path: Path) -> None:
+    src = _emit_resources(real_sdk, tmp_path)
     # Typed wrapper class named <Object>Resource (NOT <Object>WrapperResource).
     assert "class ApplicationResource" in src
     assert "WrapperResource" not in src
@@ -477,9 +476,10 @@ def test_resources_emitted(tmp_path: Path) -> None:
     ast.parse(src)
 
 
-@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
-def test_resources_multibinding_dispatch_via_select(tmp_path: Path) -> None:
-    src = _emit_resources(tmp_path)
+def test_resources_multibinding_dispatch_via_select(
+    real_sdk: Path, tmp_path: Path
+) -> None:
+    src = _emit_resources(real_sdk, tmp_path)
     # application.list collapses two raw ops; the by-type op routes `type` to path,
     # the plain op to query — both must appear in _bindings so _select can choose.
     assert "'raw_method': 'list_applications'" in src
@@ -508,8 +508,7 @@ def _purge_pb_extras() -> None:
             del sys.modules[name]
 
 
-@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
-def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
+def test_facade_binds_object_wrappers(real_sdk: Path, tmp_path: Path) -> None:
     """Two-pass facade: ``client.<object>`` is a typed wrapper, raw ``*Api`` hidden.
 
     Vendors the full two-pass facade into the REAL package (so the emitted
@@ -525,9 +524,11 @@ def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
     from phantasos.generator.sdk.render import _discover_resources
     from phantasos.generator.sdk.wrapper import build_wrapper_context
 
-    inv = introspect("prisma_browser", _SDK)
+    inv = introspect("prisma_browser", real_sdk)
     overrides = load_product("prisma-browser").config.operations
-    objects = build_wrapper_context(inv, overrides, _discover_resources(_PKG))
+    objects = build_wrapper_context(
+        inv, overrides, _discover_resources(real_sdk / "prisma_browser")
+    )
 
     prod = tmp_path / "products" / "pb"
     prod.mkdir(parents=True)
@@ -541,15 +542,15 @@ def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
     )
     loaded = load_product(str(prod / "sdk.yml"))
 
-    extras = _PKG / "extras"
+    extras = real_sdk / "prisma_browser" / "extras"
     backups = {
         name: (extras / name).read_text(encoding="utf-8")
         for name in ("facade.py", "resources.py")
     }
-    if str(_SDK) not in sys.path:
-        sys.path.insert(0, str(_SDK))
+    if str(real_sdk) not in sys.path:
+        sys.path.insert(0, str(real_sdk))
     try:
-        render.vendor(_PKG, loaded, wrapper_objects=objects)
+        render.vendor(real_sdk / "prisma_browser", loaded, wrapper_objects=objects)
         _purge_pb_extras()
         facade = importlib.import_module("prisma_browser.extras.facade")
 
@@ -578,8 +579,8 @@ def test_facade_binds_object_wrappers(tmp_path: Path) -> None:
         for name, text in backups.items():
             (extras / name).write_text(text, encoding="utf-8")
         _purge_pb_extras()
-        if str(_SDK) in sys.path:
-            sys.path.remove(str(_SDK))
+        if str(real_sdk) in sys.path:
+            sys.path.remove(str(real_sdk))
 
 
 def test_composer_emits_client_and_subpackages_registry() -> None:

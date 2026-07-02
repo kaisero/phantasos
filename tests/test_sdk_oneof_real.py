@@ -13,8 +13,6 @@ from typing import Any
 
 import pytest
 
-REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-
 _BASE = {
     "id": "app-0001",
     "name": "phx-test-app",
@@ -27,10 +25,8 @@ _BASE = {
 
 
 @pytest.fixture
-def application_item() -> Iterator[Any]:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
-    sys.path.insert(0, str(REAL_SDK))
+def application_item(real_sdk: Path) -> Iterator[Any]:
+    sys.path.insert(0, str(real_sdk))
     try:
         try:
             from prisma_browser.models.application_item import ApplicationItem
@@ -38,7 +34,7 @@ def application_item() -> Iterator[Any]:
             pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
         yield ApplicationItem
     finally:
-        sys.path.remove(str(REAL_SDK))
+        sys.path.remove(str(real_sdk))
 
 
 @pytest.mark.parametrize(
@@ -66,12 +62,12 @@ def test_catalog_fields_are_typed_not_demoted(application_item: Any) -> None:
     assert "catalog_name" not in inst.additional_properties
 
 
-def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties() -> None:
+def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties(
+    real_sdk: Path,
+) -> None:
     """A oneOf list response serializes to clean rows: no wrapper scaffolding and
     no empty additional_properties bag (snake_case contract preserved)."""
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
-    sys.path.insert(0, str(REAL_SDK))
+    sys.path.insert(0, str(real_sdk))
     try:
         try:
             from prisma_browser.models.get_sign_in_policy200_response import (
@@ -106,7 +102,7 @@ def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties() -> Non
         # instance — this is the diagnostics.py render_error path.
         dumped_alias = model.model_dump(mode="json", by_alias=True)
     finally:
-        sys.path.remove(str(REAL_SDK))
+        sys.path.remove(str(real_sdk))
 
     item = dumped["data"][0]
     assert "actual_instance" not in item
@@ -123,11 +119,9 @@ def test_oneof_model_dump_unwraps_and_drops_empty_additional_properties() -> Non
     assert "actual_instance" not in alias_item
 
 
-def test_non_empty_additional_properties_is_preserved() -> None:
+def test_non_empty_additional_properties_is_preserved(real_sdk: Path) -> None:
     """A field the spec does not declare survives model_dump (lenient pass-through)."""
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
-    sys.path.insert(0, str(REAL_SDK))
+    sys.path.insert(0, str(real_sdk))
     try:
         try:
             from prisma_browser.models.rule_summary import RuleSummary
@@ -147,7 +141,7 @@ def test_non_empty_additional_properties_is_preserved() -> None:
         dumped = rule.model_dump(mode="json")
         as_dict = rule.to_dict()
     finally:
-        sys.path.remove(str(REAL_SDK))
+        sys.path.remove(str(real_sdk))
 
     assert dumped["additional_properties"] == {"surpriseField": 42}
     # to_dict() (the SDK request path) still hoists extras and uses aliases
