@@ -57,7 +57,7 @@ The freeze hook fails *closed*; the fast-gate fails *open*. The asymmetry is int
 
 ### nox -s gate — fast offline (every stop)
 
-`gate` in `noxfile.py` runs `ruff check`, `ruff format --check`, `mypy`, and `pytest -q` in `venv_backend="none"` mode (the invoking `uv run` environment; no new venv creation). It is the command the Stop hook runs on every agent turn. It must stay fast: no multi-Python matrix, no coverage instrumentation, no network.
+`gate` in `noxfile.py` runs `ruff check`, `ruff format --check`, `mypy`, and `pytest -q -m "not slow"` in `venv_backend="none"` mode (the invoking `uv run` environment; no new venv creation). It is the command the Stop hook runs on every agent turn. It must stay fast: no multi-Python matrix, no coverage instrumentation, no network. The `-m "not slow"` filter deselects the two `@pytest.mark.slow` end-to-end OAG/Java builds (`test_sdk_build.py`) — on a provisioned machine those otherwise fire multi-minute Java builds on every stop; their coverage lives in the `smoke`/`cli-docs` CI jobs.
 
 The fast_gate hook defaults `UV_PROJECT_ENVIRONMENT` to a stable per-checkout path under `$TMPDIR` so the gate runs against a persistent venv rather than re-creating it each stop.
 
@@ -65,9 +65,13 @@ The fast_gate hook defaults `UV_PROJECT_ENVIRONMENT` to a stable per-checkout pa
 
 Product enrollment for the product-parametrized sessions (`smoke`, `live`, `sdk-docs`) lives in the root `nox.toml`, not in `noxfile.py`: each stage lists its `products`, and `sdk-docs` carries optional per-product `[[sdk-docs.assert]]` content checks (`file` relative to the built `site/`, plus `contains`/`not_contains`). The noxfile reads it via stdlib `tomllib` and runs each stage generically over its products; an unknown product name fails fast. Add a product to a stage there once it is ready to be gated. (phantasos's own `docs` site is separate and not governed by `nox.toml`.)
 
-### nox -s live — real-tenant CRUD (phase boundaries + CI)
+### nox -s smoke — real-artifact builds + ring-3 tests (CI)
 
-`live` in `noxfile.py` runs the full live validation: build the prisma-browser SDK (`phantasos sdk build prisma-browser --no-smoke`), install the generated project, then run `pytest` against the generated project's `tests/test_sdk_crud_live.py`. Exit status of that pytest run is the oracle verdict.
+`smoke` in `noxfile.py` builds every `nox.toml [smoke]` SDK end-to-end (auto-provisioned Java), then runs `pytest -m real_sdk` against the freshly-built artifacts. This is the **only** CI place the ring-3 tests execute — the tests that reflect over the *real* OAG-built SDK (typed wrappers, oneOf dispatch, docs fidelity, CLI dispatch), gated by the `real_sdk` fixture (`tests/conftest.py`). The matrix `tests` job builds no SDK, so those tests skip there; without this step the failure class an OAG upgrade introduces (emitted-shape drift) would be invisible in CI, since the fakesdk-fixture tests re-encode the assumed shape. The `real_sdk` marker is auto-applied to any test requesting the fixture, so the ring is selectable as one set. The SDK is built at the sibling path the tests expect but is *not* editable-installed (the tests add it to `sys.path` themselves), so it stays invisible to mypy and the gate. Each built SDK carries a `.build-stamp` (generator SHA); the fixture skip-loudly when a local artifact was built from a different generator commit.
+
+### nox -s live — real-tenant CRUD (advisory / local phase boundary)
+
+`live` in `noxfile.py` runs the full live validation: build the prisma-browser SDK (`phantasos sdk build prisma-browser --no-smoke`), install the generated project, then run `pytest` against the generated project's `tests/test_sdk_crud_live.py`. Exit status of that pytest run is the oracle verdict. It is **advisory / local-only** — there is no `live.yml` (running mutating CRUD against a real tenant on every push is a deliberate non-goal); run it manually before declaring a phase or task done.
 
 The session reads a local `.env` file if present (convenience for local runs). When `CLIENT_ID`, `CLIENT_SECRET`, or `SCOPE` are absent, the emitted suite's `pytestmark` causes all tests to skip — not fail — so offline runs and credential-less contributors are never blocked.
 
@@ -89,12 +93,12 @@ The emitted file (`tests/test_sdk_crud_live.py` in the generated SDK output dire
 
 ## Backstops
 
-> **Status: planned, not yet added.** Both backstops are specified in the harness
-> design (`docs/specs/2026-06-10-autonomous-harness-thin-slice-design.md`) but are
-> **not in the repo today** — the merged thin slice shipped the hooks, the
-> `gate`/`live` nox sessions, and the frozen-oracle template, but neither
-> `.github/CODEOWNERS` nor `.github/workflows/live.yml` exists yet. They are the
-> intended human/CI net below the best-effort freeze hook.
+> **Status: partially decided.** The backstops were specified in the harness
+> design (`docs/specs/2026-06-10-autonomous-harness-thin-slice-design.md`). Today:
+> `.github/CODEOWNERS` still does **not** exist (planned — the intended
+> non-bypassable human net below the best-effort freeze hook), while
+> `.github/workflows/live.yml` is now a **deliberate non-goal** (see below) —
+> automated real-artifact coverage is the offline `smoke` ring-3 path instead.
 
 ### CODEOWNERS (planned)
 
@@ -102,11 +106,14 @@ A `.github/CODEOWNERS` covering the frozen paths, with "require code-owner revie
 branch protection, would make any PR that modifies a protected path need human
 approval before merge — the non-bypassable net below the best-effort freeze hook.
 
-### CI — live.yml (planned)
+### CI — live.yml (deliberate non-goal)
 
-A `.github/workflows/live.yml` running `nox -s live` on PRs (and optionally on a
-schedule for API-drift detection), separate from `ci.yml` so a missing/expired
-tenant credential degrades gracefully without blocking the offline matrix.
+There is **no** `.github/workflows/live.yml`, by decision: running mutating CRUD
+against a real tenant on every push (or a schedule) is not a goal — `nox -s live`
+stays an advisory, local phase-boundary gate the author runs with local creds. The
+CI real-artifact coverage that *is* automated is the offline path: the `smoke` job
+builds every enrolled SDK and runs the ring-3 `pytest -m real_sdk` tests, and the
+`sdk-docs`/`cli-docs` jobs build the docs sites under `mkdocs --strict`.
 
 ---
 
