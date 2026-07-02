@@ -17,7 +17,7 @@ Or use a named environment:
 ```bash
 {{ distribution }} environment create prod {% for c in credentials %}--{{ c.name | replace("_", "-") }} ...{% if not loop.last %} {% endif %}{% endfor %}
 
-{{ distribution }} show {{ showcase.object }} --environment prod
+{{ distribution }} show {{ showcase.path }} --environment prod
 ```
 
 {% endif %}## {% if has_auth %}3{% else %}2{% endif %}. Run your first commands
@@ -47,8 +47,8 @@ Or use a named environment:
 {% endif %}## {% if has_auth %}4{% else %}3{% endif %}. Choose an output format
 
 ```bash
-{{ distribution }} show {{ showcase.object }} --output json
-{{ distribution }} show {{ showcase.object }} --output table
+{{ distribution }} show {{ showcase.path }} --output json
+{{ distribution }} show {{ showcase.path }} --output table
 ```
 
 See [Output & formatting](guides/output.md).

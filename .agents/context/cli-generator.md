@@ -35,7 +35,10 @@ is a hard build error, as is a federated non-CRUD op left with no cli.yml mappin
 allowlist — a *non-empty* map builds CLI ONLY for its listed subs (∩ `_SUBPACKAGES`,
 iterated in `_SUBPACKAGES` order); a sub not listed is skipped entirely, so a
 federated CLI can ship a thin slice (e.g. prisma-access P0 = `objects` + `incidents`)
-without mapping every other sub's non-CRUD ops. An *empty/absent* map enrolls ALL
+without mapping every other sub's non-CRUD ops, then widen to the full surface — P1
+enrolls all 12 prisma-access subs, each listed sub mapping its non-CRUD ops into the
+`request` namespace (32 across config/identity/network/posture/security/ztna) so the
+fail-loud build stays green. An *empty/absent* map enrolls ALL
 subs (a config-less federated build stays backward-compatible). A sub listed but
 absent from `_SUBPACKAGES` is a typo → hard error. Region/tenant connection headers
 are NOT in cli.yml: they live once in the product's sdk.yml `default_headers` and
@@ -117,15 +120,17 @@ They wire the three pipeline stages together:
    `errors_field` → product-AGNOSTIC `fallback_keys`) and carries NO product-specific
    error keys; with no error component the default generic envelope applies. The
    `default_headers` parameter (the product's `ProductConfig.default_headers`,
-   region/tenant `HeaderSpec`s) is enriched the same way into
+   region `HeaderSpec`) is enriched the same way into
    `ir.connection_fields`: non-secret "environment fields" that ride the SAME
-   named-environment seams as credentials (prompted/stored per environment,
-   exported to their `env` var BEFORE the SDK client is built, overridable by a
-   per-field global `--<field>` flag). A `has_env` ctx flag (`credential_fields or
+   named-environment seams as credentials (prompted/stored per environment via
+   `environment create --<field>`, exported to their `env` var BEFORE the SDK client
+   is built). There is NO per-command override flag — connection settings come from
+   the named environment (or its env var) only; resolution is `env var > active
+   environment`. A `has_env` ctx flag (`credential_fields or
    connection_fields`) gates the SHARED environment infrastructure so it is emitted
-   whenever EITHER is present; `connection_views` carries each header's derived flag
-   name (`field.name.split("-")[-1].lower()`, colliding pairs fall back to the full
-   kebab header). It
+   whenever EITHER is present; `connection_views` (consumed only by the
+   `environment`/`config` templates, never per command) carries each header's derived
+   flag name (`field.name.split("-")[-1].lower()`). It
    `ruff`-formats only the files it wrote, then emits
    the hand-owned files (`main.py`, `hooks.py`, `custom/__init__.py`) ONCE (never
    overwritten on rebuild). `cli_build` then lays down the project scaffold via
@@ -339,7 +344,14 @@ keys / param names / objects fail the build loudly.
   exported to their `env` var in `runtime._client` BEFORE the SDK client is built
   (the SDK reads e.g. `PANW_REGION` from the environment — no header kwarg). Each
   emits one global `--<field>` flag (Connection help-panel) layered
-  `--flag > {field.env} env var > active-environment value`. The `--flag` value is
+  `--flag > {field.env} env var > active-environment value`. **Per-command collision
+  filter** (`render_cli._command_view`): a global connection flag is omitted from the
+  signature AND `set_connection_overrides` call of any command whose own path/body/query
+  field already renders that `py_name` — declaring the parameter twice would be a
+  `SyntaxError` (e.g. prisma-access `remote_network`'s `region` body field vs the
+  X-PANW-Region flag). The header value still flows from env / active-env / config and
+  the pre-flight still enforces it; only the redundant per-command flag is dropped, and
+  non-colliding connection flags on the same command are untouched. The `--flag` value is
   threaded through `runtime.set_connection_overrides` (a per-command contextvar);
   `config.resolve_connection` resolves the active-env value; the per-field env-var
   baked list is `config._CONN_FIELDS`. Single-spec CLIs (no `default_headers`) emit
@@ -375,7 +387,16 @@ autodoc Python; the CLI's user surface is the command tree). See
   repo_url, description)` shapes the render context (per-object command groups, the
   `showcase` object/variant, guide-gating flags, credentials, the `error_envelope`
   sub-dict). It validates `showcase_object` against the IR objects (fail-loud);
-  `CONTEXT_KEYS` pins the producer/template contract.
+  `CONTEXT_KEYS` pins the producer/template contract. **Federation-aware:** when any
+  `Command` carries a `subpackage`, it ALSO emits a `subpackages` key — a list of
+  `{slug, title, objects}` groups (sorted by slug) — and `render_cli` writes one
+  reference folder per sub-package (`docs/reference/<slug>/<object>.md`) with a nav
+  section per sub, mirroring the federated SDK docs' `reference/<slug>/…` shape (the
+  SHAPE is mirrored, not the code — separation of duty). Single-spec IRs leave
+  `subpackages` `None` and render the flat `reference/<object>.md` layout, byte-identical
+  to before. The `showcase.path` (and `examples.render_invocation`) prepend the kebab
+  sub-package segment so federated Quickstart/per-command examples read
+  `prisma-access create objects address …`.
 - `examples.py` — synthesizes required-only invocation examples (`render_invocation`)
   + a per-flag value strategy (`example_value`). Deliberately NOT shared with
   `sdk/examples.py` (different output: shell vs Python constructor); it DOES share
@@ -388,7 +409,10 @@ autodoc Python; the CLI's user surface is the command tree). See
   (showcase-driven, honoring `showcase_variant`), per-object `reference_object`,
   four guides (output/errors always; authentication gated on credentials,
   pagination on any paginated command), and `mkdocs.yml` with an explicit
-  IR-generated `nav`.
+  IR-generated `nav`. The `mkdocs.yml` nav gates on `subpackages`: a federated build
+  nests the Command Reference as sub-package → object; the single-spec `{% else %}`
+  branch is the verbatim flat loop (byte-identical). `reference_object` is unchanged
+  for both — only the page path/nav level differs.
 - Scaffold seam: `build_cli_scaffold_context` sets `cli_docs = (cli.yml docs is not
   None)` while keeping the SDK `has_docs` flag False — so the shared SDK-flavored
   docs templates never fire for a CLI. The shared `pyproject.toml` / `noxfile.py` /

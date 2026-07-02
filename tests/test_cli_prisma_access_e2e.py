@@ -222,6 +222,72 @@ def test_offline_objects_dry_run_without_region_or_creds(
     assert "Traceback" not in out and "RuntimeError" not in out
 
 
+# --- P1: the newly-enrolled subs (all 12 now mapped) ------------------------
+
+
+def test_offline_request_new_sub_leaf_resolves(built_cli: dict[str, Any]) -> None:
+    """A P1-enrolled sub's non-CRUD `request` leaf resolves and is well-formed.
+
+    ``config_setup`` (enrolled in P1) maps ``publish_snippet_snapshot`` to
+    ``request config-setup snippet-snapshot publish``. Its ``--help`` must resolve to
+    a real leaf command (exit 0, body flags rendered) — never "No such command".
+    Mirrors ``test_offline_request_incidents_help``, one level deeper (a P1 sub's leaf).
+    """
+    res = CliRunner().invoke(
+        built_cli["app"],
+        ["request", "config-setup", "snippet-snapshot", "publish", "--help"],
+    )
+    assert res.exit_code == 0, res.output
+    out = _strip_ansi(res.output)
+    assert "No such command" not in out
+    assert "--validation" in out  # a body flag — proves the leaf carries its body
+
+
+def test_offline_ztna_command_region_preflight_exits_2(
+    built_cli: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A ``ztna_connector`` command pre-flights X-PANW-Region (ztna IS in the header's
+    ``required_for``): with PANW_REGION unset the command exits 2 BEFORE any network,
+    naming the missing env var — unlike an ``objects`` command, which needs no region
+    (``test_offline_objects_dry_run_without_region_or_creds``).
+
+    The connection pre-flight runs ahead of the credential check, so it fires first
+    even with credentials also unset. ``show ztna-connector connector`` with no
+    ``--id`` is a list dispatch — a REAL invocation, not ``--dry-run`` (which returns
+    before the pre-flight). The PANW_REGION substring distinguishes the pre-flight
+    from a bare "no such command" exit-2.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))  # isolate: no real environments.yml
+    for var in ("PANW_REGION", "PRISMA_ACCESS_ENVIRONMENT", *_REQUIRED_ENV):
+        monkeypatch.delenv(var, raising=False)
+    res = CliRunner().invoke(built_cli["app"], ["show", "ztna-connector", "connector"])
+    assert res.exit_code == 2, res.output
+    assert "PANW_REGION" in _strip_ansi(res.output)
+
+
+def test_offline_remote_network_has_body_region_and_no_connection_panel(
+    built_cli: dict[str, Any],
+) -> None:
+    """Per-command connection override flags were removed — region comes from the named
+    environment (or env var) only, never a per-command `--region`/`--tenant`.
+    ``deployment_services`` `remote_network` carries a ``region`` BODY field, so it
+    surfaces as a real payload ``--region`` flag; there is NO Connection panel and no
+    ``--tenant`` anywhere (the redundant prisma-tenant header was removed). This also
+    means the old connection-vs-body collision class is gone (no connection flag to
+    clash with the body `region`). Region for region-requiring subs is enforced by
+    the pre-flight against env / active-env (see the ztna region pre-flight test).
+    """
+    res = CliRunner().invoke(
+        built_cli["app"],
+        ["create", "deployment-services", "remote-network", "--help"],
+    )
+    assert res.exit_code == 0, res.output
+    out = _strip_ansi(res.output)
+    assert "--region" in out  # the BODY field survives (a real payload flag)
+    assert "--tenant" not in out  # no connection override; prisma-tenant removed
+    assert "Connection" not in out  # the per-command Connection panel is gone
+
+
 # --- live CRUD round-trip (skips cleanly without credentials) ---------------
 
 

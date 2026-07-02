@@ -94,7 +94,12 @@ def _model_to_schema(
 
     fields = []
     for fname, f in cls.model_fields.items():
-        if fname == "additional_properties":
+        # openapi-generator wrapper bookkeeping, not request payload — skip at
+        # capture so it never reaches the --help / docs skeleton: additional_properties
+        # (free-form map) + the oneOf/anyOf scaffolding (one_of_schemas = variant class
+        # names as a set; actual_instance = the resolved member). The set is also not
+        # JSON-serializable, so skipping removes the docs-skeleton leak at the source.
+        if fname in ("additional_properties", "one_of_schemas", "actual_instance"):
             continue
         tp = f.annotation
         kind = typing.cast(FlagKind, field_kind(tp))

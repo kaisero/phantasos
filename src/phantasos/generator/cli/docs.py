@@ -77,6 +77,7 @@ CONTEXT_KEYS = frozenset(
         "sdk_package",
         "env_prefix",
         "objects",
+        "subpackages",
         "showcase",
         "has_auth",
         "show_pagination_guide",
@@ -93,11 +94,25 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip() if text else ""
 
 
+def _json_default(o: object) -> object:
+    """JSON fallback for the copy-&-fill body skeleton. openapi-generator wrapper
+    fields (e.g. ``one_of_schemas``) default to a Python ``set``, which ``json.dumps``
+    can't encode; render it as a sorted array. Anything else is still a loud error."""
+    if isinstance(o, (set, frozenset)):
+        return sorted(o, key=str)
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 def _usage(c: Command) -> str:
-    """Lean reference heading: ``verb object [leaf]`` — no distribution prefix and no
-    ``[OPTIONS]``. The flag tables document the options; the synthesized example shows
-    the full runnable command."""
-    parts = [c.verb, c.object]
+    """Lean reference heading: ``verb [sub-package] object [leaf]`` — no distribution
+    prefix and no ``[OPTIONS]``. The flag tables document the options; the synthesized
+    example shows the full runnable command. A federated command includes its kebab
+    sub-package segment (e.g. ``request config-operations config-version push``) so the
+    heading matches the real invocation; single-spec (no subpackage) is unchanged."""
+    parts: list[str] = [c.verb]
+    if c.subpackage:
+        parts.append(c.subpackage.replace("_", "-"))
+    parts.append(c.object)
     third = leaf(c)
     if third:
         parts.append(third)
@@ -226,7 +241,11 @@ def _command_view(
         "example": render_invocation(
             c, distribution=distribution, override=override, models=models
         ),
-        "body_skeleton": json.dumps(body_skeleton, indent=2) if body_skeleton else "",
+        "body_skeleton": (
+            json.dumps(body_skeleton, indent=2, default=_json_default)
+            if body_skeleton
+            else ""
+        ),
         "columns": [{"header": col.header, "path": col.path} for col in c.columns],
     }
 
@@ -235,8 +254,13 @@ def _showcase(
     commands: list[Command], obj: str, variant: str | None
 ) -> dict[str, object]:
     verbs = {c.verb for c in commands if c.object == obj}
+    sub = next((c.subpackage for c in commands if c.object == obj), None)
     return {
         "object": obj,
+        # The command path the user types for this object. A federated CLI nests the
+        # object under its (kebab) sub-package, so the Quickstart's `show <object>`
+        # examples need the sub segment; single-spec -> just the object (unchanged).
+        "path": f"{sub.replace('_', '-')} {obj}" if sub else obj,
         # The oneOf create variant the Quickstart should showcase (D6); None when
         # the object's create is not a union or no variant was configured.
         "variant": variant,
@@ -286,22 +310,43 @@ def build_cli_docs_context(
             f"docs.examples has keys matching no command: {unknown_examples}; "
             f"valid command keys: {sorted(command_keys)}"
         )
-    grouped: list[dict[str, object]] = [
-        {
-            "object": obj,
-            "commands": [
-                _command_view(
-                    c,
-                    distribution=distribution,
-                    override=docs.examples.get(c.key),
-                    models=ir.models,
-                )
-                for c in ir.commands
-                if c.object == obj
-            ],
-        }
-        for obj in objects
-    ]
+
+    def _group(commands: list[Command]) -> list[dict[str, object]]:
+        return [
+            {
+                "object": obj,
+                "commands": [
+                    _command_view(
+                        c,
+                        distribution=distribution,
+                        override=docs.examples.get(c.key),
+                        models=ir.models,
+                    )
+                    for c in commands
+                    if c.object == obj
+                ],
+            }
+            for obj in sorted({c.object for c in commands})
+        ]
+
+    grouped = _group(ir.commands)
+    # Federated CLI: ALSO group by sub-package -> object, mirroring the SDK docs'
+    # `reference/<slug>/…` shape (one nav section + folder per sub-package). `None`
+    # for single-spec so the flat `objects` layout — and its byte-identical render —
+    # is untouched.
+    slugs = sorted({c.subpackage for c in ir.commands if c.subpackage})
+    subpackages: list[dict[str, object]] | None = (
+        [
+            {
+                "slug": slug,  # snake: the reference/<slug>/ path + nox asserts
+                "title": slug.replace("_", "-"),  # kebab: matches the CLI command group
+                "objects": _group([c for c in ir.commands if c.subpackage == slug]),
+            }
+            for slug in slugs
+        ]
+        if slugs
+        else None
+    )
     has_auth = bool(ir.credential_fields)
     env = ir.error_envelope
     return {
@@ -312,6 +357,7 @@ def build_cli_docs_context(
         "sdk_package": ir.sdk_package,
         "env_prefix": env_prefix,
         "objects": grouped,
+        "subpackages": subpackages,
         "showcase": _showcase(ir.commands, docs.showcase_object, docs.showcase_variant),
         "has_auth": has_auth,
         "show_pagination_guide": any(c.paginated for c in ir.commands),

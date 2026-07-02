@@ -245,6 +245,11 @@ def _command_view(
     # Dedup flags via the shared helper so the docs command reference can't drift
     # from the emitted flag set (design D2): path wins over body, body over query.
     deduped_body, deduped_query = dedupe_flags(c)
+    all_flags = [
+        *(_flag_view(f) for f in c.path_params),
+        *(_flag_view(f, models=models) for f in deduped_body),
+        *(_flag_view(f, _query_panel(f)) for f in deduped_query),
+    ]
     return {
         "key": c.key,
         "func_name": _func_name(c),
@@ -257,11 +262,7 @@ def _command_view(
         "path_params": [_flag_view(f) for f in c.path_params],
         "body_flags": [_flag_view(f, models=models) for f in deduped_body],
         "query_flags": [_flag_view(f) for f in deduped_query],
-        "all_flags": [
-            *(_flag_view(f) for f in c.path_params),
-            *(_flag_view(f, models=models) for f in deduped_body),
-            *(_flag_view(f, _query_panel(f)) for f in deduped_query),
-        ],
+        "all_flags": all_flags,
     }
 
 
@@ -522,12 +523,24 @@ def _render_docs(
 
     render_doc("docs/index.md.jinja", "docs/index.md")
     render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
-    for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
-        render_doc(
-            "docs/reference_object.md.jinja",
-            f"docs/reference/{obj['object']}.md",
-            obj=obj,
-        )
+    subpackages = cast("list[dict[str, object]] | None", doc_ctx["subpackages"])
+    if subpackages:
+        # Federated: one folder per sub-package — reference/<slug>/<object>.md
+        # (mirrors the SDK docs' reference/<slug>/… grouping).
+        for sub in subpackages:
+            for obj in cast("list[dict[str, object]]", sub["objects"]):
+                render_doc(
+                    "docs/reference_object.md.jinja",
+                    f"docs/reference/{sub['slug']}/{obj['object']}.md",
+                    obj=obj,
+                )
+    else:
+        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+            render_doc(
+                "docs/reference_object.md.jinja",
+                f"docs/reference/{obj['object']}.md",
+                obj=obj,
+            )
     render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
     render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
     if doc_ctx["has_auth"]:

@@ -74,34 +74,17 @@ def _selected_environment() -> str | None:
 {% endif -%}
 {% if ir.connection_fields %}
 
-# Per-invocation connection-header overrides (the global --<field> flags),
-# keyed by env var. A contextvar so each command's overrides are scoped to it
-# and never leak across CliRunner invocations sharing the imported module.
-_CONN_OVERRIDES: contextvars.ContextVar[dict[str, str | None]] = (
-    contextvars.ContextVar("conn_overrides", default={})
-)
-
-
-def set_connection_overrides(overrides: dict[str, str | None]) -> None:
-    """Record this command's connection-field overrides (None = flag not given)."""
-    _CONN_OVERRIDES.set(overrides)
-
-
-def _connection_overrides() -> dict[str, str | None]:
-    return _CONN_OVERRIDES.get()
-
 
 def _preflight_connection(cmd: Command) -> None:
     """Exit 2 if a connection field required for this command's sub-package is missing.
 
     A field is required for this invocation when field.required is True OR
     cmd.subpackage is in field.required_for. Resolution mirrors _client():
-    --flag override > exported env var > active-environment value.
+    exported env var > active-environment value (region lives in the env config).
     """
     from . import config as _config
 
     name = _selected_environment()
-    conn_overrides = _connection_overrides()
     conn_resolved = _config.resolve_connection(name)
     for f in _ir().connection_fields:
         needed = f.required or (
@@ -110,16 +93,10 @@ def _preflight_connection(cmd: Command) -> None:
         if not needed:
             continue
         # ponytail: or-chain treats an empty string as absent (an empty region
-        # header is meaningless and the SDK would reject it); _client() uses
-        # is-not-None — the divergence only matters for an explicit `--flag ""`.
-        val = (
-            conn_overrides.get(f.env)
-            or os.environ.get(f.env)
-            or conn_resolved.get(f.env)
-        )
+        # header is meaningless and the SDK would reject it).
+        val = os.environ.get(f.env) or conn_resolved.get(f.env)
         if not val:
-            # f.flag is the collision-aware flag baked onto the IR at build time,
-            # so the hint always matches the emitted --flag (fallback for safety).
+            # f.flag is the field's `environment create --<flag>` spelling.
             flag = f.flag or f.name.split("-")[-1].lower()
             sub = cmd.subpackage
             if sub and sub in f.required_for:
@@ -135,7 +112,7 @@ def _preflight_connection(cmd: Command) -> None:
                 headline,
                 code=2,
                 hint=(
-                    f"set {f.env} (env var or .env), pass --{flag}, "
+                    f"set {f.env} (env var or .env) "
                     f"or run 'environment create <name> --{flag} <value>'"
                 ),
             )
@@ -198,13 +175,9 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
 {%- if ir.connection_fields %}
     # Connection headers: export each to its env var BEFORE building the client
     # (the SDK reads them from the environment; there is no kwarg path).
-    # Precedence: --<field> flag > exported env var > active-environment value.
-    conn_overrides = _connection_overrides()
+    # Precedence: exported env var > active-environment value (the env config).
     for env_var, active_val in _config.resolve_connection(name).items():
-        flag_val = conn_overrides.get(env_var)
-        if flag_val is not None:
-            os.environ[env_var] = flag_val
-        elif env_var not in os.environ and active_val is not None:
+        if env_var not in os.environ and active_val is not None:
             os.environ[env_var] = active_val
 {%- endif %}
 {%- if ir.credential_fields %}

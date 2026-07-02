@@ -119,6 +119,89 @@ def test_showcase_variant_threaded() -> None:
     assert showcase["variant"] == "simple"
 
 
+def test_single_spec_ir_has_no_subpackage_grouping() -> None:
+    """No Command.subpackage -> flat layout (byte-identical single-spec): subpackages
+    is None and the showcase command path is the bare object (no sub segment)."""
+    ctx = build_cli_docs_context(
+        _ir(),
+        CliDocsConfig(showcase_object="widget"),
+        distribution="acmecli",
+        site_name="x",
+    )
+    assert ctx["subpackages"] is None
+    assert cast("dict[str, object]", ctx["showcase"])["path"] == "widget"
+
+
+def test_federated_ir_groups_by_subpackage_then_object() -> None:
+    """A federated IR (every Command stamped with a snake slug) groups the docs by
+    sub-package -> object, mirroring the SDK docs' reference/<slug>/… shape."""
+    ir = CliIR(
+        sdk_package="prisma_access",
+        sdk_version="1",
+        commands=[
+            Command(
+                verb="create",
+                object="address",
+                key="create:address",
+                sdk_resource="addresses",
+                subpackage="objects",
+                body_flags=[_flag("--name")],
+            ),
+            Command(
+                verb="show",
+                object="address",
+                key="show:address",
+                sdk_resource="addresses",
+                subpackage="objects",
+            ),
+            Command(
+                verb="show",
+                object="remote-network",
+                key="show:remote-network",
+                sdk_resource="remote_networks",
+                subpackage="network_services",
+            ),
+        ],
+    )
+    ctx = build_cli_docs_context(
+        ir,
+        CliDocsConfig(showcase_object="address"),
+        distribution="prisma-access",
+        site_name="x",
+    )
+    subs = cast("list[dict[str, object]]", ctx["subpackages"])
+    assert [s["slug"] for s in subs] == ["network_services", "objects"]  # sorted
+    objs = next(s for s in subs if s["slug"] == "objects")
+    obj_groups = cast("list[dict[str, object]]", objs["objects"])
+    assert [o["object"] for o in obj_groups] == ["address"]
+    # The showcase command path nests the object under its kebab sub-package, and the
+    # synthesized example carries the sub segment (render_invocation fix).
+    assert cast("dict[str, object]", ctx["showcase"])["path"] == "objects address"
+    create = next(
+        c
+        for s in subs
+        for o in cast("list[dict[str, object]]", s["objects"])
+        for c in _commands(o)
+        if c["key"] == "create:address"
+    )
+    assert cast("str", create["example"]).startswith(
+        "prisma-access create objects address"
+    )
+    # The HEADING (usage) mirrors the real invocation: verb + kebab sub-package +
+    # object (+ leaf) — not the bare `create address` that silently dropped the
+    # sub-package and so didn't match what the user actually types.
+    assert create["usage"] == "create objects address"
+    show_rn = next(
+        c
+        for s in subs
+        for o in cast("list[dict[str, object]]", s["objects"])
+        for c in _commands(o)
+        if c["key"] == "show:remote-network"
+    )
+    # snake slug `network_services` -> kebab `network-services` in the heading
+    assert show_rn["usage"] == "show network-services remote-network"
+
+
 def test_context_key_set_is_the_documented_contract() -> None:
     ctx = build_cli_docs_context(
         _ir(),
