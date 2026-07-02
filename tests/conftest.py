@@ -37,25 +37,53 @@ REAL_SDK = Path(__file__).resolve().parent.parent.parent / "prisma-browser-sdk"
 def _stale_sdk_reason() -> str | None:
     """Skip reason if the built SDK is stale vs the generator, else ``None``.
 
-    Compares the SDK's ``.build-stamp`` (generator SHA at build time) to the
-    current phantasos HEAD. A missing stamp (older builds / pip-installed
-    generator) or an unresolvable HEAD means "can't tell" → don't skip. Set
-    ``PHANTASOS_ALLOW_STALE_SDK=1`` to force-run against a stale artifact.
+    The SDK's ``.build-stamp`` records the generator SHA at build time. The SDK is
+    stale only if the generator source (``src/phantasos`` + the product's own
+    ``products/prisma-browser``) actually changed since — a diff of the *working
+    tree* against that commit, so it catches both later commits AND uncommitted
+    generator edits, while ignoring unrelated commits (docs, other products). A
+    missing stamp (older builds / pip-installed generator) or an unresolvable
+    stamp commit means "can't tell" → don't skip. Set ``PHANTASOS_ALLOW_STALE_SDK=1``
+    to force-run against a stale artifact.
     """
     if os.environ.get("PHANTASOS_ALLOW_STALE_SDK"):
         return None
     stamp = REAL_SDK / ".build-stamp"
     if not stamp.exists():
         return None
-    from phantasos.generator.sdk.build import _generator_sha
+    built = stamp.read_text().strip()
+    if not built:
+        return None
+    import subprocess
 
-    built, current = stamp.read_text().strip(), _generator_sha()
-    if current and built and built != current:
-        return (
-            f"prisma-browser-sdk built from generator {built[:8]}, HEAD is "
-            f"{current[:8]} — rebuild: nox -s smoke (or PHANTASOS_ALLOW_STALE_SDK=1)"
-        )
-    return None
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        # --quiet exits 1 when the paths differ between `built` and the worktree,
+        # 0 when identical, 128 when `built` is unknown to this checkout.
+        rc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "diff",
+                "--quiet",
+                built,
+                "--",
+                "src/phantasos",
+                "products/prisma-browser",
+            ],
+            capture_output=True,
+            timeout=5,
+        ).returncode
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if rc != 1:  # 0 = generator unchanged since build; 128 = unknown SHA → can't tell
+        return None
+    return (
+        f"prisma-browser-sdk is stale: the generator (src/phantasos or "
+        f"products/prisma-browser) changed since it was built at {built[:8]} — "
+        f"rebuild: nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
+    )
 
 
 @pytest.fixture
