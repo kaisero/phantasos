@@ -228,8 +228,8 @@ def test_all_pages_walks_and_injects_sort(
         ``order=asc`` into the raw list call (cursor pagination requires an
         explicit sort);
     (b) walk more than one page (the fake first page carries a cursor);
-    (c) record a history entry with status ``success``; if ``http_uri`` is
-        present it must end with ``/applications``.
+    (c) record a history entry with status ``success``; on the recorder-api
+        path ``http_uri`` is not captured, so its absence is asserted.
     """
     import prisma_browser.extras.facade as facade
     from prisma_browser.extras.resources import ApplicationResource
@@ -329,13 +329,13 @@ def test_all_pages_walks_and_injects_sort(
     #     recorder-api path bypasses — absence is expected and noted).
     hist = importlib.import_module("prisma_browser_cli._generated.history")
     entries, _ = hist.read_entries(0)
-    if entries:
-        entry = entries[-1]
-        assert entry["status"] == "success", f"history status: {entry}"
-        if "http_uri" in entry:
-            assert entry["http_uri"].endswith("/applications"), (
-                f"http_uri: {entry['http_uri']!r}"
-            )
+    assert entries, "expected a history entry for the --all run"  # precondition, strict
+    entry = entries[-1]
+    assert entry["status"] == "success", f"history status: {entry}"
+    # http_uri is only captured when call_api fires; the recorder-api path bypasses
+    # it, so its ABSENCE is the documented behavior on this path (verified). Pin the
+    # absence rather than a never-executed `if "http_uri" in entry` branch.
+    assert "http_uri" not in entry, f"unexpected http_uri on recorder-api path: {entry}"
 
 
 # ---------------------------------------------------------------------------
@@ -393,5 +393,5 @@ def test_dry_run_parity_show_by_id(real_cli: Path) -> None:
     assert res.exit_code == 0, res.output
     out = res.output
     assert "GET" in out
-    assert "APP-99" in out or "/applications" in out
+    assert "/applications/APP-99" in out  # id lands in the path (was: "APP-99" or "/…")
     assert "get_application_by_id(" not in out  # NOT the old call-reference string
