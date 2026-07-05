@@ -45,6 +45,33 @@ def _about_text(spec_version: str | None, oag_version: str) -> str:
     )
 
 
+def _generator_sha() -> str | None:
+    """The phantasos SOURCE git SHA, or ``None`` when not a git checkout.
+
+    Used to stamp built SDKs (``.build-stamp``) so the ring-3 real-artifact
+    tests can detect an SDK built from a different generator commit than the one
+    under test. Returns ``None`` when phantasos is pip-installed (no ``.git``),
+    in which case no stamp is written and staleness simply isn't checked.
+
+    ponytail: SHA of HEAD only — catches cross-branch / behind-develop staleness,
+    not uncommitted generator edits. Rebuild (``nox -s smoke``) after editing the
+    generator; upgrade path is appending a ``git status --porcelain`` dirty flag.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[4]  # src/phantasos/generator/sdk/ -> repo
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
 def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     from . import smoke
 
@@ -59,6 +86,13 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
 
     # Scaffold the distribution once (built-in + per-product overrides, overwrite).
     _scaffold(loaded, project_dir)
+
+    # Stamp the built SDK with the generator SHA so the ring-3 real-artifact tests
+    # can flag a stale sibling SDK (built from a different phantasos commit). Omitted
+    # when phantasos isn't a git checkout — then staleness just isn't checked.
+    sha = _generator_sha()
+    if sha:
+        (project_dir / ".build-stamp").write_text(sha + "\n")
 
     # Smoke (federated: the parent `<package>` has no api/, so this is a no-op count
     # until P2 makes the import-walk per sub-package).

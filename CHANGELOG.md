@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CI verification rebalanced toward the real artifact.** The stop-hook/offline
+  gate no longer runs the two end-to-end OAG/Java builds (`pytest -m "not slow"`),
+  keeping it fast; their coverage moves to CI. The ring of tests that reflect over
+  the *real* built SDK now runs in the `smoke` job (`pytest -m real_sdk`, via a
+  single `real_sdk` fixture that replaces the per-file `../prisma-browser-sdk`
+  path constants) — the only CI place emitted-shape drift (e.g. an OAG bump) turns
+  red. `prisma-access` is enrolled in `smoke`, a `sdk-docs` CI job now runs the
+  docs-fidelity asserts, and `nox -s live` is documented as advisory/local (no
+  `live.yml`). Built SDKs carry a `.build-stamp` (generator SHA, git-ignored) so
+  the real-artifact tests skip-loudly against a stale local build.
+
 ### Added
 - **Generated CLIs load commands lazily (much faster startup)** — a `cli build`-generated CLI now imports only the module for the command actually invoked — a plain command skips the CLI's own `config`/`environment`/`which`/`show cli` sub-apps entirely (they import only when their level is invoked or its `--help` is rendered) — instead of importing every command module and registering all commands at startup. A `_LazyGroup` — subclassing Typer's group, so Rich help, shell completion, did-you-mean, and the hand-owned `main.py` `add_typer` extension contract are all unchanged — resolves `verb → sub-package → object → leaf` from a static registry, importing on demand. For the 648-command prisma-access CLI this cuts cold start dramatically: `--help` **2.0s → 0.58s (~3.4×)** and a command like `show objects address` **1.16s → 0.32s (~3.6×)**; the win scales with command count. Single-spec CLIs benefit identically and stay behaviorally unchanged.
 - **Federated (multispec) CLI generation** — `cli build` can now generate a CLI that spans a federated SDK's sub-packages, producing a `verb → sub-package → object` command hierarchy from a single `cli.yml` with a `subpackages:` enrollment map. The map is an allowlist: list the subs to include (e.g. objects + incidents for a first release), or omit it to enroll all. Cross-sub object-name collisions and unmapped federated non-CRUD operations are hard build errors. Single-spec CLIs are behaviorally unchanged.

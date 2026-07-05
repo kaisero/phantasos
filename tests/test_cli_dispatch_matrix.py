@@ -6,7 +6,7 @@ These cover behaviour the golden snapshot cannot verify:
   - that the history entry records the first-page URI ending in `/applications`
   - dry-run parity (method + URL + body present in output for a fixed set)
 
-All tests that need the real SDK are gated with ``skipif(not REAL_SDK.exists())``.
+All tests that need the real SDK require the ``real_sdk`` fixture.
 """
 
 from __future__ import annotations
@@ -26,9 +26,6 @@ from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import load_cli_config
 from phantasos.generator.cli.render_cli import render_cli
 
-REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -36,16 +33,15 @@ REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 @pytest.fixture
 def real_cli(
+    real_sdk: Path,
     tmp_path: Path,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> Iterator[Path]:
     """Build the prisma-browser CLI into ``tmp_path``; importable as
     ``prisma_browser_cli``.  Skips when the SDK is absent or its runtime deps
     are missing."""
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
 
@@ -103,7 +99,6 @@ def _make_list_response(items: list[dict[str, Any]], cursor: str | None = None) 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_show_dispatch_matrix(
     real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -208,7 +203,6 @@ def test_show_dispatch_matrix(
     assert "list_applications_by_type" in fired, f"fired={fired}"
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_delete_dispatch_matrix(
     real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -266,7 +260,6 @@ def test_delete_dispatch_matrix(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_all_pages_walks_and_injects_sort(
     real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -391,7 +384,6 @@ def test_all_pages_walks_and_injects_sort(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_dry_run_parity_show_list(real_cli: Path) -> None:
     """``show application --dry-run`` prints GET + /applications, no dispatch."""
     from typer.testing import CliRunner
@@ -406,7 +398,6 @@ def test_dry_run_parity_show_list(real_cli: Path) -> None:
     assert "list_applications(" not in out
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_dry_run_parity_create_device_group(real_cli: Path) -> None:
     """``create device-group --dry-run`` prints POST + /device-groups + body."""
     from typer.testing import CliRunner
@@ -431,7 +422,6 @@ def test_dry_run_parity_create_device_group(real_cli: Path) -> None:
     assert "TestGroup" in out  # body payload present
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
 def test_dry_run_parity_show_by_id(real_cli: Path) -> None:
     """``show application --id X --dry-run`` prints GET + /applications/X."""
     from typer.testing import CliRunner

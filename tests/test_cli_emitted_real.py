@@ -16,8 +16,6 @@ from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.render_cli import render_cli
 from phantasos.productconfig import load_product
 
-REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-
 _APP_VARIANTS = VariantMap(
     path_param="type",
     map={
@@ -28,16 +26,26 @@ _APP_VARIANTS = VariantMap(
     },
 )
 
+# Deterministic env for tests that assert on the LAYOUT of Typer/Rich `--help`
+# output (panel titles like "─ Filters ", hyphenated option names like
+# "--platform"). When the environment forces color/terminal (as GitHub Actions
+# runners do), Rich interleaves dim ANSI escapes into the box border and option
+# names, so those literal substrings are no longer contiguous and the asserts
+# break — even though NO_COLOR is set (NO_COLOR drops colors, not dim/bold
+# styling). `TERM=dumb` disables styling entirely; the fixed COLUMNS keeps
+# wrapping stable. Mirrors the deterministic env in test_cli_emitted.py. Pass to
+# the specific `.invoke(..., "--help")` calls whose output is substring-asserted.
+_HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
+
 
 @pytest.fixture
 def real_cli(
+    real_sdk: Path,
     tmp_path: Path,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> Iterator[Path]:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     cfg = CliConfig(variants={"applications.create_application": _APP_VARIANTS})
@@ -262,14 +270,12 @@ def test_set_application_invalid_json_flag_clean_error(
 
 
 def test_real_cli_build_emits_full_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    real_sdk: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     # cli build introspects (imports) the real SDK; skip when its runtime deps
     # (e.g. python-dateutil) are absent, matching the other real-SDK tests.
     try:
-        introspect("prisma_browser", REAL_SDK)
+        introspect("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     import phantasos.cli as climod
@@ -286,8 +292,8 @@ def test_real_cli_build_emits_full_project(
 
     # Ensure prisma_browser is importable: introspect() inserts sdk_path into sys.path,
     # but tmp_path/prisma-browser-sdk is empty; make the real SDK importable first.
-    if str(REAL_SDK) not in sys.path:
-        sys.path.insert(0, str(REAL_SDK))
+    if str(real_sdk) not in sys.path:
+        sys.path.insert(0, str(real_sdk))
 
     rc = main(["cli", "build", "prisma-browser"])
     assert rc == 0
@@ -340,14 +346,13 @@ def test_real_cli_yml_loads_project_and_variants() -> None:
     assert cfg.request["devices.suspend_devices"].action == "suspend"
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_cli_yml_produces_variant_commands_and_no_unmapped() -> None:
+def test_real_cli_yml_produces_variant_commands_and_no_unmapped(real_sdk: Path) -> None:
     """Phase 3a: building with the real cli.yml fans applications into variant commands
     (each aggregating create + patch) and leaves nothing unmapped."""
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"SDK runtime deps unavailable: {exc}")
     cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
@@ -375,12 +380,11 @@ def test_real_cli_yml_produces_variant_commands_and_no_unmapped() -> None:
 
 
 def test_real_request_commands_dispatch(
+    real_sdk: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     from unittest.mock import MagicMock
 
     from typer.testing import CliRunner
@@ -388,7 +392,7 @@ def test_real_request_commands_dispatch(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"SDK runtime deps unavailable: {exc}")
     cfg = load_cli_config(Path("products/prisma-browser/cli.yml"))
@@ -424,12 +428,11 @@ def test_real_request_commands_dispatch(
 
 
 def test_real_create_api_error_is_pretty(
+    real_sdk: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     monkeypatch.setenv("NO_COLOR", "1")
     from unittest.mock import MagicMock
 
@@ -438,7 +441,7 @@ def test_real_create_api_error_is_pretty(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
@@ -503,12 +506,11 @@ def test_real_create_api_error_is_pretty(
 
 
 def test_real_create_update_delete_device_group(
+    real_sdk: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
     from unittest.mock import MagicMock
 
     from typer.testing import CliRunner
@@ -516,7 +518,7 @@ def test_real_create_update_delete_device_group(
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, unmapped = build_cli_ir(
@@ -540,7 +542,9 @@ def test_real_create_update_delete_device_group(
         main = importlib.import_module("prisma_browser_cli.main")
         runner = CliRunner()
         # --help shows required name + permissive enum choices
-        h = runner.invoke(main.app, ["create", "device-group", "--help"]).output
+        h = runner.invoke(
+            main.app, ["create", "device-group", "--help"], env=_HELP_ENV
+        ).output
         assert "--platform" in h and "Desktop Browser" in h
         import prisma_browser.extras.facade as facade
 
@@ -607,26 +611,27 @@ def test_real_create_update_delete_device_group(
 
 
 def test_real_show_device_help_panels(
+    real_sdk: Path,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    if not REAL_SDK.exists():
-        pytest.skip("prisma-browser-sdk not built")
-    monkeypatch.setenv("NO_COLOR", "1")
     from typer.testing import CliRunner
 
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(str(exc))
     ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
     with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
-        out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
+        out = (
+            CliRunner()
+            .invoke(main.app, ["show", "device", "--help"], env=_HELP_ENV)
+            .output
+        )
         # box-char-anchored: bare "Filter" appears in option help texts
         assert "─ Filters " in out and "─ Pagination " in out
         # a real filter is under Filters; a pagination param is under Pagination
@@ -710,14 +715,13 @@ def test_long_help_text_preserved(real_cli: Path) -> None:
     assert "sort by" in out.lower() or "filter by" in out.lower()
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_ir_carries_columns() -> None:
+def test_real_ir_carries_columns(real_sdk: Path) -> None:
     """The shipped cli.yml columns: resolve + validate against the real SDK."""
     from phantasos.generator.cli.classify import build_cli_ir
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
 
@@ -747,8 +751,7 @@ def test_real_ir_carries_columns() -> None:
     assert any(c.columns for c in shows)
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_ir_dispatch_targets_wrapper_object_and_clean_verb() -> None:
+def test_real_ir_dispatch_targets_wrapper_object_and_clean_verb(real_sdk: Path) -> None:
     """The wrapper-rebase delta is live on the production IR: a command's
     sdk_resource is the `client.<object>` dispatch target (the object attr, e.g.
     `access_and_data_rule` — NOT the backing api-class attr `access_and_data_policy`),
@@ -757,7 +760,7 @@ def test_real_ir_dispatch_targets_wrapper_object_and_clean_verb() -> None:
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
     cfg = load_cli_config(
@@ -771,15 +774,14 @@ def test_real_ir_dispatch_targets_wrapper_object_and_clean_verb() -> None:
     assert get_binding.sdk_method == "get"
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_ir_carries_query_defaults() -> None:
+def test_real_ir_carries_query_defaults(real_sdk: Path) -> None:
     """The shipped defaults: make application --all pagination work (server
     honors cursors only under an explicit sort)."""
     from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.cliconfig import load_cli_config
 
     try:
-        inv = cli_operations("prisma_browser", REAL_SDK)
+        inv = cli_operations("prisma_browser", real_sdk)
     except ImportError as exc:
         pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
 

@@ -101,6 +101,8 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]
+# conftest shells out to `git diff` (fixed argv) for the real_sdk staleness check.
+"tests/conftest.py" = ["S603", "S607"]
 # fixture intentionally mirrors OpenAPI-Generator output (old-style annotations)
 # and the generated wrapper surface (long _bindings/method one-liners, like the
 # emitted extras/resources.py which is not linted)
@@ -110,6 +112,8 @@ ignore = []
 "src/phantasos/generator/sdk/runtime.py" = ["N802"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
 "src/phantasos/generator/sdk/generate.py" = ["S603"]
+# build.py runs `git rev-parse HEAD` (fixed argv, own repo) to stamp the generator SHA.
+"src/phantasos/generator/sdk/build.py" = ["S603", "S607"]
 # render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
 "src/phantasos/generator/cli/render_cli.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
@@ -174,7 +178,10 @@ minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
-markers = ["slow: end-to-end builds (OAG jar / Java) — deselect with -m 'not slow'"]
+markers = [
+    "slow: end-to-end builds (OAG jar / Java) — deselect with -m 'not slow'",
+    "real_sdk: needs the locally-built ../prisma-browser-sdk (ring-3 real-artifact tests); auto-applied via the real_sdk fixture, built by 'nox -s smoke'",
+]
 
 [tool.coverage.run]
 branch = true

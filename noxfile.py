@@ -157,11 +157,17 @@ def gate(session: nox.Session) -> None:
     Run by the Stop hook on every agent turn (see .claude/harness.toml), so it
     must stay fast: ruff + mypy + the offline pytest suite, no coverage, no
     multi-Python matrix. Runs in the invoking environment (``uv run nox``).
+
+    ``-m "not slow"`` deselects the end-to-end OAG/Java builds (the two
+    ``@pytest.mark.slow`` tests in test_sdk_build.py). On a provisioned dev
+    machine those otherwise run on every agent stop — multi-minute Java builds
+    in a gate that "must stay fast". Their coverage lives in the ``smoke`` and
+    ``cli-docs`` CI jobs, which build the same SDKs.
     """
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
     session.run("mypy")
-    session.run("pytest", "-q")
+    session.run("pytest", "-q", "-m", "not slow")
 
 
 @nox.session(venv_backend="none")
@@ -218,16 +224,23 @@ def cli_smoke(session: nox.Session) -> None:
 
 @nox.session
 def smoke(session: nox.Session) -> None:
-    """Build the example SDKs end-to-end.
+    """Build the example SDKs end-to-end, then run the ring-3 real-artifact tests.
 
     phantasos auto-provisions a pinned Temurin JRE 17 on first run (cached under
     ~/.cache/phantasos), so no system Java is required; set PHANTASOS_JAVA to use
     your own JVM. Needs network for the one-time JRE + OAG jar download. Not in
     the default session list. Each SDK is written to a sibling dir of its product dir.
+
+    After the builds, ``pytest -m real_sdk`` runs the ring-3 tests that reflect over
+    the REAL built SDK (typed wrappers, oneOf dispatch, docs fidelity, CLI dispatch).
+    This is the ONE CI place they execute: the matrix ``tests`` job builds no SDK, so
+    they skip there — the failure class an OAG bump would introduce (emitted shape
+    drift) is otherwise invisible in CI. The `real_sdk` marker is auto-applied to any
+    test using the fixture (tests/conftest.py), so this selects the whole ring.
     """
     from phantasos.productconfig import sdk_runtime_deps
 
-    _sync(session)
+    _sync(session, "test")  # `test` group brings in pytest for the ring-3 step below
     # `phantasos sdk build` of a docs:-enabled product (prisma-browser) introspects
     # the freshly generated package in-process (build_docs_context), which imports the
     # SDK's runtime deps (e.g. python-dateutil). Pre-install them so the build's
@@ -235,16 +248,23 @@ def smoke(session: nox.Session) -> None:
     session.install(*sdk_runtime_deps())
     for product in _stage_products("smoke"):
         session.run("phantasos", "sdk", "build", product)
+    # Ring-3: reflect over the freshly-built SDKs. The SDKs live at the sibling paths
+    # the tests expect; the runtime deps are installed above; the SDK is NOT
+    # editable-installed (the tests add it to sys.path themselves), so it stays
+    # invisible to mypy/the gate.
+    session.run("pytest", "-q", "-m", "real_sdk")
 
 
 @nox.session
 def live(session: nox.Session) -> None:
     """Generate each enrolled SDK (nox.toml [live]) and run its live CRUD suite.
 
-    Phase-boundary + CI gate (live.yml). Needs CLIENT_ID/CLIENT_SECRET/SCOPE
-    in the environment (a local ``.env`` is read as a convenience); the suite
-    SKIPS without them, so running this credential-less is safe and green.
-    Needs network + Java (auto-provisioned, like ``smoke``).
+    Advisory / local phase-boundary gate — run manually before declaring a phase
+    or task done. NOT wired into CI: there is no ``live.yml`` (running mutating CRUD
+    against a real tenant on every push is a deliberate non-goal). Needs
+    CLIENT_ID/CLIENT_SECRET/SCOPE in the environment (a local ``.env`` is read as a
+    convenience); the suite SKIPS without them, so running this credential-less is
+    safe and green. Needs network + Java (auto-provisioned, like ``smoke``).
     """
     _sync(session, "test")
     # `sdk build` now introspects the freshly-generated package in-process (to

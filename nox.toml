@@ -12,8 +12,10 @@
 # (phantasos's OWN site is the separate `docs`/`docs-serve` sessions and is not
 # governed here.)
 
+# prisma-access (12-spec federated build) is enrolled so the smoke job gives it an
+# isolated import floor — its build is otherwise only exercised via cli-docs.
 [smoke]
-products = ["prisma-browser", "adem"]
+products = ["prisma-browser", "adem", "prisma-access"]
 
 [live]
 products = ["prisma-browser", "prisma-access"]

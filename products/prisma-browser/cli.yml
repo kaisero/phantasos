@@ -34,24 +34,54 @@ variants:
 # NOTE: request-namespace commands are EMITTED starting in Phase 3b. Until then these
 # entries reserve the mapping (the build skips them cleanly, no "unmapped" warning).
 request:
-  devices.suspend_devices: {object: device, action: suspend}
-  devices.resume_devices: {object: device, action: resume}
-  devices.restore_devices: {object: device, action: restore}
-  devices.archive_devices: {object: device, action: archive}
-  devices.force_reauth_devices: {object: device, action: force-reauth}
-  users.suspend_users: {object: user, action: suspend}
-  users.resume_users: {object: user, action: resume}
-  users.force_reauth_users: {object: user, action: force-reauth}
-  user_requests.action_user_request: {object: user-request, action: action}
-  user_requests.revoke_user_request: {object: user-request, action: revoke}
-  configuration_management.publish_draft_configuration: {object: configuration, action: publish}
+  devices.suspend_devices:
+    object: device
+    action: suspend
+  devices.resume_devices:
+    object: device
+    action: resume
+  devices.restore_devices:
+    object: device
+    action: restore
+  devices.archive_devices:
+    object: device
+    action: archive
+  devices.force_reauth_devices:
+    object: device
+    action: force-reauth
+  users.suspend_users:
+    object: user
+    action: suspend
+  users.resume_users:
+    object: user
+    action: resume
+  users.force_reauth_users:
+    object: user
+    action: force-reauth
+  user_requests.action_user_request:
+    object: user-request
+    action: action
+  user_requests.revoke_user_request:
+    object: user-request
+    action: revoke
+  configuration_management.publish_draft_configuration:
+    object: configuration
+    action: publish
   access_and_data_policy.update_access_and_data_positions:
-    {object: access-and-data-section, action: reorder}
+    object: access-and-data-section
+    action: reorder
   customization_policy.update_customization_positions:
-    {object: customization-section, action: reorder}
-  security_policy.update_security_positions: {object: security-section, action: reorder}
-  security_policy.patch_security_positions: {object: security-section, action: reorder-patch}
-  sign_in_policy.update_sign_in_positions: {object: sign-in-section, action: reorder}
+    object: customization-section
+    action: reorder
+  security_policy.update_security_positions:
+    object: security-section
+    action: reorder
+  security_policy.patch_security_positions:
+    object: security-section
+    action: reorder-patch
+  sign_in_policy.update_sign_in_positions:
+    object: sign-in-section
+    action: reorder
 
 # Deferred to roadmap:
 #   - PUT (update_*) full-replace: returns as a future `update`-fallback (when no PATCH) / `replace` verb.

@@ -6,6 +6,7 @@ install. SDK-specific tests live with each generated SDK, not here.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import os
 import sys
@@ -24,6 +25,93 @@ from phantasos.generator.cli.cliconfig import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+# --- Ring-3 "real artifact" tests -------------------------------------------
+# The single source of truth for the locally-built prisma-browser SDK, a sibling
+# of the repo (products/prisma-browser/sdk.yml `output: ../../../prisma-browser-sdk`).
+# No ring-3 test file redefines this path; they request the `real_sdk` fixture.
+REAL_SDK = Path(__file__).resolve().parent.parent.parent / "prisma-browser-sdk"
+
+
+@functools.cache
+def _stale_sdk_reason() -> str | None:
+    """Skip reason if the built SDK is stale vs the generator, else ``None``.
+
+    The SDK's ``.build-stamp`` records the generator SHA at build time. The SDK is
+    stale only if the generator source (``src/phantasos`` + the product's own
+    ``products/prisma-browser``) actually changed since — a diff of the *working
+    tree* against that commit, so it catches both later commits AND uncommitted
+    generator edits, while ignoring unrelated commits (docs, other products). A
+    missing stamp (older builds / pip-installed generator) or an unresolvable
+    stamp commit means "can't tell" → don't skip. Set ``PHANTASOS_ALLOW_STALE_SDK=1``
+    to force-run against a stale artifact.
+    """
+    if os.environ.get("PHANTASOS_ALLOW_STALE_SDK"):
+        return None
+    stamp = REAL_SDK / ".build-stamp"
+    if not stamp.exists():
+        return None
+    built = stamp.read_text().strip()
+    if not built:
+        return None
+    import subprocess
+
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        # --quiet exits 1 when the paths differ between `built` and the worktree,
+        # 0 when identical, 128 when `built` is unknown to this checkout.
+        rc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "diff",
+                "--quiet",
+                built,
+                "--",
+                "src/phantasos",
+                "products/prisma-browser",
+            ],
+            capture_output=True,
+            timeout=5,
+        ).returncode
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if rc != 1:  # 0 = generator unchanged since build; 128 = unknown SHA → can't tell
+        return None
+    return (
+        f"prisma-browser-sdk is stale: the generator (src/phantasos or "
+        f"products/prisma-browser) changed since it was built at {built[:8]} — "
+        f"rebuild: nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
+    )
+
+
+@pytest.fixture
+def real_sdk() -> Path:
+    """Path to the locally-built prisma-browser SDK for ring-3 real-artifact tests.
+
+    Skips (never fails) when the SDK isn't built, so the ring is a no-op on a
+    fresh checkout and in the CI matrix `tests` job, while running in the `smoke`
+    session (which builds it) and on a provisioned dev machine. Requesting this
+    fixture auto-tags the test with the ``real_sdk`` marker (see
+    ``pytest_collection_modifyitems``), so the whole ring is selectable with
+    ``-m real_sdk`` by construction — a real-artifact test cannot forget the tag.
+    """
+    if not REAL_SDK.exists():
+        pytest.skip("prisma-browser-sdk not built (run: nox -s smoke)")
+    if reason := _stale_sdk_reason():
+        pytest.skip(reason)
+    return REAL_SDK
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Auto-apply the ``real_sdk`` marker to every test requesting that fixture."""
+    for item in items:
+        if "real_sdk" in getattr(item, "fixturenames", ()):
+            item.add_marker("real_sdk")
+
 
 # Tests assert colour behaviour explicitly: CliRunner invokes run non-TTY (Rich emits
 # plain text), and the few colour-positive tests force their own terminal. An ambient

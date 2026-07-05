@@ -8,9 +8,9 @@ declarative product directory.
 Create the product directory:
 
 ```
-products/my-product/
+products/<product>/
 ├── openapi.yml                 # OpenAPI source document
-├── sdk.yml                     # build config (see Config reference below)
+├── sdk.yml                     # SDK config (see config reference below)
 ├── overrides/
 │   └── README.md.jinja         # required — becomes the generated SDK's README
 └── hooks.py                    # optional — Python preprocess/patch hooks
@@ -33,10 +33,7 @@ project:                         # required to scaffold a full project
 Build the SDK, then the CLI:
 
 ```bash
-phantasos sdk build my-product
-# or pass a direct path:
-phantasos sdk build products/my-product/sdk.yml
-phantasos cli build my-product
+phantasos sdk build <product>
 ```
 
 For what each build stage does, see [Architecture](architecture.md). The full
@@ -88,7 +85,7 @@ Writes `extras/auth.py`.
 
 **Built-in type: `scm_oauth`**
 
-Strata Cloud (SCM/SASE) OAuth2 client-credentials grant (Basic creds, form body),
+Strata Cloud Manager (SCM) OAuth2 client-credentials grant (Basic creds, form body),
 auto-refreshing token. The `token_url` is baked in as
 `https://auth.apps.paloaltonetworks.com/oauth2/access_token` — override only if
 targeting a different IdP endpoint.
@@ -108,16 +105,16 @@ auth:
 
 Writes `extras/pagination.py`.
 
-**Built-in type: `cursor`**
+**Built-in type: `cursor` and `offset`**
 
 Cursor paging: items under `data_field`, cursor under `page_info`.
 
 ```yaml
 pagination:
   type: cursor
-  data_field: data            # default
-  page_info_field: page_info  # default
-  cursor_field: cursor        # default
+  data_field: data               # default
+  page_info_field: page_info     # default
+  cursor_field: cursor           # default
   has_next_field: has_next_page  # default
 ```
 
@@ -125,7 +122,7 @@ pagination:
 
 Writes `extras/errors.py`.
 
-**Built-in type: `nested`**
+**Built-in type: `nested` and `list`**
 
 Helpers over typed exceptions; extracts a message from
 `body[error_field][message_field]`.
@@ -386,10 +383,17 @@ errors: {type: nested}
 facade: true
 transforms:
   hoist:
-    - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
-    - {schema: LaunchingExternalApplicationsControl, field: exceptions, item: ExternalApplicationLaunchException}
+    - schema: AllowedOrBlockedExtensionsControl
+      field: extensions
+      item: AllowedOrBlockedExtensionEntry
+    - schema: LaunchingExternalApplicationsControl
+      field: exceptions
+      item: ExternalApplicationLaunchException
   tag_operations:
-    - {path: /seb-api/v1/user-requests, method: get, operation_id: ListUserRequests, tag: User Requests}
+    - path: /seb-api/v1/user-requests
+      method: get
+      operation_id: ListUserRequests
+      tag: User Requests
 ```
 
 ### `products/adem/sdk.yml`

@@ -12,12 +12,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import jinja2
-import pytest
 from pydantic import BaseModel, StrictInt, StrictStr
 
 from phantasos import scaffold
-
-_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
 _GEN_REF = (
     Path(__file__).parent.parent
@@ -347,8 +344,7 @@ def test_crud_uses_manual_override_verbatim(tmp_path: Path) -> None:
     assert 'name="example"' not in crud  # override replaced the whole call
 
 
-@pytest.mark.skipif(not _SDK.exists(), reason="prisma-browser SDK not built")
-def test_docs_context_slots_are_real_wrapper_methods() -> None:
+def test_docs_context_slots_are_real_wrapper_methods(real_sdk: Path) -> None:
     """The emitted CRUD slots must reference REAL wrapper methods.
 
     Dispatch-style guard: build the docs context from the REAL built SDK and
@@ -363,20 +359,20 @@ def test_docs_context_slots_are_real_wrapper_methods() -> None:
     from phantasos.productconfig import load_product
 
     loaded = load_product("prisma-browser")
-    ctx = build_docs_context(loaded, _SDK)
+    ctx = build_docs_context(loaded, real_sdk)
     showcase: dict[str, Any] = ctx["showcase"]  # type: ignore[assignment]
     obj = showcase["attr"]
     assert obj == "application"  # singular wrapper-object key, not the plural resource
 
-    added = str(_SDK) not in sys.path
+    added = str(real_sdk) not in sys.path
     if added:
-        sys.path.insert(0, str(_SDK))
+        sys.path.insert(0, str(real_sdk))
     try:
         facade = importlib.import_module("prisma_browser.extras.facade")
         wrapper_cls = facade._WRAPPERS[obj][0]
     finally:
-        if added and str(_SDK) in sys.path:
-            sys.path.remove(str(_SDK))
+        if added and str(real_sdk) in sys.path:
+            sys.path.remove(str(real_sdk))
 
     assert obj in facade._WRAPPERS  # the object is a real wrapper key
     for slot, op in showcase["operations"].items():

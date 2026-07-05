@@ -17,9 +17,6 @@ from phantasos.generator.opmodel import introspect
 from phantasos.generator.sdk.render import _discover_resources
 from phantasos.generator.sdk.wrapper import build_wrapper_context
 
-SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-PKG = SDK / "prisma_browser"
-
 
 def _overrides() -> dict[str, OperationOverride]:
     """The product's real ``sdk.yml`` operations: block (B1) — NOT ``{}``."""
@@ -28,13 +25,14 @@ def _overrides() -> dict[str, OperationOverride]:
     return load_product("prisma-browser").config.operations
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_object_granularity_and_multibinding() -> None:
-    inv = introspect("prisma_browser", SDK)
+def test_object_granularity_and_multibinding(real_sdk: Path) -> None:
+    inv = introspect("prisma_browser", real_sdk)
     overrides = _overrides()
     views = {
         v.attr: v
-        for v in build_wrapper_context(inv, overrides, _discover_resources(PKG))
+        for v in build_wrapper_context(
+            inv, overrides, _discover_resources(real_sdk / "prisma_browser")
+        )
     }
     # RA: the access_and_data_policy api class backs THREE object wrappers.
     assert {
@@ -73,13 +71,14 @@ def test_object_granularity_and_multibinding() -> None:
         assert junk not in views
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_paramview_from_live_types() -> None:
+def test_paramview_from_live_types(real_sdk: Path) -> None:
     """ParamView annotations come from LIVE introspected types, not ParamInfo repr."""
-    inv = introspect("prisma_browser", SDK)
+    inv = introspect("prisma_browser", real_sdk)
     views = {
         v.attr: v
-        for v in build_wrapper_context(inv, _overrides(), _discover_resources(PKG))
+        for v in build_wrapper_context(
+            inv, _overrides(), _discover_resources(real_sdk / "prisma_browser")
+        )
     }
     dg = views["device_group"]
     listm = next(x for x in dg.methods if x.name == "list")
@@ -98,8 +97,7 @@ def test_paramview_from_live_types() -> None:
     assert replace.body.raw_name == "device_group_request"
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_none_classified_without_crud_anchor_fails() -> None:
+def test_none_classified_without_crud_anchor_fails(real_sdk: Path) -> None:
     from phantasos.generator.opmodel.inventory import (
         OperationInfo,
         OperationInventory,
@@ -147,16 +145,14 @@ def _discover(sdk: Path) -> list[dict[str, str]]:
     return _discover_resources(sdk / "prisma_browser")
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_reference_examples_emitted_into_docstrings() -> None:
+def test_reference_examples_emitted_into_docstrings(real_sdk: Path) -> None:
     from phantasos.generator.opmodel.introspect import introspect
     from phantasos.generator.sdk.wrapper import build_wrapper_context
     from phantasos.productconfig import DocsConfig
 
-    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-    inv = introspect("prisma_browser", sdk)
+    inv = introspect("prisma_browser", real_sdk)
     docs = DocsConfig(showcase_resource="application")
-    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+    objects = build_wrapper_context(inv, _overrides(), _discover(real_sdk), docs=docs)
 
     rule = next(o for o in objects if o.classname == "AccessAndDataRuleResource")
     create = next(m for m in rule.methods if m.name == "create")
@@ -179,29 +175,25 @@ def test_reference_examples_emitted_into_docstrings() -> None:
     assert "# all fields optional" in update.docstring
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_no_examples_when_docs_disabled() -> None:
+def test_no_examples_when_docs_disabled(real_sdk: Path) -> None:
     # D5 inverse: docs=None -> one-line docstrings, no example block leaks in.
     from phantasos.generator.opmodel.introspect import introspect
     from phantasos.generator.sdk.wrapper import build_wrapper_context
 
-    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-    inv = introspect("prisma_browser", sdk)
-    objects = build_wrapper_context(inv, _overrides(), _discover(sdk))  # no docs=
+    inv = introspect("prisma_browser", real_sdk)
+    objects = build_wrapper_context(inv, _overrides(), _discover(real_sdk))  # no docs=
     for obj in objects:
         for m in obj.methods:
             assert "**Example:**" not in m.docstring
             assert "\n" not in m.docstring  # stays one line
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_showcase_reference_honors_variant() -> None:
+def test_showcase_reference_honors_variant(real_sdk: Path) -> None:
     from phantasos.generator.opmodel.introspect import introspect
     from phantasos.generator.sdk.wrapper import build_wrapper_context
     from phantasos.productconfig import DocsConfig
 
-    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-    inv = introspect("prisma_browser", sdk)
+    inv = introspect("prisma_browser", real_sdk)
     # application.create has a oneOf body. Use a NON-default variant so the test
     # actually proves variant threading: `CustomApplicationInput` is the FIRST
     # (default) variant, so asserting it would pass even if the variant arg were
@@ -210,15 +202,14 @@ def test_showcase_reference_honors_variant() -> None:
         showcase_resource="application",
         showcase_variant="PrivateApplicationInput",
     )
-    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+    objects = build_wrapper_context(inv, _overrides(), _discover(real_sdk), docs=docs)
     app = next(o for o in objects if o.classname == "ApplicationResource")
     create = next(m for m in app.methods if m.name == "create")
     assert "PrivateApplicationInput(" in create.docstring
     assert "CustomApplicationInput(" not in create.docstring  # default did NOT win
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_discriminated_patch_update_still_shows_example() -> None:
+def test_discriminated_patch_update_still_shows_example(real_sdk: Path) -> None:
     # Refined D2/D3: an all-optional PATCH is suppressed, BUT a oneOf PATCH whose
     # variant has a required discriminator synthesizes a NON-empty body, so it is
     # NOT suppressed. `application.update` (oneOf PatchAppInput) is the real case.
@@ -226,12 +217,11 @@ def test_discriminated_patch_update_still_shows_example() -> None:
     from phantasos.generator.sdk.wrapper import build_wrapper_context
     from phantasos.productconfig import DocsConfig
 
-    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-    inv = introspect("prisma_browser", sdk)
+    inv = introspect("prisma_browser", real_sdk)
     objects = build_wrapper_context(
         inv,
         _overrides(),
-        _discover(sdk),
+        _discover(real_sdk),
         docs=DocsConfig(showcase_resource="application"),
     )
     app = next(o for o in objects if o.classname == "ApplicationResource")
@@ -241,21 +231,19 @@ def test_discriminated_patch_update_still_shows_example() -> None:
     assert "body=" in update.docstring  # carries the discriminated variant
 
 
-@pytest.mark.skipif(not SDK.exists(), reason="prisma-browser SDK not built")
-def test_showcase_override_used_verbatim_even_for_update() -> None:
+def test_showcase_override_used_verbatim_even_for_update(real_sdk: Path) -> None:
     from phantasos.generator.opmodel.introspect import introspect
     from phantasos.generator.sdk.wrapper import build_wrapper_context
     from phantasos.productconfig import DocsConfig, DocsExamples
 
-    sdk = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-    inv = introspect("prisma_browser", sdk)
+    inv = introspect("prisma_browser", real_sdk)
     docs = DocsConfig(
         showcase_resource="access_and_data_rule",
         examples=DocsExamples(
             update='updated = client.access_and_data_rule.update(id="abc")'
         ),
     )
-    objects = build_wrapper_context(inv, _overrides(), _discover(sdk), docs=docs)
+    objects = build_wrapper_context(inv, _overrides(), _discover(real_sdk), docs=docs)
     rule = next(o for o in objects if o.classname == "AccessAndDataRuleResource")
     update = next(m for m in rule.methods if m.name == "update")
     # D6: an authored override is shown even though synthesized update bodies are

@@ -14,27 +14,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import load_cli_config
 from phantasos.generator.cli.ir import CliIR
 
-REAL = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 CLI_YML = Path(__file__).parent.parent / "products" / "prisma-browser" / "cli.yml"
 
-pytestmark = pytest.mark.skipif(
-    not REAL.exists(), reason="prisma-browser SDK not built"
-)
 
-
-def _ir() -> tuple[CliIR, list[str]]:
-    inv = cli_operations("prisma_browser", REAL)
+def _ir(real_sdk: Path) -> tuple[CliIR, list[str]]:
+    inv = cli_operations("prisma_browser", real_sdk)
     return build_cli_ir(inv, load_cli_config(CLI_YML))
 
 
-def test_ir_from_wrappers_no_unmapped() -> None:
-    ir, unmapped = _ir()
+def test_ir_from_wrappers_no_unmapped(real_sdk: Path) -> None:
+    ir, unmapped = _ir(real_sdk)
     keys = {c.key for c in ir.commands}
     # CRUD command for a plain object survives the rebase.
     assert {"create:device-group", "show:device-group", "delete:device-group"} <= keys

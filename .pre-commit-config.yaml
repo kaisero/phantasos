@@ -32,6 +32,17 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
+  # Enforce block-style YAML in self-authored product config files (no inline
+  # `{a: b}` / `[a, b]`). Scoped by `files:` to products/*/sdk.yml and
+  # products/*/cli.yml ONLY — the hand-imported OpenAPI specs are never linted.
+  # Rules live in .yamllint (braces/brackets forbid: non-empty).
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint, --strict]
+        files: ^products/[^/]+/(sdk|cli)\.yml$
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.6
     hooks:
