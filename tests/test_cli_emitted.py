@@ -2,7 +2,9 @@ import importlib
 import re
 import sys
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -430,43 +432,31 @@ def test_cli_runner_delete_silent_when_none(
     assert res.output.strip() == ""  # no "null", no output on success
 
 
-def test_show_flags_grouped_into_panels(emitted: Path, tmp_path: Path) -> None:
-    import re
-
-    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
-    from phantasos.generator.cli.render_cli import render_cli
-
-    inv = cli_operations("fakesdk", FIXTURE)
-    # intentionally exercises the un-deepened (models=None) path: this asserts only
-    # on show-command path/query flag panels, not body skeletons/model_ref.
-    ir, _ = build_cli_ir(inv, _FAKESDK_CLI_CONFIG)
-    render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
-    code = (
-        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
-    ).read_text()
-    m = re.search(r"def show_widget\(.*?\n\) ->", code, re.S)
-    assert m is not None
-    show_fn = m.group(0)
-    assert 'rich_help_panel="Filters"' in show_fn  # --name (filter query param)
-    assert 'rich_help_panel="Pagination"' in show_fn  # --limit + --all
-    # --id (path) is NOT panelled; --output joined "Common" (2026-06-11)
-    assert re.search(r'--id".*rich_help_panel', show_fn) is None
-    assert re.search(r'--output", rich_help_panel="Common"', show_fn)
-
-
 def test_show_help_renders_panels(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
+    emitted: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Keep NO_COLOR (not TERM=dumb): a dumb terminal drops the box borders that
+    # _panel_titles/_panel_section rely on.
     monkeypatch.setenv("NO_COLOR", "1")
-    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
-        del sys.modules[n]
     from typer.testing import CliRunner
 
-    main = importlib.import_module("fakesdk_cli.main")
-    out = CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
+    with render_and_import(emitted, "fakesdk_cli"):  # fresh import; purges on exit
+        main = importlib.import_module("fakesdk_cli.main")
+        out = CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
     titles = _panel_titles(out)
-    assert "Filters" in titles and "Pagination" in titles
+    assert "Filters" in titles and "Pagination" in titles  # was source rich_help_panel
     assert "Options" in titles  # default panel kept (domain flags + --help)
+    # membership — behavioral, strictly subsumes the deleted source-regex asserts:
+    assert "--name" in _panel_section(out, "Filters")
+    assert "--limit" in _panel_section(out, "Pagination")
+    assert "--all" in _panel_section(out, "Pagination")
+    assert "--id" in _panel_section(out, "Options")  # --id NOT panelled -> default
+    # ...and specifically NOT a filter:
+    assert "--id" not in _panel_section(out, "Filters")
+    # source fact #4 (--output joins Common), now self-contained:
+    assert "--output" in _panel_section(out, "Common")
 
 
 def test_render_dry_run_get_no_body(
@@ -1104,6 +1094,22 @@ def _panel_titles(help_output: str) -> list[str]:
         if m:
             titles.append(m.group(1).strip())
     return titles
+
+
+def _panel_section(help_output: str, title: str) -> str:
+    """ANSI-stripped text of the Rich panel named `title`: from its header line to
+    the next panel header (exclusive), or to EOF for the last panel."""
+    lines = _strip_ansi(help_output).splitlines()
+    starts = [
+        (i, m.group(1).strip())
+        for i, line in enumerate(lines)
+        if (m := _PANEL_RE.search(line))
+    ]
+    for idx, (i, name) in enumerate(starts):
+        if name == title:
+            end = starts[idx + 1][0] if idx + 1 < len(starts) else len(lines)
+            return "\n".join(lines[i:end])
+    return ""
 
 
 def test_common_options_panel_renders_last(
