@@ -591,6 +591,12 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         _preflight_connection(cmd)
 {%- endif %}
         client = _client(verbose=verbose)
+{%- if ir.credential_fields %}
+        from . import auth_cache as _auth_cache
+        _cache = _auth_cache.session(client)
+        if _cache is not None:
+            _cache.seed_if_valid()
+{%- endif %}
         # Dispatch through the typed object wrapper. Federated: the composing client
         # exposes one handle per sub-package, so navigate `client.<sub>.<object>`;
         # single-spec (subpackage None) stays one level: `client.<object>`. Either
@@ -615,21 +621,47 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 return original_call(*args, **kw)
             api_client.call_api = _capturing_call
         started = time.monotonic()
-        try:
+        def _dispatch() -> Any:
             if binding.sub_verb == "list":
                 # The wrapper list method paginates internally via `all_pages`;
                 # the synthesized envelope carries every item under items_field.
-                result = method(**kwargs, all_pages=paginate_all)
+                r = method(**kwargs, all_pages=paginate_all)
                 # RETAIN today's --all JSON/YAML shape: render the items array, not
                 # the synthesized envelope object (table already unwraps via
                 # items_field). A single page keeps its envelope.
                 if paginate_all and output in ("json", "yaml"):
-                    result = getattr(result, cmd.items_field) if cmd.items_field else result
-            else:
-                result = method(**kwargs)
+                    return getattr(r, cmd.items_field) if cmd.items_field else r
+                return r
+            return method(**kwargs)
+        try:
+{%- if ir.credential_fields %}
+            try:
+                result = _dispatch()
+            except _sdk_exc(cmd) as _exc:
+                # A 401 with a token we SEEDED from cache -> the cached token was
+                # rejected (revoked/stale). Discard it, re-grant, retry ONCE.
+                # Safe to re-send only because this feature is gated to the
+                # scm_oauth ingress-auth gateway: a 401 is a pre-dispatch rejection
+                # (the bearer is validated before routing), so the server did
+                # nothing. Revisit if a non-ingress-auth component is onboarded.
+                # A 401 WITHOUT a seeded token (fresh grant already rejected) or a
+                # 403 falls to `raise` -> the outer handler renders it as today.
+                if (_cache is not None and _cache.seeded
+                        and getattr(_exc, "status", None) == 401):
+                    _cache.invalidate()
+                    result = _dispatch()
+                else:
+                    raise
+{%- else %}
+            result = _dispatch()
+{%- endif %}
         finally:
             if callable(original_call):
                 api_client.call_api = original_call
+{%- if ir.credential_fields %}
+        if _cache is not None:
+            _cache.persist()
+{%- endif %}
         duration_ms = int((time.monotonic() - started) * 1000)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
