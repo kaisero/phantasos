@@ -26,6 +26,17 @@ _APP_VARIANTS = VariantMap(
     },
 )
 
+# Deterministic env for tests that assert on the LAYOUT of Typer/Rich `--help`
+# output (panel titles like "─ Filters ", hyphenated option names like
+# "--platform"). When the environment forces color/terminal (as GitHub Actions
+# runners do), Rich interleaves dim ANSI escapes into the box border and option
+# names, so those literal substrings are no longer contiguous and the asserts
+# break — even though NO_COLOR is set (NO_COLOR drops colors, not dim/bold
+# styling). `TERM=dumb` disables styling entirely; the fixed COLUMNS keeps
+# wrapping stable. Mirrors the deterministic env in test_cli_emitted.py. Pass to
+# the specific `.invoke(..., "--help")` calls whose output is substring-asserted.
+_HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
+
 
 @pytest.fixture
 def real_cli(
@@ -531,7 +542,9 @@ def test_real_create_update_delete_device_group(
         main = importlib.import_module("prisma_browser_cli.main")
         runner = CliRunner()
         # --help shows required name + permissive enum choices
-        h = runner.invoke(main.app, ["create", "device-group", "--help"]).output
+        h = runner.invoke(
+            main.app, ["create", "device-group", "--help"], env=_HELP_ENV
+        ).output
         assert "--platform" in h and "Desktop Browser" in h
         import prisma_browser.extras.facade as facade
 
@@ -600,10 +613,8 @@ def test_real_create_update_delete_device_group(
 def test_real_show_device_help_panels(
     real_sdk: Path,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
 ) -> None:
-    monkeypatch.setenv("NO_COLOR", "1")
     from typer.testing import CliRunner
 
     from phantasos.generator.cli.cliconfig import load_cli_config
@@ -616,7 +627,11 @@ def test_real_show_device_help_panels(
     render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path)
     with render_and_import(tmp_path, "prisma_browser_cli"):
         main = importlib.import_module("prisma_browser_cli.main")
-        out = CliRunner().invoke(main.app, ["show", "device", "--help"]).output
+        out = (
+            CliRunner()
+            .invoke(main.app, ["show", "device", "--help"], env=_HELP_ENV)
+            .output
+        )
         # box-char-anchored: bare "Filter" appears in option help texts
         assert "─ Filters " in out and "─ Pagination " in out
         # a real filter is under Filters; a pagination param is under Pagination
