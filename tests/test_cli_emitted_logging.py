@@ -501,3 +501,108 @@ def test_read_since_new_lines_offset_and_reopen_on_shrink(
     p.write_text(json.dumps({"msg": "fresh"}) + "\n", encoding="utf-8")
     recs3, _, _ = ls.read_since(p, off2)
     assert [r["msg"] for r in recs3] == ["fresh"]
+
+
+def _log_row(ts: str, level: str, msg: str, **extra: Any) -> dict[str, Any]:
+    return {"ts": ts, "level": level, "logger": "fakesdk_cli", "msg": msg, **extra}
+
+
+def _log_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Set HOME + a wide terminal (so Rich table columns don't truncate short
+    tokens), import `main` fresh, and clear the config cache."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("COLUMNS", "200")
+    importlib.import_module("fakesdk_cli.main")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    return home
+
+
+def test_show_cli_log_table_default(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    _write_log(
+        home,
+        active=[
+            _log_row("2026-07-05T10:00:00Z", "INFO", "alpha-msg"),
+            _log_row("2026-07-05T10:01:00Z", "ERROR", "omega-msg"),
+        ],
+    )
+    res = CliRunner().invoke(main.app, ["show", "cli", "log"])
+    assert res.exit_code == 0, res.output
+    assert "alpha-msg" in res.output and "omega-msg" in res.output
+    assert "INFO" in res.output and "ERROR" in res.output
+    assert res.output.index("alpha-msg") < res.output.index("omega-msg")  # newest last
+
+
+def test_show_cli_log_level_filter_hides_below_floor(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    _write_log(
+        home,
+        active=[
+            _log_row("2026-07-05T10:00:00Z", "INFO", "info-hidden"),
+            _log_row("2026-07-05T10:01:00Z", "WARNING", "warn-shown"),
+        ],
+    )
+    res = CliRunner().invoke(main.app, ["show", "cli", "log", "--level", "warning"])
+    assert res.exit_code == 0, res.output
+    assert "warn-shown" in res.output
+    assert "info-hidden" not in res.output
+
+
+def test_show_cli_log_json_includes_traceback(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    home = _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    _write_log(
+        home,
+        active=[
+            _log_row(
+                "2026-07-05T10:00:00Z",
+                "ERROR",
+                "boom-json",
+                exc="Traceback (most recent call last): KaboomError",
+            ),
+        ],
+    )
+    res = CliRunner().invoke(main.app, ["show", "cli", "log", "--json"])
+    assert res.exit_code == 0, res.output
+    assert "boom-json" in res.output
+    assert "KaboomError" in res.output  # the traceback rides along in --json
+    assert '"exc"' in res.output
+
+
+def test_show_cli_log_empty_state(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["show", "cli", "log"])
+    assert res.exit_code == 0, res.output
+    assert "log is empty" in res.output
+
+
+def test_show_cli_log_bad_level_exit_2(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from typer.testing import CliRunner
+
+    _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    res = CliRunner().invoke(main.app, ["show", "cli", "log", "--level", "nope"])
+    assert res.exit_code == 2
+    assert "unknown log level" in res.output
