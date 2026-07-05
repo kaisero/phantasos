@@ -207,6 +207,33 @@ def render_and_import() -> Callable[[Path, str], AbstractContextManager[ModuleTy
     return _imported
 
 
+def _clear_emitted_config_cache() -> None:
+    """Clear the ``load_config`` lru_cache on any *already-imported* emitted config
+    module. Guarded — a no-op when no emitted CLI is resident. Defends against a test
+    that imported ``<pkg>._generated.config`` OUTSIDE ``render_and_import`` leaving a
+    cache bound to a stale HOME behind for the next test."""
+    for name, mod in list(sys.modules.items()):
+        if name.endswith("_cli._generated.config") and (
+            clear := getattr(getattr(mod, "load_config", None), "cache_clear", None)
+        ):
+            clear()
+
+
+@pytest.fixture
+def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """HOME -> the per-test ``tmp_path``, with emitted-config cache hygiene on
+    entry/exit. Yields the home dir. Isolates config/cache/history/env-file lookups
+    (all keyed off HOME) without changing what any test asserts — it only replaces
+    the hand-rolled ``monkeypatch.setenv("HOME", str(tmp_path))`` line and adds
+    teardown hygiene."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_emitted_config_cache()
+    try:
+        yield tmp_path
+    finally:
+        _clear_emitted_config_cache()
+
+
 @pytest.fixture
 def emit_cli(tmp_path: Path) -> Callable[..., Path]:
     """Emit the fakesdk CLI into tmp_path for CLI-docs tests (tests/cli/).

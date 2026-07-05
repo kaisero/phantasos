@@ -17,11 +17,11 @@ import pytest
 def test_cache_config_defaults_and_env(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         cfg = importlib.import_module("fakesdk_cli._generated.config")
         cfg.load_config.cache_clear()
@@ -44,6 +44,7 @@ def test_cache_config_defaults_and_env(
 def test_cache_packaged_defaults_match_models(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -53,7 +54,6 @@ def test_cache_packaged_defaults_match_models(
     import yaml as _yaml
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         cfg = importlib.import_module("fakesdk_cli._generated.config")
         data = _yaml.safe_load(cfg.packaged_default_text())
@@ -64,11 +64,11 @@ def test_cache_packaged_defaults_match_models(
 def test_cache_store_roundtrip_perms_and_isolation(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -96,11 +96,11 @@ def test_cache_store_roundtrip_perms_and_isolation(
 def test_cache_read_tolerates_corruption(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -148,11 +148,11 @@ class _StubFederatedClient:
 def test_session_seed_persist_invalidate(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -183,11 +183,11 @@ def test_session_seed_persist_invalidate(
 def test_token_manager_resolver_fails_open(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         assert ac.token_manager(object()) is None  # unrecognized shape -> None
@@ -197,12 +197,12 @@ def test_token_manager_resolver_fails_open(
 def test_token_manager_resolver_finds_federated_shape(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Federated branch: client._configuration._token_manager (no api_client)."""
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -262,13 +262,13 @@ def _fake_facade_with_tm(
 def test_runtime_reuses_token_across_runs(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -299,13 +299,13 @@ def test_runtime_reuses_token_across_runs(
 def test_runtime_401_invalidates_and_retries_once(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -329,13 +329,13 @@ def test_runtime_401_invalidates_and_retries_once(
 def test_cache_commands(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -375,12 +375,12 @@ def _capture_auth_cache_logs(
 def test_expired_entry_triggers_regrant(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -399,12 +399,12 @@ def test_expired_entry_triggers_regrant(
 def test_corrupt_file_logs_warning(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -421,12 +421,12 @@ def test_corrupt_file_logs_warning(
 def test_reuse_logs_info(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -442,13 +442,13 @@ def test_reuse_logs_info(
 def test_token_value_never_logged(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A full seed+persist cycle logs key ids and expiries — never the token."""
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -471,12 +471,12 @@ def test_token_value_never_logged(
 def test_disabled_returns_no_session_and_debug(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("FAKESDK_CACHE_ENABLED", "false")
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
@@ -491,12 +491,12 @@ def test_disabled_returns_no_session_and_debug(
 def test_unwritable_dir_fails_open(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     blocked = tmp_path / "blocked"
     blocked.write_text("x")  # a FILE where the dir would go
     monkeypatch.setenv(
@@ -517,13 +517,13 @@ def test_unwritable_dir_fails_open(
 def test_fresh_401_is_not_retried(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -543,13 +543,13 @@ def test_fresh_401_is_not_retried(
 def test_403_is_not_retried_cache_survives(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -572,6 +572,7 @@ def test_403_is_not_retried_cache_survives(
 def test_call_with_retry_seeded_unseeded_and_403(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -579,7 +580,6 @@ def test_call_with_retry_seeded_unseeded_and_403(
     runtime now delegates): seeded 401 -> retried once; unseeded 401 and any 403
     -> propagate, no retry."""
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         importlib.import_module(
@@ -641,13 +641,13 @@ def test_call_with_retry_seeded_unseeded_and_403(
 def test_dry_run_never_touches_cache(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     from typer.testing import CliRunner
 
     out = emit_cli(auth=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
@@ -661,7 +661,7 @@ def test_dry_run_never_touches_cache(
 
 
 def test_non_auth_cli_has_no_cache_feature(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    emitted: Path, isolated_home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """D8 negative: no credential_fields -> no cache module/section/commands.
 
@@ -669,7 +669,6 @@ def test_non_auth_cli_has_no_cache_feature(
     """
     from typer.testing import CliRunner
 
-    monkeypatch.setenv("HOME", str(tmp_path))
     assert not (emitted / "fakesdk_cli" / "_generated" / "auth_cache.py").exists()
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     cfg.load_config.cache_clear()
