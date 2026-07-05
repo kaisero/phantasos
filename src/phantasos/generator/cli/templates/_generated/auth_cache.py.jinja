@@ -1,0 +1,123 @@
+"""Auth token cache for the {{ distribution }} CLI (injected by phantasos).
+
+Persists the SDK's in-memory OAuth token across runs so back-to-back
+authenticated commands reuse a valid token. Per-principal files under the cache
+dir, 0600. The client secret is never written; the token value is never logged.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+from . import config as _config
+
+_LOG = logging.getLogger("{{ package }}.auth_cache")
+
+
+def enabled() -> bool:
+    return _config.get().cache.enabled
+
+
+def _dir() -> Path:
+    """The cache dir path WITHOUT creating it — used by reads/list/delete/clear so
+    a pure read never has the side effect of creating the directory."""
+    return _config.cache_dir_path()
+
+
+def cache_dir() -> Path | None:
+    """The cache dir, CREATED 0700 (for writes). None (already logged) if it can't
+    be made. Reads go through ``_dir()`` instead, so `show cli cache` / a cache
+    miss never create the dir."""
+    d = _dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True, mode=0o700)
+        d.chmod(0o700)
+    except OSError as exc:
+        _LOG.warning("cache dir not writable (%s); continuing without caching", exc)
+        return None
+    return d
+
+
+def _key(token_url: str, client_id: str, scope: str) -> str:
+    raw = f"{token_url}\n{client_id}\n{scope}".encode()
+    return hashlib.sha256(raw).hexdigest()[:12]
+
+
+def read(key: str) -> tuple[str, float] | None:
+    p = _dir() / f"token-{key}.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return str(data["access_token"]), float(data["expires_at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        _LOG.warning("ignoring unreadable cache file %s; re-authenticating", p.name)
+        return None
+
+
+def write(key: str, token: str, expires_at: float) -> None:
+    d = cache_dir()                       # creates the dir 0700; None -> skip
+    if d is None:
+        return
+    p = d / f"token-{key}.json"
+    payload = json.dumps({"access_token": token, "expires_at": expires_at})
+    tmp: str | None = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(d), prefix=".tok-")  # 0600 by default
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, p)                # atomic rename; consumes tmp
+        tmp = None
+    except OSError as exc:
+        _LOG.warning("could not write cache file %s (%s); continuing", p.name, exc)
+    finally:
+        if tmp is not None:               # replace never ran -> reap the temp
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def delete(key: str) -> None:
+    (_dir() / f"token-{key}.json").unlink(missing_ok=True)
+
+
+def list_entries() -> list[tuple[str, float]]:
+    d = _dir()
+    if not d.exists():
+        return []
+    out: list[tuple[str, float]] = []
+    for f in sorted(d.glob("token-*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            out.append((f.stem[len("token-"):], float(data["expires_at"])))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return out
+
+
+def clear() -> int:
+    d = _dir()
+    if not d.exists():
+        return 0
+    n = 0
+    for f in d.glob("token-*.json"):
+        try:
+            f.unlink()
+            n += 1
+        except OSError:
+            pass
+    for f in d.glob(".tok-*"):            # reap any leaked write temps (not counted)
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    return n
