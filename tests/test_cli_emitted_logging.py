@@ -376,3 +376,128 @@ def test_quiet_keeps_errors(
     )
     assert res.exit_code == 2
     assert "error: --enabled" in res.stderr
+
+
+# --- `show cli log` support: log readers + command (Task 1-3) ---
+
+
+def _write_log(
+    home: Path,
+    active: list[Any],
+    gz1: list[Any] | None = None,
+) -> Path:
+    """Write a JSONL log (+ optional `.1.gz` backup) at the emitted CLI's default
+    log location. List items that are ``str`` are written verbatim (to inject
+    corrupt/non-dict lines); dicts are JSON-encoded."""
+    import gzip
+    import json
+
+    d = home / ".fakesdk_cli" / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+
+    def _dump(rows: list[Any]) -> str:
+        return "".join(
+            (r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows
+        )
+
+    p = d / "fakesdk_cli.jsonl"
+    p.write_text(_dump(active), encoding="utf-8")
+    if gz1 is not None:
+        with gzip.open(d / "fakesdk_cli.jsonl.1.gz", "wt", encoding="utf-8") as fh:
+            fh.write(_dump(gz1))
+    return p
+
+
+def _load_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any, Path]:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
+    importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+    return ls, home
+
+
+def test_log_files_orders_backups_then_active(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ls, home = _load_logging(monkeypatch, tmp_path)
+    _write_log(home, active=[{"msg": "a"}], gz1=[{"msg": "b"}])
+    assert [p.name for p in ls.log_files()] == [
+        "fakesdk_cli.jsonl.1.gz",
+        "fakesdk_cli.jsonl",
+    ]
+    # an absent backup is omitted
+    (home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl.1.gz").unlink()
+    assert [p.name for p in ls.log_files()] == ["fakesdk_cli.jsonl"]
+
+
+def test_read_log_merges_backup_then_active_and_counts_corrupt(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ls, home = _load_logging(monkeypatch, tmp_path)
+    _write_log(
+        home,
+        active=[
+            {"level": "INFO", "msg": "active1"},
+            "not json at all",
+            "[1, 2, 3]",  # valid JSON but not a dict
+            {"level": "ERROR", "msg": "active2"},
+        ],
+        gz1=[{"level": "INFO", "msg": "backup1"}],
+    )
+    records, corrupt = ls.read_log()
+    assert [r["msg"] for r in records] == ["backup1", "active1", "active2"]
+    assert corrupt == 2  # the bad line + the non-dict line
+
+
+def test_read_log_limit_takes_last_n_across_files(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ls, home = _load_logging(monkeypatch, tmp_path)
+    _write_log(
+        home,
+        active=[{"msg": "c"}, {"msg": "d"}],
+        gz1=[{"msg": "a"}, {"msg": "b"}],
+    )
+    records, _ = ls.read_log(limit=2)
+    assert [r["msg"] for r in records] == ["c", "d"]
+
+
+def test_read_log_min_level_drops_below_floor(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ls, home = _load_logging(monkeypatch, tmp_path)
+    _write_log(
+        home,
+        active=[
+            {"level": "DEBUG", "msg": "dbg"},
+            {"level": "INFO", "msg": "inf"},
+            {"level": "WARNING", "msg": "warn"},
+            {"level": "ERROR", "msg": "err"},
+        ],
+    )
+    records, _ = ls.read_log(min_level="warning")
+    msgs = [r["msg"] for r in records]
+    assert msgs == ["warn", "err"]
+
+
+def test_read_since_new_lines_offset_and_reopen_on_shrink(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    ls, home = _load_logging(monkeypatch, tmp_path)
+    p = _write_log(home, active=[{"msg": "one"}])
+    recs, corrupt, off = ls.read_since(p, 0)
+    assert [r["msg"] for r in recs] == ["one"]
+    assert off == p.stat().st_size
+    assert corrupt == 0
+    # append a line -> only the appended record is returned
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"msg": "two"}) + "\n")
+    recs2, _, off2 = ls.read_since(p, off)
+    assert [r["msg"] for r in recs2] == ["two"]
+    assert off2 == p.stat().st_size
+    # truncate below the old offset -> re-read from 0
+    p.write_text(json.dumps({"msg": "fresh"}) + "\n", encoding="utf-8")
+    recs3, _, _ = ls.read_since(p, off2)
+    assert [r["msg"] for r in recs3] == ["fresh"]

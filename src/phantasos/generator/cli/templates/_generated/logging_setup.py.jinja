@@ -14,9 +14,11 @@ import importlib
 import json
 import logging
 import shutil
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from . import config as _config
 
@@ -126,3 +128,98 @@ def _emit_unknown_enum_summary(logfile: Path) -> None:
         from . import diagnostics as _diag
 
         _diag.warning(f"{n} API value(s) not defined in the spec — see {logfile}")
+
+
+# --- log readers (for `show cli log`) ---
+
+
+def log_files() -> list[Path]:
+    """Existing log files OLDEST->NEWEST: rotated .gz backups (.3,.2,.1) then the
+    active .jsonl. Only files that exist are returned."""
+    active = _config.log_file_path()
+    out: list[Path] = []
+    for i in range(_BACKUPS, 0, -1):
+        gz = active.with_name(f"{active.name}.{i}.gz")
+        if gz.exists():
+            out.append(gz)
+    if active.exists():
+        out.append(active)
+    return out
+
+
+def _lines(p: Path) -> Iterator[str]:
+    if p.suffix == ".gz":
+        with gzip.open(p, "rt", encoding="utf-8", errors="replace") as fh:
+            yield from fh
+    else:
+        with p.open("r", encoding="utf-8", errors="replace") as fh:
+            yield from fh
+
+
+def _passes(obj: Any, floor: int) -> bool:
+    return not floor or _config.log_level_int(str(obj.get("level", ""))) >= floor
+
+
+def read_log(
+    limit: int = 0, min_level: str | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """(records oldest->newest, corrupt_line_count). limit=0 -> all, else last N
+    AFTER level filtering. min_level keeps that level and above."""
+    floor = _config.log_level_int(min_level) if min_level else 0
+    records: list[dict[str, Any]] = []
+    corrupt = 0
+    for p in log_files():
+        try:
+            for line in _lines(p):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    corrupt += 1
+                    continue
+                if not isinstance(obj, dict):
+                    corrupt += 1
+                    continue
+                if _passes(obj, floor):
+                    records.append(obj)
+        except OSError:
+            continue
+    if limit > 0:
+        records = records[-limit:]
+    return records, corrupt
+
+
+def read_since(path: Path, offset: int) -> tuple[list[dict[str, Any]], int, int]:
+    """Records appended to `path` after byte `offset`. Returns (records, corrupt,
+    new_offset). If the file shrank (rotation/truncation), re-read from 0."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], 0, offset
+    if size < offset:
+        offset = 0  # rotated/truncated
+    records: list[dict[str, Any]] = []
+    corrupt = 0
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            fh.seek(offset)
+            data = fh.read()
+            new_offset = fh.tell()
+    except OSError:
+        return [], 0, offset
+    for line in data.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            corrupt += 1
+            continue
+        if isinstance(obj, dict):
+            records.append(obj)
+        else:
+            corrupt += 1
+    return records, corrupt, new_offset
