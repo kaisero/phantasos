@@ -70,23 +70,18 @@ class _CacheSession:  seed_if_valid() -> None; persist() -> None; invalidate() -
 ```python
 """Auth token cache — emitted through the fakesdk CLI (rendered WITH auth)."""
 import importlib
-import os
+import logging
+import time
 from pathlib import Path
 
 import pytest
-
-
-def _emit_auth_cli(emit_cli, render_and_import):
-    """Render the fakesdk CLI with an auth component and import it."""
-    out = emit_cli(auth=True)
-    return out
 
 
 def test_cache_config_defaults_and_env(emit_cli, render_and_import, monkeypatch, tmp_path):
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        cfg = importlib.import_module("fakesdk_cli.config")
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
         cfg.load_config.cache_clear()
         assert cfg.get().cache.enabled is True
         assert cfg.get().cache.dir is None
@@ -96,9 +91,26 @@ def test_cache_config_defaults_and_env(emit_cli, render_and_import, monkeypatch,
         cfg.load_config.cache_clear()
         assert cfg.get().cache.enabled is False
         # effective_dict (drives `config show`) includes the cache section
+        monkeypatch.delenv("FAKESDK_CACHE_ENABLED", raising=False)
+        cfg.load_config.cache_clear()
         assert cfg.effective_dict()["configuration"]["cache"] == {
-            "enabled": False, "dir": None,
+            "enabled": True, "dir": None,
         }
+
+
+def test_cache_packaged_defaults_match_models(emit_cli, render_and_import, monkeypatch, tmp_path):
+    """Defaults-sync for the AUTH-gated cache section (the repo's own
+    test_config_packaged_defaults_match_models uses the NON-auth fixture, so the
+    `cache:` block is invisible to it — enforce parity here)."""
+    import yaml as _yaml
+
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        data = _yaml.safe_load(cfg.packaged_default_text())
+        assert cfg.ConfigFile.model_validate(data) == cfg.ConfigFile()
+        assert data["configuration"]["cache"] == {"enabled": True, "dir": None}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -216,8 +228,8 @@ def test_cache_store_roundtrip_perms_and_isolation(emit_cli, render_and_import, 
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         k1 = ac._key("https://auth/", "id-A", "scope-1")
         k2 = ac._key("https://auth/", "id-B", "scope-1")  # different principal
         assert k1 != k2 and len(k1) == 12
@@ -239,8 +251,8 @@ def test_cache_read_tolerates_corruption(emit_cli, render_and_import, monkeypatc
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         k = ac._key("u", "c", "s")
         (ac.cache_dir() / f"token-{k}.json").write_text("{not json")
         assert ac.read(k) is None            # corrupt -> miss (fail open), no raise
@@ -281,9 +293,17 @@ def enabled() -> bool:
     return _config.get().cache.enabled
 
 
+def _dir() -> Path:
+    """The cache dir path WITHOUT creating it — used by reads/list/delete/clear so
+    a pure read never has the side effect of creating the directory."""
+    return _config.cache_dir_path()
+
+
 def cache_dir() -> Path | None:
-    """The cache dir, created 0700. None (already logged) if it can't be made."""
-    d = _config.cache_dir_path()
+    """The cache dir, CREATED 0700 (for writes). None (already logged) if it can't
+    be made. Reads go through ``_dir()`` instead, so `show cli cache` / a cache
+    miss never create the dir."""
+    d = _dir()
     try:
         d.mkdir(parents=True, exist_ok=True, mode=0o700)
         d.chmod(0o700)
@@ -298,14 +318,9 @@ def _key(token_url: str, client_id: str, scope: str) -> str:
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
-def _path(key: str) -> Path | None:
-    d = cache_dir()
-    return None if d is None else d / f"token-{key}.json"
-
-
 def read(key: str) -> tuple[str, float] | None:
-    p = _path(key)
-    if p is None or not p.exists():
+    p = _dir() / f"token-{key}.json"
+    if not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -316,29 +331,36 @@ def read(key: str) -> tuple[str, float] | None:
 
 
 def write(key: str, token: str, expires_at: float) -> None:
-    p = _path(key)
-    if p is None:
+    d = cache_dir()                       # creates the dir 0700; None -> skip
+    if d is None:
         return
+    p = d / f"token-{key}.json"
     payload = json.dumps({"access_token": token, "expires_at": expires_at})
+    tmp: str | None = None
     try:
-        fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".tok-")
+        fd, tmp = tempfile.mkstemp(dir=str(d), prefix=".tok-")  # 0600 by default
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(payload)
         os.chmod(tmp, 0o600)
-        os.replace(tmp, p)  # atomic
+        os.replace(tmp, p)                # atomic rename; consumes tmp
+        tmp = None
     except OSError as exc:
         _LOG.warning("could not write cache file %s (%s); continuing", p.name, exc)
+    finally:
+        if tmp is not None:               # replace never ran -> reap the temp
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def delete(key: str) -> None:
-    p = _path(key)
-    if p is not None:
-        p.unlink(missing_ok=True)
+    (_dir() / f"token-{key}.json").unlink(missing_ok=True)
 
 
 def list_entries() -> list[tuple[str, float]]:
-    d = cache_dir()
-    if d is None:
+    d = _dir()
+    if not d.exists():
         return []
     out: list[tuple[str, float]] = []
     for f in sorted(d.glob("token-*.json")):
@@ -351,14 +373,19 @@ def list_entries() -> list[tuple[str, float]]:
 
 
 def clear() -> int:
-    d = cache_dir()
-    if d is None:
+    d = _dir()
+    if not d.exists():
         return 0
     n = 0
     for f in d.glob("token-*.json"):
         try:
             f.unlink()
             n += 1
+        except OSError:
+            pass
+    for f in d.glob(".tok-*"):            # reap any leaked write temps (not counted)
+        try:
+            f.unlink()
         except OSError:
             pass
     return n
@@ -428,8 +455,8 @@ def test_session_seed_persist_invalidate(emit_cli, render_and_import, monkeypatc
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         tm = _StubTM()
         client = _StubClient(tm)
         assert ac.token_manager(client) is tm            # resolver finds single-spec shape
@@ -456,7 +483,7 @@ def test_token_manager_resolver_fails_open(emit_cli, render_and_import, monkeypa
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         assert ac.token_manager(object()) is None         # unrecognized shape -> None
         assert ac.session(object()) is None
 ```
@@ -566,17 +593,31 @@ git commit -m "feat(cli): auth_cache TokenManager resolver + seed/persist/invali
 - [ ] **Step 1: Write the failing behavioral test** — append to `tests/test_cli_emitted_cache.py`. It drives a real command through `CliRunner`, monkeypatching `_facade_from_env` to return a fake client that owns a stub TokenManager, so the real `auth_cache` + `runtime` code runs against a tmp cache dir:
 
 ```python
-def _fake_facade_with_tm(recorder, tm, fail_first_401=False):
-    """A fake facade whose object attrs record calls; the api_client.configuration
-    exposes the stub TokenManager the cache couples to."""
+def _set_creds(monkeypatch):
+    # _client() validates these (unprefixed) BEFORE _facade_from_env is reached;
+    # without them the command exits 2 and the cache code never runs.
+    monkeypatch.setenv("CLIENT_ID", "cid")
+    monkeypatch.setenv("CLIENT_SECRET", "sec")
+    monkeypatch.setenv("SCOPE", "scope-x")
+
+
+def _fake_facade_with_tm(recorder, tm, fail_first_status=None):
+    """A fake facade whose object attrs record calls AND drive the TokenManager
+    the way the real SDK does (each call reads configuration.access_token ->
+    tm.token()). The api_client.configuration exposes the stub TM the cache couples
+    to. The first call optionally raises the REAL sdk exception class with
+    `.status = fail_first_status` so runtime's `except _sdk_exc(cmd)` catches it."""
+    import fakesdk.exceptions as _exc_mod
     import fakesdk.extras.facade as facade
 
     class _Rec:
         def __getattr__(self, name):
             def _call(*, all_pages=False, **kw):
+                tm.token()                       # the SDK reads the token on every call
                 recorder.append((name, kw))
-                if fail_first_401 and len([r for r in recorder if r[0] == name]) == 1:
-                    exc = Exception("401"); exc.status = 401
+                if fail_first_status and len([r for r in recorder if r[0] == name]) == 1:
+                    exc = _exc_mod.OpenApiException(str(fail_first_status))
+                    exc.status = fail_first_status
                     raise exc
                 return {"id": kw.get("id", "new")}
             return _call
@@ -593,42 +634,48 @@ def test_runtime_reuses_token_across_runs(emit_cli, render_and_import, monkeypat
     from typer.testing import CliRunner
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
+    _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
-        rt = importlib.import_module("fakesdk_cli.runtime")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        rt = importlib.import_module("fakesdk_cli._generated.runtime")
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM(); rec = []
         _, client = _fake_facade_with_tm(rec, tm)
         monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: client)
         r = CliRunner()
-        # run 1: cache miss -> tm fetches once, token persisted
+        # run 1: cache miss -> the call fetches once, token persisted to disk
         assert r.invoke(main.app, ["show", "widget", "--id", "1"]).exit_code == 0
         assert tm.fetches == 1
-        # run 2: fresh TM seeded from cache -> zero fetches
+        assert ac.read(ac.key_for(tm)) is not None      # persisted
+        # run 2: fresh TM seeded from cache -> zero fetches (genuine reuse proof:
+        # an unseeded tm2._token would be None -> token() would fetch)
         tm2 = _StubTM(); rec2 = []
         _, client2 = _fake_facade_with_tm(rec2, tm2)
         monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: client2)
         assert r.invoke(main.app, ["show", "widget", "--id", "1"]).exit_code == 0
-        assert tm2.fetches == 0     # reused the cached token
+        assert tm2.fetches == 0     # reused the cached token, no grant
 
 
 def test_runtime_401_invalidates_and_retries_once(emit_cli, render_and_import, monkeypatch, tmp_path):
     from typer.testing import CliRunner
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
+    _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
-        rt = importlib.import_module("fakesdk_cli.runtime")
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        rt = importlib.import_module("fakesdk_cli._generated.runtime")
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM()
-        ac.write(ac.key_for(tm), "stale", time.time() + 900)   # a seeded-but-rejected token
+        ac.write(ac.key_for(tm), "stale", time.time() + 900)   # seeded-but-rejected token
         rec = []
-        _, client = _fake_facade_with_tm(rec, tm, fail_first_401=True)
+        _, client = _fake_facade_with_tm(rec, tm, fail_first_status=401)
         monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: client)
         res = CliRunner().invoke(main.app, ["show", "widget", "--id", "1"])
         assert res.exit_code == 0                    # retried after invalidation
         assert len([r for r in rec if r[0] == "get"]) == 2   # one 401 + one success
+        assert ac.read(ac.key_for(tm)) is not None   # re-cached the fresh token
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -679,9 +726,15 @@ with (the `{% if ir.credential_fields %}` variant adds the retry; keep a plain v
 {%- if ir.credential_fields %}
             try:
                 result = _dispatch()
-            except {{ '{' }}{% endif %}_sdk_exc(cmd){% if ir.credential_fields %}{{ '}' }} as _exc:
-                # A 401 with a token we seeded from cache -> the cached token was
+            except _sdk_exc(cmd) as _exc:
+                # A 401 with a token we SEEDED from cache -> the cached token was
                 # rejected (revoked/stale). Discard it, re-grant, retry ONCE.
+                # Safe to re-send only because this feature is gated to the
+                # scm_oauth ingress-auth gateway: a 401 is a pre-dispatch rejection
+                # (the bearer is validated before routing), so the server did
+                # nothing. Revisit if a non-ingress-auth component is onboarded.
+                # A 401 WITHOUT a seeded token (fresh grant already rejected) or a
+                # 403 falls to `raise` -> the outer handler renders it as today.
                 if (_cache is not None and _cache.seeded
                         and getattr(_exc, "status", None) == 401):
                     _cache.invalidate()
@@ -700,7 +753,7 @@ with (the `{% if ir.credential_fields %}` variant adds the retry; keep a plain v
 {%- endif %}
 ```
 
-> Note to implementer: the `except {…_sdk_exc(cmd)…}` line is written with Jinja `{{ '{' }}`/`{{ '}' }}` so the emitted Python reads `except (_sdk_exc(cmd)) as _exc:`. Verify the emitted `runtime.py` parses (the golden/lint step below catches a mismatch). Keep the ORIGINAL outer `except (_sdk_exc(cmd), ValidationError) as exc:` error handler (~line 649) unchanged — it still renders the terminal error when the retry also fails.
+> Note to implementer: `_sdk_exc(cmd)` returns a SINGLE exception class, so `except _sdk_exc(cmd) as _exc:` needs no wrapping — do NOT reintroduce brace/paren escaping (a `{…}` set literal raises `TypeError` at catch time and a mid-line `{% endif %}` breaks the non-auth `try:` into a `SyntaxError`; both were caught in review). The KEEP-UNCHANGED outer `except (_sdk_exc(cmd), ValidationError) as exc:` handler (~line 649) still renders the terminal error when a retry (or a non-401) propagates. After rendering, `python -c "import ast, pathlib; ast.parse(pathlib.Path('<out>/…/_generated/runtime.py').read_text())"` for BOTH an auth and a non-auth build.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -735,8 +788,8 @@ def test_cache_commands(emit_cli, render_and_import, monkeypatch, tmp_path):
     out = emit_cli(auth=True)
     monkeypatch.setenv("HOME", str(tmp_path))
     with render_and_import(out, "fakesdk_cli"):
-        ac = importlib.import_module("fakesdk_cli.auth_cache")
-        importlib.import_module("fakesdk_cli.config").load_config.cache_clear()
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         ac.write(ac._key("u", "c", "s"), "secret-token", time.time() + 600)
         main = importlib.import_module("fakesdk_cli.main")
         r = CliRunner()
@@ -764,7 +817,7 @@ def config_cache_clear() -> None:
     from . import auth_cache as _auth_cache
 
     n = _auth_cache.clear()
-    _output._console.print(f"removed {n} cached token(s) from {_auth_cache.cache_dir()}")
+    _output._console.print(f"removed {n} cached token(s) from {_auth_cache._dir()}")
 {% endif %}
 ```
 
@@ -780,7 +833,7 @@ def show_cache() -> None:
 
     from . import auth_cache as _auth_cache
 
-    d = _auth_cache.cache_dir()
+    d = _auth_cache._dir()  # non-creating: `show` must not materialize the dir
     _output._console.print(f"dir: {d}")
     for key, exp in _auth_cache.list_entries():
         iso = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds")
@@ -805,6 +858,154 @@ git commit -m "feat(cli): config cache-clear + show cli cache commands"
 
 ---
 
+## Task 5b: Coverage hardening (review-mandated paths + logging + negative gating)
+
+**Files:**
+- Modify: `tests/test_cli_emitted_cache.py` (append; all helpers `_StubTM`/`_StubClient`/`_fake_facade_with_tm`/`_set_creds` already defined in earlier tasks)
+- Test: itself
+
+**Interfaces:** consumes the module + runtime from Tasks 2-4; adds no production code (pure test coverage the expert review flagged as missing: expired→regrant, fresh-401, 403, unwritable-dir, disabled, dry-run, D5 log records, D8 negative).
+
+- [ ] **Step 1: Append the coverage tests**
+
+```python
+def test_expired_entry_triggers_regrant(emit_cli, render_and_import, monkeypatch, tmp_path, caplog):
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        tm = _StubTM()
+        ac.write(ac.key_for(tm), "old", time.time() - 1)     # EXPIRED
+        s = ac.session(_StubClient(tm))
+        with caplog.at_level(logging.INFO, logger="fakesdk_cli.auth_cache"):
+            s.seed_if_valid()
+        assert s.seeded is False
+        assert any("expired" in r.message for r in caplog.records)
+        assert tm.token() and tm.fetches == 1                # a real grant happened
+
+
+def test_corrupt_file_logs_warning(emit_cli, render_and_import, monkeypatch, tmp_path, caplog):
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        k = ac._key("u", "c", "s")
+        ac.cache_dir(); (ac._dir() / f"token-{k}.json").write_text("{bad")
+        with caplog.at_level(logging.WARNING, logger="fakesdk_cli.auth_cache"):
+            assert ac.read(k) is None
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_reuse_logs_info(emit_cli, render_and_import, monkeypatch, tmp_path, caplog):
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        tm = _StubTM(); ac.write(ac.key_for(tm), "good", time.time() + 900)
+        with caplog.at_level(logging.INFO, logger="fakesdk_cli.auth_cache"):
+            ac.session(_StubClient(tm)).seed_if_valid()
+        assert any("reusing cached token" in r.message for r in caplog.records)
+
+
+def test_disabled_returns_no_session_and_debug(emit_cli, render_and_import, monkeypatch, tmp_path, caplog):
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("FAKESDK_CACHE_ENABLED", "false")
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        with caplog.at_level(logging.DEBUG, logger="fakesdk_cli.auth_cache"):
+            assert ac.session(_StubClient(_StubTM())) is None
+        assert any("disabled" in r.message for r in caplog.records)
+
+
+def test_unwritable_dir_fails_open(emit_cli, render_and_import, monkeypatch, tmp_path, caplog):
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path))
+    blocked = tmp_path / "blocked"; blocked.write_text("x")        # a FILE where the dir would go
+    monkeypatch.setenv("FAKESDK_CACHE_DIR", str(blocked / "sub"))  # mkdir under a file -> OSError
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        with caplog.at_level(logging.WARNING, logger="fakesdk_cli.auth_cache"):
+            assert ac.cache_dir() is None                         # can't create -> None
+            ac.write("k", "t", time.time() + 900)                 # no-op, no raise
+        assert ac.read("k") is None
+        assert any("not writable" in r.message for r in caplog.records)
+
+
+def test_fresh_401_is_not_retried(emit_cli, render_and_import, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path)); _set_creds(monkeypatch)
+    with render_and_import(out, "fakesdk_cli"):
+        rt = importlib.import_module("fakesdk_cli._generated.runtime")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        main = importlib.import_module("fakesdk_cli.main")
+        tm = _StubTM(); rec = []                                  # NO cache seeded
+        _, client = _fake_facade_with_tm(rec, tm, fail_first_status=401)
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: client)
+        res = CliRunner().invoke(main.app, ["show", "widget", "--id", "1"])
+        assert res.exit_code == 1                                 # surfaced, NOT retried
+        assert len([r for r in rec if r[0] == "get"]) == 1
+
+
+def test_403_is_not_retried_cache_survives(emit_cli, render_and_import, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path)); _set_creds(monkeypatch)
+    with render_and_import(out, "fakesdk_cli"):
+        rt = importlib.import_module("fakesdk_cli._generated.runtime")
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        main = importlib.import_module("fakesdk_cli.main")
+        tm = _StubTM(); ac.write(ac.key_for(tm), "good", time.time() + 900)
+        rec = []
+        _, client = _fake_facade_with_tm(rec, tm, fail_first_status=403)
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: client)
+        res = CliRunner().invoke(main.app, ["show", "widget", "--id", "1"])
+        assert res.exit_code == 1
+        assert len([r for r in rec if r[0] == "get"]) == 1        # 403 not retried
+        assert ac.read(ac.key_for(tm)) is not None               # cache left intact
+
+
+def test_dry_run_never_touches_cache(emit_cli, render_and_import, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+    out = emit_cli(auth=True); monkeypatch.setenv("HOME", str(tmp_path)); _set_creds(monkeypatch)
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        main = importlib.import_module("fakesdk_cli.main")
+        res = CliRunner().invoke(main.app, ["show", "widget", "--id", "1", "--dry-run"])
+        assert res.exit_code == 0
+        assert ac.list_entries() == [] and not ac._dir().exists()  # cache untouched
+
+
+def test_non_auth_cli_has_no_cache_feature(emitted, monkeypatch, tmp_path):
+    """D8 negative: a CLI with no credential_fields gets NO cache module/section/commands.
+    The `emitted` fixture renders the fakesdk CLI WITHOUT auth."""
+    from typer.testing import CliRunner
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert not (emitted / "fakesdk_cli" / "_generated" / "auth_cache.py").exists()
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    assert "cache" not in cfg.effective_dict()["configuration"]
+    main = importlib.import_module("fakesdk_cli.main")
+    r = CliRunner()
+    assert r.invoke(main.app, ["config", "cache-clear"]).exit_code != 0
+    assert r.invoke(main.app, ["show", "cli", "cache"]).exit_code != 0
+```
+
+- [ ] **Step 2: Run the coverage tests**
+
+Run: `UV_PROJECT_ENVIRONMENT=$HOME/.tmp/cache uv run pytest tests/test_cli_emitted_cache.py -v`
+Expected: PASS (all paths + log records + negative gating). If a `caplog` assertion misses because the emitted `logging_setup` set `propagate=False` on the `{{package}}` logger, add the caplog handler to the `fakesdk_cli.auth_cache` logger directly in the test — these tests exercise the module functions without invoking `main.app`, so `init_logging` has not run and propagation is intact.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/test_cli_emitted_cache.py
+git commit -m "test(cli): cover expired/401/403/unwritable/dry-run/disabled + D5 logs + D8 negative"
+```
+
+---
+
 ## Task 6: Ring-3 seam test against the REAL TokenManager
 
 **Files:**
@@ -818,31 +1019,91 @@ git commit -m "feat(cli): config cache-clear + show cli cache commands"
 - [ ] **Step 1: Write the test** — `tests/test_cli_cache_real.py`:
 
 ```python
-"""Ring-3: the auth_cache coupling matches the REAL SDK TokenManager shape."""
+"""Ring-3: auth_cache's coupling matches the REAL prisma-browser SDK.
+
+Renders a prisma-browser CLI (to get the emitted `auth_cache` module) and builds
+the REAL facade Client credential-free, so the actual navigation path
+`client.api_client.configuration._token_manager` is validated against a real
+artifact — the exact fragile coupling D2 accepts. Also proves the real
+TokenManager honors a cache-seeded token WITHOUT issuing a grant (stubbed HTTP,
+never the real token endpoint).
+"""
 import importlib
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 
-def test_real_token_manager_has_coupled_fields(real_sdk: Path):
-    """The private fields auth_cache reads must exist on the real TokenManager."""
-    if str(real_sdk) not in sys.path:
-        sys.path.insert(0, str(real_sdk))
+def _render_pb_cli(real_sdk: Path, tmp_path: Path):
+    """Render a prisma-browser CLI WITH auth into tmp_path; return its package dir.
+    Skips if the SDK's runtime deps aren't importable (matches the ring pattern)."""
+    from phantasos.config import ScmOAuth
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
+    from phantasos.generator.cli.cliconfig import load_cli_config
+    from phantasos.generator.cli.render_cli import render_cli
+
+    try:
+        inv = cli_operations("prisma_browser", real_sdk)
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk runtime deps unavailable: {exc}")
+    ir, _ = build_cli_ir(inv, load_cli_config(Path("products/prisma-browser/cli.yml")))
+    render_cli(ir, package="prisma_browser_cli", out_dir=tmp_path,
+               env_prefix="PRISMA", distribution="prisma-browser-cli",
+               auth=ScmOAuth(type="scm_oauth"))
+    return tmp_path
+
+
+def test_resolver_finds_tm_on_real_facade(real_sdk, tmp_path, monkeypatch):
+    """auth_cache.token_manager() resolves the TM on the REAL facade Client."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    _render_pb_cli(real_sdk, tmp_path)
+    for p in (str(tmp_path), str(real_sdk)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    try:
+        facade = importlib.import_module("prisma_browser.extras.facade")
+        auth = importlib.import_module("prisma_browser.extras.auth")
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk not importable: {exc}")
+    ac = importlib.import_module("prisma_browser_cli._generated.auth_cache")
+    # credential-free client: no network until a call is made
+    client = facade.Client(auth.api_client_from_credentials(
+        client_id="x", client_secret="y", scope="z"))
+    tm = ac.token_manager(client)
+    assert tm is not None, "resolver failed on the real facade (coupling broke)"
+    assert tm is client.api_client.configuration._token_manager
+    assert ac.key_for(tm)  # reads _token_url/_client_id/_scope off the real TM
+
+
+def test_real_tm_honors_seeded_token_without_grant(real_sdk, tmp_path, monkeypatch):
+    """A cache-seeded token is returned by the REAL TokenManager with no grant."""
+    for p in (str(tmp_path), str(real_sdk)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
     try:
         auth = importlib.import_module("prisma_browser.extras.auth")
-    except ModuleNotFoundError as exc:
-        pytest.skip(f"prisma-browser-sdk auth not importable: {exc}")
-    tm = auth.TokenManager("cid", "secret", "scope", token_url="https://auth/token")
-    for attr in ("_token", "_expires_at", "_token_url", "_client_id", "_scope"):
-        assert hasattr(tm, attr), f"real TokenManager missing {attr} (auth_cache coupling)"
-    # a fresh TM has no token; seeding then reading back is what the CLI does
-    tm._token, tm._expires_at = "seeded", 9999999999.0
-    assert tm.token() == "seeded"   # seeded token is returned without a fetch
+    except ImportError as exc:
+        pytest.skip(f"prisma-browser-sdk not importable: {exc}")
+
+    class _FakeHTTP:  # stub the token endpoint (an external auth server, not the API)
+        def __init__(self): self.count = 0
+        def request(self, *a, **k):
+            self.count += 1
+            raise AssertionError("a grant was attempted despite a valid seeded token")
+
+    http = _FakeHTTP()
+    tm = auth.TokenManager("x", "y", "z", http=http)
+    tm._token, tm._expires_at = "cached", time.time() + 900   # seed as the CLI does
+    assert tm.token() == "cached" and http.count == 0
+    # expired seed -> the real fetch path IS taken (proves expiry handling is real)
+    tm._token, tm._expires_at = "old", time.time() - 1
+    with pytest.raises(AssertionError, match="grant was attempted"):
+        tm.token()
 ```
 
-> Note: the full 2-run reuse / 401 behavior is proven offline in Task 4 against a stub TM and against the real token endpoint in Task 7 (live). This ring-3 test's job is to catch an SDK-internals rename that would silently disable caching.
+> Note: the full 2-run reuse / 401 retry through the runtime is proven offline in Task 4 (stub TM) and end-to-end in Task 7 (live, real token endpoint). This ring-3 test's job is to catch an SDK facade/TokenManager rename that would silently disable caching (fail-open) — so it asserts the RESOLVER against a real Client, not just field presence.
 
 - [ ] **Step 2: Run the test** (skips cleanly if the SDK isn't built)
 
@@ -920,7 +1181,7 @@ Expected: SKIP without creds; PASS with creds + built SDK.
   of the cache lifecycle. Non-authenticating CLIs are unaffected.
 ```
 
-Add a "Token cache" subsection to the CLI config docs (`docs/configuring-the-cli.md`): the `cache:` knob, env vars, file location/permissions, the two commands, and the security note (a bearer JWT is written to disk; opt out via env). Update `.agents/context/cli-generator.md` narrative to mention the emitted `auth_cache.py` module and the runtime seed/persist/401 seam.
+Add a "Token cache" subsection to the CLI config docs (`docs/configuring-the-cli.md`): the `cache:` knob, env vars, file location/permissions, the two commands, and the security note (a short-lived bearer JWT — never the client secret — is written to a 0600 file; opt out via `<PREFIX>_CACHE_ENABLED=false`; consider excluding `~/.<dist>/cache/` from dotfile backups / cloud sync). Update `.agents/context/cli-generator.md` narrative to mention the emitted `auth_cache.py` module and the runtime seed/persist/401 seam.
 
 - [ ] **Step 4: Refresh generated context blocks**
 
@@ -949,4 +1210,8 @@ git commit -m "test+docs(cli): live token-cache test + CHANGELOG + config docs +
 
 **Type consistency:** `session()`/`_CacheSession`/`seed_if_valid`/`persist`/`invalidate`/`seeded`, `token_manager()`, `key_for()`, `read/write/delete/list_entries/clear`, `cache_dir()`/`cache_dir_path()`, `CacheConfig.{enabled,dir}` are used identically across Tasks 1-7 and the runtime/commands/tests.
 
-**Note carried to execution:** the Jinja-escaped `except` line in Task 4 Step 3 is the one spot to eyeball in the emitted `runtime.py`; the gate's ruff/lint + the Task 4 tests fail loudly if it renders wrong.
+**Note carried to execution:** the runtime `except _sdk_exc(cmd) as _exc:` block (Task 4 Step 3) must render as plain Python with NO brace/paren escaping — after building, `ast.parse` the emitted `runtime.py` for BOTH an auth and a non-auth CLI (an earlier draft's `{…}` set-literal crashed auth CLIs at catch time and broke non-auth CLIs with a SyntaxError). The Task 4 + Task 5b tests fail loudly if it renders wrong.
+
+## Review revisions (3 expert reviewers, folded in 2026-07-05)
+
+Applied before execution: **B1** dropped the Jinja brace-escaping → plain `except _sdk_exc(cmd) as _exc:`; **B2** all test imports corrected to `fakesdk_cli._generated.{config,auth_cache,runtime}` (infra emits under `_generated/`; only `main` is top-level); **B3** runtime tests set `CLIENT_ID/CLIENT_SECRET/SCOPE` (validated before `_facade_from_env`); **B4** the reuse-test fake now drives `tm.token()` and the failure fake raises the real `fakesdk.exceptions.OpenApiException`. **Should-fixes:** ring-3 (Task 6) now resolves against a REAL facade Client + proves the real TokenManager honors a seed with no grant; defaults-sync parity enforced for the auth-gated `cache:` section (Task 1); new **Task 5b** covers expired→regrant, fresh-401 (no retry), 403 (no retry, cache intact), unwritable-dir fail-open, disabled, dry-run, D5 log records (caplog), and the D8 negative (non-auth CLI gets nothing); the mutating-retry assumption is documented in the runtime comment; store-layer reads no longer create the dir and `write` reaps its temp on failure; commands display the non-creating dir path.
