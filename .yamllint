@@ -1,0 +1,16 @@
+# yamllint — enforce block-style YAML in self-authored product config files.
+#
+# Scope: applied ONLY to products/*/sdk.yml and products/*/cli.yml via the
+# pre-commit `files:` filter (see .pre-commit-config.yaml). The OpenAPI specs
+# (products/*/openapi.yml, products/*/openapi/*.yaml) are hand-imported vendor
+# artifacts and are intentionally NOT linted.
+#
+# Only the flow-style rules are enabled; everything else (line length,
+# indentation, key ordering, …) is left off so this checks style, not layout.
+# `forbid: non-empty` bans inline `{a: b}` / `[a, b]` while still allowing the
+# empty `{}` / `[]` that block style cannot express (e.g. `objects: {}`).
+rules:
+  braces:
+    forbid: non-empty
+  brackets:
+    forbid: non-empty
