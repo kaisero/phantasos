@@ -286,24 +286,24 @@ def test_error_headline_extraction(emitted: Path) -> None:
 
 def test_render_error_api_exception_to_stderr(
     emitted: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
-    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-        del sys.modules[name]
-    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    with render_and_import(emitted, "fakesdk_cli"):  # fresh import; purges on exit
+        d = importlib.import_module("fakesdk_cli._generated.diagnostics")
 
-    class _Exc:  # duck-typed ApiException
-        status = 400
-        reason = "Bad Request"
-        body = (
-            '{"errorResponse":{"error":"group name already exists",'
-            '"message":"failed to create device group"}}'
-        )
-        data = None
+        class _Exc:  # duck-typed ApiException
+            status = 400
+            reason = "Bad Request"
+            body = (
+                '{"errorResponse":{"error":"group name already exists",'
+                '"message":"failed to create device group"}}'
+            )
+            data = None
 
-    d.render_error(_Exc())
+        d.render_error(_Exc())
     err = capsys.readouterr().err
     assert "400 Bad Request" in err
     assert "group name already exists" in err  # headline
@@ -322,35 +322,38 @@ def test_render_error_non_api(
 
 
 def test_cli_runner_api_error_is_pretty(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
+    emitted: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
-    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
-        del sys.modules[n]
-    from typer.testing import CliRunner
+    with render_and_import(emitted, "fakesdk_cli"):  # fresh import; purges on exit
+        from typer.testing import CliRunner
 
-    main = importlib.import_module("fakesdk_cli.main")
-    import fakesdk.exceptions
-    import fakesdk.extras.facade as facade
+        main = importlib.import_module("fakesdk_cli.main")
+        import fakesdk.exceptions
+        import fakesdk.extras.facade as facade
 
-    fexc: Any = fakesdk.exceptions
+        fexc: Any = fakesdk.exceptions
 
-    class _Client:
-        class widget:  # noqa: N801  (object wrapper attr)
-            @staticmethod
-            def create(**kw: Any) -> Any:
-                raise fexc.ApiException(
-                    status=400,
-                    reason="Bad Request",
-                    body='{"errorResponse":{"error":"widget name already exists",'
-                    '"message":"failed to create widget"}}',
-                )
+        class _Client:
+            class widget:  # noqa: N801  (object wrapper attr)
+                @staticmethod
+                def create(**kw: Any) -> Any:
+                    raise fexc.ApiException(
+                        status=400,
+                        reason="Bad Request",
+                        body='{"errorResponse":{"error":"widget name already exists",'
+                        '"message":"failed to create widget"}}',
+                    )
 
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Client()))
+        monkeypatch.setattr(
+            facade.Client, "from_env", classmethod(lambda cls: _Client())
+        )
 
-    res = CliRunner().invoke(
-        main.app, ["create", "widget", "--name", "dup", "--priority", "1"]
-    )
+        res = CliRunner().invoke(
+            main.app, ["create", "widget", "--name", "dup", "--priority", "1"]
+        )
     assert res.exit_code == 1, res.output
     assert "400 Bad Request" in res.output
     assert "widget name already exists" in res.output  # headline
@@ -361,21 +364,21 @@ def test_cli_runner_api_error_is_pretty(
 
 def test_render_error_non_json_body(
     emitted: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
-    for name in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-        del sys.modules[name]
-    d = importlib.import_module("fakesdk_cli._generated.diagnostics")
+    with render_and_import(emitted, "fakesdk_cli"):  # fresh import; purges on exit
+        d = importlib.import_module("fakesdk_cli._generated.diagnostics")
 
-    class _Exc:
-        status = 502
-        reason = "Bad Gateway"
-        body = "upstream timeout"
-        data = None
+        class _Exc:
+            status = 502
+            reason = "Bad Gateway"
+            body = "upstream timeout"
+            data = None
 
-    d.render_error(_Exc())
+        d.render_error(_Exc())
     err = capsys.readouterr().err
     assert "502 Bad Gateway" in err and "upstream timeout" in err
 
@@ -485,19 +488,22 @@ def test_dry_run_falls_back_without_serialize(
     assert "DRY-RUN create:widget" in res.output and "widget.create" in res.output
 
 
-def test_version_flag_wired(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_version_flag_wired(
+    emitted: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
-    for n in [n for n in list(sys.modules) if n.startswith("fakesdk_cli")]:
-        del sys.modules[n]
-    from typer.testing import CliRunner
+    with render_and_import(emitted, "fakesdk_cli"):  # fresh import; purges on exit
+        from typer.testing import CliRunner
 
-    main = importlib.import_module("fakesdk_cli.main")
-    res = CliRunner().invoke(main.app, ["--version"])
-    assert res.exit_code == 0, res.output
-    app_mod = importlib.import_module("fakesdk_cli._generated.app")
-    assert app_mod._DISTRIBUTION in res.output  # distribution name printed
-    # not installed in the tmp render -> graceful "unknown", no crash
-    assert app_mod._resolve_version() in res.output
+        main = importlib.import_module("fakesdk_cli.main")
+        res = CliRunner().invoke(main.app, ["--version"])
+        assert res.exit_code == 0, res.output
+        app_mod = importlib.import_module("fakesdk_cli._generated.app")
+        assert app_mod._DISTRIBUTION in res.output  # distribution name printed
+        # not installed in the tmp render -> graceful "unknown", no crash
+        assert app_mod._resolve_version() in res.output
 
 
 def test_version_resolves_from_metadata(
@@ -1139,7 +1145,6 @@ def test_pagination_panel_precedes_common_on_non_list_commands(
 def test_emitted_help_shows_json_skeleton(emitted: Path) -> None:
     import os
     import subprocess
-    import sys
 
     # Force a wide, non-interactive terminal so Rich does NOT wrap the help columns
     # (a wrapped "[json: WidgetProfile]" would split the token and flake the assert).
