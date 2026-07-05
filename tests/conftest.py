@@ -26,6 +26,27 @@ from phantasos.generator.cli.cliconfig import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+# --- Shared fakesdk fixture path + CLI config (single source; consumed by emit_cli,
+# the emitted/emitted_auth fixtures, and imported by test_cli_emitted.py) ---
+FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
+FAKESDK_FIXTURE = FIXTURE  # public alias
+
+# Variant config so the fixture produces `create:gizmo:simple` /
+# `create:gizmo:complex` plus the request actions.
+_FAKESDK_CLI_CONFIG = CliConfig(
+    variants={
+        "gizmos.create_gizmo": VariantMap(
+            path_param="type",
+            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+        )
+    },
+    request={
+        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+    },
+    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
+)
+
 # --- Ring-3 "real artifact" tests -------------------------------------------
 # The single source of truth for the locally-built prisma-browser SDK, a sibling
 # of the repo (products/prisma-browser/sdk.yml `output: ../../../prisma-browser-sdk`).
@@ -244,28 +265,11 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
     """
     from phantasos.config import ScmOAuth
     from phantasos.generator.cli.classify import build_cli_ir, cli_operations
-    from phantasos.generator.cli.cliconfig import (
-        CliConfig,
-        CliDocsConfig,
-        RequestMapping,
-        VariantMap,
-    )
+    from phantasos.generator.cli.cliconfig import CliDocsConfig
     from phantasos.generator.cli.render_cli import render_cli
 
-    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
-    config = CliConfig(
-        variants={
-            "gizmos.create_gizmo": VariantMap(
-                path_param="type",
-                map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
-            )
-        },
-        request={
-            "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-            "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-        },
-        defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
-    )
+    fixture = FIXTURE
+    config = _FAKESDK_CLI_CONFIG
 
     calls = {"n": 0}
 
@@ -296,31 +300,14 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
 
 
 # --- Shared emitted-CLI fixtures/helpers (used across the test_cli_emitted*
-# seam modules) ---
-
-FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
+# seam modules) --- FIXTURE / _FAKESDK_CLI_CONFIG are defined near the top (single
+# source, so emit_cli can reference them without late binding).
 
 # Deterministic terminal env for tests that substring-assert Typer/Rich `--help`
 # LAYOUT (panel titles, hyphenated option names). TERM=dumb disables styling so the
 # literals stay contiguous; the fixed COLUMNS keeps wrapping stable. Pass explicitly
 # to the `.invoke(..., env=HELP_ENV)` calls whose output is substring-asserted.
 HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
-
-# Variant config so the fixture produces `create:gizmo:simple` /
-# `create:gizmo:complex` plus the request actions.
-_FAKESDK_CLI_CONFIG = CliConfig(
-    variants={
-        "gizmos.create_gizmo": VariantMap(
-            path_param="type",
-            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
-        )
-    },
-    request={
-        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-    },
-    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
-)
 
 
 class _ListResult:

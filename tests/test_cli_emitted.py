@@ -9,27 +9,10 @@ from typing import Any
 
 import pytest
 
+# Single source in conftest (functions that need CliConfig import it locally).
+from conftest import _FAKESDK_CLI_CONFIG, FIXTURE
 from phantasos.generator.cli.classify import build_cli_ir, cli_operations
-from phantasos.generator.cli.cliconfig import CliConfig, RequestMapping, VariantMap
 from phantasos.generator.cli.render_cli import render_cli
-
-FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
-
-# Variant config so the fixture produces `create:gizmo:simple` /
-# `create:gizmo:complex` plus the request actions.
-_FAKESDK_CLI_CONFIG = CliConfig(
-    variants={
-        "gizmos.create_gizmo": VariantMap(
-            path_param="type",
-            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
-        )
-    },
-    request={
-        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-    },
-    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
-)
 
 
 @pytest.fixture
