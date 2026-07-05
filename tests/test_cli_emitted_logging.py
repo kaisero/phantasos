@@ -606,3 +606,56 @@ def test_show_cli_log_bad_level_exit_2(
     res = CliRunner().invoke(main.app, ["show", "cli", "log", "--level", "nope"])
     assert res.exit_code == 2
     assert "unknown log level" in res.output
+
+
+def test_show_cli_log_follow_prints_snapshot_then_ctrl_c(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import time
+
+    from typer.testing import CliRunner
+
+    home = _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    _write_log(home, active=[_log_row("2026-07-05T10:00:00Z", "INFO", "snap-msg")])
+
+    sleeps = {"n": 0}
+
+    def _boom(*_a: Any, **_k: Any) -> None:
+        sleeps["n"] += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(time, "sleep", _boom)
+    res = CliRunner().invoke(main.app, ["show", "cli", "log", "-f"])
+    assert res.exit_code == 0, res.output
+    assert "snap-msg" in res.output  # the recent snapshot printed first
+    assert sleeps["n"] == 1  # the follow loop reached sleep, then Ctrl-C exits clean
+
+
+def test_show_cli_log_follow_streams_appended_line(
+    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import time
+
+    from typer.testing import CliRunner
+
+    home = _log_home(monkeypatch, tmp_path)
+    main = importlib.import_module("fakesdk_cli.main")
+    p = _write_log(home, active=[_log_row("2026-07-05T10:00:00Z", "INFO", "snap-msg")])
+
+    calls = {"n": 0}
+
+    def _sleep(*_a: Any, **_k: Any) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:  # append a NEW record between polls
+            with p.open("a", encoding="utf-8") as fh:
+                row = _log_row("2026-07-05T10:05:00Z", "ERROR", "streamed-msg")
+                fh.write(json.dumps(row) + "\n")
+            return
+        raise KeyboardInterrupt  # stop on the second poll
+
+    monkeypatch.setattr(time, "sleep", _sleep)
+    res = CliRunner().invoke(main.app, ["show", "cli", "log", "-f"])
+    assert res.exit_code == 0, res.output
+    assert "streamed-msg" in res.output  # read_since picked it up between polls

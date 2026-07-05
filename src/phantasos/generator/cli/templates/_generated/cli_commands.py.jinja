@@ -119,9 +119,29 @@ def _emit_log_line(r: dict, as_json: bool) -> None:
 
 
 def _follow_log(records: list[dict], *, level: str | None, as_json: bool) -> None:
-    # Minimal stub (Task 2): emit the snapshot and return. Task 3 adds the stream.
-    for r in records:
+    import time as _time
+
+    from . import config as _config
+    from . import logging_setup as _log
+
+    for r in records:  # recent snapshot, line format
         _emit_log_line(r, as_json)
+    _diag.info("— following (Ctrl-C to stop) —")
+    path = _config.log_file_path()
+    floor = _config.log_level_int(level) if level else 0
+    try:
+        offset = path.stat().st_size if path.exists() else 0
+    except OSError:
+        offset = 0
+    try:
+        while True:
+            new, _corrupt, offset = _log.read_since(path, offset)
+            for r in new:
+                if not floor or _config.log_level_int(str(r.get("level", ""))) >= floor:
+                    _emit_log_line(r, as_json)
+            _time.sleep(0.5)
+    except KeyboardInterrupt:
+        raise typer.Exit(0) from None
 
 {% if ir.credential_fields %}
 @cli_show_app.command("cache")
