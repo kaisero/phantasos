@@ -75,6 +75,8 @@ def test_errors_guide_documents_exit_codes(emit_cli: Callable[..., Path]) -> Non
         assert code in errors
     # fakesdk has no error component -> the IR-driven API-error subsection is absent
     assert "## API error messages" not in errors
+    # the Logs section documents the `show cli log` viewer
+    assert "show cli log" in errors
 
 
 def test_quickstart_honors_showcase_variant(emit_cli: Callable[..., Path]) -> None:

@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the real-artifact tests skip-loudly against a stale local build.
 
 ### Added
+- **`<dist> show cli log`** — view the generated CLI's rotating JSONL log (plus its
+  `.gz` backups) without leaving the tool: a table by default, `--level` to filter by
+  severity, `--json` for raw records (including tracebacks), and `-f`/`--follow` to
+  stream new lines live. Ships in every generated CLI (logging is always emitted).
 - **Generated CLIs cache the OAuth token across runs** — an authenticating CLI now
   reuses a valid client-credentials JWT instead of re-authenticating every command.
   The token is stored per-principal (0600) under `~/.<dist>/cache/`, seeded into the
