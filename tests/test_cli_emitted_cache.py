@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -106,3 +107,79 @@ def test_cache_read_tolerates_corruption(
         k = ac._key("u", "c", "s")
         (ac.cache_dir() / f"token-{k}.json").write_text("{not json")
         assert ac.read(k) is None  # corrupt -> miss (fail open), no raise
+
+
+class _StubTM:
+    """Mimics the SDK TokenManager's fields the cache couples to."""
+
+    def __init__(self) -> None:
+        self._token: str | None = None
+        self._expires_at = 0.0
+        self._token_url = "https://auth.example/token"
+        self._client_id = "cid"
+        self._scope = "scope-x"
+        self.fetches = 0
+
+    def token(self) -> str:
+        if self._token is None or time.time() >= self._expires_at:
+            self.fetches += 1
+            self._token = f"minted-{self.fetches}"
+            self._expires_at = time.time() + 900
+        return self._token
+
+
+class _StubClient:
+    """Single-spec facade shape: client.api_client.configuration._token_manager"""
+
+    def __init__(self, tm: _StubTM) -> None:
+        cfg = type("Cfg", (), {"_token_manager": tm})()
+        self.api_client = type("AC", (), {"configuration": cfg})()
+
+
+def test_session_seed_persist_invalidate(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module(
+            "fakesdk_cli._generated.config"
+        ).load_config.cache_clear()
+        tm = _StubTM()
+        client = _StubClient(tm)
+        assert ac.token_manager(client) is tm  # resolver finds single-spec shape
+        # 1st run: cache miss -> no seed; a fetch happens; persist writes it
+        s1 = ac.session(client)
+        s1.seed_if_valid()
+        assert s1.seeded is False
+        tm.token()  # simulate the API call fetching
+        s1.persist()
+        key = ac.key_for(tm)
+        assert ac.read(key) is not None
+        # 2nd run: fresh TM, cache hit -> seed, NO fetch on token()
+        tm2 = _StubTM()
+        s2 = ac.session(_StubClient(tm2))
+        s2.seed_if_valid()
+        assert s2.seeded is True and tm2._token is not None
+        assert tm2.token() == tm2._token and tm2.fetches == 0
+        # invalidate clears the file + the in-memory token
+        s2.invalidate()
+        assert ac.read(key) is None and tm2._token is None
+
+
+def test_token_manager_resolver_fails_open(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        assert ac.token_manager(object()) is None  # unrecognized shape -> None
+        assert ac.session(object()) is None

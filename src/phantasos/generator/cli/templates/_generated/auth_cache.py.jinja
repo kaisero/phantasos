@@ -121,3 +121,71 @@ def clear() -> int:
         except OSError:
             pass
     return n
+
+
+def key_for(tm: Any) -> str:
+    return _key(tm._token_url, tm._client_id, tm._scope)
+
+
+def token_manager(client: Any) -> Any | None:
+    """Resolve the SDK TokenManager from the built facade Client. Recognizes the
+    single-spec shape (client.api_client.configuration._token_manager) and the
+    federated shape (client._configuration._token_manager). Fail open: any other
+    shape -> None (caching disabled this run; auth still works)."""
+    cfg = getattr(getattr(client, "api_client", None), "configuration", None)
+    if cfg is None:
+        cfg = getattr(client, "_configuration", None)
+    tm = getattr(cfg, "_token_manager", None)
+    # Duck-check the fields we couple to; anything missing -> not our shape.
+    if tm is None or not all(hasattr(tm, a) for a in ("_token", "_expires_at",
+                                                      "_token_url", "_client_id", "_scope")):
+        return None
+    return tm
+
+
+class _CacheSession:
+    """Owns one command's cache interaction: seed the TokenManager from disk,
+    persist a freshly-minted token, invalidate on rejection."""
+
+    def __init__(self, tm: Any) -> None:
+        self._tm = tm
+        self._key = key_for(tm)
+        self.seeded = False
+
+    def seed_if_valid(self) -> None:
+        hit = read(self._key)
+        if hit is None:
+            _LOG.info("no valid cached token (key %s); requesting a new one", self._key)
+            return
+        token, exp = hit
+        if time.time() >= exp:
+            _LOG.info("cached token expired (key %s); requesting a new one", self._key)
+            return
+        self._tm._token, self._tm._expires_at = token, exp
+        self.seeded = True
+        _LOG.info("reusing cached token (key %s, expires in %ds)",
+                  self._key, int(exp - time.time()))
+
+    def persist(self) -> None:
+        token = getattr(self._tm, "_token", None)
+        if not token:
+            return  # no fetch happened (e.g. dry path) -> nothing to persist
+        exp = float(getattr(self._tm, "_expires_at", 0.0))
+        if read(self._key) != (token, exp):
+            write(self._key, token, exp)
+            if not self.seeded:
+                _LOG.info("cached new token (key %s, expires in %ds)",
+                          self._key, int(exp - time.time()))
+
+    def invalidate(self) -> None:
+        delete(self._key)
+        self._tm._token = None
+        _LOG.info("server rejected cached token; discarding and re-authenticating")
+
+
+def session(client: Any) -> "_CacheSession | None":
+    if not enabled():
+        _LOG.debug("token cache disabled (config)")
+        return None
+    tm = token_manager(client)
+    return _CacheSession(tm) if tm is not None else None
