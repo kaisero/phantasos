@@ -569,6 +569,75 @@ def test_403_is_not_retried_cache_survives(
         assert ac.read(ac.key_for(tm)) is not None  # cache left intact
 
 
+def test_call_with_retry_seeded_unseeded_and_403(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unit-level proof of _CacheSession.call_with_retry (the retry policy the
+    runtime now delegates): seeded 401 -> retried once; unseeded 401 and any 403
+    -> propagate, no retry."""
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module(
+            "fakesdk_cli._generated.config"
+        ).load_config.cache_clear()
+
+        class _StubError(Exception):
+            status: int | None = None
+
+        def _dispatch_factory(
+            statuses: list[int],
+        ) -> tuple[Callable[[], Any], list[int]]:
+            calls: list[int] = []
+
+            def _d() -> Any:
+                calls.append(1)
+                if len(calls) <= len(statuses):
+                    exc = _StubError()
+                    exc.status = statuses[len(calls) - 1]
+                    raise exc
+                return "ok"
+
+            return _d, calls
+
+        # (a) seeded + 401 once then success -> retried once, returns success,
+        #     invalidate happened (in-memory token cleared, cache file deleted).
+        tm = _StubTM()
+        ac.write(ac.key_for(tm), "stale", time.time() + 900)
+        s = ac.session(_StubClient(tm))
+        s.seed_if_valid()
+        assert s.seeded is True and tm._token == "stale"
+        d, calls = _dispatch_factory([401])
+        assert s.call_with_retry(d, _StubError) == "ok"
+        assert len(calls) == 2  # one 401 + one retry
+        assert tm._token is None and ac.read(ac.key_for(tm)) is None  # invalidated
+
+        # (b) UNSEEDED + 401 -> propagates, no retry.
+        tm2 = _StubTM()
+        s2 = ac.session(_StubClient(tm2))
+        assert s2.seeded is False
+        d2, calls2 = _dispatch_factory([401])
+        with pytest.raises(_StubError):
+            s2.call_with_retry(d2, _StubError)
+        assert len(calls2) == 1  # never retried
+
+        # (c) seeded + 403 -> propagates, no retry, cache survives.
+        tm3 = _StubTM()
+        ac.write(ac.key_for(tm3), "good", time.time() + 900)
+        s3 = ac.session(_StubClient(tm3))
+        s3.seed_if_valid()
+        assert s3.seeded is True
+        d3, calls3 = _dispatch_factory([403])
+        with pytest.raises(_StubError):
+            s3.call_with_retry(d3, _StubError)
+        assert len(calls3) == 1  # 403 not retried
+        assert ac.read(ac.key_for(tm3)) is not None  # cache left intact
+
+
 def test_dry_run_never_touches_cache(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],

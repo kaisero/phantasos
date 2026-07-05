@@ -13,6 +13,7 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -181,6 +182,25 @@ class _CacheSession:
         delete(self._key)
         self._tm._token = None
         _LOG.info("server rejected cached token; discarding and re-authenticating")
+
+    def call_with_retry(self, dispatch: Callable[[], Any], sdk_exc: type[BaseException]) -> Any:
+        """Run ``dispatch()``; if a SEEDED cached token is rejected with a 401,
+        discard it, re-grant, and retry ONCE, then return the retry's result.
+
+        A non-401, or a 401 when no token was seeded from cache (i.e. a freshly
+        granted token was itself rejected), propagates to the caller unchanged.
+        Re-sending is safe ONLY because this feature is gated to the scm_oauth
+        ingress-auth gateway: a 401 is a pre-dispatch rejection (the bearer is
+        validated before routing), so the server did nothing. Revisit if a
+        non-ingress-auth component is ever onboarded.
+        """
+        try:
+            return dispatch()
+        except sdk_exc as exc:
+            if self.seeded and getattr(exc, "status", None) == 401:
+                self.invalidate()
+                return dispatch()
+            raise
 
 
 def session(client: Any) -> "_CacheSession | None":
