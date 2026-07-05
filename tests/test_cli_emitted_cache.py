@@ -138,6 +138,13 @@ class _StubClient:
         self.api_client = type("AC", (), {"configuration": cfg})()
 
 
+class _StubFederatedClient:
+    """Federated shape: client._configuration._token_manager (no api_client)."""
+
+    def __init__(self, tm: _StubTM) -> None:
+        self._configuration = type("Cfg", (), {"_token_manager": tm})()
+
+
 def test_session_seed_persist_invalidate(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
@@ -185,6 +192,24 @@ def test_token_manager_resolver_fails_open(
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
         assert ac.token_manager(object()) is None  # unrecognized shape -> None
         assert ac.session(object()) is None
+
+
+def test_token_manager_resolver_finds_federated_shape(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Federated branch: client._configuration._token_manager (no api_client)."""
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module(
+            "fakesdk_cli._generated.config"
+        ).load_config.cache_clear()
+        tm = _StubTM()
+        assert ac.token_manager(_StubFederatedClient(tm)) is tm
 
 
 def _set_creds(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -412,6 +437,35 @@ def test_reuse_logs_info(
         with _capture_auth_cache_logs(caplog, logging.INFO):
             ac.session(_StubClient(tm)).seed_if_valid()
         assert any("reusing cached token" in r.message for r in caplog.records)
+
+
+def test_token_value_never_logged(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A full seed+persist cycle logs key ids and expiries — never the token."""
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module(
+            "fakesdk_cli._generated.config"
+        ).load_config.cache_clear()
+        seeded_token = "seeded-secret-abc123"
+        fresh_token = "fresh-secret-xyz789"
+        tm = _StubTM()
+        ac.write(ac.key_for(tm), seeded_token, time.time() + 900)
+        with _capture_auth_cache_logs(caplog, logging.DEBUG):
+            ac.session(_StubClient(tm)).seed_if_valid()  # reuse path logs
+            tm2 = _StubTM()
+            tm2._token, tm2._expires_at = fresh_token, time.time() + 900
+            ac.session(_StubClient(tm2)).persist()  # cached-new path logs
+        assert caplog.records  # capture actually happened
+        for tok in (seeded_token, fresh_token):
+            assert all(tok not in r.message for r in caplog.records)
 
 
 def test_disabled_returns_no_session_and_debug(
