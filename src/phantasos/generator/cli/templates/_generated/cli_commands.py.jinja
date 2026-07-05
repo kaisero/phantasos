@@ -52,6 +52,23 @@ def show_history(
     with _output.maybe_paged(pager):
         _output._console.print(table)
 
+{% if ir.credential_fields %}
+@cli_show_app.command("cache")
+def show_cache() -> None:
+    """Show cached auth tokens (key id + expiry — never the token value)."""
+    import time as _time
+    from datetime import datetime, timezone
+
+    from . import auth_cache as _auth_cache
+
+    d = _auth_cache._dir()  # non-creating: `show` must not materialize the dir
+    _output._console.print(f"dir: {d}")
+    for key, exp in _auth_cache.list_entries():
+        iso = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds")
+        rem = int(exp - _time.time())
+        _output._console.print(f"  key {key}  expires {iso} (in {rem}s)")
+{% endif %}
+
 {% if federated %}
 
 def _object_index() -> dict:

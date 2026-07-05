@@ -298,3 +298,22 @@ def test_runtime_401_invalidates_and_retries_once(
         assert res.exit_code == 0  # retried after invalidation
         assert len([r for r in rec if r[0] == "get"]) == 2  # one 401 + one success
         assert ac.read(ac.key_for(tm)) is not None  # re-cached the fresh token
+
+
+def test_cache_commands(emit_cli, render_and_import, monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
+        ac.write(ac._key("u", "c", "s"), "secret-token", time.time() + 600)
+        main = importlib.import_module("fakesdk_cli.main")
+        r = CliRunner()
+        show = r.invoke(main.app, ["show", "cli", "cache"])
+        assert show.exit_code == 0
+        assert "secret-token" not in show.output          # never leak the token
+        assert ac._key("u", "c", "s") in show.output       # shows the key id
+        clr = r.invoke(main.app, ["config", "cache-clear"])
+        assert clr.exit_code == 0 and "removed 1" in clr.output.lower()
+        assert ac.list_entries() == []
