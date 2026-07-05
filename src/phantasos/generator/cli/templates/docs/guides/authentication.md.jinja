@@ -28,3 +28,44 @@ Settings resolve in order (later wins): packaged defaults →
 {{ distribution }} config set output.format json
 {{ distribution }} config unset output.format
 ```
+
+## Token cache
+
+So you don't log in on every command, `{{ distribution }}` saves the access token it
+gets from your credentials and reuses it on the next runs.
+
+**How it works**
+
+- After your first authenticated command, the token is saved to a small file under
+  `~/.{{ distribution }}/cache/` — one file per set of credentials, readable only by you.
+- The next commands read that file and reuse the token until it expires, so they skip
+  the extra login step.
+- When the token expires — or the server rejects it — `{{ distribution }}` quietly
+  fetches a fresh one and updates the cache. You don't have to do anything.
+- Your client secret is **never** saved to the cache, and the token value never appears
+  in the logs.
+
+**Configure it**
+
+Caching is **on by default**. To change it:
+
+| What | Config key | Environment variable | Default |
+| --- | --- | --- | --- |
+| Turn caching on/off | `cache.enabled` | `{{ env_prefix }}_CACHE_ENABLED` | `true` |
+| Where tokens are stored | `cache.dir` | `{{ env_prefix }}_CACHE_DIR` | `~/.{{ distribution }}/cache/` |
+
+```bash
+{{ distribution }} config set cache.enabled false     # turn it off permanently
+{{ env_prefix }}_CACHE_ENABLED=false {{ distribution }} show <object>   # just this run
+{{ distribution }} config set cache.dir /path/to/dir  # store the cache elsewhere
+```
+
+**Verify it**
+
+```bash
+{{ distribution }} show cli cache       # list cached tokens: key id + expiry (never the token)
+{{ distribution }} config cache-clear   # delete all cached tokens
+```
+
+With logging at `info` level you can also watch the cache work in the log file —
+you'll see lines like `reusing cached token` and `cached new token`.

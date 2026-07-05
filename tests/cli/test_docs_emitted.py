@@ -60,6 +60,12 @@ def test_guides_always_present_and_auth_gating(emit_cli: Callable[..., Path]) ->
     assert "environment show" in auth_md
     assert "config environment" not in auth_md
     assert "config init" in auth_md  # config init is documented
+    # Token-cache section: overview + configure + verify, with the REAL env prefix
+    # rendered (FAKESDK for this fixture — not a `<PREFIX>` placeholder).
+    assert "## Token cache" in auth_md
+    assert "show cli cache" in auth_md and "config cache-clear" in auth_md
+    assert "FAKESDK_CACHE_ENABLED" in auth_md
+    assert "cache.enabled" in auth_md and "cache.dir" in auth_md
 
 
 def test_errors_guide_documents_exit_codes(emit_cli: Callable[..., Path]) -> None:
