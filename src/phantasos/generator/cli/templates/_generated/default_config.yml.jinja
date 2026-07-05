@@ -15,6 +15,10 @@
 #   {{ env_prefix }}_HISTORY_MAX_SIZE_MB  -> configuration.history.max_size_mb
 #   {{ env_prefix }}_LOGGING_LEVEL        -> configuration.logging.level
 #   {{ env_prefix }}_LOGGING_FILE         -> configuration.logging.file
+{%- if ir.credential_fields %}
+#   {{ env_prefix }}_CACHE_ENABLED        -> configuration.cache.enabled
+#   {{ env_prefix }}_CACHE_DIR            -> configuration.cache.dir
+{%- endif %}
 
 configuration:
   # Pager for long output: when enabled, results taller than the terminal are
@@ -51,6 +55,16 @@ configuration:
     level: info
     # null -> ~/.{{ distribution }}/logs/{{ distribution }}.jsonl
     file: null
+{%- if ir.credential_fields %}
+
+  # Auth token cache: reuse a valid OAuth access token across runs instead of
+  # re-authenticating every command. The token is stored per-principal, 0600,
+  # under the cache dir. Disable with {{ env_prefix }}_CACHE_ENABLED=false.
+  cache:
+    enabled: true
+    # null -> ~/.{{ distribution }}/cache/
+    dir: null
+{%- endif %}
 {% if has_env %}
 # Named environments live in ~/.{{ distribution }}/environments.yml (not here).
 # Manage them with: environment create / activate / show / delete.
