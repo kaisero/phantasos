@@ -36,7 +36,9 @@ configuration:
 | `<PREFIX>_CACHE_ENABLED` | `configuration.cache.enabled` |
 | `<PREFIX>_CACHE_DIR` | `configuration.cache.dir` |
 
-(`<PREFIX>` is the CLI's env-var prefix, e.g. `PRISMA` for prisma-browser.)
+(`<PREFIX>` is the CLI's env-var prefix — the distribution name uppercased with a
+trailing `-cli`/`_cli` dropped, e.g. `PRISMA_BROWSER` for the `prisma-browser-cli`
+distribution, giving `PRISMA_BROWSER_CACHE_ENABLED`.)
 
 ### File location and permissions
 
