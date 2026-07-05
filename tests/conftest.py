@@ -273,6 +273,12 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
+# Deterministic terminal env for tests that substring-assert Typer/Rich `--help`
+# LAYOUT (panel titles, hyphenated option names). TERM=dumb disables styling so the
+# literals stay contiguous; the fixed COLUMNS keeps wrapping stable. Pass explicitly
+# to the `.invoke(..., env=HELP_ENV)` calls whose output is substring-asserted.
+HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
+
 # Variant config so the fixture produces `create:gizmo:simple` /
 # `create:gizmo:complex` plus the request actions.
 _FAKESDK_CLI_CONFIG = CliConfig(
