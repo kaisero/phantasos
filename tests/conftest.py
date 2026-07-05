@@ -10,7 +10,7 @@ import functools
 import importlib
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from types import ModuleType
@@ -79,11 +79,58 @@ def _stale_sdk_reason() -> str | None:
         return None
     if rc != 1:  # 0 = generator unchanged since build; 128 = unknown SHA → can't tell
         return None
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--short=8", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            or "unknown"
+        )
+    except (OSError, subprocess.SubprocessError):
+        head = "unknown"
+    return _stale_reason_text(built[:8], head)
+
+
+_STALE_SENTINEL = "prisma-browser-sdk is stale"
+
+
+def _stale_reason_text(built_sha8: str, head_sha8: str) -> str:
+    """The one place the staleness reason string is built (composed FROM the
+    sentinel, so _STALE_SENTINEL is a substring by construction)."""
     return (
-        f"prisma-browser-sdk is stale: the generator (src/phantasos or "
-        f"products/prisma-browser) changed since it was built at {built[:8]} — "
-        f"rebuild: nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
+        f"{_STALE_SENTINEL}: the generator (src/phantasos or products/prisma-browser)"
+        f" changed since it was built at {built_sha8} (HEAD {head_sha8}) — rebuild: "
+        f"nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
     )
+
+
+def _ring3_stale_summary(skip_reasons: Iterable[str]) -> str | None:
+    """One loud terminal-summary line when a ring-3 test skipped for SDK *staleness*.
+
+    Returns ``None`` when no skip was a staleness skip (SDK absent, or the ring
+    actually ran), so a fresh checkout and CI's SDK-less ``tests`` job stay quiet.
+    Reuses the per-test staleness reason verbatim — it already carries the built +
+    HEAD short shas and the ``rebuild: nox -s smoke`` hint — behind a ⚠ marker.
+    """
+    for reason in skip_reasons:
+        if _STALE_SENTINEL in reason:
+            return f"⚠ ring-3 OFF: {reason.removeprefix('Skipped: ')}"
+    return None
+
+
+def pytest_terminal_summary(
+    terminalreporter: Any, exitstatus: int, config: pytest.Config
+) -> None:
+    """Print the ring-3 staleness banner (stderr/summary only; never fails a run)."""
+    reasons = [
+        rep.longrepr[2] if isinstance(rep.longrepr, tuple) else str(rep.longrepr)
+        for rep in terminalreporter.stats.get("skipped", [])
+    ]
+    if line := _ring3_stale_summary(reasons):
+        terminalreporter.write_line(line, red=True, bold=True)
 
 
 @pytest.fixture
