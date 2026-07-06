@@ -17,9 +17,11 @@ from typing import Any
 
 import typer
 import yaml
+from rich.table import Table
 
 from . import config as _config
 from . import diagnostics as _diag
+from . import output as _output
 from . import runtime as _rt
 
 
@@ -173,9 +175,10 @@ def show_environments() -> None:
         typer.echo(f"{name}{mark}")
     if active in environments:
         typer.echo(f"\nActive environment '{active}' — effective settings:")
-        rows = _config.resolve_effective(active)
-        typer.echo(f"  {'FIELD':<14} {'VALUE':<20} SOURCE")
-        for e in rows:
+        block = _config._raw_environments().get(active)
+        # Same Rich-table look as `show cli log` (lower-case headers).
+        table = Table("field", "value", "source")
+        for e in _config.resolve_effective(active):
             if e.secret:
                 shown = "••••• (hidden)"
             elif e.value is not None:
@@ -192,7 +195,6 @@ def show_environments() -> None:
                 _config._Source.UNSET: "unset",
             }[e.source]
             # note when an env var displaced a stored value
-            block = _config._raw_environments().get(active)
             key = e.name if e.kind == "credential" else e.env_var
             if (
                 e.source is _config._Source.ENV
@@ -200,7 +202,8 @@ def show_environments() -> None:
                 and block.get(key) is not None
             ):
                 src += f" (overrides environment '{active}')"
-            typer.echo(f"  {e.name:<14} {str(shown):<20} {src}")
+            table.add_row(e.name, str(shown), src)
+        _output._console.print(table)
     elif active is not None:
         _diag.fail(
             f"active environment '{active}' is not defined (run 'environment show')",
