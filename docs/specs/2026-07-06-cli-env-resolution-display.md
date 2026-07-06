@@ -49,19 +49,35 @@ Add one resolver in `config.py` (next to `resolve_environment`/`resolve_connecti
 
 ```python
 # config.py (emitted)
+class _Source(str, Enum):        # attribution as DATA, not prose (each consumer renders)
+    ENV = "env"                  # a direct exported env var (CLIENT_ID / PANW_REGION)
+    STORED = "stored"            # the literal value stored in the environment block
+    STORED_REF = "stored_ref"    # a stored `${VAR}` reference, expanded from the env
+    DEFAULT = "default"          # a packaged/SDK default fills the gap (e.g. base_url)
+    UNSET = "unset"              # nothing anywhere (a required field here is the fix target)
+
 class _EffField(NamedTuple):
     name: str            # credential name ("client_id") or connection env-key
     kind: str            # "credential" | "connection"
     env_var: str         # the overriding env var ("CLIENT_ID", "PANW_REGION")
-    value: str | None    # EFFECTIVE value (None if unset); caller masks if secret
-    source: str          # see the source vocabulary below
+    client_kwarg: str    # how _client passes it (f.client_kwarg or f.name) — kept so
+                         #   _client routes through this without re-reading the IR
+    value: str | None    # EFFECTIVE value (None if unset); consumer masks iff secret
+    source: _Source      # enum — consumers format their own prose from (source, env_var, name)
     secret: bool
 
-def resolve_effective(name: str | None) -> list[_EffField]:
+def resolve_effective(name: str | None, *, env: Mapping[str, str] | None = None) -> list[_EffField]:
     """Effective credential + connection fields for environment `name`, applying the
-    SAME env-var precedence the client applies, each tagged with where it came from.
+    SAME env-var precedence the client applies, each tagged with its source.
+
+    `env` defaults to `os.environ` — inject a dict to unit-test the precedence as a
+    PURE function. Callers must ensure `.env` is loaded first (see the dotenv note).
     The client resolution paths call this too, so display == behavior by construction."""
 ```
+
+**`.env` parity (load-bearing).** `_client()` calls `load_dotenv(find_dotenv(usecwd=True))` before resolving; `environment show` currently does not, so a `.env`-supplied `CLIENT_ID` would run but not display — the same drift class, via `.env` instead of an exported var. `environment show` (and any standalone `resolve_effective` caller) MUST load dotenv first, exactly as `_client()` does, or the "display == behavior" guarantee is false for the recommended `.env` path.
+
+**Acceptance criterion (the SSoT is only real if the inline copies are deleted):** `_client()` and `_preflight_connection()` MUST be rewritten to consume `resolve_effective` — deleting the inline presence/truthiness override loops at `runtime.py:145-157, 179-181, 97`. If those loops survive, `resolve_effective` is a *fifth* divergent copy and strictly worse than today. The §7 parity test (resolver value == pre-refactor `_client` value, per field) is the guard. `_client` keeps ownership of the required-missing check and the `client_kwarg` remap (using `_EffField.client_kwarg`).
 
 Precedence encoded per class (unchanged behavior):
 - **credential** — `os.environ.get(env_var)` is used iff **present** (`is not None`); an exported-but-empty `CLIENT_ID=` wins (and still trips the required check downstream — preserved). Else the stored value, `${VAR}`-expanded.
@@ -72,7 +88,7 @@ Precedence encoded per class (unchanged behavior):
 
 ### 3.2 Selection fix
 
-`environment show` calls `_rt._selected_environment()` (the real selector), not `config.default_environment()`. To show *why*, expose the selection source — either a sibling `_selected_environment_source() -> tuple[str | None, str]` returning `(name, source)` or fold both into one call. Sources: `flag:-e` (n/a for `show`), `env:<PREFIX>_ENVIRONMENT`, `default_environment`, `none`.
+Make selection a **single** function `_selected_environment_source() -> tuple[str | None, _SelSource]` returning `(name, source)`, and redefine `_selected_environment()` as `[0]` of it — a *sibling* that re-derives selection is a second copy of the `runtime.py:69-73` precedence (the very duplication that caused this bug). `environment show` reads both name and source from that one function (not `config.default_environment()`). Selection sources: `flag` (`-e`, n/a for `show`), `env` (`<PREFIX>_ENVIRONMENT`), `default` (`default_environment`), `none`.
 
 ### 3.3 Debug logging
 
@@ -102,25 +118,28 @@ staging
 ```
 *(Wrong: `staging` is what commands actually use, and `CLIENT_ID` is coming from the env, not `prod`.)*
 
-**After:**
+**After** — one aligned `FIELD | VALUE | SOURCE` table for the active environment; **non-secret values are shown** (that is what "what will run" means), **secret values are masked**:
 ```
 $ prisma-browser-cli environment show
 prod
 staging (active — via PRISMA_BROWSER_ENVIRONMENT)
 
 Active environment 'staging' — effective settings:
-  client_id       from env CLIENT_ID          (overrides environment 'staging')
-  client_secret   from environment 'staging'  (secret — value hidden)
-  scope           from environment 'staging'
-  base_url        default
+  FIELD          VALUE               SOURCE
+  client_id      acme-prod-app       env CLIENT_ID (overrides environment 'staging')
+  client_secret  ••••• (hidden)      environment 'staging'
+  scope          tsg_id:1234...      environment 'staging'
+  base_url       (default)           default
 ```
-Credential **values are never shown** — only the field, its source, and (for secrets) an explicit "hidden" note. The `(overrides …)` suffix appears only when an env var actually displaced a stored value.
+Rule (one predicate, `_EffField.secret`): **secret** values render `••••• (hidden)`; every other value is shown. The `SOURCE` cell is rendered from the `_Source` enum — `env <VAR>`, `environment '<name>'`, `environment '<name>' (via ${VAR})`, `default`, `unset` — and appends `(overrides environment '<name>')` only when an env var actually displaced a stored value. This aligns credential and connection rows identically (no "some shown, some not" rule).
 
-**Connection-field product (e.g. prisma-access, region overridden by `PANW_REGION`):** the effective settings block additionally lists connection fields with their **effective value** (non-secret) + source:
+**Connection-field product (e.g. prisma-access, region overridden by `PANW_REGION`):** the same table, connection fields interleaved:
 ```
 Active environment 'prod' — effective settings:
-  region   us-east   from env PANW_REGION   (overrides environment 'prod')
-  ...
+  FIELD          VALUE               SOURCE
+  client_id      acme-prod-app       environment 'prod'
+  client_secret  ••••• (hidden)      environment 'prod'
+  region         us-east             env PANW_REGION (overrides environment 'prod')
 ```
 
 **No active environment** (nothing selected, no default): unchanged message —
@@ -171,9 +190,23 @@ Behavioral, through the emitted fakesdk CLI (the `emit_cli(auth=True)` fixture) 
 - A `-e/--environment` flag on `environment show` to preview a non-active environment (nice future polish; the resolver already takes a `name`).
 - Any change to precedence, to the SDK, or to how env vars are consumed.
 
-## 9. Open questions (for the reviewer / owner)
+## 9. Decisions (open questions, resolved by the config-architecture review)
 
-1. Should the effective-settings block render for **every** listed environment, or only the **active** one? (Spec assumes active-only — least noise, matches "what will run".)
-2. `resolve_effective`'s home: enrich `_ENV_FIELDS` with `env_var`, or have the resolver read `_ir().credential_fields`? (Trade: `config.py` self-containment vs. not duplicating the field set.)
-3. Source-label wording: `from env CLIENT_ID` vs `env:CLIENT_ID` vs a two-column `SOURCE` table — pick the clearest for non-expert users.
-4. Should non-secret credential **values** (e.g. `scope`, `base_url`) be shown in the effective block, or source-only like today? (Spec keeps source-only for consistency and to avoid a subtle "some creds shown, some not" rule.)
+1. **Effective block: active environment only.** The full *name* list shows every environment; the detailed `FIELD | VALUE | SOURCE` block renders for the active one only — a per-env block would misleadingly apply global env-var overrides to inactive envs. (The `-e` preview of a non-active env is a clean future extension; the resolver already takes `name`.)
+2. **`resolve_effective` home: enrich `_ENV_FIELDS`** with `env_var` + `client_kwarg` (one more key in the jinja loop, symmetric with `_CONN_FIELDS`'s `{key, env}`). Do NOT read `_ir()` in `config.py` — that module deliberately never imports the IR loader (early-load invariant), and reading it would invert the layering and risk a cycle.
+3. **Label form: a real aligned `FIELD | VALUE | SOURCE` table** (§4.1), cells rendered from the `_Source` enum — clearer than prose fragments in a list, and not cryptic like `env:CLIENT_ID`.
+4. **Show non-secret values, mask secrets** — "what will run" wants the value; `_EffField.secret` governs masking (`••••• (hidden)`). Uniform for credential and connection rows.
+
+## 10. Review revisions (config-architecture review, folded in)
+
+- **[High] `.env` parity** — `environment show`/`resolve_effective` must load dotenv before resolving (mirrors `_client`); else `.env`-supplied values (the recommended path) display wrong. Added to §3.1.
+- **[High] `source` is an enum** (`_Source`), not free-text — attribution is data; each consumer (show, debug log) formats its own prose, so wording can't drift and a future `config show` polish can reuse the vocabulary.
+- **[High] one selection function + real consumption** — `_selected_environment` becomes `[0]` of the single `(name, source)` function; `_client`/`_preflight` MUST delete their inline override loops and route through `resolve_effective` (acceptance criterion + parity test), or it's a fifth divergent copy.
+- **[Med] `_EffField.client_kwarg`** carried so `_client` remaps without re-reading the IR; `_client` keeps the required-missing check.
+- **[Med] pure resolver** — `resolve_effective(name, *, env=None)` takes an injectable mapping so the three precedence rules unit-test as a pure function (dict in), not a monkeypatch dance.
+- **[Med] `unset` vs `default` defined** — `default` = a packaged/SDK default fills the gap (legit, e.g. base_url); `unset` = nothing anywhere (and for a *required* credential, the user's fix target). Both map 1:1 to `_Source`.
+- **[Low] precedence as a first-class doc artifact** — §4.3's table is canonical, rows map 1:1 to `_Source`, and it states the one surprising asymmetry in a sentence: *an exported credential var always wins, even if empty (then fails the required check); an exported region/environment var wins only when non-empty.*
+- **[Low] masking enforced by test** — §7's "no secret in any log record" asserts against the fixture's actual resolved values (secret AND non-secret), and whole-`_EffField` logging/repr is forbidden, so a stray `{value}` in a log line fails the build.
+- **[Low] two `show` surfaces kept (principled)** — different files/models/sensitivity; §5 notes a later `config show` attribution polish reuses the same `_Source` enum (cheap convergence, not in this branch's scope).
+
+**Verdict (reviewer):** sound to build once the three HIGH items (dotenv parity, enum source, one-selector + genuine `_client` consumption) are folded — all now in this spec.
