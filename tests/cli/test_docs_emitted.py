@@ -57,10 +57,11 @@ def test_guides_always_present_and_auth_gating(emit_cli: Callable[..., Path]) ->
 
     with_auth = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
     auth_md = (with_auth / "docs" / "guides" / "authentication.md").read_text()
-    # `environment` is a root command group with a `show` lister — NOT `config
-    # environment ... list` (which would be a "No such command" error).
-    assert "environment create" in auth_md
-    assert "environment show" in auth_md
+    # The auth guide no longer duplicates the named-environment commands; it just
+    # mentions environments and links to the dedicated Environments & variables page.
+    # (`config environment ...` would be a "No such command" error — must not appear.)
+    assert "[Environments & variables](environments.md)" in auth_md
+    assert "named environments" in auth_md.lower()
     assert "config environment" not in auth_md
     assert "config init" in auth_md  # config init is documented
     # Token-cache section: overview + configure + verify, with the REAL env prefix
