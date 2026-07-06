@@ -58,19 +58,27 @@ def select_environment(name: str | None) -> None:
     _SELECTED_ENV.set(name)
 
 
-def _selected_environment() -> str | None:
-    """The active environment name, by precedence:
+def _selected_environment_source() -> tuple[str | None, str]:
+    """The active environment and WHY, by precedence:
     -e flag (contextvar) > {{ env_prefix }}_ENVIRONMENT env var > default_environment.
-
-    An EMPTY {{ env_prefix }}_ENVIRONMENT is treated as absent (falsy), so it falls
-    through to default_environment rather than selecting an environment named ""."""
+    Source ∈ {"flag","env","default","none"}. Empty {{ env_prefix }}_ENVIRONMENT is
+    treated as absent (falls through). Logs the winning source at DEBUG."""
     from . import config as _config
 
-    return (
-        _SELECTED_ENV.get()
-        or os.environ.get("{{ env_prefix }}_ENVIRONMENT")
-        or _config.default_environment()
-    )
+    flag = _SELECTED_ENV.get()
+    if flag:
+        name, source = flag, "flag"
+    elif os.environ.get("{{ env_prefix }}_ENVIRONMENT"):
+        name, source = os.environ["{{ env_prefix }}_ENVIRONMENT"], "env"
+    else:
+        d = _config.default_environment()
+        name, source = (d, "default") if d else (None, "none")
+    _config._ENV_LOG.debug("selected environment %r (source: %s)", name, source)
+    return name, source
+
+
+def _selected_environment() -> str | None:
+    return _selected_environment_source()[0]
 {% endif -%}
 {% if ir.connection_fields %}
 

@@ -1,4 +1,5 @@
 import importlib
+import logging
 import re
 import sys
 from collections.abc import Callable, Iterator
@@ -1133,3 +1134,37 @@ def test_resolve_effective_unset(
     assert (
         eff["client_id"].value is None and eff["client_id"].source == cfg._Source.UNSET
     )
+
+
+def test_selected_environment_source(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        rt = importlib.import_module("fakesdk_cli._generated.runtime")
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        cfg.load_config.cache_clear()
+        envs = {
+            "environments": {"prod": {}, "staging": {}},
+            "default_environment": "prod",
+        }
+        cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+        cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+        assert rt._selected_environment_source() == ("prod", "default")
+        monkeypatch.setenv("FAKESDK_ENVIRONMENT", "staging")
+        # A prior test may have run the CLI's logging_setup.init(), which sets
+        # propagate=False on the "fakesdk_cli" logger; that would stop _ENV_LOG's
+        # record from reaching caplog's root handler. Restore propagation here
+        # (monkeypatch reverts it at teardown).
+        monkeypatch.setattr(logging.getLogger("fakesdk_cli"), "propagate", True)
+        with caplog.at_level(logging.DEBUG, logger="fakesdk_cli.env"):
+            assert rt._selected_environment_source() == ("staging", "env")
+            assert rt._selected_environment() == "staging"  # [0] parity
+        assert any("staging" in r.message for r in caplog.records)
+        monkeypatch.setenv("FAKESDK_ENVIRONMENT", "")  # empty -> falls through
+        assert rt._selected_environment_source() == ("prod", "default")
