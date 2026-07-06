@@ -1136,6 +1136,36 @@ def test_resolve_effective_unset(
     )
 
 
+def test_client_credentials_parity(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        cfg.load_config.cache_clear()
+        envs = {"environments": {"prod": {"client_id": "stored", "scope": "s"}}}
+        cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+        cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+        # replicate the OLD _client credential resolution; compare to the resolver
+        env = {"CLIENT_ID": "envid"}
+        old = {}
+        legacy_env = cfg.resolve_environment("prod")
+        for f in cfg._ENV_FIELDS:
+            ev = env.get(f["env_var"])
+            val = ev if ev is not None else legacy_env.get(f["name"])
+            if val is not None:
+                old[f["client_kwarg"]] = val
+        new = {}
+        for e in cfg.resolve_effective("prod", env=env):
+            if e.kind == "credential" and e.value is not None:
+                new[e.client_kwarg] = e.value
+        assert new == old  # identical overrides dict -> identical client behavior
+
+
 def test_selected_environment_source(
     emit_cli: Callable[..., Path],
     render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
