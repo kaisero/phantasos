@@ -1,8 +1,11 @@
 """Behavioral tests for the emitted CLI docs site (IR-driven markdown)."""
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 
+import pytest
 import yaml
 
 from phantasos.generator.cli.cliconfig import CliDocsConfig
@@ -217,19 +220,27 @@ def test_reference_schema_anchors_unique_per_page(
 
 def test_environments_guide_lists_vars_and_precedence(
     emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    import importlib
+
     out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
     env_md = (out / "docs" / "guides" / "environments.md").read_text()
     # precedence / order is documented (both chains)
     assert "FAKESDK_ENVIRONMENT" in env_md and "default_environment" in env_md
     assert "--environment" in env_md  # -e is the top of the selection chain
-    # every credential env var the CLI reads is listed
-    cfg = (out / "fakesdk_cli" / "_generated" / "config.py").read_text()
-    env_map_vars = set(__import__("re").findall(r'"(FAKESDK_[A-Z0-9_]+)"', cfg))
-    for var in env_map_vars:  # config vars (logging/cache/output/...)
-        assert var in env_md, f"{var} missing from environments.md"
-    assert "CLIENT_ID" in env_md  # credential var (from the IR)
-    assert "FAKESDK_ENVIRONMENT" in env_map_vars or "FAKESDK_ENVIRONMENT" in env_md
+    # Enumerate the REAL resolved env-var names from the emitted config (not a
+    # regex over f-string literals) and require every one to be on the page.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        for var in cfg._ENV_MAP:  # config vars (pager/output/history/logging/cache)
+            assert var in env_md, f"{var} missing from environments.md"
+        for f in cfg._ENV_FIELDS:  # credential vars (from the IR)
+            ev = f["env_var"]
+            assert ev in env_md, f"{ev} missing from environments.md"
 
 
 def test_environments_guide_absent_without_env(emit_cli: Callable[..., Path]) -> None:

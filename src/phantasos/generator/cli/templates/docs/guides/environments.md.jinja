@@ -55,7 +55,15 @@ values are masked). One asymmetry to know: an exported **credential** variable w
 
 | Variable | Setting |
 | --- | --- |
+| `{{ env_prefix }}_PAGER_ENABLED` | pager on/off |
+| `{{ env_prefix }}_PAGER_COMMAND` | pager command |
+| `{{ env_prefix }}_OUTPUT_FORMAT` | default output format (`json`/`yaml`/`table`) |
+| `{{ env_prefix }}_HISTORY_ENABLED` | command history on/off |
+| `{{ env_prefix }}_HISTORY_VERBOSE` | record verbose history entries |
+| `{{ env_prefix }}_HISTORY_FILE` | history file path |
+| `{{ env_prefix }}_HISTORY_MAX_SIZE_MB` | history file max size (MB) |
 | `{{ env_prefix }}_LOGGING_LEVEL` | log verbosity (`info`/`debug`/`trace`) |
+| `{{ env_prefix }}_LOGGING_FILE` | log file path |
 {% if ir.credential_fields %}| `{{ env_prefix }}_CACHE_ENABLED` | token cache on/off |
 | `{{ env_prefix }}_CACHE_DIR` | token cache directory |
 {% endif %}
