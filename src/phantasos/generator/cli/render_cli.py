@@ -547,6 +547,10 @@ def _render_docs(
         render_doc(
             "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
         )
+    # Named-environments guide — emitted whenever the CLI reads credential OR
+    # connection env vars (`has_env`), mirroring the environment_commands seam.
+    if ctx["has_env"]:
+        render_doc("docs/guides/environments.md.jinja", "docs/guides/environments.md")
     if doc_ctx["show_pagination_guide"]:
         render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
     render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")

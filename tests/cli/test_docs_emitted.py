@@ -213,3 +213,37 @@ def test_reference_schema_anchors_unique_per_page(
     # WidgetProfile renders under >1 widget command, each with a distinct slug.
     assert "create-widget-profile-schema" in profile_ids
     assert len(profile_ids) >= 2, f"expected per-command anchors, got {profile_ids}"
+
+
+def test_environments_guide_lists_vars_and_precedence(
+    emit_cli: Callable[..., Path],
+) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
+    env_md = (out / "docs" / "guides" / "environments.md").read_text()
+    # precedence / order is documented (both chains)
+    assert "FAKESDK_ENVIRONMENT" in env_md and "default_environment" in env_md
+    assert "--environment" in env_md  # -e is the top of the selection chain
+    # every credential env var the CLI reads is listed
+    cfg = (out / "fakesdk_cli" / "_generated" / "config.py").read_text()
+    env_map_vars = set(__import__("re").findall(r'"(FAKESDK_[A-Z0-9_]+)"', cfg))
+    for var in env_map_vars:  # config vars (logging/cache/output/...)
+        assert var in env_md, f"{var} missing from environments.md"
+    assert "CLIENT_ID" in env_md  # credential var (from the IR)
+    assert "FAKESDK_ENVIRONMENT" in env_map_vars or "FAKESDK_ENVIRONMENT" in env_md
+
+
+def test_environments_guide_absent_without_env(emit_cli: Callable[..., Path]) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))  # no auth -> no env
+    assert not (out / "docs" / "guides" / "environments.md").exists()
+
+
+def test_environments_guide_in_nav(emit_cli: Callable[..., Path]) -> None:
+    import yaml
+
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
+    cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
+    guides = next(s["Guides"] for s in cfg["nav"] if "Guides" in s)
+    assert any(
+        "environments.md" in (next(iter(g.values())) if isinstance(g, dict) else g)
+        for g in guides
+    )

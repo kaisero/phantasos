@@ -19,8 +19,9 @@
 
 ## Configuration layering
 
-Settings resolve in order (later wins): packaged defaults →
-`~/.{{ distribution }}/config.yml` → `.env` / shell env → per-command flags.
+> **Where do settings come from?** Environment variables override stored environment
+> values. See **[Environments & variables](environments.md)** for the full precedence
+> order and every variable `{{ distribution }}` reads.
 
 ```bash
 {{ distribution }} config init           # write a commented config.yml to edit

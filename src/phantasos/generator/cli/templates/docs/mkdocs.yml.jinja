@@ -21,6 +21,7 @@ nav:
   - Quickstart: quickstart.md
   - Guides:
 {% if has_auth %}      - Authentication & environments: guides/authentication.md
+{% endif %}{% if has_env %}      - Environments & variables: guides/environments.md
 {% endif %}      - Output & formatting: guides/output.md
 {% if show_pagination_guide %}      - Pagination: guides/pagination.md
 {% endif %}      - Errors & diagnostics: guides/errors.md
