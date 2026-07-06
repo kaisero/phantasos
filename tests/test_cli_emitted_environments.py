@@ -753,19 +753,34 @@ def test_env_show_marks_active_and_hides_secrets(
         "  staging: {client_id: STAGING, client_secret: stagesecret}\n",
     )
     monkeypatch.setenv("HOME", str(home))
+    # `show` now loads dotenv + resolves effective settings; chdir off the source
+    # tree and drop the credential vars so the stored values resolve deterministically
+    # (a developer .env above the repo would otherwise displace them).
+    monkeypatch.chdir(tmp_path)
+    for var in (
+        "CLIENT_ID",
+        "CLIENT_SECRET",
+        "SCOPE",
+        "BASE_URL",
+        "FAKESDK_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(var, raising=False)
     main = importlib.import_module("fakesdk_cli.main")
     res = CliRunner().invoke(main.app, ["environment", "show"])
     assert res.exit_code == 0, res.output
     out = res.output
     assert "prod" in out and "staging" in out
-    # the active environment is marked
+    # the active environment (staging, via default_environment) is marked
     active_line = next(ln for ln in out.splitlines() if ln.startswith("staging"))
     assert "active" in active_line
     prod_line = next(ln for ln in out.splitlines() if ln.startswith("prod"))
     assert "active" not in prod_line
-    # NEVER print field values / secrets
+    # secret VALUES are NEVER printed (masked), for either environment
     assert "prodsecret" not in out and "stagesecret" not in out
-    assert "PROD" not in out and "STAGING" not in out
+    # the active env's non-secret value IS shown (effective settings table); an
+    # inactive environment's field values are not
+    assert "STAGING" in out  # staging's client_id (active -> effective table)
+    assert "PROD" not in out  # prod is inactive -> its fields aren't shown
 
 
 def test_env_show_empty_says_so(
@@ -1198,3 +1213,71 @@ def test_selected_environment_source(
         assert any("staging" in r.message for r in caplog.records)
         monkeypatch.setenv("FAKESDK_ENVIRONMENT", "")  # empty -> falls through
         assert rt._selected_environment_source() == ("prod", "default")
+
+
+def test_environment_show_reflects_env_override(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from typer.testing import CliRunner
+
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        cfg.load_config.cache_clear()
+        envs = {
+            "environments": {
+                "prod": {
+                    "client_id": "stored-id",
+                    "client_secret": "sekret",
+                    "scope": "s",
+                }
+            },
+            "default_environment": "prod",
+        }
+        cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+        cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+        main = importlib.import_module("fakesdk_cli.main")
+        # an exported CLIENT_ID overrides prod's stored client_id (presence)
+        monkeypatch.setenv("CLIENT_ID", "env-id")
+        res = CliRunner().invoke(
+            main.app, ["environment", "show"], env={"NO_COLOR": "1"}
+        )
+        assert res.exit_code == 0, res.output
+        assert "prod (active — default_environment)" in res.output
+        # effective value + source
+        assert "env-id" in res.output and "env CLIENT_ID" in res.output
+        # not the overridden stored value
+        assert "stored-id" not in res.output
+        # secret masked
+        assert "sekret" not in res.output and "•" in res.output
+
+
+def test_environment_show_active_reason_env(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from typer.testing import CliRunner
+
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        cfg.load_config.cache_clear()
+        envs = {
+            "environments": {"prod": {}, "staging": {}},
+            "default_environment": "prod",
+        }
+        cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+        cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+        monkeypatch.setenv("FAKESDK_ENVIRONMENT", "staging")
+        main = importlib.import_module("fakesdk_cli.main")
+        res = CliRunner().invoke(
+            main.app, ["environment", "show"], env={"NO_COLOR": "1"}
+        )
+        assert "staging (active — via FAKESDK_ENVIRONMENT)" in res.output

@@ -145,33 +145,68 @@ def activate(name: str) -> None:
 
 @environment_app.command("show")
 def show_environments() -> None:
-{%- if ir.connection_fields %}
-    """List the defined environments (with non-secret connection values; secrets are never shown)."""
-{%- else %}
-    """List the defined environment names (never their field values)."""
-{%- endif %}
+    """List environments; for the active one, show effective settings and where each
+    value comes from (env var vs stored vs default). Secret values are masked."""
+    try:
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))  # mirror _client so show == behavior
+    except ModuleNotFoundError:
+        pass
     environments = _config._raw_environments()
     if not environments:
         _diag.info("no environments defined")
         return
-    active = _config.default_environment()
+    active, source = _rt._selected_environment_source()
+    reason = {
+        "env": "via {{ env_prefix }}_ENVIRONMENT",
+        "default": "default_environment",
+        "flag": "via --environment",
+        "none": "",
+    }.get(source, "")
     for name in environments:
-        marker = " (active)" if name == active else ""
-        line = f"{name}{marker}"
-{%- if ir.connection_fields %}
-        block = environments.get(name)
-        if isinstance(block, dict):
-            shown = "  ".join(
-                f"{cf['key']}={block[cf['key']]}"
-                for cf in _config._CONN_FIELDS
-                if block.get(cf["key"]) is not None
-            )
-            if shown:
-                line = f"{line}  {shown}"
-{%- endif %}
-        typer.echo(line)
-    if active not in environments:
-        # no default set (or it points at a deleted env) — auth uses env vars
+        mark = (
+            f" (active — {reason})"
+            if name == active and reason
+            else (" (active)" if name == active else "")
+        )
+        typer.echo(f"{name}{mark}")
+    if active in environments:
+        typer.echo(f"\nActive environment '{active}' — effective settings:")
+        rows = _config.resolve_effective(active)
+        typer.echo(f"  {'FIELD':<14} {'VALUE':<20} SOURCE")
+        for e in rows:
+            if e.secret:
+                shown = "••••• (hidden)"
+            elif e.value is not None:
+                shown = e.value
+            elif e.source is _config._Source.DEFAULT:
+                shown = "(default)"
+            else:
+                shown = "(unset)"
+            src = {
+                _config._Source.ENV: f"env {e.env_var}",
+                _config._Source.STORED: f"environment '{active}'",
+                _config._Source.STORED_REF: f"environment '{active}' (via ${% raw %}{{VAR}}{% endraw %})",
+                _config._Source.DEFAULT: "default",
+                _config._Source.UNSET: "unset",
+            }[e.source]
+            # note when an env var displaced a stored value
+            block = _config._raw_environments().get(active)
+            key = e.name if e.kind == "credential" else e.env_var
+            if (
+                e.source is _config._Source.ENV
+                and isinstance(block, dict)
+                and block.get(key) is not None
+            ):
+                src += f" (overrides environment '{active}')"
+            typer.echo(f"  {e.name:<14} {str(shown):<20} {src}")
+    elif active is not None:
+        _diag.fail(
+            f"active environment '{active}' is not defined (run 'environment show')",
+            code=2,
+        )
+    else:
         _diag.info("no active environment — auth falls back to environment variables")
 
 
