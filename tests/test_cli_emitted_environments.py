@@ -1039,3 +1039,97 @@ def test_env_fields_carry_env_var_and_client_kwarg(
         assert set(f) >= {"name", "secret", "env_var", "client_kwarg"}
         assert isinstance(f["env_var"], str) and f["env_var"]
         assert isinstance(f["client_kwarg"], str) and f["client_kwarg"]
+
+
+def _cfg(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> ModuleType:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    ctx = render_and_import(out, "fakesdk_cli")
+    ctx.__enter__()
+    cfg = importlib.import_module("fakesdk_cli._generated.config")
+    cfg.load_config.cache_clear()
+    return cfg
+
+
+def test_resolve_effective_env_overrides_stored(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(emit_cli, render_and_import, monkeypatch, tmp_path)
+    # write a named environment with a stored client_id
+    envs = {
+        "environments": {"prod": {"client_id": "stored-id"}},
+        "default_environment": "prod",
+    }
+    cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+    cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+    # exported CLIENT_ID overrides the stored value (presence semantics)
+    eff = {
+        f.name: f for f in cfg.resolve_effective("prod", env={"CLIENT_ID": "env-id"})
+    }
+    assert eff["client_id"].value == "env-id"
+    assert eff["client_id"].source == cfg._Source.ENV
+    assert eff["client_id"].env_var == "CLIENT_ID"
+    # a stored-only field reports STORED
+    eff2 = {f.name: f for f in cfg.resolve_effective("prod", env={})}
+    assert eff2["client_id"].value == "stored-id"
+    assert eff2["client_id"].source == cfg._Source.STORED
+
+
+def test_resolve_effective_empty_credential_env_wins_presence(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(emit_cli, render_and_import, monkeypatch, tmp_path)
+    envs = {"environments": {"prod": {"client_id": "stored-id"}}}
+    cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+    cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+    # exported-but-EMPTY CLIENT_ID wins for credentials (presence, not truthiness)
+    eff = {f.name: f for f in cfg.resolve_effective("prod", env={"CLIENT_ID": ""})}
+    assert eff["client_id"].value == "" and eff["client_id"].source == cfg._Source.ENV
+
+
+def test_resolve_effective_stored_ref_expands(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(emit_cli, render_and_import, monkeypatch, tmp_path)
+    envs = {"environments": {"prod": {"client_id": "${MY_ID}"}}}
+    cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
+    cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
+    monkeypatch.setenv("MY_ID", "from-ref")
+    # Isolate from a developer .env that an earlier test's load_config() may have
+    # injected into os.environ — a real exported CLIENT_ID would win by presence
+    # semantics and mask the stored ${MY_ID} we are exercising here.
+    for var in ("CLIENT_ID", "CLIENT_SECRET", "SCOPE", "BASE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    eff = {
+        f.name: f
+        for f in cfg.resolve_effective("prod", env=dict(__import__("os").environ))
+    }
+    assert eff["client_id"].value == "from-ref"
+    assert eff["client_id"].source == cfg._Source.STORED_REF
+
+
+def test_resolve_effective_unset(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(emit_cli, render_and_import, monkeypatch, tmp_path)
+    eff = {f.name: f for f in cfg.resolve_effective(None, env={})}
+    assert (
+        eff["client_id"].value is None and eff["client_id"].source == cfg._Source.UNSET
+    )
