@@ -33,8 +33,19 @@ never recorded.
 
 ## Logs
 
-Structured JSON-Lines logs (rotated, gzipped) are written to
-`~/.{{ distribution }}/logs/{{ distribution }}.jsonl`.
+`{{ distribution }}` writes a rotating JSON-Lines log (with gzipped backups) to
+`~/.{{ distribution }}/logs/{{ distribution }}.jsonl` (warnings and diagnostics).
+View it without leaving the CLI:
+
+```bash
+{{ distribution }} show cli log                 # recent entries (table)
+{{ distribution }} show cli log --level warning # warnings and errors only
+{{ distribution }} show cli log --json          # raw records incl. tracebacks
+{{ distribution }} show cli log -f              # stream new lines live
+```
+
+The log level is `configuration.logging.level` (default `info`); point the log
+elsewhere with `configuration.logging.file`:
 
 ```bash
 {{ distribution }} config set logging.level debug

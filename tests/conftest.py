@@ -10,7 +10,7 @@ import functools
 import importlib
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from types import ModuleType
@@ -25,6 +25,27 @@ from phantasos.generator.cli.cliconfig import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+# --- Shared fakesdk fixture path + CLI config (single source; consumed by emit_cli,
+# the emitted/emitted_auth fixtures, and imported by test_cli_emitted.py) ---
+FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
+FAKESDK_FIXTURE = FIXTURE  # public alias
+
+# Variant config so the fixture produces `create:gizmo:simple` /
+# `create:gizmo:complex` plus the request actions.
+_FAKESDK_CLI_CONFIG = CliConfig(
+    variants={
+        "gizmos.create_gizmo": VariantMap(
+            path_param="type",
+            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
+        )
+    },
+    request={
+        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
+        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
+    },
+    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
+)
 
 # --- Ring-3 "real artifact" tests -------------------------------------------
 # The single source of truth for the locally-built prisma-browser SDK, a sibling
@@ -79,11 +100,58 @@ def _stale_sdk_reason() -> str | None:
         return None
     if rc != 1:  # 0 = generator unchanged since build; 128 = unknown SHA → can't tell
         return None
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--short=8", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            or "unknown"
+        )
+    except (OSError, subprocess.SubprocessError):
+        head = "unknown"
+    return _stale_reason_text(built[:8], head)
+
+
+_STALE_SENTINEL = "prisma-browser-sdk is stale"
+
+
+def _stale_reason_text(built_sha8: str, head_sha8: str) -> str:
+    """The one place the staleness reason string is built (composed FROM the
+    sentinel, so _STALE_SENTINEL is a substring by construction)."""
     return (
-        f"prisma-browser-sdk is stale: the generator (src/phantasos or "
-        f"products/prisma-browser) changed since it was built at {built[:8]} — "
-        f"rebuild: nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
+        f"{_STALE_SENTINEL}: the generator (src/phantasos or products/prisma-browser)"
+        f" changed since it was built at {built_sha8} (HEAD {head_sha8}) — rebuild: "
+        f"nox -s smoke (or set PHANTASOS_ALLOW_STALE_SDK=1)"
     )
+
+
+def _ring3_stale_summary(skip_reasons: Iterable[str]) -> str | None:
+    """One loud terminal-summary line when a ring-3 test skipped for SDK *staleness*.
+
+    Returns ``None`` when no skip was a staleness skip (SDK absent, or the ring
+    actually ran), so a fresh checkout and CI's SDK-less ``tests`` job stay quiet.
+    Reuses the per-test staleness reason verbatim — it already carries the built +
+    HEAD short shas and the ``rebuild: nox -s smoke`` hint — behind a ⚠ marker.
+    """
+    for reason in skip_reasons:
+        if _STALE_SENTINEL in reason:
+            return f"⚠ ring-3 OFF: {reason.removeprefix('Skipped: ')}"
+    return None
+
+
+def pytest_terminal_summary(
+    terminalreporter: Any, exitstatus: int, config: pytest.Config
+) -> None:
+    """Print the ring-3 staleness banner (stderr/summary only; never fails a run)."""
+    reasons = [
+        rep.longrepr[2] if isinstance(rep.longrepr, tuple) else str(rep.longrepr)
+        for rep in terminalreporter.stats.get("skipped", [])
+    ]
+    if line := _ring3_stale_summary(reasons):
+        terminalreporter.write_line(line, red=True, bold=True)
 
 
 @pytest.fixture
@@ -160,6 +228,33 @@ def render_and_import() -> Callable[[Path, str], AbstractContextManager[ModuleTy
     return _imported
 
 
+def _clear_emitted_config_cache() -> None:
+    """Clear the ``load_config`` lru_cache on any *already-imported* emitted config
+    module. Guarded — a no-op when no emitted CLI is resident. Defends against a test
+    that imported ``<pkg>._generated.config`` OUTSIDE ``render_and_import`` leaving a
+    cache bound to a stale HOME behind for the next test."""
+    for name, mod in list(sys.modules.items()):
+        if name.endswith("_cli._generated.config") and (
+            clear := getattr(getattr(mod, "load_config", None), "cache_clear", None)
+        ):
+            clear()
+
+
+@pytest.fixture
+def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """HOME -> the per-test ``tmp_path``, with emitted-config cache hygiene on
+    entry/exit. Yields the home dir. Isolates config/cache/history/env-file lookups
+    (all keyed off HOME) without changing what any test asserts — it only replaces
+    the hand-rolled ``monkeypatch.setenv("HOME", str(tmp_path))`` line and adds
+    teardown hygiene."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_emitted_config_cache()
+    try:
+        yield tmp_path
+    finally:
+        _clear_emitted_config_cache()
+
+
 @pytest.fixture
 def emit_cli(tmp_path: Path) -> Callable[..., Path]:
     """Emit the fakesdk CLI into tmp_path for CLI-docs tests (tests/cli/).
@@ -170,28 +265,11 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
     """
     from phantasos.config import ScmOAuth
     from phantasos.generator.cli.classify import build_cli_ir, cli_operations
-    from phantasos.generator.cli.cliconfig import (
-        CliConfig,
-        CliDocsConfig,
-        RequestMapping,
-        VariantMap,
-    )
+    from phantasos.generator.cli.cliconfig import CliDocsConfig
     from phantasos.generator.cli.render_cli import render_cli
 
-    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
-    config = CliConfig(
-        variants={
-            "gizmos.create_gizmo": VariantMap(
-                path_param="type",
-                map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
-            )
-        },
-        request={
-            "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-            "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-        },
-        defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
-    )
+    fixture = FIXTURE
+    config = _FAKESDK_CLI_CONFIG
 
     calls = {"n": 0}
 
@@ -222,25 +300,14 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
 
 
 # --- Shared emitted-CLI fixtures/helpers (used across the test_cli_emitted*
-# seam modules) ---
+# seam modules) --- FIXTURE / _FAKESDK_CLI_CONFIG are defined near the top (single
+# source, so emit_cli can reference them without late binding).
 
-FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
-
-# Variant config so the fixture produces `create:gizmo:simple` /
-# `create:gizmo:complex` plus the request actions.
-_FAKESDK_CLI_CONFIG = CliConfig(
-    variants={
-        "gizmos.create_gizmo": VariantMap(
-            path_param="type",
-            map={"simple": "SimpleGizmoInput", "complex": "ComplexGizmoInput"},
-        )
-    },
-    request={
-        "widgets.suspend_widget": RequestMapping(object="widget", action="suspend"),
-        "widgets.revoke_widget": RequestMapping(object="widget", action="revoke"),
-    },
-    defaults={"widgets.list_widgets": {"name": "gadget", "limit": 50}},
-)
+# Deterministic terminal env for tests that substring-assert Typer/Rich `--help`
+# LAYOUT (panel titles, hyphenated option names). TERM=dumb disables styling so the
+# literals stay contiguous; the fixed COLUMNS keeps wrapping stable. Pass explicitly
+# to the `.invoke(..., env=HELP_ENV)` calls whose output is substring-asserted.
+HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
 
 
 class _ListResult:

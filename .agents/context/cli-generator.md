@@ -320,7 +320,8 @@ flags. The mechanics are emitted from `templates/_generated/config.py.jinja`
 (frozen pydantic section models + `_ENV_MAP` + cached `load_config()` +
 `effective_dict()`) and `default_config.yml.jinja` (commented defaults that MUST
 mirror the model defaults). Consumers read via `_config.get().<section>.<key>`.
-Current sections: `pager`, `output`, `history`, `logging` (`level`, `file`).
+Current sections: `pager`, `output`, `history`, `logging` (`level`, `file`), and
+(auth CLIs only) `cache` (`enabled`, `dir` — see *Auth token cache* below).
 `config set <key> <value>` / `config unset <key>` write/remove options in
 `config.yml` (type-coerced; unknown keys or invalid values exit `2`; writing
 strips the commented template — `config init --force` restores it). To ADD an
@@ -393,6 +394,23 @@ keys / param names / objects fail the build loudly.
   pointing at `environment create` / the env vars, instead of a raw traceback; a
   genuine auth failure with credentials present exits `1` (`--verbose` keeps the
   traceback). See CHANGELOG Unreleased.
+- **Auth token cache** (auth CLIs; `ir.credential_fields`-gated) — the emitted
+  `auth_cache.py` persists the SDK's in-memory OAuth token to a per-principal
+  file (keyed on token URL + client ID + scope, `0600`, under the `cache.dir`
+  config knob / `~/.{distribution}/cache/`, dir `0700`) so back-to-back
+  authenticated commands skip re-authenticating. `runtime.py` owns the seam: it
+  resolves the SDK's `TokenManager` off the built client
+  (`auth_cache.token_manager`, duck-checked so a shape mismatch fails open —
+  caching off, auth still works), seeds it from the cache **before** dispatch
+  (`_CacheSession.seed_if_valid`), and on a `_sdk_exc` whose `status == 401`
+  raised against a token IT seeded, discards the cache entry and retries the
+  call once with a fresh grant (`invalidate` + re-dispatch) rather than
+  surfacing the 401 — a 401 with NO seeded token, or any 403, still propagates
+  unchanged. A successful call persists the (possibly refreshed) token
+  (`_CacheSession.persist`) if it differs from what's on disk. `show cli cache`
+  and `config cache-clear` (both gated the same way) inspect/purge the
+  directory without ever printing a token value. Doc:
+  `docs/configuring-the-cli.md`.
 
 ## Generated documentation site
 

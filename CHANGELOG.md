@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the real-artifact tests skip-loudly against a stale local build.
 
 ### Added
+- **`<dist> show cli log`** — view the generated CLI's rotating JSONL log (plus its
+  `.gz` backups) without leaving the tool: a table by default, `--level` to filter by
+  severity, `--json` for raw records (including tracebacks), and `-f`/`--follow` to
+  stream new lines live. Ships in every generated CLI (logging is always emitted).
+- **Generated CLIs cache the OAuth token across runs** — an authenticating CLI now
+  reuses a valid client-credentials JWT instead of re-authenticating every command.
+  The token is stored per-principal (0600) under `~/.<dist>/cache/`, seeded into the
+  SDK before a call and refreshed on expiry or a 401 (discard + re-grant + retry once).
+  On by default; disable with `<PREFIX>_CACHE_ENABLED=false`. Inspect with
+  `<dist> show cli cache`, purge with `<dist> config cache-clear`. INFO-level logging
+  of the cache lifecycle. Non-authenticating CLIs are unaffected.
 - **Generated CLIs load commands lazily (much faster startup)** — a `cli build`-generated CLI now imports only the module for the command actually invoked — a plain command skips the CLI's own `config`/`environment`/`which`/`show cli` sub-apps entirely (they import only when their level is invoked or its `--help` is rendered) — instead of importing every command module and registering all commands at startup. A `_LazyGroup` — subclassing Typer's group, so Rich help, shell completion, did-you-mean, and the hand-owned `main.py` `add_typer` extension contract are all unchanged — resolves `verb → sub-package → object → leaf` from a static registry, importing on demand. For the 648-command prisma-access CLI this cuts cold start dramatically: `--help` **2.0s → 0.58s (~3.4×)** and a command like `show objects address` **1.16s → 0.32s (~3.6×)**; the win scales with command count. Single-spec CLIs benefit identically and stay behaviorally unchanged.
 - **Federated (multispec) CLI generation** — `cli build` can now generate a CLI that spans a federated SDK's sub-packages, producing a `verb → sub-package → object` command hierarchy from a single `cli.yml` with a `subpackages:` enrollment map. The map is an allowlist: list the subs to include (e.g. objects + incidents for a first release), or omit it to enroll all. Cross-sub object-name collisions and unmapped federated non-CRUD operations are hard build errors. Single-spec CLIs are behaviorally unchanged.
 - **prisma-access CLI (P0: objects + incidents)** — the first federated CLI built with this system: `prisma-access show objects address list`, `prisma-access request incident search`, and the full CRUD surface for both enrolled sub-packages. Region is a **connection field** sourced from `sdk.yml` `default_headers`: stored per named environment (`environment create --region`), exported to its env var before the client is built, and enforced by a command-aware pre-flight that only demands it for the sub-packages that declare it (objects CRUD runs region-unset — verified live). There is no per-command override flag; the tenant is carried by the OAuth `tsg_id` scope, so no tenant header/flag is sent. Sub-package SDK client handles are built lazily — the region header is only required when the sub-package that needs it is first invoked.

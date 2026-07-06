@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from conftest import HELP_ENV  # shared deterministic --help env (one source)
 from phantasos.generator.cli.classify import build_cli_ir, cli_operations
 from phantasos.generator.cli.cliconfig import CliConfig, VariantMap
 from phantasos.generator.cli.introspect import introspect
@@ -25,17 +26,6 @@ _APP_VARIANTS = VariantMap(
         "localdesktopcustom": "LocalDesktopApplicationInput",
     },
 )
-
-# Deterministic env for tests that assert on the LAYOUT of Typer/Rich `--help`
-# output (panel titles like "─ Filters ", hyphenated option names like
-# "--platform"). When the environment forces color/terminal (as GitHub Actions
-# runners do), Rich interleaves dim ANSI escapes into the box border and option
-# names, so those literal substrings are no longer contiguous and the asserts
-# break — even though NO_COLOR is set (NO_COLOR drops colors, not dim/bold
-# styling). `TERM=dumb` disables styling entirely; the fixed COLUMNS keeps
-# wrapping stable. Mirrors the deterministic env in test_cli_emitted.py. Pass to
-# the specific `.invoke(..., "--help")` calls whose output is substring-asserted.
-_HELP_ENV = {"TERM": "dumb", "NO_COLOR": "1", "COLUMNS": "200"}
 
 
 @pytest.fixture
@@ -543,7 +533,7 @@ def test_real_create_update_delete_device_group(
         runner = CliRunner()
         # --help shows required name + permissive enum choices
         h = runner.invoke(
-            main.app, ["create", "device-group", "--help"], env=_HELP_ENV
+            main.app, ["create", "device-group", "--help"], env=HELP_ENV
         ).output
         assert "--platform" in h and "Desktop Browser" in h
         import prisma_browser.extras.facade as facade
@@ -629,7 +619,7 @@ def test_real_show_device_help_panels(
         main = importlib.import_module("prisma_browser_cli.main")
         out = (
             CliRunner()
-            .invoke(main.app, ["show", "device", "--help"], env=_HELP_ENV)
+            .invoke(main.app, ["show", "device", "--help"], env=HELP_ENV)
             .output
         )
         # box-char-anchored: bare "Filter" appears in option help texts

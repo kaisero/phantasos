@@ -1,0 +1,18 @@
+# gitleaks configuration for phantasos.
+#
+# Extends the full default ruleset (all built-in secret detectors stay active);
+# the allowlist below only suppresses KNOWN false positives. CI runs gitleaks over
+# the PR's commit range, so this config (read from HEAD) applies the allowlist across
+# history too — an inline `# gitleaks:allow` comment would NOT, since it wouldn't be
+# present in the commit that first introduced the line.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake token literals in the auth-cache tests — not real secrets. These fixtures exist precisely to assert that real tokens are NEVER logged or written to disk (test_token_value_never_logged / the cache round-trip tests)."
+# Matches only the obviously-fake `<word>-secret-<suffix>` test-token values; far too
+# specific to hide a real credential (a real secret does not look like this).
+regexes = [
+    '''(seeded|fresh)-secret-[a-z0-9]+''',
+]

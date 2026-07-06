@@ -31,6 +31,7 @@ nav:
   - Architecture: architecture.md
   - Authoring a product: authoring.md
   - CLI reference: cli-reference.md
+  - Configuring the generated CLI: configuring-the-cli.md
   - Development: development.md
 
 # Internal/historical markdown kept in the repo but excluded from the published site:

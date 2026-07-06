@@ -623,6 +623,11 @@ def render_cli(
             "_generated/environment_commands.py.jinja",
             gen / "environment_commands.py",
         )
+    # Token cache store layer — emitted ONLY for authenticating CLIs (its module
+    # reads `_config.get().cache`, a section that only exists when credentials
+    # are present; a non-auth CLI must never reference it).
+    if ir.credential_fields:
+        render("_generated/auth_cache.py.jinja", gen / "auth_cache.py")
     (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
     written.append(str((gen / "ir.json").relative_to(out_dir)))
 

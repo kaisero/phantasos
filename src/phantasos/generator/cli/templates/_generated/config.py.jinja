@@ -70,6 +70,12 @@ class LoggingConfig(BaseModel):
             )
         return v.lower()
 
+{% if ir.credential_fields %}
+class CacheConfig(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    enabled: bool = True
+    dir: str | None = None  # None -> ~/.{{ distribution }}/cache/
+{% endif %}
 
 class CliConfiguration(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
@@ -77,6 +83,8 @@ class CliConfiguration(BaseModel):
     output: OutputConfig = Field(default_factory=OutputConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+{% if ir.credential_fields %}    cache: CacheConfig = Field(default_factory=CacheConfig)
+{% endif %}
 
 
 class ConfigFile(BaseModel):
@@ -95,12 +103,15 @@ _ENV_MAP: dict[str, tuple[str, ...]] = {
     f"{_ENV_PREFIX}_HISTORY_MAX_SIZE_MB": ("configuration", "history", "max_size_mb"),
     f"{_ENV_PREFIX}_LOGGING_LEVEL": ("configuration", "logging", "level"),
     f"{_ENV_PREFIX}_LOGGING_FILE": ("configuration", "logging", "file"),
-}
+{% if ir.credential_fields %}    f"{_ENV_PREFIX}_CACHE_ENABLED": ("configuration", "cache", "enabled"),
+    f"{_ENV_PREFIX}_CACHE_DIR": ("configuration", "cache", "dir"),
+{% endif %}}
 _BOOL_PATHS = {
     ("configuration", "pager", "enabled"),
     ("configuration", "history", "enabled"),
     ("configuration", "history", "verbose"),
-}
+{% if ir.credential_fields %}    ("configuration", "cache", "enabled"),
+{% endif %}}
 _INT_PATHS = {
     ("configuration", "history", "max_size_mb"),
 }
@@ -272,7 +283,8 @@ def effective_dict() -> dict[str, Any]:
                 "max_size_mb": c.history.max_size_mb,
             },
             "logging": {"level": c.logging.level, "file": c.logging.file},
-        }
+{% if ir.credential_fields %}            "cache": {"enabled": c.cache.enabled, "dir": c.cache.dir},
+{% endif %}        }
     }
 
 
@@ -289,6 +301,15 @@ def log_file_path() -> Path:
         return Path(f).expanduser()
     return Path.home() / f".{_DISTRIBUTION}" / "logs" / f"{_DISTRIBUTION}.jsonl"
 
+{% if ir.credential_fields %}
+def cache_dir_path() -> Path:
+    """The token-cache directory: configured ``cache.dir`` (``~``/``${VAR}`` left
+    to the caller) or the default ``~/.{{ distribution }}/cache``."""
+    d = get().cache.dir
+    if d:
+        return Path(d).expanduser()
+    return Path.home() / f".{_DISTRIBUTION}" / "cache"
+{% endif %}
 
 # --- config.yml writers (used by `config set` / `config unset`) ----------------
 

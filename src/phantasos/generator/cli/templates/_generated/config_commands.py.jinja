@@ -120,3 +120,14 @@ def config_unset(key: str) -> None:
     node.pop(path[-1], None)
     _write_config(raw)
     _diag.info(f"unset {'.'.join(path[1:])}")
+
+
+{% if ir.credential_fields %}
+@config_app.command("cache-clear")
+def config_cache_clear() -> None:
+    """Delete all cached auth tokens from the cache directory."""
+    from . import auth_cache as _auth_cache
+
+    n = _auth_cache.clear()
+    _output._console.print(f"removed {n} cached token(s) from {_auth_cache._dir()}")
+{% endif %}

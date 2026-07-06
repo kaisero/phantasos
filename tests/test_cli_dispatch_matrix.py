@@ -99,160 +99,119 @@ def _make_list_response(items: list[dict[str, Any]], cursor: str | None = None) 
 # ---------------------------------------------------------------------------
 
 
-def test_show_dispatch_matrix(
-    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """``show application`` routes to the correct raw op for every arg combo.
+# Most-specific binding wins (more required args = higher priority): `--id --type`
+# beats `--id` alone; `--type` alone is a LIST filter, not a get-route.
+_SHOW_CASES = [
+    pytest.param(["--id", "APP-1"], "get_application_by_id", id="id-only"),
+    pytest.param(
+        ["--id", "APP-1", "--type", "custom"],
+        "get_application_by_type_and_id",
+        id="id-and-type",
+    ),
+    pytest.param([], "list_applications", id="bare"),
+    pytest.param(["--type", "custom"], "list_applications_by_type", id="type-only"),
+]
 
-    The wrapper's ``_api`` attribute (the raw ``ApplicationsApi`` instance) is
-    replaced by a recorder; each raw method name that fires is appended to
-    ``fired``.  The *most-specific* binding wins (more required args = higher
-    priority), so --id + --type beats --id alone.
-    """
-    import prisma_browser.extras.facade as facade
+_DELETE_CASES = [
+    pytest.param(["--id", "APP-1"], "delete_application_by_id", id="id-only"),
+    pytest.param(
+        ["--id", "APP-1", "--type", "custom"],
+        "delete_application_by_type_and_id",
+        id="id-and-type",
+    ),
+]
+
+
+def _show_client(fired: list[str]) -> Any:
+    """Fake Client whose application._api records raw-method calls (show shapes)."""
     from prisma_browser.extras.resources import ApplicationResource
-    from typer.testing import CliRunner
 
-    monkeypatch.setenv("HOME", str(tmp_path))
-    main = importlib.import_module("prisma_browser_cli.main")
-    runner = CliRunner()
-
-    # Minimal responses compatible with the output renderer.
     _single = _make_app_response()
     _list_page = _make_list_response([_make_app_response()])
 
-    def _make_recorder(fired: list[str]) -> Any:
-        """Build a fake ApplicationsApi that records raw-method calls."""
+    class _Rec:
+        def __getattr__(self, name: str) -> Any:
+            def _fn(**kw: Any) -> Any:
+                fired.append(name)
+                return _list_page if name.startswith("list_") else _single
 
-        class _Rec:
-            def __getattr__(self, name: str) -> Any:
-                def _fn(**kw: Any) -> Any:
-                    fired.append(name)
-                    # return the right shape based on the op
-                    if name.startswith("list_"):
-                        return _list_page
-                    return _single
+            return _fn
 
-                return _fn
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.application = ApplicationResource(_Rec())
 
-        return _Rec()
+        api_client = None
 
-    def _make_client(fired: list[str]) -> Any:
-        """Build a fake Client where ``application._api`` is our recorder."""
-        rec = _make_recorder(fired)
-
-        class _FakeClient:
-            def __init__(self) -> None:
-                # Build a real ApplicationResource backed by our recorder
-                self.application = ApplicationResource(rec)
-
-            # The runtime looks for api_client; None skips the call_api wrapper
-            # (no HTTP URI capture needed for this dispatch-only test).
-            api_client = None
-
-        return _FakeClient()
-
-    # ------------------------------------------------------------------ show
-    # Case 1: show application --id X  →  get_application_by_id
-    fired: list[str] = []
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(
-        main.app, ["show", "application", "--id", "APP-1", "--output", "json"]
-    )
-    assert res.exit_code == 0, f"--id only: {res.output}"
-    assert "get_application_by_id" in fired, f"fired={fired}"
-
-    # Case 2: show application --id X --type T  →  get_application_by_type_and_id
-    fired.clear()
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(
-        main.app,
-        [
-            "show",
-            "application",
-            "--id",
-            "APP-1",
-            "--type",
-            "custom",
-            "--output",
-            "json",
-        ],
-    )
-    assert res.exit_code == 0, f"--id --type: {res.output}"
-    assert "get_application_by_type_and_id" in fired, f"fired={fired}"
-
-    # Case 3: show application (bare, no --id)  →  list_applications
-    fired.clear()
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(main.app, ["show", "application", "--output", "json"])
-    assert res.exit_code == 0, f"bare: {res.output}"
-    assert "list_applications" in fired, f"fired={fired}"
-
-    # Case 4: show application --type T (no --id)  →  list_applications_by_type
-    # (a LIST binding, not a get; --type alone is a filter on the list, not a get-route)
-    fired.clear()
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(
-        main.app, ["show", "application", "--type", "custom", "--output", "json"]
-    )
-    assert res.exit_code == 0, f"--type only: {res.output}"
-    assert "list_applications_by_type" in fired, f"fired={fired}"
+    return _FakeClient()
 
 
-def test_delete_dispatch_matrix(
-    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """``delete application`` routes to the correct raw op for every arg combo."""
-    import prisma_browser.extras.facade as facade
+def _delete_client(fired: list[str]) -> Any:
+    """Fake Client whose application._api records raw-method calls (delete: None)."""
     from prisma_browser.extras.resources import ApplicationResource
+
+    class _Rec:
+        def __getattr__(self, name: str) -> Any:
+            def _fn(**kw: Any) -> None:
+                fired.append(name)
+
+            return _fn
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.application = ApplicationResource(_Rec())
+
+        api_client = None
+
+    return _FakeClient()
+
+
+@pytest.mark.parametrize("extra_args, expected_op", _SHOW_CASES)
+def test_show_dispatch_matrix(
+    real_cli: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    extra_args: list[str],
+    expected_op: str,
+) -> None:
+    """`show application <args>` routes to the correct raw op (one case per test)."""
+    import prisma_browser.extras.facade as facade
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
     main = importlib.import_module("prisma_browser_cli.main")
-    runner = CliRunner()
-
-    def _make_recorder(fired: list[str]) -> Any:
-        class _Rec:
-            def __getattr__(self, name: str) -> Any:
-                def _fn(**kw: Any) -> None:
-                    fired.append(name)
-
-                return _fn
-
-        return _Rec()
-
-    def _make_client(fired: list[str]) -> Any:
-        rec = _make_recorder(fired)
-
-        class _FakeClient:
-            def __init__(self) -> None:
-                self.application = ApplicationResource(rec)
-
-            api_client = None
-
-        return _FakeClient()
-
-    # Case 5: delete application --id X  →  delete_application_by_id
     fired: list[str] = []
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(main.app, ["delete", "application", "--id", "APP-1"])
-    assert res.exit_code == 0, f"delete --id only: {res.output}"
-    assert "delete_application_by_id" in fired, f"fired={fired}"
-
-    # Case 6: delete application --id X --type T  →  delete_application_by_type_and_id
-    fired.clear()
-    client = _make_client(fired)
-    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client))
-    res = runner.invoke(
-        main.app, ["delete", "application", "--id", "APP-1", "--type", "custom"]
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: _show_client(fired))
     )
-    assert res.exit_code == 0, f"delete --id --type: {res.output}"
-    assert "delete_application_by_type_and_id" in fired, f"fired={fired}"
+    res = CliRunner().invoke(
+        main.app, ["show", "application", *extra_args, "--output", "json"]
+    )
+    assert res.exit_code == 0, f"{extra_args}: {res.output}"
+    assert expected_op in fired, f"fired={fired}"
+
+
+@pytest.mark.parametrize("extra_args, expected_op", _DELETE_CASES)
+def test_delete_dispatch_matrix(
+    real_cli: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    extra_args: list[str],
+    expected_op: str,
+) -> None:
+    """`delete application <args>` routes to the correct raw op (one case per test)."""
+    import prisma_browser.extras.facade as facade
+    from typer.testing import CliRunner
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    main = importlib.import_module("prisma_browser_cli.main")
+    fired: list[str] = []
+    monkeypatch.setattr(
+        facade.Client, "from_env", classmethod(lambda cls: _delete_client(fired))
+    )
+    res = CliRunner().invoke(main.app, ["delete", "application", *extra_args])
+    assert res.exit_code == 0, f"{extra_args}: {res.output}"
+    assert expected_op in fired, f"fired={fired}"
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +228,8 @@ def test_all_pages_walks_and_injects_sort(
         ``order=asc`` into the raw list call (cursor pagination requires an
         explicit sort);
     (b) walk more than one page (the fake first page carries a cursor);
-    (c) record a history entry with status ``success``; if ``http_uri`` is
-        present it must end with ``/applications``.
+    (c) record a history entry with status ``success``; on the recorder-api
+        path ``http_uri`` is not captured, so its absence is asserted.
     """
     import prisma_browser.extras.facade as facade
     from prisma_browser.extras.resources import ApplicationResource
@@ -370,13 +329,13 @@ def test_all_pages_walks_and_injects_sort(
     #     recorder-api path bypasses — absence is expected and noted).
     hist = importlib.import_module("prisma_browser_cli._generated.history")
     entries, _ = hist.read_entries(0)
-    if entries:
-        entry = entries[-1]
-        assert entry["status"] == "success", f"history status: {entry}"
-        if "http_uri" in entry:
-            assert entry["http_uri"].endswith("/applications"), (
-                f"http_uri: {entry['http_uri']!r}"
-            )
+    assert entries, "expected a history entry for the --all run"  # precondition, strict
+    entry = entries[-1]
+    assert entry["status"] == "success", f"history status: {entry}"
+    # http_uri is only captured when call_api fires; the recorder-api path bypasses
+    # it, so its ABSENCE is the documented behavior on this path (verified). Pin the
+    # absence rather than a never-executed `if "http_uri" in entry` branch.
+    assert "http_uri" not in entry, f"unexpected http_uri on recorder-api path: {entry}"
 
 
 # ---------------------------------------------------------------------------
@@ -434,5 +393,5 @@ def test_dry_run_parity_show_by_id(real_cli: Path) -> None:
     assert res.exit_code == 0, res.output
     out = res.output
     assert "GET" in out
-    assert "APP-99" in out or "/applications" in out
+    assert "/applications/APP-99" in out  # id lands in the path (was: "APP-99" or "/…")
     assert "get_application_by_id(" not in out  # NOT the old call-reference string
