@@ -1,8 +1,10 @@
 import importlib
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -1020,3 +1022,20 @@ def test_no_auth_has_no_environment_group(
     # the absent top-level group fails to invoke
     res = r.invoke(main.app, ["environment", "--help"])
     assert res.exit_code != 0
+
+
+def test_env_fields_carry_env_var_and_client_kwarg(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out = emit_cli(auth=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        assert cfg._ENV_FIELDS, "auth build must have credential fields"
+        f = cfg._ENV_FIELDS[0]
+        assert set(f) >= {"name", "secret", "env_var", "client_kwarg"}
+        assert isinstance(f["env_var"], str) and f["env_var"]
+        assert isinstance(f["client_kwarg"], str) and f["client_kwarg"]

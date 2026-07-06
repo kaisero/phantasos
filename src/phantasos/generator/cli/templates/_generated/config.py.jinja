@@ -380,7 +380,8 @@ def _known_config_paths() -> set[tuple[str, ...]]:
 # component, so this early-loaded module never imports the (heavier) IR loader.
 _ENV_FIELDS: list[dict[str, Any]] = [
 {%- for f in ir.credential_fields %}
-    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }},
+     "env_var": {{ f.env_var|tojson }}, "client_kwarg": {{ (f.client_kwarg or f.name)|tojson }}},
 {%- endfor %}
 ]
 # Connection-header fields (region/tenant): non-secret, stored per environment
