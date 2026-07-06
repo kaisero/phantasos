@@ -11,11 +11,17 @@ from __future__ import annotations
 import functools
 import os
 {%- if has_env %}
+import logging
 import re
 {%- endif %}
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+{%- if has_env %}
+from collections.abc import Mapping
+from enum import Enum
+from typing import NamedTuple
+{%- endif %}
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -380,7 +386,8 @@ def _known_config_paths() -> set[tuple[str, ...]]:
 # component, so this early-loaded module never imports the (heavier) IR loader.
 _ENV_FIELDS: list[dict[str, Any]] = [
 {%- for f in ir.credential_fields %}
-    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }}},
+    {"name": {{ f.name|tojson }}, "secret": {{ "True" if f.secret else "False" }},
+     "env_var": {{ f.env_var|tojson }}, "client_kwarg": {{ (f.client_kwarg or f.name)|tojson }}},
 {%- endfor %}
 ]
 # Connection-header fields (region/tenant): non-secret, stored per environment
@@ -423,15 +430,17 @@ def default_environment() -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _resolve_value(v: Any) -> Any:
+def _resolve_value(v: Any, *, env: Mapping[str, str] | None = None) -> Any:
     """Resolve a ``${VAR}`` reference against the process environment.
 
-    A string that fully matches ``${VAR}`` is replaced by ``os.environ[VAR]``
-    (or ``None`` if unset). Any other value is returned unchanged."""
+    A string that fully matches ``${VAR}`` is replaced by ``env[VAR]``
+    (``os.environ`` by default; inject a dict for pure resolution) or ``None``
+    if unset. Any other value is returned unchanged."""
+    env = os.environ if env is None else env
     if isinstance(v, str):
         m = _ENV_REF_RE.match(v)
         if m:
-            return os.environ.get(m.group(1))
+            return env.get(m.group(1))
     return v
 
 
@@ -456,4 +465,72 @@ def resolve_connection(name: str | None) -> dict[str, Any]:
     if not isinstance(env, dict):
         env = {}
     return {f["env"]: _resolve_value(env.get(f["key"])) for f in _CONN_FIELDS}
+
+
+_ENV_LOG = logging.getLogger("{{ package }}.env")
+
+
+class _Source(str, Enum):
+    ENV = "env"              # a direct exported env var
+    STORED = "stored"        # literal value stored in the environment block
+    STORED_REF = "stored_ref"  # stored ${VAR} reference, expanded
+    DEFAULT = "default"      # a packaged/SDK default fills the gap
+    UNSET = "unset"          # nothing anywhere
+
+
+class _EffField(NamedTuple):
+    name: str
+    kind: str            # "credential" | "connection"
+    env_var: str
+    client_kwarg: str    # credential: how _client passes it; connection: "" (n/a)
+    value: str | None
+    source: _Source
+    secret: bool
+    required: bool
+
+
+def _stored_source(raw: Any) -> _Source:
+    return _Source.STORED_REF if isinstance(raw, str) and _ENV_REF_RE.match(raw) else _Source.STORED
+
+
+def resolve_effective(name: str | None, *, env: Mapping[str, str] | None = None) -> list[_EffField]:
+    """Effective credential + connection fields for environment ``name``, applying the
+    SAME env-var precedence ``_client``/``_preflight`` use, each tagged with its source.
+
+    ``env`` defaults to ``os.environ`` (inject a dict for pure tests). Callers that need
+    ``.env`` support must load dotenv BEFORE calling (``_client`` does; ``environment
+    show`` must too). Logs one DEBUG line per field whose env var displaced a stored
+    value — never the value (var name + override fact only)."""
+    env = os.environ if env is None else env
+    block = _raw_environments().get(name) if name else None
+    block = block if isinstance(block, dict) else {}
+    out: list[_EffField] = []
+    for f in _ENV_FIELDS:                                    # credentials — PRESENCE
+        ev = env.get(f["env_var"])                           # not truthiness
+        stored = _resolve_value(block.get(f["name"]), env=env)
+        if ev is not None:
+            value, source = ev, _Source.ENV
+        elif stored is not None:
+            value, source = stored, _stored_source(block.get(f["name"]))
+        else:
+            value, source = None, _Source.UNSET
+        if source is _Source.ENV and stored is not None:
+            _ENV_LOG.debug("%s: using env %s (overrides environment %r)",
+                           f["name"], f["env_var"], name)
+        out.append(_EffField(f["name"], "credential", f["env_var"], f["client_kwarg"],
+                             value, source, bool(f["secret"]), bool(f.get("required", True))))
+    for f in _CONN_FIELDS:                                   # connection — TRUTHINESS
+        ev = env.get(f["env"])
+        stored = _resolve_value(block.get(f["key"]), env=env)
+        if ev:                                               # truthy wins
+            value, source = ev, _Source.ENV
+        elif stored:
+            value, source = stored, _stored_source(block.get(f["key"]))
+        else:
+            value, source = (stored if stored is not None else None), _Source.UNSET
+        if source is _Source.ENV and stored:
+            _ENV_LOG.debug("%s: using env %s (overrides environment %r)",
+                           f["env"], f["env"], name)
+        out.append(_EffField(f["env"], "connection", f["env"], "", value, source, False, False))
+    return out
 {% endif %}

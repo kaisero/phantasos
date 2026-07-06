@@ -1,8 +1,11 @@
 """Behavioral tests for the emitted CLI docs site (IR-driven markdown)."""
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 
+import pytest
 import yaml
 
 from phantasos.generator.cli.cliconfig import CliDocsConfig
@@ -54,10 +57,11 @@ def test_guides_always_present_and_auth_gating(emit_cli: Callable[..., Path]) ->
 
     with_auth = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
     auth_md = (with_auth / "docs" / "guides" / "authentication.md").read_text()
-    # `environment` is a root command group with a `show` lister — NOT `config
-    # environment ... list` (which would be a "No such command" error).
-    assert "environment create" in auth_md
-    assert "environment show" in auth_md
+    # The auth guide no longer duplicates the named-environment commands; it just
+    # mentions environments and links to the dedicated Environments & variables page.
+    # (`config environment ...` would be a "No such command" error — must not appear.)
+    assert "[Environments & variables](environments.md)" in auth_md
+    assert "named environments" in auth_md.lower()
     assert "config environment" not in auth_md
     assert "config init" in auth_md  # config init is documented
     # Token-cache section: overview + configure + verify, with the REAL env prefix
@@ -213,3 +217,45 @@ def test_reference_schema_anchors_unique_per_page(
     # WidgetProfile renders under >1 widget command, each with a distinct slug.
     assert "create-widget-profile-schema" in profile_ids
     assert len(profile_ids) >= 2, f"expected per-command anchors, got {profile_ids}"
+
+
+def test_environments_guide_lists_vars_and_precedence(
+    emit_cli: Callable[..., Path],
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import importlib
+
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
+    env_md = (out / "docs" / "guides" / "environments.md").read_text()
+    # precedence / order is documented (both chains)
+    assert "FAKESDK_ENVIRONMENT" in env_md and "default_environment" in env_md
+    assert "--environment" in env_md  # -e is the top of the selection chain
+    # Enumerate the REAL resolved env-var names from the emitted config (not a
+    # regex over f-string literals) and require every one to be on the page.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with render_and_import(out, "fakesdk_cli"):
+        cfg = importlib.import_module("fakesdk_cli._generated.config")
+        for var in cfg._ENV_MAP:  # config vars (pager/output/history/logging/cache)
+            assert var in env_md, f"{var} missing from environments.md"
+        for f in cfg._ENV_FIELDS:  # credential vars (from the IR)
+            ev = f["env_var"]
+            assert ev in env_md, f"{ev} missing from environments.md"
+
+
+def test_environments_guide_absent_without_env(emit_cli: Callable[..., Path]) -> None:
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"))  # no auth -> no env
+    assert not (out / "docs" / "guides" / "environments.md").exists()
+
+
+def test_environments_guide_in_nav(emit_cli: Callable[..., Path]) -> None:
+    import yaml
+
+    out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
+    cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
+    guides = next(s["Guides"] for s in cfg["nav"] if "Guides" in s)
+    assert any(
+        "environments.md" in (next(iter(g.values())) if isinstance(g, dict) else g)
+        for g in guides
+    )

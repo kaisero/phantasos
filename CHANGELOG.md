@@ -182,6 +182,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`environment show` now reports EFFECTIVE settings** — when an environment variable
+  (or `.env`) overrides a named environment's stored value, `environment show` shows the
+  value that will actually be used and its source (a `FIELD | VALUE | SOURCE` table;
+  secret values masked), and marks the truly-active environment with why (`via
+  <PREFIX>_ENVIRONMENT` / `default_environment`). Previously it displayed the raw config
+  file and ignored env-var overrides. Overrides are also logged at debug (`show cli log
+  --level debug`). Resolution is now a single `resolve_effective` used by both the client
+  and `show`, so display can't drift from behavior. New generated-CLI docs page
+  **Environments & variables** documents the precedence order and every variable the CLI reads.
 - The SDK patch step now repairs an openapi-generator defect where a `oneOf` wrapper
   names a branch model it also renders as a primitive validator (e.g. a numeric
   `Number` branch) without importing it — a dangling forward reference that only

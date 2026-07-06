@@ -58,19 +58,27 @@ def select_environment(name: str | None) -> None:
     _SELECTED_ENV.set(name)
 
 
-def _selected_environment() -> str | None:
-    """The active environment name, by precedence:
+def _selected_environment_source() -> tuple[str | None, str]:
+    """The active environment and WHY, by precedence:
     -e flag (contextvar) > {{ env_prefix }}_ENVIRONMENT env var > default_environment.
-
-    An EMPTY {{ env_prefix }}_ENVIRONMENT is treated as absent (falsy), so it falls
-    through to default_environment rather than selecting an environment named ""."""
+    Source ∈ {"flag","env","default","none"}. Empty {{ env_prefix }}_ENVIRONMENT is
+    treated as absent (falls through). Logs the winning source at DEBUG."""
     from . import config as _config
 
-    return (
-        _SELECTED_ENV.get()
-        or os.environ.get("{{ env_prefix }}_ENVIRONMENT")
-        or _config.default_environment()
-    )
+    flag = _SELECTED_ENV.get()
+    if flag:
+        name, source = flag, "flag"
+    elif os.environ.get("{{ env_prefix }}_ENVIRONMENT"):
+        name, source = os.environ["{{ env_prefix }}_ENVIRONMENT"], "env"
+    else:
+        d = _config.default_environment()
+        name, source = (d, "default") if d else (None, "none")
+    _config._ENV_LOG.debug("selected environment %r (source: %s)", name, source)
+    return name, source
+
+
+def _selected_environment() -> str | None:
+    return _selected_environment_source()[0]
 {% endif -%}
 {% if ir.connection_fields %}
 
@@ -85,16 +93,16 @@ def _preflight_connection(cmd: Command) -> None:
     from . import config as _config
 
     name = _selected_environment()
-    conn_resolved = _config.resolve_connection(name)
+    eff = {e.env_var: e for e in _config.resolve_effective(name) if e.kind == "connection"}
     for f in _ir().connection_fields:
         needed = f.required or (
             cmd.subpackage is not None and cmd.subpackage in f.required_for
         )
         if not needed:
             continue
-        # ponytail: or-chain treats an empty string as absent (an empty region
-        # header is meaningless and the SDK would reject it).
-        val = os.environ.get(f.env) or conn_resolved.get(f.env)
+        # Value + env-var precedence come from the shared resolver (connection
+        # fields use truthiness — an empty region header is treated as absent).
+        val = eff[f.env].value if f.env in eff else None
         if not val:
             # f.flag is the field's `environment create --<flag>` spelling.
             flag = f.flag or f.name.split("-")[-1].lower()
@@ -142,19 +150,20 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
         )
 {%- endif %}
 {%- if ir.credential_fields %}
-    env = _config.resolve_environment(name) if name else {}
+    # Value + env-var-override precedence (presence, not truthiness) come from the
+    # shared resolver. _client still owns the required-empty policy: a required
+    # credential resolving to None OR "" is unusable (the SDK rejects empties with
+    # `if not v`), so pre-empt the raw RuntimeError with a clean message here.
     overrides: dict[str, Any] = {}
     missing: list[str] = []
-    for f in _ir().credential_fields:
-        ev = os.environ.get(f.env_var)  # PRESENCE check, not truthiness
-        val = ev if ev is not None else env.get(f.name)
-        if val is not None:
-            overrides[f.client_kwarg or f.name] = val
-        # A required credential that resolves to None OR "" is unusable (the SDK
-        # rejects empties with `if not v`); pre-empt the raw RuntimeError with a
-        # clean, actionable message instead of leaking a traceback on first use.
-        if f.required and not val:
-            missing.append(f.env_var)
+    _req = {f.name: f.required for f in _ir().credential_fields}  # required stays IR-driven
+    for e in _config.resolve_effective(name):
+        if e.kind != "credential":
+            continue
+        if e.value is not None:
+            overrides[e.client_kwarg] = e.value
+        if _req.get(e.name) and not e.value:
+            missing.append(e.env_var)
     if missing:
         joined = ", ".join(missing)
         if name:
@@ -176,9 +185,9 @@ def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps
     # Connection headers: export each to its env var BEFORE building the client
     # (the SDK reads them from the environment; there is no kwarg path).
     # Precedence: exported env var > active-environment value (the env config).
-    for env_var, active_val in _config.resolve_connection(name).items():
-        if env_var not in os.environ and active_val is not None:
-            os.environ[env_var] = active_val
+    for e in _config.resolve_effective(name):
+        if e.kind == "connection" and e.env_var not in os.environ and e.value is not None:
+            os.environ[e.env_var] = e.value
 {%- endif %}
 {%- if ir.credential_fields %}
     try:
