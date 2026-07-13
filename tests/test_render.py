@@ -184,6 +184,122 @@ def test_single_spec_auth_render_is_byte_identical() -> None:
     assert "from ..api_client import ApiClient" in golden
 
 
+_CLIENT_PARAMS = {
+    "resources": [{"module": "things_api", "cls": "ThingsApi", "attr": "things"}],
+    "has_pagination": False,
+}
+_COMPOSER_PARAMS = {
+    "slugs": ["objects"],
+    "root_package": "prisma_access",
+    "config_class_name": "SdkConfiguration",
+    "headers": [],
+    "host_overrides": {},
+}
+
+
+def test_auth_emits_provider_token_source_and_factory() -> None:
+    single = _render_auth()
+    assert "class _ProviderTokenSource" in single
+    assert "def api_client_from_token" in single
+    assert '"api_client_from_token"' in single  # __all__
+    ast.parse(single)
+    fed = _render_auth(federated=True)
+    assert "def configuration_from_token" in fed
+    assert '"configuration_from_token"' in fed
+    ast.parse(fed)
+
+
+def test_client_and_composer_emit_from_access_token() -> None:
+    client = (
+        render._env()
+        .get_template("facade/client.py.jinja")
+        .render(**_CLIENT_PARAMS, has_auth=True)
+    )
+    assert "def from_access_token" in client
+    ast.parse(client)
+    composer = (
+        render._env()
+        .get_template("facade/composer.py.jinja")
+        .render(**_COMPOSER_PARAMS)
+    )
+    assert "def from_access_token" in composer
+    ast.parse(composer)
+
+
+def _exec_auth(src: str) -> types.ModuleType:
+    """Exec a rendered single-spec ``extras/auth.py`` inside a stub package so its
+    ``from ..api_client import ApiClient`` / ``from ..configuration import
+    Configuration`` resolve; return the module.
+
+    The stub ``Configuration`` records the ctor kwargs and re-exposes ``host`` and
+    the injected ``token_manager`` via the SAME ``access_token`` property the real
+    subclass overrides — so a per-request read of ``access_token`` pulls the token
+    source exactly as the runtime would, with no network."""
+
+    class _StubConfiguration:
+        def __init__(self, *, host: str | None = None, **kwargs: object) -> None:
+            self.host = host
+
+    class _StubApiClient:
+        def __init__(self, configuration: object) -> None:
+            self.configuration = configuration
+
+    pkg = types.ModuleType("_auth_pkg")
+    pkg.__path__ = []
+    api_client_mod = types.ModuleType("_auth_pkg.api_client")
+    api_client_mod.ApiClient = _StubApiClient  # type: ignore[attr-defined]
+    config_mod = types.ModuleType("_auth_pkg.configuration")
+    config_mod.Configuration = _StubConfiguration  # type: ignore[attr-defined]
+    sys.modules.update(
+        {
+            "_auth_pkg": pkg,
+            "_auth_pkg.api_client": api_client_mod,
+            "_auth_pkg.configuration": config_mod,
+        }
+    )
+    try:
+        mod = types.ModuleType("_auth_pkg.extras.auth")
+        mod.__package__ = "_auth_pkg.extras"
+        exec(compile(src, "auth.py", "exec"), mod.__dict__)  # noqa: S102
+        return mod
+    finally:
+        for key in (
+            "_auth_pkg",
+            "_auth_pkg.api_client",
+            "_auth_pkg.configuration",
+        ):
+            sys.modules.pop(key, None)
+
+
+def test_from_token_provider_consulted_per_request() -> None:
+    """A callable provider is pulled per request (not cached at build), and a bare
+    str normalizes to a one-shot provider — both build a client with no
+    client_secret/scope and never touch the network."""
+    auth = _exec_auth(_render_auth())
+
+    # Callable provider: consulted every time access_token is read.
+    calls = {"n": 0}
+
+    def provider() -> str:
+        calls["n"] += 1
+        return f"token-{calls['n']}"
+
+    client = auth.api_client_from_token(provider, host="https://h")
+    # Two "requests" (each reads access_token once, as update_params_for_auth does).
+    first = client.configuration.access_token
+    second = client.configuration.access_token
+    assert calls["n"] >= 2, calls  # per-request pull, NOT cached at construction
+    assert first == "token-1" and second == "token-2"
+    assert client.configuration.host == "https://h"
+
+    # Bare str: normalized to (lambda: token) — stable across requests.
+    str_client = auth.api_client_from_token("STATIC")
+    assert str_client.configuration.access_token == "STATIC"
+    assert str_client.configuration.access_token == "STATIC"
+    # No client_secret/scope required for this path.
+    assert isinstance(auth._ProviderTokenSource("x").token(), str)
+
+
 def _resources_off_objects() -> list[types.SimpleNamespace]:
     """Two opt-OUT ObjectViews (one with methods, one empty) for the golden."""
     lst = types.SimpleNamespace(

@@ -342,6 +342,60 @@ def test_full_federation_twelve_subpackages(
         # shared _auth.py rendered with
         # has_retry=False, so the composer must not ship a retry-less client.
         assert cfg.retries is not None
+
+        # --- Task 3.1: injectable-token seam (Client.from_access_token) ---------
+        # A caller-owned token source (str | Callable) builds a Client WITHOUT any
+        # client_secret/scope, and a callable provider is consulted PER REQUEST (not
+        # cached at construction) — the prototype's n=14 observation, minimized to
+        # two reads with no network. The provider wraps a pre-seeded real
+        # TokenManager and counts how often it is pulled.
+        pull_tm = auth.TokenManager("id", "secret", "scope")
+        pull_tm._token = "PULLTOKEN"
+        pull_tm._expires_at = _time.time() + 3600
+        pulls = {"n": 0}
+
+        def counting_provider() -> str:
+            pulls["n"] += 1
+            return pull_tm.token()
+
+        token_client = pa.Client.from_access_token(counting_provider)
+        # Two "requests": each bearer attach reads configuration.access_token once,
+        # which pulls the provider (per-request, not once at build).
+        h1: dict[str, str] = {}
+        token_client.objects.api_client.update_params_for_auth(
+            headers=h1,
+            queries=[],
+            auth_settings=[],
+            resource_path="/x",
+            method="GET",
+            body=None,
+        )
+        h2: dict[str, str] = {}
+        token_client.objects.api_client.update_params_for_auth(
+            headers=h2,
+            queries=[],
+            auth_settings=[],
+            resource_path="/y",
+            method="GET",
+            body=None,
+        )
+        assert pulls["n"] >= 2, pulls  # per-request consultation, not cached
+        assert h1["Authorization"] == "Bearer PULLTOKEN"
+        assert h2["Authorization"] == "Bearer PULLTOKEN"
+
+        # str path: normalized to a one-shot provider; builds + authenticates once,
+        # again with no client_secret/scope.
+        str_client = pa.Client.from_access_token("STATICTOKEN")
+        hs: dict[str, str] = {}
+        str_client.objects.api_client.update_params_for_auth(
+            headers=hs,
+            queries=[],
+            auth_settings=[],
+            resource_path="/z",
+            method="GET",
+            body=None,
+        )
+        assert hs["Authorization"] == "Bearer STATICTOKEN"
     finally:
         sys.path.remove(str(loaded.output_dir))
         _drop()

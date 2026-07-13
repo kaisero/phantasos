@@ -24,6 +24,7 @@ __all__ = [
     "SdkConfiguration",
     "api_client_from_credentials",
     "api_client_from_env",
+    "api_client_from_token",
 ]
 
 DEFAULT_BASE_URL = "https://h"
@@ -82,6 +83,21 @@ class SdkConfiguration(Configuration):
     @access_token.setter
     def access_token(self, value):
         pass
+
+
+class _ProviderTokenSource:
+    """Duck-types TokenManager.token() for a caller-owned token (str | Callable)."""
+
+    def __init__(self, token):
+        self._provider = (lambda: token) if isinstance(token, str) else token
+
+    def token(self) -> str:
+        return self._provider()
+
+
+def api_client_from_token(token, *, host: str = DEFAULT_BASE_URL) -> ApiClient:
+    cfg = SdkConfiguration(token_manager=_ProviderTokenSource(token), host=host)
+    return ApiClient(cfg)
 
 
 def api_client_from_credentials(

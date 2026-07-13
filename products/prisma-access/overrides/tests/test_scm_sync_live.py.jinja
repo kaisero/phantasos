@@ -10,7 +10,7 @@ import uuid
 import pytest
 
 import {{ package }}
-from {{ package }}._auth import configuration_from_env
+from {{ package }}._auth import TokenManager, configuration_from_env
 from {{ package }}.objects.models import Addresses
 
 _REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
@@ -90,3 +90,30 @@ def test_list_scan_pages_past_first_page(address):
             leftover = address.fetch(name=nm, folder=folder)
             if leftover is not None:
                 address.delete(id=leftover.id)
+
+
+def test_from_access_token_provider_consulted_per_request():
+    """Task 3.1 live seam: a caller-owned token source (Callable) drives a Client
+    with no client_secret/scope wired into it, and the provider is pulled PER
+    REQUEST (the prototype's n=14 observation, minimized to two authenticated
+    reads). A bare str token performs one authenticated list."""
+    tm = TokenManager(
+        os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"], os.environ["SCOPE"]
+    )
+    pulls = {"n": 0}
+
+    def counting_provider() -> str:
+        pulls["n"] += 1
+        return tm.token()
+
+    # Callable path: two real reads -> provider consulted at least twice.
+    client = {{ package }}.Client.from_access_token(counting_provider)
+    client.objects.address.list(folder="Shared", limit=1)
+    client.objects.address.list(folder="Shared", limit=1)
+    assert pulls["n"] >= 2, pulls
+
+    # str path: normalized to a one-shot provider; one authenticated list succeeds.
+    token = tm.token()
+    str_client = {{ package }}.Client.from_access_token(token)
+    page = str_client.objects.address.list(folder="Shared", limit=1)
+    assert page is not None

@@ -6,6 +6,7 @@ import uuid
 
 import pytest
 
+from {{ package }}.extras.auth import TokenManager
 from {{ package }}.extras.facade import Client
 from {{ package }}.models.create_or_replace_app_group_input import CreateOrReplaceAppGroupInput
 
@@ -55,3 +56,30 @@ def test_list_walks_all_pages(group):
     page1_ids = {g.id for g in page1.data}
     full_ids = {g.id for g in full.data}
     assert page1_ids <= full_ids, "all_pages dropped objects seen on page 1"
+
+
+def test_from_access_token_provider_consulted_per_request():
+    """Task 3.1 live seam: a caller-owned token source (Callable) drives a Client
+    with no client_secret/scope wired into it, and the provider is pulled PER
+    REQUEST (the prototype's n=13 observation, minimized to two authenticated
+    reads). A bare str token performs one authenticated list."""
+    tm = TokenManager(
+        os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"], os.environ["SCOPE"]
+    )
+    pulls = {"n": 0}
+
+    def counting_provider() -> str:
+        pulls["n"] += 1
+        return tm.token()
+
+    # Callable path: two real reads -> provider consulted at least twice.
+    with Client.from_access_token(counting_provider) as client:
+        client.application_group.list(all_pages=False)
+        client.application_group.list(all_pages=False)
+    assert pulls["n"] >= 2, pulls
+
+    # str path: normalized to a one-shot provider; one authenticated list succeeds.
+    token = tm.token()
+    with Client.from_access_token(token) as str_client:
+        page = str_client.application_group.list(all_pages=False)
+    assert page is not None

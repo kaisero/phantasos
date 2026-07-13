@@ -27,8 +27,10 @@ __all__ = [
     "{{ config_class_name }}",
     "api_client_from_credentials",
     "api_client_from_env",
+    "api_client_from_token",
 {% if federated %}    "configuration_from_credentials",
     "configuration_from_env",
+    "configuration_from_token",
 {% endif %}]
 
 DEFAULT_BASE_URL = "{{ base_url }}"
@@ -87,6 +89,22 @@ class {{ config_class_name }}(Configuration):
     @access_token.setter
     def access_token(self, value):
         pass
+
+
+class _ProviderTokenSource:
+    """Duck-types TokenManager.token() for a caller-owned token (str | Callable)."""
+
+    def __init__(self, token):
+        self._provider = (lambda: token) if isinstance(token, str) else token
+
+    def token(self) -> str:
+        return self._provider()
+
+
+def api_client_from_token(token, *, host: str = DEFAULT_BASE_URL) -> ApiClient:
+    cfg = {{ config_class_name }}(token_manager=_ProviderTokenSource(token), host=host)
+{% if has_retry %}    cfg.retries = default_retry()
+{% endif %}    return {% if federated %}_BearerApiClient(cfg){% else %}ApiClient(cfg){% endif %}
 
 
 def api_client_from_credentials(
@@ -151,6 +169,13 @@ def configuration_from_credentials(
         raise ValueError("scope is required")
     tm = TokenManager(client_id, client_secret, scope, token_url=token_url)
     cfg = {{ config_class_name }}(token_manager=tm, host=host)
+{% if has_retry %}    cfg.retries = default_retry()
+{% endif %}    return cfg
+
+
+def configuration_from_token(token, *, host: str = DEFAULT_BASE_URL) -> {{ config_class_name }}:
+    """Build the shared {{ config_class_name }} from a caller-owned token source."""
+    cfg = {{ config_class_name }}(token_manager=_ProviderTokenSource(token), host=host)
 {% if has_retry %}    cfg.retries = default_retry()
 {% endif %}    return cfg
 
