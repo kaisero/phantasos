@@ -96,6 +96,17 @@ class SyncMixin:
         universe = set(meta["input_fields"])
         return [k for k in present_desired if k in universe and k not in excluded]
 
+    def _project(self, key: str, value: Any) -> Any:
+        """Project the actual/response value of `key` down to the wire shape the
+        desired side speaks (spec §7). A field whose REQUEST shape differs from its
+        RESPONSE shape (e.g. member-id strings on write, member objects on read) is
+        mapped to its `projections[key]` subfield before comparison, so an
+        apples-to-apples diff doesn't report false drift. No-op when unprojected."""
+        sub = self._idempotency.get("projections", {}).get(key)
+        if sub and isinstance(value, list):
+            return [item.get(sub) if isinstance(item, dict) else item for item in value]
+        return value
+
     def diff(self, desired: Any, actual: Any) -> Diff:
         meta = self._idempotency
         d = self._present(desired)
@@ -104,7 +115,8 @@ class SyncMixin:
         changes: dict[str, dict[str, Any]] = {}
         for key in self._comparable(d):
             os_ = key in order_sensitive
-            if _normalize(d[key], order_sensitive=os_) != _normalize(a.get(key), order_sensitive=os_):
+            projected = self._project(key, a.get(key))
+            if _normalize(d[key], order_sensitive=os_) != _normalize(projected, order_sensitive=os_):
                 changes[key] = {"before": a.get(key), "after": d[key]}
         return Diff(changed=bool(changes), changes=changes)
 

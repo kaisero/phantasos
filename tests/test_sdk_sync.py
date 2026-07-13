@@ -254,6 +254,22 @@ def test_normalize_enum_value_and_nested() -> None:
     assert not r.changed  # enum -> value, nested list order-insensitive
 
 
+def test_projection_maps_actual_objects_to_ids_no_false_drift() -> None:
+    base, eng = _engine_env()
+    actual = _Model(name="a", id="1", applications=[{"id": "a1", "name": "X"}])
+    meta = _meta(
+        input_fields=["name", "applications"], projections={"applications": "id"}
+    )
+    res, _ = _stub(base, eng, meta, existing=actual)
+    # desired member-id strings vs actual member objects -> equal after projection
+    assert not res.apply(_Model(name="a", applications=["a1"])).changed
+    # a genuine membership change still shows drift
+    drifted = res.apply(_Model(name="a", applications=["a2"]))
+    assert drifted.changed
+    # changes record the raw (un-projected, un-normalized) wire value on the before side
+    assert drifted.diff.changes["applications"]["before"] == [{"id": "a1", "name": "X"}]
+
+
 def test_scope_excluded_from_diff() -> None:
     base, eng = _engine_env()
     actual = _Model(name="a", ip_netmask="1.1.1.1/32", folder="Shared", id="1")
