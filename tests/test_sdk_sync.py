@@ -342,6 +342,34 @@ def test_list_scan_raises_on_multiple_matches() -> None:
         ls.list_scan(RDup(), {"name": "a"}, {}, _meta(fetch="list_scan"))
 
 
+def test_list_scan_pages_past_first_page() -> None:
+    """F8: list_scan drives the wrapper's PAGINATED list and matches over the full
+    multi-page set — the target lives only on page 2, so a page-1-only fetch misses
+    it. The load-bearing property is `all_pages=True`: the stub returns the target
+    only when the wrapper is asked to walk every page (as the offset `paginate`
+    template does once `pagination: {type: offset}` is declared)."""
+    base, eng = _engine_env()
+    ls = _exec_strategy("fetch", "list_scan", base, eng)
+
+    class RPaged:
+        """Stand-in for a wrapper whose `list(all_pages=True)` concatenates pages.
+
+        Page 1 is `limit` filler rows; the target is only reachable by walking to
+        page 2 — so it is present iff the caller opted into full pagination.
+        """
+
+        def list(self, *, all_pages: bool, limit: int, **scope: object) -> object:
+            page1 = [_Model(name=f"a{i}", id=str(i)) for i in range(limit)]
+            page2 = [_Model(name="target", id="99")]
+            return _Page(page1 + page2 if all_pages else page1)
+
+        _full = eng.SyncMixin._full
+
+    meta = _meta(fetch="list_scan", fetch_opts={"page_limit": 2, "hydrate": False})
+    hit = ls.list_scan(RPaged(), {"name": "target"}, {}, meta)
+    assert hit is not None and hit.id == "99"
+
+
 def test_list_scan_hydrates_when_opted() -> None:
     base, eng = _engine_env()
     ls = _exec_strategy("fetch", "list_scan", base, eng)

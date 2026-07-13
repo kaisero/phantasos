@@ -62,3 +62,31 @@ def test_address_idempotency_quartet(address):
         leftover = address.fetch(name=name, folder=folder)
         if leftover is not None:
             address.delete(id=leftover.id)
+
+
+def test_list_scan_pages_past_first_page(address):
+    """F8 live proof: with offset pagination declared, `list(all_pages=True)` walks
+    every page. Create 3 uniquely-prefixed addresses, list with a page size of 2 —
+    so the 3rd is only reachable on page 2 — and assert all 3 come back and that
+    `fetch` (which drives list_scan under the hood) finds the 3rd."""
+    folder = "Shared"
+    prefix = f"phx-page-{uuid.uuid4().hex[:8]}"
+    names = [f"{prefix}-{i}" for i in range(3)]
+    try:
+        for i, nm in enumerate(names):
+            address.apply(Addresses(name=nm, folder=folder,
+                                    ip_netmask=f"10.20.{i}.0/24"))
+        # A page size of 2 forces a second page for the 3-object prefix. Filter the
+        # full (paginated) listing down to our prefix so co-tenant objects don't skew
+        # the count.
+        page = address.list(folder=folder, limit=2, all_pages=True)
+        got = {a.name for a in page.data if a.name.startswith(prefix)}
+        assert got == set(names), f"pagination lost objects: {sorted(got)}"
+        # The 3rd object is only reachable past page 1 — fetch must still find it.
+        third = address.fetch(name=names[2], folder=folder)
+        assert third is not None and third.name == names[2]
+    finally:
+        for nm in names:
+            leftover = address.fetch(name=nm, folder=folder)
+            if leftover is not None:
+                address.delete(id=leftover.id)

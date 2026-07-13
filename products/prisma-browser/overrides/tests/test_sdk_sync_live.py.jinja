@@ -43,3 +43,15 @@ def test_application_group_idempotency_quartet(group):
         leftover = group.fetch(name=name)
         if leftover is not None:
             group.delete(id=leftover.id)
+
+
+def test_list_walks_all_pages(group):
+    """F8 cursor sanity: `list(all_pages=True)` must succeed and return a superset of
+    page 1 — proving the cursor walk follows the next-page token without error. The
+    application_group collection is small, so the assertion is deliberately weak
+    (no error + superset), not an exact multi-page count."""
+    page1 = group.list(all_pages=False)
+    full = group.list(all_pages=True)
+    page1_ids = {g.id for g in page1.data}
+    full_ids = {g.id for g in full.data}
+    assert page1_ids <= full_ids, "all_pages dropped objects seen on page 1"
