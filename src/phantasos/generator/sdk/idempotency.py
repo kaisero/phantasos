@@ -1,0 +1,384 @@
+"""The ``_idempotency`` metadata producer — strategy auto-selection + build gates.
+
+``resolve_idempotency`` mutates each opted-in :class:`~.wrapper.ObjectView` in
+place: it auto-selects the three strategy families (fetch / mutate / materialize)
+from the introspected wrapper methods, bakes the per-resource ``_idempotency``
+class-var literal (strategy trio + identity/scope/models/id_field/…), adds the
+model classes' ``(module, class)`` import pairs, and fails loud (``ValueError``)
+on any of the seven build gates. ``referenced_strategies`` then folds every
+synced object's trio into the per-family union that ``render.vendor`` uses to
+decide which strategy modules to write.
+
+Design of record: spec §5.4 / §5.5 and ADR-0004. Selection precedence per
+family is ``resources.<name>.<family>`` → ``defaults.<family>`` → auto-derived.
+
+Note on IR accessors: the wrapper IR (``wrapper.py``) does NOT carry a live body
+model, a classified sub-verb, or per-param wire metadata on ``Binding``. So the
+producer derives them from what IS on the views — ``MethodView.body.import_from``
+/ ``MethodView.return_import`` (``(rel_module, ClassName)``), the binding's raw
+method name via ``classify_name`` (``patch_*`` → PATCH, ``update_*`` PUT →
+``replace``), and ``ParamView.location`` / ``ParamView.raw_name`` on the list
+method — plus a live import of the built package to read ``model_fields``.
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from ...config import IdempotencyConfig, IdempotencyDefaults, IdempotencyResource
+from ..opmodel.classify import classify_name
+
+if TYPE_CHECKING:
+    from .wrapper import MethodView, ObjectView
+
+_FETCH, _MUTATE, _MATERIALIZE = "fetch", "mutate", "materialize"
+
+
+def referenced_strategies(objects: list[ObjectView]) -> dict[str, set[str]]:
+    """The per-family UNION of every synced object's selected strategy.
+
+    After :func:`resolve_idempotency`, returns e.g.
+    ``{"fetch": {"list_scan"}, "mutate": {"put_rmw"}, "materialize": {"direct"}}``
+    — the exact strategy modules ``render.vendor`` must write. Objects that are
+    not synced contribute nothing; empty families stay empty sets.
+    """
+    out: dict[str, set[str]] = {_FETCH: set(), _MUTATE: set(), _MATERIALIZE: set()}
+    for o in objects:
+        if not getattr(o, "sync", False):
+            continue
+        meta = o._idempotency_meta  # type: ignore[attr-defined]
+        out[_FETCH].add(meta[_FETCH])
+        out[_MUTATE].add(meta[_MUTATE])
+        out[_MATERIALIZE].add(meta[_MATERIALIZE])
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+
+
+def resolve_idempotency(
+    objects: list[ObjectView],
+    cfg: IdempotencyConfig,
+    package: str,
+    dist_root: Path,
+    *,
+    has_pagination: bool,
+) -> None:
+    """Bake ``_idempotency`` metadata onto each opted-in ``ObjectView`` in place.
+
+    Sets ``sync=True`` / ``idempotency_literal`` / the model imports on each
+    ``resources:`` entry (unless ``sync: false``, which leaves the object off),
+    and raises ``ValueError`` — naming the resource + the fix — on any build gate.
+    """
+    by_attr = {o.attr: o for o in objects}
+    unknown = set(cfg.resources) - set(by_attr)
+    if unknown:
+        raise ValueError(
+            "sdk.yml idempotency.resources: unknown resource key(s): "
+            f"{', '.join(sorted(unknown))} "
+            f"(valid: {', '.join(sorted(by_attr))})"
+        )
+    # Side-effect: ensure *dist_root* is importable so `_class_from` can resolve
+    # the built package's live model classes (for their wire keys / __name__).
+    _import_pkg(package, dist_root)
+    for attr, rc in cfg.resources.items():
+        o = by_attr[attr]
+        if not rc.sync:
+            o.sync = False
+            continue
+        meta = _build_meta(o, rc, cfg.defaults, package, has_pagination=has_pagination)
+        o.sync = True
+        o._idempotency_meta = meta  # type: ignore[attr-defined]
+        o.idempotency_literal = _idempotency_literal(meta)
+
+
+# --------------------------------------------------------------------------- #
+# Live-import + small accessors
+# --------------------------------------------------------------------------- #
+
+
+def _import_pkg(package: str, dist_root: Path) -> Any:
+    """Import the built package (adding *dist_root* to ``sys.path`` if needed)."""
+    root = str(dist_root)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return importlib.import_module(package)
+
+
+def _wire_keys(model_cls: type[Any]) -> list[str]:
+    """The wire keys of a pydantic model: ``f.alias or name`` per model field."""
+    return [f.alias or name for name, f in model_cls.model_fields.items()]
+
+
+def _method(o: ObjectView, name: str) -> MethodView | None:
+    for m in o.methods:
+        if m.name == name:
+            return m
+    return None
+
+
+def _class_from(package: str, imp: tuple[str, str] | None) -> type[Any] | None:
+    """Resolve the live class named by a ``(rel_module, ClassName)`` import pair.
+
+    The rel module is relative to *package* (e.g. ``models.addresses`` under
+    ``prisma_access.objects``), so the full module is ``<package>.<rel_module>``.
+    """
+    if imp is None:
+        return None
+    rel_module, cls = imp
+    mod = importlib.import_module(f"{package}.{rel_module}")
+    got = getattr(mod, cls, None)
+    return got if isinstance(got, type) else None
+
+
+def _full_import(package: str, imp: tuple[str, str]) -> tuple[str, str]:
+    """A ``(rel_module, ClassName)`` pair -> the ``(full_module, ClassName)`` used
+    by ``resources.py`` imports."""
+    return (f"{package}.{imp[0]}", imp[1])
+
+
+def _body_import(method: MethodView | None) -> tuple[str, str] | None:
+    """The ``(rel_module, ClassName)`` of a method's body model, or ``None``."""
+    if method is None or method.body is None:
+        return None
+    return method.body.import_from
+
+
+def _sub_verb(method: MethodView | None) -> str | None:
+    """The classified sub-verb of a method's binding (``patch`` / ``create`` /
+    ``delete`` / ``get`` / ``list``), from the raw method name. A PUT full-replace
+    (``update_*``) is None-classified, so it returns ``None``."""
+    if method is None:
+        return None
+    for b in method.bindings:
+        c = classify_name(b.raw_method)
+        if c is not None:
+            return c.sub_verb
+    return None
+
+
+def _is_query_param(list_method: MethodView | None, wire_field: str) -> bool:
+    """Whether *wire_field* is a ``query`` param on the list method's surface."""
+    if list_method is None:
+        return False
+    for p in list_method.params:
+        if p.raw_name == wire_field and p.location == "query":
+            return True
+    return False
+
+
+def _resolve_strategy(
+    family: str,
+    resource: IdempotencyResource,
+    defaults: IdempotencyDefaults,
+    auto: str,
+) -> str:
+    """Precedence: ``resources.<name>.<family>`` > ``defaults.<family>`` > auto."""
+    return getattr(resource, family) or getattr(defaults, family) or auto
+
+
+# --------------------------------------------------------------------------- #
+# Per-resource metadata + gates
+# --------------------------------------------------------------------------- #
+
+
+def _build_meta(
+    o: ObjectView,
+    rc: IdempotencyResource,
+    defaults: IdempotencyDefaults,
+    package: str,
+    *,
+    has_pagination: bool,
+) -> dict[str, Any]:
+    """Auto-select the strategy trio + bake the metadata for one synced resource.
+
+    Runs the build gates inline (fail-loud, naming the resource + the fix) and
+    adds each model class's full ``(module, class)`` import to ``o.imports``.
+    """
+    create_m = _method(o, "create")
+    read_m = _method(o, "get")
+    list_m = _method(o, "list")
+    patch_m = _method(o, "update")  # PATCH classifies to the `update` verb
+    put_m = _method(o, "replace")  # PUT full-replace -> the `replace` verb
+    delete_m = _method(o, "delete")
+    update_method = patch_m or put_m
+
+    create_imp = _body_import(create_m)
+    update_imp = _body_import(update_method)
+    read_imp = read_m.return_import if read_m else None
+
+    create_cls = _class_from(package, create_imp)
+    update_cls = _class_from(package, update_imp) or create_cls
+    read_cls = _class_from(package, read_imp) or create_cls
+
+    # --- identity (gate #2: unresolvable) --------------------------------- #
+    if rc.identity is not None:
+        identity = list(rc.identity)
+    elif create_cls is not None and "name" in _wire_keys(create_cls):
+        identity = ["name"]
+    else:
+        raise ValueError(
+            f"idempotency: {o.attr}: identity could not be inferred (no annotation "
+            f"and no `name` on the create model) — add `identity: [...]` or "
+            f"`sync: false`"
+        )
+
+    # --- update verb (gate #4: no update op) ------------------------------ #
+    singleton = rc.singleton
+    if update_method is None and not singleton:
+        raise ValueError(
+            f"idempotency: {o.attr}: no update verb (neither a PATCH `update` nor a "
+            "PUT `replace` op) — add an update op, or opt out with `sync: false`"
+        )
+
+    # --- singleton sanity (gate #7) --------------------------------------- #
+    if singleton and (create_m is not None or delete_m is not None):
+        raise ValueError(
+            f"idempotency: {o.attr}: `singleton: true` but a create/delete op "
+            f"exists — a singleton is neither created nor deleted; drop `singleton` "
+            f"or hide those ops"
+        )
+
+    # --- scope ------------------------------------------------------------ #
+    scope = rc.scope or defaults.scope
+    scope_lit = {"fields": list(scope.fields), "rule": scope.rule} if scope else None
+    scope_fields = set(scope.fields) if scope else set()
+
+    # --- id_field --------------------------------------------------------- #
+    id_wire, id_attr = "id", "id"
+    if read_cls is not None:
+        for name, f in read_cls.model_fields.items():
+            if name == "id" or f.alias == "id":
+                id_wire, id_attr = (f.alias or name), name
+                break
+
+    # --- strategies ------------------------------------------------------- #
+    auto_fetch = "get" if singleton else "list_scan"
+    fetch = _resolve_strategy(_FETCH, rc, defaults, auto_fetch)
+    auto_mutate = "patch_minimal" if _sub_verb(update_method) == "patch" else "put_rmw"
+    mutate = _resolve_strategy(_MUTATE, rc, defaults, auto_mutate)
+    upd_ret = update_method.return_model if update_method else ""
+    auto_mat = (
+        "direct"
+        if (upd_ret and read_cls is not None and upd_ret == read_cls.__name__)
+        else "get_after_write"
+    )
+    materialize = _resolve_strategy(_MATERIALIZE, rc, defaults, auto_mat)
+
+    # --- fetch gates (#3 list_filter query params, #6 pagination) --------- #
+    if fetch == "list_filter":
+        for idf in identity:
+            if not _is_query_param(list_m, idf):
+                raise ValueError(
+                    f"idempotency: {o.attr}: fetch: list_filter but identity field "
+                    f"{idf!r} is not a query param on the list op — set a filterable "
+                    f"identity or use the default list_scan fetch"
+                )
+    if fetch == "list_scan" and not has_pagination:
+        raise ValueError(
+            f"idempotency: {o.attr}: a list_scan fetch requires a pagination "
+            f"component (declare `pagination:` in sdk.yml) — full-scan sync would "
+            f"otherwise silently read only the first page"
+        )
+
+    # --- fields + server_only + F6 write-only gate (#5) ------------------- #
+    input_fields = sorted(
+        (set(_wire_keys(create_cls)) if create_cls else set())
+        | (set(_wire_keys(update_cls)) if update_cls else set())
+    )
+    server_only = sorted(
+        {id_wire}
+        | set(defaults.read_only)
+        | set(defaults.computed)
+        | set(rc.read_only)
+        | set(rc.computed)
+    )
+    managed = set(input_fields) - set(server_only) - scope_fields - set(rc.write_only)
+    read_keys = set(_wire_keys(read_cls)) if read_cls else set()
+    undetectable = sorted(managed - read_keys)
+    if undetectable:
+        raise ValueError(
+            f"idempotency: {o.attr}: managed field(s) {undetectable} are "
+            f"undetectable via GET (absent from the read model) — declare them "
+            f"under `write_only:` (partial sync) or set `sync: false`"
+        )
+
+    hydrate = rc.hydrate if rc.hydrate is not None else (read_m is not None)
+
+    # --- model imports (full module path) --------------------------------- #
+    for imp in (create_imp, update_imp, read_imp):
+        if imp is not None:
+            o.imports.add(_full_import(package, imp))
+
+    create_name = (
+        create_cls.__name__ if create_cls else (read_cls and read_cls.__name__)
+    )
+    update_name = update_cls.__name__ if update_cls else create_name
+    read_name = read_cls.__name__ if read_cls else create_name
+    return {
+        "identity": identity,
+        "scope": scope_lit,
+        "models": {
+            "create": create_name,
+            "update": update_name,
+            "read": read_name,
+        },
+        "input_fields": input_fields,
+        "server_only": server_only,
+        "id_field": {"wire": id_wire, "attr": id_attr},
+        "order_sensitive": list(rc.order_sensitive),
+        "write_only": list(rc.write_only),
+        "projections": dict(rc.projections),
+        "singleton": singleton,
+        "update": {"verb": (update_method.name if update_method else "replace")},
+        _FETCH: fetch,
+        _MUTATE: mutate,
+        _MATERIALIZE: materialize,
+        "fetch_opts": {"page_limit": rc.page_limit, "hydrate": hydrate},
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Literal rendering (mirrors _bindings_literal EXCEPT `models` are bare idents)
+# --------------------------------------------------------------------------- #
+
+_ORDER = [
+    "identity",
+    "scope",
+    "models",
+    "input_fields",
+    "server_only",
+    "id_field",
+    "order_sensitive",
+    "write_only",
+    "projections",
+    "singleton",
+    "update",
+    _FETCH,
+    _MUTATE,
+    _MATERIALIZE,
+    "fetch_opts",
+]
+
+
+def _idempotency_literal(meta: dict[str, Any]) -> str:
+    """The ``_idempotency`` class-var body.
+
+    Mirrors ``wrapper._bindings_literal`` (each value ``repr``-ed into a stable
+    dict literal) EXCEPT the ``models`` values render as **bare class identifiers**
+    (``Addresses``), not ``repr`` strings — so the emitted mixin references the
+    live classes imported into ``resources.py``.
+    """
+    parts = {k: repr(v) for k, v in meta.items()}
+    # `models` values are BARE class identifiers (referencing the imported live
+    # classes), not repr strings.
+    parts["models"] = (
+        "{" + ", ".join(f'"{k}": {v}' for k, v in meta["models"].items()) + "}"
+    )
+    body = ",\n".join(f'        "{k}": {parts[k]}' for k in _ORDER)
+    return "{\n" + body + "\n    }"

@@ -119,6 +119,7 @@ def test_idempotency_config_roundtrips_scoped_example() -> None:
             },
         }
     )
+    assert cfg.defaults.scope is not None
     assert cfg.defaults.scope.fields == ["folder", "snippet", "device"]
     assert cfg.resources["address"].sync is True
     assert cfg.resources["address_group"].order_sensitive == ["static"]

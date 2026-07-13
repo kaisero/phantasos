@@ -111,6 +111,7 @@ def _generate_one(
     suppress_auth: bool = False,
     skip_validate_spec: bool = False,
     operations: dict[str, Any] | None = None,
+    idempotency: Any | None = None,
     hook_mod: Any | None = None,
 ) -> tuple[Path, list[str], dict[str, int]]:
     """Generate -> patch -> vendor -> ``_about`` for one (preprocessed spec, package).
@@ -153,6 +154,7 @@ def _generate_one(
         distribution_root=project_dir,
         suppress_auth=suppress_auth,
         operations=operations,
+        idempotency=idempotency,
     )
     (pkg_dir / "_about.py").write_text(
         _about_text(spec_version, generate.OAG_VERSION),
@@ -204,6 +206,7 @@ def _build_single(
         pp_path,
         cfg.package,
         spec_version=spec_version,
+        idempotency=cfg.idempotency,
         hook_mod=hook_mod,
     )
     generate.prune_suppressed_files(project_dir)
@@ -284,6 +287,7 @@ def _build_federated(
             suppress_auth=True,
             skip_validate_spec=sub.config.skip_validate_spec,
             operations=sub.config.operations,
+            idempotency=sub.config.idempotency,
         )
         vendored[sub.config.slug] = sub_vendored
 

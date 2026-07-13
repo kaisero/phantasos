@@ -52,6 +52,7 @@ def vendor(
     distribution_root: Path | None = None,
     suppress_auth: bool = False,
     operations: dict[str, Any] | None = None,
+    idempotency: Any | None = None,
     wrapper_objects: list[Any] | None = None,
 ) -> list[str]:
     """Render the selected component templates into ``<pkg>/extras/``.
@@ -161,6 +162,7 @@ def vendor(
             builtin_env,
             written,
             wrapper_objects,
+            idempotency,
         )
         # Pass 2: RE-render the facade in full now that `resources.py` exists —
         # bind `client.<object>` to the typed wrappers (sharing one `*Api`
@@ -209,6 +211,7 @@ def _vendor_resources(
     env: Environment,
     written: list[str],
     wrapper_objects: list[Any] | None,
+    idempotency: Any | None = None,
 ) -> list[Any]:
     """Render the object-granular typed resource wrappers into ``resources.py``.
 
@@ -232,6 +235,9 @@ def _vendor_resources(
             operations,
             _discover_resources(pkg_dir),
             docs=loaded.config.docs,
+            idempotency=idempotency,
+            dist_root=dist_root,
+            has_pagination=loaded.pagination is not None,
         )
     imports: set[tuple[str, str]] = set()
     for o in objects:
