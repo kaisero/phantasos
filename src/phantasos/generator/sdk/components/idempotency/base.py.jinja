@@ -1,0 +1,29 @@
+"""Idempotency strategy seams + registries (ADR-0004)."""
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+{% if federated %}from {{ root_package }}._runtime.exceptions import NotFoundException
+{% else %}from ...exceptions import NotFoundException
+{% endif %}
+__all__ = [
+    "FetchStrategy", "MutateStrategy", "MaterializeStrategy",
+    "FETCH", "MUTATE", "MATERIALIZE", "NotFoundException",
+]
+
+
+class FetchStrategy(Protocol):
+    def __call__(self, res: Any, identity: dict, scope: dict, meta: dict) -> Any | None: ...
+
+
+class MutateStrategy(Protocol):
+    def __call__(self, res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any: ...
+
+
+class MaterializeStrategy(Protocol):
+    def __call__(self, res: Any, response: Any, identity: dict, scope: dict, meta: dict) -> Any: ...
+
+
+FETCH: dict[str, FetchStrategy] = {}
+MUTATE: dict[str, MutateStrategy] = {}
+MATERIALIZE: dict[str, MaterializeStrategy] = {}
