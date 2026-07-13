@@ -136,10 +136,17 @@ def _class_from(package: str, imp: tuple[str, str] | None) -> type[Any] | None:
     return got if isinstance(got, type) else None
 
 
-def _full_import(package: str, imp: tuple[str, str]) -> tuple[str, str]:
-    """A ``(rel_module, ClassName)`` pair -> the ``(full_module, ClassName)`` used
-    by ``resources.py`` imports."""
-    return (f"{package}.{imp[0]}", imp[1])
+def _rel_import(imp: tuple[str, str]) -> tuple[str, str]:
+    """Pass a ``(rel_module, ClassName)`` pair through unchanged.
+
+    Body/return imports come from :func:`wrapper._render_annotation`, which already
+    strips the package prefix (``prisma_access.objects.models.addresses`` ->
+    ``models.addresses``) so ``resources.py`` can emit ``from ..models.addresses``.
+    These land in ``o.imports`` alongside the wrapper's own param/return imports,
+    which follow the exact same package-relative convention; prepending the package
+    here would emit a broken ``from ..prisma_access.objects.models.addresses``.
+    """
+    return imp
 
 
 def _body_import(method: MethodView | None) -> tuple[str, str] | None:
@@ -310,10 +317,10 @@ def _build_meta(
 
     hydrate = rc.hydrate if rc.hydrate is not None else (read_m is not None)
 
-    # --- model imports (full module path) --------------------------------- #
+    # --- model imports (package-relative, like the wrapper's own) --------- #
     for imp in (create_imp, update_imp, read_imp):
         if imp is not None:
-            o.imports.add(_full_import(package, imp))
+            o.imports.add(_rel_import(imp))
 
     create_name = (
         create_cls.__name__ if create_cls else (read_cls and read_cls.__name__)

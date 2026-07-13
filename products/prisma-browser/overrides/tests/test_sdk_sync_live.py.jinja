@@ -1,0 +1,45 @@
+"""Live idempotency quartet — prisma-browser application_group
+(list_scan + patch_minimal + get_after_write). Mirrors run_prisma_browser.py (13/13)."""
+
+import os
+import uuid
+
+import pytest
+
+from {{ package }}.extras.facade import Client
+from {{ package }}.models.create_or_replace_app_group_input import CreateOrReplaceAppGroupInput
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def group():
+    c = Client.from_env()
+    yield c.application_group
+    c.close()
+
+
+def test_application_group_idempotency_quartet(group):
+    name = f"phx-sync-{uuid.uuid4().hex[:12]}"
+    try:
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="orig"))
+        assert r.changed and r.action == "created"
+        assert r.after.get("name") == name and r.after.get("id")   # get_after_write materialized
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="orig"))
+        assert not r.changed, r.diff.changes                        # model-split idempotency
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="changed"))
+        assert r.changed and set(r.diff.changes) == {"description"}  # patch_minimal
+        assert group.apply(CreateOrReplaceAppGroupInput(name=name, description="cm"),
+                           check_mode=True).changed
+        assert group.fetch(name=name).description == "changed"       # check_mode did not write
+        assert group.absent(CreateOrReplaceAppGroupInput(name=name)).action == "deleted"
+        assert group.fetch(name=name) is None
+    finally:
+        leftover = group.fetch(name=name)
+        if leftover is not None:
+            group.delete(id=leftover.id)

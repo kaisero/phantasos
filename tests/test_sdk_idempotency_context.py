@@ -101,7 +101,9 @@ def test_put_object_bakes_list_scan_put_rmw_direct(access_sdk: Path) -> None:
     assert "\"identity\": ['name']" in lit
     assert "'folder'" in lit and "'snippet'" in lit  # scope trio
     assert '"models": {"create": Addresses' in lit  # bare identifier, not a string
-    assert ("prisma_access.objects.models.addresses", "Addresses") in v.imports
+    # Package-relative (prefix stripped), matching wrapper param/return imports so
+    # resources.py emits `from ..models.addresses import Addresses` correctly.
+    assert ("models.addresses", "Addresses") in v.imports
 
 
 def test_patch_object_bakes_patch_minimal_get_after_write(browser_sdk: Path) -> None:

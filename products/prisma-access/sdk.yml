@@ -3,6 +3,8 @@ output: ../../../prisma-access-sdk
 base_url: https://api.strata.paloaltonetworks.com
 auth:
   type: scm_oauth
+pagination:
+  type: offset
 docs:
   showcase_subpackage: objects
   showcase_resource: address
@@ -10,6 +12,16 @@ docs:
 subpackages:
   - slug: objects
     spec: openapi/objects.yaml
+    idempotency:
+      defaults:
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        address: {}
   - slug: network_services
     spec: openapi/network-services.yaml
     skip_validate_spec: true   # OAS 3.1 false positive under OAG validation

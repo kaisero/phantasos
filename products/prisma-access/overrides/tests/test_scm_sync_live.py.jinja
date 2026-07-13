@@ -1,0 +1,64 @@
+"""Live idempotency quartet — prisma-access address (list_scan + put_rmw + direct).
+
+Mirrors prototypes/sync-engine/run_prisma_access.py (17/17 live) through the BUILT
+SDK's generated apply/absent/fetch/diff. Skips (never fails) without credentials.
+"""
+
+import os
+import uuid
+
+import pytest
+
+import {{ package }}
+from {{ package }}._auth import configuration_from_env
+from {{ package }}.objects.models import Addresses
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def address(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.address
+
+
+def _name() -> str:
+    return f"phx-sync-{uuid.uuid4().hex[:12]}"
+
+
+def test_address_idempotency_quartet(address):
+    name = _name()
+    folder = "Shared"
+    try:
+        # 1) create
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/24",
+                                    description="orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/24",
+                                    description="orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify ip, OMIT description -> PUT RMW must preserve description
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/25"))
+        assert r.changed and set(r.diff.changes) == {"ip_netmask"}
+        refetched = address.fetch(name=name, folder=folder)
+        assert refetched.description == "orig"          # unmanaged preserved
+        assert refetched.ip_netmask == "10.10.0.0/25"
+        # 4) check_mode predicts without writing
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.9.9/32"),
+                          check_mode=True)
+        assert r.changed
+        assert address.fetch(name=name, folder=folder).ip_netmask == "10.10.0.0/25"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert address.absent(Addresses(name=name, folder=folder)).action == "deleted"
+        assert not address.absent(Addresses(name=name, folder=folder)).changed
+        assert address.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = address.fetch(name=name, folder=folder)
+        if leftover is not None:
+            address.delete(id=leftover.id)

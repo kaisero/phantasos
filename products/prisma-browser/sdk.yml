@@ -11,6 +11,14 @@ pagination:
 errors:
   type: nested
 facade: true
+idempotency:
+  defaults:
+    read_only:
+      - id
+  resources:
+    application_group:
+      computed:
+        - applications
 docs:
   showcase_resource: application
   showcase_variant: CustomApplicationInput
