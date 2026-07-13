@@ -120,7 +120,7 @@ def _scope_fields(idempotency: Any | None) -> tuple[str, ...] | None:
 
 
 def _scope_model_stems(pkg_dir: Path, scope_fields: tuple[str, ...]) -> set[str]:
-    """Model file stems whose class declares the whole scope group.
+    """Model file stems whose class declares the whole scope group AND an ``id``.
 
     Derived from the generated model files themselves (the producer fact) rather
     than the post-vendor idempotency introspection: SCM reuses one schema per
@@ -128,6 +128,15 @@ def _scope_model_stems(pkg_dir: Path, scope_fields: tuple[str, ...]) -> set[str]
     carries the scope group is exactly a mutating body to guard. A model that
     declares all scope fields as (optional) attributes is such a body; response-
     only or nested models that lack the full trio are left untouched.
+
+    The validator's server-echo guard (``if getattr(self, "id", None) is not
+    None: return self``) distinguishes a user mutation body (no server-assigned
+    ``id``) from a server echo (``id`` set) — so it can only be emitted safely on
+    a model that DECLARES an ``id`` field. A scoped model without ``id`` (SCM keys
+    it by ``name`` — e.g. ``auto_tag_actions``) would enforce the exactly-one rule
+    UNCONDITIONALLY, false-positiving on server List/echo responses that carry 0 or
+    ≥2 containers. Such id-less models are therefore skipped here and left to the
+    SCM server's own scope rejection (which already returns 400 on a bad scope).
     """
     import re
 
@@ -135,12 +144,17 @@ def _scope_model_stems(pkg_dir: Path, scope_fields: tuple[str, ...]) -> set[str]
     if not models.is_dir():
         return set()
     field_res = [re.compile(rf"^\s+{re.escape(f)}\s*:", re.M) for f in scope_fields]
+    id_re = re.compile(r"^\s+id\s*:", re.M)
     stems: set[str] = set()
     for path in sorted(models.glob("*.py")):
         if path.name == "__init__.py":
             continue
         text = path.read_text(encoding="utf-8")
-        if "\nclass " in text and all(r.search(text) for r in field_res):
+        if (
+            "\nclass " in text
+            and id_re.search(text)
+            and all(r.search(text) for r in field_res)
+        ):
             stems.add(path.stem)
     return stems
 

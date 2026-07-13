@@ -90,3 +90,59 @@ def test_server_echo_bypasses_scope_guard(addresses: Any) -> None:
         }
     )
     assert echo_two.folder == "Shared" and echo_two.snippet == "s"
+
+
+@pytest.fixture
+def auto_tag_actions() -> Iterator[Any]:
+    """The one id-LESS scoped model (SCM keys it by ``name``, not ``id``).
+
+    Its server List/echo payloads carry NO ``id``, so the server-echo guard
+    cannot distinguish an echo from a mutation body — the validator must NOT be
+    emitted for it, else 0/≥2-container echoes would false-positive.
+    """
+    loaded = load_product("prisma-access")
+    sdk = Path(loaded.output_dir)
+    pkg = loaded.config.package
+    if not (sdk / Path(*pkg.split("."))).joinpath("__init__.py").exists():
+        pytest.skip(
+            "prisma-access SDK not built (run `phantasos sdk build prisma-access`)"
+        )
+    sys.path.insert(0, str(sdk))
+    try:
+        try:
+            from prisma_access.objects.models.auto_tag_actions import AutoTagActions
+        except ImportError as exc:
+            pytest.skip(f"prisma-access SDK runtime deps unavailable: {exc}")
+        fields = AutoTagActions.model_fields
+        if "folder" not in fields or "id" in fields:
+            pytest.skip("auto_tag_actions is not the expected id-less scoped model")
+        # Skip (never fail) when the on-disk SDK predates the id-guard fix — i.e.
+        # was built while the id-less validator was still emitted. `nox -s smoke`
+        # rebuilds it, which is where this ring actually asserts.
+        if hasattr(AutoTagActions, "_phantasos_scope_exactly_one"):
+            pytest.skip(
+                "prisma-access SDK predates the id-less scope-guard fix "
+                "(rebuild: nox -s smoke)"
+            )
+        yield AutoTagActions
+    finally:
+        sys.path.remove(str(sdk))
+
+
+def test_id_less_scoped_model_has_no_validator(auto_tag_actions: Any) -> None:
+    # The id-less scoped model must NOT carry the unconditional scope validator.
+    assert not hasattr(auto_tag_actions, "_phantasos_scope_exactly_one")
+
+
+def test_id_less_scoped_model_accepts_zero_or_two_containers(
+    auto_tag_actions: Any,
+) -> None:
+    # Without the validator, an id-less echo with 0 OR 2 containers must NOT raise
+    # (the server enforces the scope rule with a 400 on a bad body instead).
+    # `name`/`filter` are the schema-required fields, unrelated to the scope group.
+    zero = auto_tag_actions.model_validate({"name": "phx-test", "filter": "tag1"})
+    assert zero.name == "phx-test"
+    two = auto_tag_actions.model_validate(
+        {"name": "phx-test", "filter": "tag1", "folder": "Shared", "snippet": "s"}
+    )
+    assert two.folder == "Shared" and two.snippet == "s"

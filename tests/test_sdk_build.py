@@ -106,6 +106,40 @@ def test_scope_model_stems_matches_full_scope_group(tmp_path: Path) -> None:
     assert stems == {"addresses"}
 
 
+def test_scope_model_stems_skips_id_less_models(tmp_path: Path) -> None:
+    """A scoped model WITHOUT an ``id`` field is not returned.
+
+    The validator's server-echo guard keys on a server-assigned ``id`` to skip
+    enforcement for echoes. A model SCM keys by ``name`` (no ``id`` — e.g.
+    ``auto_tag_actions``) would enforce the exactly-one rule unconditionally,
+    false-positiving on List/echo responses; it must be excluded so it is left to
+    the server's own scope rejection.
+    """
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "addresses.py").write_text(  # id-bearing -> guardable
+        "from pydantic import BaseModel\n\n"
+        "class Addresses(BaseModel):\n"
+        "    id: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "auto_tag_actions.py").write_text(  # id-LESS -> must be skipped
+        "from pydantic import BaseModel\n\n"
+        "class AutoTagActions(BaseModel):\n"
+        "    name: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "__init__.py").write_text("", encoding="utf-8")
+    stems = _scope_model_stems(tmp_path, ("folder", "snippet", "device"))
+    assert stems == {"addresses"}
+
+
 def _oag_toolchain_cached() -> bool:
     """True only if the OAG jar *and* a usable java are already on disk.
 
