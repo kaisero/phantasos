@@ -1,0 +1,150 @@
+"""Idempotent-sync orchestrator (SyncMixin) + return shapes + exceptions."""
+from __future__ import annotations
+
+import enum
+import json
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, Literal, Optional
+
+from .base import FETCH, MUTATE, MATERIALIZE
+
+__all__ = ["Diff", "SyncResult", "AbsentNotSupported", "IdentityUnresolved", "SyncMixin"]
+
+
+@dataclass(frozen=True)
+class Diff:
+    changed: bool
+    changes: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    changed: bool
+    action: Literal["created", "updated", "deleted", "unchanged"]
+    before: Optional[dict[str, Any]]
+    after: Optional[dict[str, Any]]
+    diff: Diff
+    before_model: Any = None
+    after_model: Any = None
+
+
+class AbsentNotSupported(Exception):
+    """absent() called on a singleton resource (no delete/create lifecycle)."""
+
+
+class IdentityUnresolved(Exception):
+    """Identity unset on desired, or the fetch lookup matched more than one object."""
+
+
+def _jsonify(value: Any) -> Any:
+    if isinstance(value, enum.Enum):
+        return value.value
+    return value
+
+
+def _normalize(value: Any, *, order_sensitive: bool) -> Any:
+    """Canonicalize a value for the equality plane only (not for display)."""
+    value = _jsonify(value)
+    if isinstance(value, dict):
+        return {k: _normalize(v, order_sensitive=order_sensitive) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [_normalize(v, order_sensitive=order_sensitive) for v in value]
+        if not order_sensitive:
+            items = sorted(items, key=lambda v: json.dumps(v, sort_keys=True, default=str))
+        return items
+    return value
+
+
+class SyncMixin:
+    """Thin idempotent-sync orchestrator; delegates fetch/mutate/materialize to the
+    strategy named in `_idempotency`. Owns every uniform step (ADR-0004 / spec §5.2)."""
+
+    _idempotency: ClassVar[dict[str, Any]]
+
+    def _present(self, model: Any) -> dict[str, Any]:
+        return model.model_dump(by_alias=True, mode="json", exclude_unset=True)
+
+    def _full(self, model: Any) -> dict[str, Any]:
+        return model.model_dump(by_alias=True, mode="json")
+
+    def _scope_fields(self) -> set:
+        sc = self._idempotency.get("scope")
+        return set(sc["fields"]) if sc else set()
+
+    def _extract_identity(self, desired: Any) -> tuple[dict, dict]:
+        meta = self._idempotency
+        wire = self._full(desired)
+        identity = {}
+        for k in meta["identity"]:
+            v = wire.get(k)
+            if v is None:
+                raise IdentityUnresolved(f"identity field {k!r} unset on desired")
+            identity[k] = v
+        scope = {k: wire[k] for k in self._scope_fields() if wire.get(k) is not None}
+        return identity, scope
+
+    def _split(self, kwargs: dict) -> tuple[dict, dict]:
+        meta = self._idempotency
+        identity = {k: v for k, v in kwargs.items() if k in meta["identity"]}
+        scope = {k: v for k, v in kwargs.items() if k in self._scope_fields()}
+        return identity, scope
+
+    def _comparable(self, present_desired: dict) -> list[str]:
+        meta = self._idempotency
+        excluded = (set(meta.get("server_only", [])) | self._scope_fields()
+                    | set(meta.get("write_only", [])))
+        universe = set(meta["input_fields"])
+        return [k for k in present_desired if k in universe and k not in excluded]
+
+    def diff(self, desired: Any, actual: Any) -> Diff:
+        meta = self._idempotency
+        d = self._present(desired)
+        a = self._full(actual)
+        order_sensitive = set(meta.get("order_sensitive", []))
+        changes: dict[str, dict[str, Any]] = {}
+        for key in self._comparable(d):
+            os_ = key in order_sensitive
+            if _normalize(d[key], order_sensitive=os_) != _normalize(a.get(key), order_sensitive=os_):
+                changes[key] = {"before": a.get(key), "after": d[key]}
+        return Diff(changed=bool(changes), changes=changes)
+
+    def fetch(self, **identity_and_scope: Any) -> Any | None:
+        meta = self._idempotency
+        identity, scope = self._split(identity_and_scope)
+        return FETCH[meta["fetch"]](self, identity, scope, meta)
+
+    def apply(self, desired: Any, *, check_mode: bool = False) -> SyncResult:
+        meta = self._idempotency
+        identity, scope = self._extract_identity(desired)
+        actual = FETCH[meta["fetch"]](self, identity, scope, meta)
+        if actual is None:                                          # ---- CREATE
+            present = self._present(desired)
+            body = meta["models"]["create"].model_validate(present)
+            d = Diff(True, {k: {"before": None, "after": v} for k, v in present.items()})
+            if check_mode:
+                return SyncResult(True, "created", None, present, d, None, desired)
+            resp = self.create(body=body)
+            after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
+            return SyncResult(True, "created", None, self._full(after), d, None, after)
+        d = self.diff(desired, actual)
+        if not d.changed:                                          # ---- NO-OP
+            return SyncResult(False, "unchanged", self._full(actual), self._full(actual),
+                              d, actual, actual)
+        if check_mode:                                             # ---- PREDICT
+            after = {**self._full(actual), **{k: c["after"] for k, c in d.changes.items()}}
+            return SyncResult(True, "updated", self._full(actual), after, d, actual, None)
+        resp = MUTATE[meta["mutate"]](self, desired, actual, d, meta)
+        after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
+        return SyncResult(True, "updated", self._full(actual), self._full(after), d, actual, after)
+
+    def absent(self, desired_or_identity: Any, *, check_mode: bool = False) -> SyncResult:
+        meta = self._idempotency
+        if meta.get("singleton"):
+            raise AbsentNotSupported(meta.get("identity", ["<resource>"]))
+        identity, scope = self._extract_identity(desired_or_identity)
+        actual = FETCH[meta["fetch"]](self, identity, scope, meta)
+        if actual is None:
+            return SyncResult(False, "unchanged", None, None, Diff(False, {}), None, None)
+        if not check_mode:
+            self.delete(id=getattr(actual, meta["id_field"]["attr"]))
+        return SyncResult(True, "deleted", self._full(actual), None, Diff(True, {}), actual, None)
