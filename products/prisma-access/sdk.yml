@@ -22,6 +22,12 @@ subpackages:
           rule: exactly_one
       resources:
         address: {}
+        tag: {}
+        address_group:
+          # `static` is an ordered member list — the group's semantics change with
+          # order, so the diff must compare it order-SENSITIVELY (not as a set).
+          order_sensitive:
+            - static
   - slug: network_services
     spec: openapi/network-services.yaml
     skip_validate_spec: true   # OAS 3.1 false positive under OAG validation

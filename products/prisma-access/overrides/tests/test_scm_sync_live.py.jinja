@@ -13,6 +13,7 @@ import {{ package }}
 from {{ package }}._auth import TokenManager, configuration_from_env
 from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
 from {{ package }}.objects.models import Addresses
+from {{ package }}.objects.models import Tags
 
 _REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
 
@@ -63,6 +64,43 @@ def test_address_idempotency_quartet(address):
         leftover = address.fetch(name=name, folder=folder)
         if leftover is not None:
             address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def tag(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.tag
+
+
+def test_tag_idempotency_quartet(tag):
+    name = _name()
+    folder = "Shared"
+    try:
+        # 1) create
+        r = tag.apply(Tags(name=name, folder=folder, color="Red", comments="orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = tag.apply(Tags(name=name, folder=folder, color="Red", comments="orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify comments, OMIT color -> PUT RMW must preserve color
+        r = tag.apply(Tags(name=name, folder=folder, comments="edited"))
+        assert r.changed and set(r.diff.changes) == {"comments"}
+        refetched = tag.fetch(name=name, folder=folder)
+        assert refetched.color == "Red"                 # unmanaged preserved
+        assert refetched.comments == "edited"
+        # 4) check_mode predicts without writing
+        r = tag.apply(Tags(name=name, folder=folder, comments="never-written"),
+                      check_mode=True)
+        assert r.changed
+        assert tag.fetch(name=name, folder=folder).comments == "edited"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert tag.absent(Tags(name=name, folder=folder)).action == "deleted"
+        assert not tag.absent(Tags(name=name, folder=folder)).changed
+        assert tag.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = tag.fetch(name=name, folder=folder)
+        if leftover is not None:
+            tag.delete(id=leftover.id)
 
 
 @pytest.fixture()
