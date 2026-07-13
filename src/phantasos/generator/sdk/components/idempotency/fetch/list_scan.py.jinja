@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import FETCH, NotFoundException
+from ..engine import IdentityUnresolved
+
+
+def _match(res: Any, candidates: list, identity: dict) -> list:
+    return [c for c in candidates if all(res._full(c).get(k) == v for k, v in identity.items())]
+
+
+def list_scan(res: Any, identity: dict, scope: dict, meta: dict) -> Any | None:
+    opts = meta.get("fetch_opts", {})
+    try:
+        page = res.list(all_pages=True, limit=opts.get("page_limit", 200), **scope)
+    except NotFoundException:
+        return None
+    matches = _match(res, getattr(page, "data", None) or [], identity)
+    if len(matches) > 1:
+        raise IdentityUnresolved(f"{identity}: {len(matches)} matches")
+    if not matches:
+        return None
+    match = matches[0]
+    if opts.get("hydrate"):
+        return res.get(id=getattr(match, meta["id_field"]["attr"]))
+    return match
+
+
+FETCH["list_scan"] = list_scan

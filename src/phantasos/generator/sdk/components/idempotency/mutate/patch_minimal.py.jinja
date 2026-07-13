@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import MUTATE
+
+
+def patch_minimal(res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any:
+    merged = {k: c["after"] for k, c in diff.changes.items()}
+    body = meta["models"]["update"].model_validate(merged)
+    verb = getattr(res, meta["update"]["verb"])  # F9: "update" for PATCH
+    return verb(id=getattr(actual, meta["id_field"]["attr"]), body=body)
+
+
+MUTATE["patch_minimal"] = patch_minimal

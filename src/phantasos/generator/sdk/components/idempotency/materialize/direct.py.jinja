@@ -1,0 +1,12 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import MATERIALIZE
+
+
+def direct(res: Any, response: Any, identity: dict, scope: dict, meta: dict) -> Any:
+    return response
+
+
+MATERIALIZE["direct"] = direct

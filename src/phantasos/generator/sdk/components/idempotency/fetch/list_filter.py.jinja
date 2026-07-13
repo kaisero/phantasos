@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import FETCH, NotFoundException
+from ..engine import IdentityUnresolved
+
+
+def list_filter(res: Any, identity: dict, scope: dict, meta: dict) -> Any | None:
+    opts = meta.get("fetch_opts", {})
+    try:
+        page = res.list(**identity, **scope)
+    except NotFoundException:
+        return None
+    candidates = getattr(page, "data", None) or []
+    matches = [c for c in candidates if all(res._full(c).get(k) == v for k, v in identity.items())]
+    if len(matches) > 1:
+        raise IdentityUnresolved(f"{identity}: {len(matches)} matches")
+    if not matches:
+        return None
+    match = matches[0]
+    if opts.get("hydrate"):
+        return res.get(id=getattr(match, meta["id_field"]["attr"]))
+    return match
+
+
+FETCH["list_filter"] = list_filter
