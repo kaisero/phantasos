@@ -11,6 +11,7 @@ import pytest
 
 import {{ package }}
 from {{ package }}._auth import TokenManager, configuration_from_env
+from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
 from {{ package }}.objects.models import Addresses
 
 _REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
@@ -62,6 +63,48 @@ def test_address_idempotency_quartet(address):
         leftover = address.fetch(name=name, folder=folder)
         if leftover is not None:
             address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def bgp_routing(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.deployment_services.bgp_routing
+
+
+def test_bgp_routing_singleton_is_nondestructive(bgp_routing):
+    """Live proof of the singleton leg — fetch(via get) -> diff -> no-op, check_mode
+    prediction, and absent() rejection. STRICTLY NON-DESTRUCTIVE: it never persists a
+    change to this global tenant config. It re-applies the CURRENT state (a no-op),
+    predicts a hypothetical change in check_mode (no write), and asserts the server
+    value is byte-identical before and after."""
+    # 1) The singleton always exists: fetch drives FETCH["get"] -> res.get().
+    current = bgp_routing.fetch()
+    assert current is not None
+    before = current.model_dump(by_alias=True, mode="json")
+
+    # 2) Re-apply the FETCHED object verbatim as desired -> diff(current, current) is
+    #    empty -> no-op that never reaches the mutate leg (writes nothing). This is the
+    #    load-bearing singleton proof: fetch(via get) -> diff -> unchanged.
+    r = bgp_routing.apply(current)
+    assert not r.changed and r.action == "unchanged", r.diff.changes
+
+    # 3) check_mode predicts a hypothetical flip WITHOUT writing. model_copy keeps every
+    #    other field (incl. the oneOf routing_preference) intact, so the ONLY predicted
+    #    change is the flipped boolean.
+    flipped = current.model_copy(
+        update={"withdraw_static_route": not current.withdraw_static_route}
+    )
+    r = bgp_routing.apply(flipped, check_mode=True)
+    assert r.changed and r.action == "updated"
+    assert set(r.diff.changes) == {"withdraw_static_route"}
+
+    # 4) absent() is not a singleton operation -> raises (no delete lifecycle).
+    with pytest.raises(AbsentNotSupported):
+        bgp_routing.absent(current)
+
+    # 5) Confirm the server-side blob is byte-identical -> nothing was persisted.
+    after = bgp_routing.fetch().model_dump(by_alias=True, mode="json")
+    assert after == before, "singleton global config must be unchanged"
 
 
 def test_list_scan_pages_past_first_page(address):

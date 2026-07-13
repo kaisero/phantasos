@@ -78,6 +78,15 @@ subpackages:
         method: validate
   - slug: deployment_services
     spec: openapi/deployment-services.yaml
+    idempotency:
+      resources:
+        # A true singleton: /bgp-routing is GET (GetBGPRouting) + PUT
+        # (UpdateBGPRouting) only — no create, no delete, no id, no scope. apply()
+        # takes the fetch(via get) -> diff -> replace path; absent() raises
+        # AbsentNotSupported. identity is empty (the blob always exists).
+        bgp_routing:
+          singleton: true
+          identity: []
   - slug: device_settings
     spec: openapi/device-settings.yaml
   - slug: identity_services

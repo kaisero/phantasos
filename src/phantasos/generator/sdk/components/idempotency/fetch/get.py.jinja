@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import FETCH, NotFoundException
+
+
+def get(res: Any, identity: dict, scope: dict, meta: dict) -> Any | None:
+    try:
+        return res.get()
+    except NotFoundException:
+        return None
+
+
+FETCH["get"] = get

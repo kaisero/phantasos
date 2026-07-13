@@ -473,6 +473,29 @@ def test_list_filter_absorbs_404_and_empty() -> None:
     assert lf.list_filter(REmpty(), {"name": "a"}, {}, meta) is None
 
 
+def test_get_returns_object_when_present() -> None:
+    base, eng = _engine_env()
+    g = _exec_strategy("fetch", "get", base, eng)
+    blob = _Model(as_number="65000", id="1")
+
+    class RPresent:
+        def get(self) -> object:
+            return blob
+
+    assert g.get(RPresent(), {}, {}, _meta(fetch="get", singleton=True)) is blob
+
+
+def test_get_absorbs_404_to_none() -> None:
+    base, eng = _engine_env()
+    g = _exec_strategy("fetch", "get", base, eng)
+
+    class R404:
+        def get(self) -> object:
+            raise base.NotFoundException()
+
+    assert g.get(R404(), {}, {}, _meta(fetch="get", singleton=True)) is None
+
+
 def test_put_rmw_seeds_actual_overlays_desired_drops_id() -> None:
     base, eng = _engine_env()
     pr = _exec_strategy("mutate", "put_rmw", base, eng)
@@ -679,6 +702,101 @@ def test_integration_browser_shape_get_after_write_and_patch() -> None:
     r = s.apply(_Model(name="a", description="new"))
     # PATCH-minimal + GET-after materializes the updated state
     assert r.action == "updated" and r.after["description"] == "new"
+
+
+def _register_get(base: types.ModuleType, eng: types.ModuleType) -> None:
+    """Exec the get + put_rmw + direct modules for the singleton path."""
+    for family, name in (
+        ("fetch", "get"),
+        ("mutate", "put_rmw"),
+        ("materialize", "direct"),
+    ):
+        _exec_strategy(family, name, base, eng)
+
+
+def _singleton_meta(**over: object) -> dict[str, object]:
+    """singleton shape: get fetch, put_rmw (replace), direct mat, no create/delete."""
+    return _meta(
+        fetch="get",
+        mutate="put_rmw",
+        materialize="direct",
+        singleton=True,
+        identity=[],  # a singleton has no identity — it always exists
+        input_fields=["as_number"],
+        update={"verb": "replace"},
+        **over,
+    )
+
+
+def test_integration_singleton_apply_noop_when_unchanged() -> None:
+    base, eng = _engine_env()
+    _register_get(base, eng)
+    current = _Model(as_number="65000", id="1")
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _singleton_meta()
+
+        def get(self) -> object:
+            return current  # the singleton always exists
+
+    r = Stub().apply(_Model(as_number="65000"))
+    assert not r.changed and r.action == "unchanged"
+
+
+def test_integration_singleton_apply_updates_via_get_diff_replace() -> None:
+    base, eng = _engine_env()
+    _register_get(base, eng)
+    current = _Model(as_number="65000", id="1")
+    wrote: list[object] = []
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _singleton_meta()
+
+        def get(self) -> object:
+            return current  # fetch-via-get finds the blob
+
+        def replace(self, *, id: object, body: _Model) -> object:
+            wrote.append(body)
+            return _Model(**{**body.model_dump(), "id": id})
+
+    r = Stub().apply(_Model(as_number="65001"))
+    assert r.changed and r.action == "updated"
+    assert r.after["as_number"] == "65001"
+    assert wrote  # the fetch->diff->replace leg fired
+
+
+def test_integration_singleton_check_mode_predicts_without_writing() -> None:
+    base, eng = _engine_env()
+    _register_get(base, eng)
+    current = _Model(as_number="65000", id="1")
+    wrote: list[object] = []
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _singleton_meta()
+
+        def get(self) -> object:
+            return current
+
+        def replace(self, *, id: object, body: object) -> object:
+            wrote.append(body)
+            return current
+
+    r = Stub().apply(_Model(as_number="65001"), check_mode=True)
+    assert r.changed and r.action == "updated" and not wrote
+
+
+def test_integration_singleton_absent_raises() -> None:
+    base, eng = _engine_env()
+    _register_get(base, eng)
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _singleton_meta()
+
+        def get(self) -> object:
+            return _Model(as_number="65000", id="1")
+
+    with pytest.raises(eng.AbsentNotSupported):
+        Stub().absent(_Model(as_number="65000"))
 
 
 # --- resource-wrapper template wiring (resource.py.jinja) ---------------------
