@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from phantasos.generator.cli.ir import CredentialField, ErrorEnvelope
 
@@ -159,6 +159,53 @@ class OperationOverride(BaseModel):
     # analog of ``cli.yml hide:`` — used for ops the SDK should not surface (e.g.
     # multipart file uploads with no introspectable body, or full-replace PUTs).
     hide: bool = False
+
+
+class ScopeSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    fields: list[str]
+    rule: Literal["exactly_one"] = "exactly_one"
+
+
+class IdempotencyResource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    identity: list[str] | None = None  # None -> infer; fail-loud on ambiguity
+    read_only: list[str] = []
+    computed: list[str] = []
+    order_sensitive: list[str] = []
+    write_only: list[str] = []  # F6 escape hatch (Phase 5 engine support)
+    projections: dict[str, str] = {}  # F5: field -> item subfield (Phase 5)
+    singleton: bool = False
+    scope: ScopeSpec | None = None
+    sync: bool = True  # False -> CRUD primitives only
+    # Strategy overrides — ESCAPE HATCH, not routine (ADR-0004 / spec §5.5). Each
+    # family is auto-selected + baked by the producer; set one only to force a
+    # non-default variant or name a custom module. None -> auto-derive.
+    fetch: str | None = None  # "list_scan" | "list_filter" | "get" | custom
+    mutate: str | None = None  # "put_rmw" | "patch_minimal" | custom
+    materialize: str | None = None  # "direct" | "get_after_write" | custom
+    page_limit: int = 200  # fetch/list_scan tuning
+    # None -> auto (GET-after-match when a get binding exists)
+    hydrate: bool | None = None
+
+
+class IdempotencyDefaults(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    scope: ScopeSpec | None = None
+    read_only: list[str] = []
+    computed: list[str] = []
+    # PER-PRODUCT / PER-SUBPACKAGE strategy defaults — apply to every resource in
+    # this block unless a resources.<name> entry overrides. Unset -> auto-select.
+    # Precedence per family: resources.<name>.<family> > defaults.<family> > auto.
+    fetch: str | None = None
+    mutate: str | None = None
+    materialize: str | None = None
+
+
+class IdempotencyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    defaults: IdempotencyDefaults = Field(default_factory=IdempotencyDefaults)
+    resources: dict[str, IdempotencyResource] = Field(default_factory=dict)
 
 
 # Built-in strategy registries: category -> {type name: model}. The loader uses

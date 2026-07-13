@@ -548,3 +548,16 @@ def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary val
                 ],
             }
         )
+
+
+def test_federated_toplevel_idempotency_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="idempotency"):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "../p",
+                "base_url": "https://x",
+                "subpackages": [{"slug": "objects", "spec": "openapi/objects.yaml"}],
+                "idempotency": {"resources": {"address": {}}},
+            }
+        )
