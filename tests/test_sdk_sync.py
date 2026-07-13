@@ -518,6 +518,36 @@ def test_put_rmw_seeds_actual_overlays_desired_drops_id() -> None:
     assert "id" not in dumped
 
 
+def test_put_singleton_seeds_actual_overlays_desired_no_id() -> None:
+    base, eng = _engine_env()
+    ps = _exec_strategy("mutate", "put_singleton", base, eng)
+    calls: dict[str, object] = {}
+    # A real singleton (e.g. bgp_routing) carries NO `id`, and its `replace`
+    # binding takes NO `id` kwarg — only `body`.
+    actual = _Model(as_number="65000", reject_default_route=True)
+
+    class R:
+        _present = eng.SyncMixin._present
+
+        def replace(self, *, body: object) -> object:
+            calls["body"] = body
+            return body
+
+    desired = _Model(as_number="65001")
+    meta = _meta(
+        mutate="put_singleton",
+        singleton=True,
+        identity=[],
+        input_fields=["as_number", "reject_default_route"],
+        server_only=[],
+    )
+    body = ps.put_singleton(R(), desired, actual, None, meta)
+    assert "id" not in calls  # a singleton PUT sends no id
+    dumped = body.model_dump()
+    assert dumped["as_number"] == "65001"  # user-set overlaid
+    assert dumped["reject_default_route"] is True  # unmanaged read-back preserved
+
+
 def test_patch_minimal_sends_only_changed_in_patch_model() -> None:
     base, eng = _engine_env()
     pm = _exec_strategy("mutate", "patch_minimal", base, eng)
@@ -705,24 +735,26 @@ def test_integration_browser_shape_get_after_write_and_patch() -> None:
 
 
 def _register_get(base: types.ModuleType, eng: types.ModuleType) -> None:
-    """Exec the get + put_rmw + direct modules for the singleton path."""
+    """Exec the get + put_singleton + direct modules for the singleton path."""
     for family, name in (
         ("fetch", "get"),
-        ("mutate", "put_rmw"),
+        ("mutate", "put_singleton"),
         ("materialize", "direct"),
     ):
         _exec_strategy(family, name, base, eng)
 
 
 def _singleton_meta(**over: object) -> dict[str, object]:
-    """singleton shape: get fetch, put_rmw (replace), direct mat, no create/delete."""
+    """singleton shape: get fetch, put_singleton (id-less replace), direct mat,
+    no create/delete. A real singleton (e.g. bgp_routing) has NO `id`."""
     return _meta(
         fetch="get",
-        mutate="put_rmw",
+        mutate="put_singleton",
         materialize="direct",
         singleton=True,
         identity=[],  # a singleton has no identity — it always exists
         input_fields=["as_number"],
+        server_only=[],  # a singleton carries no id
         update={"verb": "replace"},
         **over,
     )
@@ -731,7 +763,7 @@ def _singleton_meta(**over: object) -> dict[str, object]:
 def test_integration_singleton_apply_noop_when_unchanged() -> None:
     base, eng = _engine_env()
     _register_get(base, eng)
-    current = _Model(as_number="65000", id="1")
+    current = _Model(as_number="65000")  # id-less: a real singleton has no id
 
     class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
         _idempotency = _singleton_meta()
@@ -746,8 +778,11 @@ def test_integration_singleton_apply_noop_when_unchanged() -> None:
 def test_integration_singleton_apply_updates_via_get_diff_replace() -> None:
     base, eng = _engine_env()
     _register_get(base, eng)
-    current = _Model(as_number="65000", id="1")
-    wrote: list[object] = []
+    # id-less shape matching the real singleton (bgp_routing): the model carries
+    # NO `id`, and `replace` takes NO `id` kwarg. With put_rmw (the old
+    # selection) this leg raised before any write; put_singleton fixes it.
+    current = _Model(as_number="65000")
+    wrote: list[_Model] = []
 
     class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
         _idempotency = _singleton_meta()
@@ -755,20 +790,21 @@ def test_integration_singleton_apply_updates_via_get_diff_replace() -> None:
         def get(self) -> object:
             return current  # fetch-via-get finds the blob
 
-        def replace(self, *, id: object, body: _Model) -> object:
+        def replace(self, *, body: _Model) -> object:  # NO id kwarg
             wrote.append(body)
-            return _Model(**{**body.model_dump(), "id": id})
+            return _Model(**body.model_dump())
 
     r = Stub().apply(_Model(as_number="65001"))
     assert r.changed and r.action == "updated"
     assert r.after["as_number"] == "65001"
     assert wrote  # the fetch->diff->replace leg fired
+    assert "id" not in wrote[0].model_dump()  # id-less body
 
 
 def test_integration_singleton_check_mode_predicts_without_writing() -> None:
     base, eng = _engine_env()
     _register_get(base, eng)
-    current = _Model(as_number="65000", id="1")
+    current = _Model(as_number="65000")
     wrote: list[object] = []
 
     class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
@@ -777,7 +813,7 @@ def test_integration_singleton_check_mode_predicts_without_writing() -> None:
         def get(self) -> object:
             return current
 
-        def replace(self, *, id: object, body: object) -> object:
+        def replace(self, *, body: object) -> object:  # NO id kwarg
             wrote.append(body)
             return current
 
@@ -793,7 +829,7 @@ def test_integration_singleton_absent_raises() -> None:
         _idempotency = _singleton_meta()
 
         def get(self) -> object:
-            return _Model(as_number="65000", id="1")
+            return _Model(as_number="65000")
 
     with pytest.raises(eng.AbsentNotSupported):
         Stub().absent(_Model(as_number="65000"))

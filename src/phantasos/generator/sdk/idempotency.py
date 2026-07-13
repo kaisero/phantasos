@@ -267,7 +267,15 @@ def _build_meta(
     # --- strategies ------------------------------------------------------- #
     auto_fetch = "get" if singleton else "list_scan"
     fetch = _resolve_strategy(_FETCH, rc, defaults, auto_fetch)
-    auto_mutate = "patch_minimal" if _sub_verb(update_method) == "patch" else "put_rmw"
+    if _sub_verb(update_method) == "patch":
+        auto_mutate = "patch_minimal"
+    elif singleton:
+        # A singleton's PUT `replace` binding takes NO `id` — its update-on-drift
+        # goes through the id-less `put_singleton` (only PUT singletons exist now;
+        # a PATCH singleton would still take the patch_minimal branch above).
+        auto_mutate = "put_singleton"
+    else:
+        auto_mutate = "put_rmw"
     mutate = _resolve_strategy(_MUTATE, rc, defaults, auto_mutate)
     upd_ret = update_method.return_model if update_method else ""
     auto_mat = (

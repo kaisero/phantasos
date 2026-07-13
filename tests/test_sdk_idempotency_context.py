@@ -82,6 +82,28 @@ def _browser_views(dist_root: Path, cfg: IdempotencyConfig) -> dict[str, ObjectV
     return {o.attr: o for o in objects}
 
 
+@pytest.fixture
+def deployment_sdk() -> Path:
+    """Distribution root of the built federated deployment_services sub-package."""
+    if not (_ACCESS_SDK / "prisma_access" / "deployment_services").exists():
+        pytest.skip("prisma-access-sdk not built (run: nox -s smoke)")
+    return _ACCESS_SDK
+
+
+def _deployment_views(dist_root: Path, cfg: IdempotencyConfig) -> dict[str, ObjectView]:
+    sub = dist_root / "prisma_access" / "deployment_services"
+    inv = introspect("prisma_access.deployment_services", dist_root)
+    objects = build_wrapper_context(
+        inv,
+        {},
+        _discover_resources(sub),
+        idempotency=cfg,
+        dist_root=dist_root,
+        has_pagination=True,
+    )
+    return {o.attr: o for o in objects}
+
+
 def test_put_object_bakes_list_scan_put_rmw_direct(access_sdk: Path) -> None:
     cfg = IdempotencyConfig.model_validate(
         {
@@ -189,6 +211,26 @@ def test_singleton_sanity_gate(access_sdk: Path) -> None:
     )
     with pytest.raises(ValueError, match="singleton"):
         _access_views(access_sdk, cfg)
+
+
+def test_singleton_bgp_routing_bakes_get_put_singleton_direct(
+    deployment_sdk: Path,
+) -> None:
+    # bgp_routing is a true singleton (GET + PUT, no id): its update-on-drift must
+    # auto-select the id-less `put_singleton` mutate, not `put_rmw` (which would
+    # crash extracting an absent id). fetch is `get`; identity is empty.
+    cfg = IdempotencyConfig.model_validate(
+        {"resources": {"bgp_routing": {"singleton": True, "identity": []}}}
+    )
+    v = _deployment_views(deployment_sdk, cfg)["bgp_routing"]
+    assert v.sync is True
+    lit = v.idempotency_literal
+    assert "\"fetch\": 'get'" in lit
+    assert "\"mutate\": 'put_singleton'" in lit
+    assert '"singleton": True' in lit
+    assert "\"update\": {'verb': 'replace'}" in lit
+    ref = referenced_strategies([v])
+    assert ref["mutate"] == {"put_singleton"}
 
 
 def test_sync_false_keeps_object_off(access_sdk: Path) -> None:
