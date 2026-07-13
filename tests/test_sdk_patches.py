@@ -1,10 +1,18 @@
-"""Unit tests for the oneOf-unwrap and drop-empty-additional_properties SDK patches."""
+"""Unit tests for the oneOf-unwrap and drop-empty-additional_properties SDK patches.
+
+Also covers the client-side scope mutual-exclusion validator
+(``patch_scope_validators``).
+"""
 
 from __future__ import annotations
 
 import importlib
 import sys
 from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
 
 from phantasos.generator.sdk import patches
 
@@ -154,3 +162,111 @@ def test_oneof_missing_imports_adds_only_existing_siblings(tmp_path: Path) -> No
     assert "import Tcp" in text  # the one OAG did emit is untouched
     # idempotent
     assert patches.patch_oneof_missing_imports(tmp_path, package="pkg") == 0
+
+
+# --------------------------------------------------------------------------- #
+# scope mutual-exclusion validator (patch_scope_validators)
+# --------------------------------------------------------------------------- #
+
+_SCOPED_MODEL_SRC = (
+    "from pydantic import BaseModel\n\n"
+    "class Addresses(BaseModel):\n"
+    "    id: str | None = None\n"
+    "    name: str | None = None\n"
+    "    folder: str | None = None\n"
+    "    snippet: str | None = None\n"
+    "    device: str | None = None\n"
+)
+
+
+def _write_scoped(models: Path) -> None:
+    models.mkdir(exist_ok=True)
+    (models / "addresses.py").write_text(_SCOPED_MODEL_SRC, encoding="utf-8")
+
+
+def test_scope_validator_injected_into_named_models(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    _write_scoped(models)
+    n = patches.patch_scope_validators(
+        models, ("folder", "snippet", "device"), {"addresses"}
+    )
+    assert n == 1
+    text = (models / "addresses.py").read_text(encoding="utf-8")
+    assert "_phantasos_scope_exactly_one" in text
+    assert "model_validator" in text  # import ensured
+    # idempotent
+    assert (
+        patches.patch_scope_validators(
+            models, ("folder", "snippet", "device"), {"addresses"}
+        )
+        == 0
+    )
+
+
+def test_scope_validator_skips_non_named_models(tmp_path: Path) -> None:
+    """A model whose stem is not in the scoped set gets no validator."""
+    models = tmp_path / "models"
+    _write_scoped(models)
+    other = (
+        "from pydantic import BaseModel\n\n"
+        "class Other(BaseModel):\n"
+        "    id: str | None = None\n"
+        "    folder: str | None = None\n"
+    )
+    (models / "other.py").write_text(other, encoding="utf-8")
+    n = patches.patch_scope_validators(
+        models, ("folder", "snippet", "device"), {"addresses"}
+    )
+    assert n == 1  # only addresses
+    assert "_phantasos_scope_exactly_one" not in (models / "other.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_scope_validator_no_op_when_no_scoped_stems(tmp_path: Path) -> None:
+    """A non-scoped product (empty stem set) gets no validator and no writes."""
+    models = tmp_path / "models"
+    _write_scoped(models)
+    before = (models / "addresses.py").read_text(encoding="utf-8")
+    assert (
+        patches.patch_scope_validators(models, ("folder", "snippet", "device"), set())
+        == 0
+    )
+    assert (models / "addresses.py").read_text(encoding="utf-8") == before
+
+
+def _load_scoped_model(tmp_path: Path) -> Any:
+    models = tmp_path / "models"
+    _write_scoped(models)
+    patches.patch_scope_validators(
+        models, ("folder", "snippet", "device"), {"addresses"}
+    )
+    sys.path.insert(0, str(models))
+    try:
+        sys.modules.pop("addresses", None)
+        return importlib.import_module("addresses").Addresses
+    finally:
+        sys.path.remove(str(models))
+
+
+def test_scope_validator_runtime_behavior(tmp_path: Path) -> None:
+    Addresses = _load_scoped_model(tmp_path)  # noqa: N806
+    try:
+        # exactly one container -> ok
+        assert Addresses(name="a", folder="Shared").folder == "Shared"
+        # zero containers on a user body -> raises
+        with pytest.raises(ValidationError):
+            Addresses(name="a")
+        # two containers on a user body -> raises
+        with pytest.raises(ValidationError):
+            Addresses(name="a", folder="Shared", snippet="s")
+        # server echo (id set) with zero containers -> NOT rejected
+        echo0 = Addresses(id="uuid-1", name="a")
+        assert echo0.id == "uuid-1"
+        # server echo (id set) with two containers -> NOT rejected
+        echo2 = Addresses(id="uuid-2", name="a", folder="Shared", snippet="s")
+        assert echo2.id == "uuid-2"
+        # model_validate of an echoed dict round-trips
+        assert Addresses.model_validate({"id": "uuid-3", "name": "a"}).id == "uuid-3"
+    finally:
+        sys.modules.pop("addresses", None)

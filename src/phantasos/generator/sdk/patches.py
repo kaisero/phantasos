@@ -11,6 +11,7 @@ Spec-agnostic; applied to any generated package. Idempotent.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from pathlib import Path
 
 _APOSTROPHE_ENUM = re.compile(r"^(\s*[A-Z0-9_]+ = )'(.*'.*)'\s*$")
@@ -251,6 +252,85 @@ def patch_oneof_missing_imports(models_dir: Path, *, package: str | None = None)
             fut = "from __future__ import annotations\n"
             eol = text.index(fut) + len(fut) if fut in text else 0
         text = text[:eol] + lines + text[eol:]
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+def _ensure_model_validator_import(text: str) -> str:
+    # Key on the IMPORT, not a bare `model_validator` substring, so an unrelated
+    # reference can never suppress a needed import while a method still gets
+    # injected (-> NameError). Mirrors `_ensure_model_serializer_import`.
+    if "model_validator," in text or "import model_validator" in text:
+        return text
+    return text.replace(
+        "from pydantic import ", "from pydantic import model_validator, ", 1
+    )
+
+
+_SCOPE_VALIDATOR = '''
+    @model_validator(mode="after")
+    def _phantasos_scope_exactly_one(self):
+        """phantasos: exactly one scope container on a user-authored mutation body.
+
+        SCM reuses ONE schema for request AND response, so this same class also
+        deserializes server-echoed objects (which carry a server-assigned ``id``
+        and may legitimately have zero or several containers). Enforce the
+        mutual-exclusion rule ONLY on user mutation bodies — skip it whenever a
+        server-assigned ``id`` is present — so building/reading real objects never
+        crashes. Defense-in-depth: the SCM server already rejects a bad scope.
+        """
+        if getattr(self, "id", None) is not None:
+            return self
+        set_ = [f for f in {fields!r} if getattr(self, f, None) is not None]
+        if len(set_) != 1:
+            raise ValueError(
+                f"exactly one of {fields_h} must be set (got {{set_ or 'none'}})"
+            )
+        return self
+'''
+
+
+# The stable anchor shared with the oneOf/drop-empty patches: OAG emits a
+# `to_str` method on every model, so injecting BEFORE it lands the validator
+# inside the class body (never at module EOF where trailing code may live).
+_TO_STR_ANCHOR = "\n    def to_str(self)"
+
+
+def patch_scope_validators(
+    models_dir: Path,
+    scope_fields: Collection[str],
+    model_stems: Collection[str],
+) -> int:
+    """Inject an exactly-one-scope ``model_validator`` on each named scoped model.
+
+    *model_stems* is the set of model file stems (e.g. ``{"addresses"}``) whose
+    class carries the ``scope`` group — the mutating body models of the scoped
+    resources. For each, a ``mode="after"`` validator enforces "exactly one of
+    the scope fields is set" on USER mutation bodies, while skipping server echoes
+    (identified by a server-assigned ``id``); see ``_SCOPE_VALIDATOR``. Idempotent;
+    a stem with no ``\\nclass `` anchor is skipped and written back unchanged.
+    """
+    count = 0
+    fields = tuple(scope_fields)
+    fields_h = "/".join(fields)
+    method = _SCOPE_VALIDATOR.format(fields=fields, fields_h=fields_h)
+    for path in sorted(models_dir.glob("*.py")):
+        if path.stem not in model_stems:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "_phantasos_scope_exactly_one" in text:
+            continue  # idempotent
+        if "\nclass " not in text:
+            continue  # anchor absent — skip, don't write unchanged
+        text = _ensure_model_validator_import(text)
+        if _TO_STR_ANCHOR in text:
+            # OAG model: land the method inside the class body, before `to_str`.
+            text = text.replace(_TO_STR_ANCHOR, method + _TO_STR_ANCHOR, 1)
+        else:
+            # Anchor-less (fixtures / hand-written): append as the trailing member
+            # of the first class body (the file is a single top-level class).
+            text = text.rstrip("\n") + "\n" + method + "\n"
         path.write_text(text, encoding="utf-8")
         count += 1
     return count

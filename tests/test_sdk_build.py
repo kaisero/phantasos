@@ -20,8 +20,15 @@ from pathlib import Path
 
 import pytest
 
+from phantasos.config import IdempotencyConfig, IdempotencyDefaults, IdempotencyResource
 from phantasos.generator.sdk import generate, provision
-from phantasos.generator.sdk.build import _about_text, _phantasos_version, build
+from phantasos.generator.sdk.build import (
+    _about_text,
+    _phantasos_version,
+    _scope_fields,
+    _scope_model_stems,
+    build,
+)
 from phantasos.productconfig import load_product
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
@@ -57,6 +64,46 @@ def test_about_uses_real_phantasos_version() -> None:
     ver = _phantasos_version()
     assert ver != "0.1.0"  # a real metadata version (e.g. 0.1.0a1) or the fallback
     assert f"PHANTASOS_VERSION = {ver!r}\n" in txt
+
+
+def test_scope_fields_reads_defaults_then_resources() -> None:
+    """`_scope_fields` finds a scope on `defaults`, else on any resource; else None."""
+    assert _scope_fields(None) is None
+    assert _scope_fields(IdempotencyConfig()) is None
+    from phantasos.config import ScopeSpec
+
+    on_defaults = IdempotencyConfig(
+        defaults=IdempotencyDefaults(scope=ScopeSpec(fields=["folder", "snippet"]))
+    )
+    assert _scope_fields(on_defaults) == ("folder", "snippet")
+    on_resource = IdempotencyConfig(
+        resources={"addr": IdempotencyResource(scope=ScopeSpec(fields=["device"]))}
+    )
+    assert _scope_fields(on_resource) == ("device",)
+
+
+def test_scope_model_stems_matches_full_scope_group(tmp_path: Path) -> None:
+    """Only models declaring the WHOLE scope group are returned (not partial ones)."""
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "addresses.py").write_text(
+        "from pydantic import BaseModel\n\n"
+        "class Addresses(BaseModel):\n"
+        "    id: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "partial.py").write_text(  # only one scope field -> not a scoped body
+        "from pydantic import BaseModel\n\n"
+        "class Partial(BaseModel):\n"
+        "    folder: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "__init__.py").write_text("", encoding="utf-8")
+    stems = _scope_model_stems(tmp_path, ("folder", "snippet", "device"))
+    assert stems == {"addresses"}
 
 
 def _oag_toolchain_cached() -> bool:

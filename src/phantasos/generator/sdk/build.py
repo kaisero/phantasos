@@ -100,6 +100,51 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     return result
 
 
+def _scope_fields(idempotency: Any | None) -> tuple[str, ...] | None:
+    """The scope group's fields for a sub's idempotency config, or ``None``.
+
+    A ``scope`` may sit on ``defaults`` (product-/subpackage-wide) or on any
+    single ``resources.<name>`` entry; the field set is identical across a block
+    (SCM's one container trio), so the first one found drives the validator.
+    """
+    if idempotency is None:
+        return None
+    defaults = getattr(idempotency, "defaults", None)
+    scope = getattr(defaults, "scope", None) if defaults is not None else None
+    if scope is None:
+        for rc in getattr(idempotency, "resources", {}).values():
+            if getattr(rc, "scope", None) is not None:
+                scope = rc.scope
+                break
+    return tuple(scope.fields) if scope is not None else None
+
+
+def _scope_model_stems(pkg_dir: Path, scope_fields: tuple[str, ...]) -> set[str]:
+    """Model file stems whose class declares the whole scope group.
+
+    Derived from the generated model files themselves (the producer fact) rather
+    than the post-vendor idempotency introspection: SCM reuses one schema per
+    resource for create/update/read, and every configurable object model that
+    carries the scope group is exactly a mutating body to guard. A model that
+    declares all scope fields as (optional) attributes is such a body; response-
+    only or nested models that lack the full trio are left untouched.
+    """
+    import re
+
+    models = pkg_dir / "models"
+    if not models.is_dir():
+        return set()
+    field_res = [re.compile(rf"^\s+{re.escape(f)}\s*:", re.M) for f in scope_fields]
+    stems: set[str] = set()
+    for path in sorted(models.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "\nclass " in text and all(r.search(text) for r in field_res):
+            stems.add(path.stem)
+    return stems
+
+
 def _generate_one(
     loaded: LoadedProduct,
     project_dir: Path,
@@ -143,6 +188,14 @@ def _generate_one(
         from . import patches
 
         patch_stats = patches.apply_generic_patches(pkg_dir, package=package)
+        # Scoped products (a `scope` group in the idempotency block) get a
+        # client-side exactly-one-scope validator on every scoped mutating model
+        # (UX / defense-in-depth; the SCM server already rejects a bad scope).
+        scope = _scope_fields(idempotency)
+        if scope:
+            patch_stats["scope_validators"] = patches.patch_scope_validators(
+                pkg_dir / "models", scope, _scope_model_stems(pkg_dir, scope)
+            )
     if hook_mod is not None and hasattr(hook_mod, "patch"):
         hook_mod.patch(pkg_dir)
 
