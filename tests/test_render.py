@@ -332,6 +332,10 @@ def _resources_off_objects() -> list[types.SimpleNamespace]:
             methods=[lst, get],
             sync=False,
             idempotency_literal="{}",
+            imports={
+                ("models.address", "Address"),
+                ("models.address_list_response", "AddressListResponse"),
+            },
         ),
         types.SimpleNamespace(
             classname="TagResource",
@@ -342,6 +346,7 @@ def _resources_off_objects() -> list[types.SimpleNamespace]:
             methods=[],
             sync=False,
             idempotency_literal="{}",
+            imports=set(),
         ),
     ]
 
@@ -1032,7 +1037,16 @@ def test_vendor_idempotency_registers_strategies_on_import(tmp_path: Path) -> No
 
 
 def test_vendor_writes_no_idempotency_dir_when_off(tmp_path: Path) -> None:
+    # Negative-space (Task 6.1a): adem never declares an idempotency block, so
+    # vendoring it must leave ZERO idempotency footprint — no `extras/idempotency/`
+    # tree AND (when a resource is present) no SyncMixin import / no `_idempotency`
+    # classvar leaking into the emitted resources.py.
     pkg = _make_pkg(tmp_path)
     loaded = load_product(str(_PRODUCTS / "adem" / "sdk.yml"))  # never opts in
-    render.vendor(pkg, loaded, wrapper_objects=[])
+    assert loaded.config.idempotency is None  # adem opts nothing in, ever
+    render.vendor(pkg, loaded, wrapper_objects=_resources_off_objects())
     assert not (pkg / "extras" / "idempotency").exists()
+    resources = (pkg / "extras" / "resources.py").read_text(encoding="utf-8")
+    assert "from .idempotency import SyncMixin" not in resources
+    assert "SyncMixin" not in resources
+    assert "_idempotency" not in resources
