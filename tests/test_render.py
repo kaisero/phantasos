@@ -11,6 +11,8 @@ import pytest
 from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
 
+_PRODUCTS = Path(__file__).resolve().parent.parent / "products"
+
 _EXC_NAMES = (
     "ApiException",
     "BadRequestException",
@@ -738,3 +740,110 @@ def test_composer_no_copy_import_when_no_host_overrides() -> None:
     assert "import copy" not in txt
     assert "_ac_objects = _BearerApiClient(configuration)" in txt
     ast.parse(txt)
+
+
+def _fake_objects(
+    refs: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]],
+) -> list[object]:
+    """Stub ObjectViews whose _idempotency_meta names the given strategies."""
+    from types import SimpleNamespace
+
+    fetch, mutate, mat = refs
+    objs: list[object] = []
+    for f, m, t in zip(fetch, mutate, mat, strict=False):
+        o = SimpleNamespace(
+            attr="x",
+            sync=True,
+            _idempotency_meta={"fetch": f, "mutate": m, "materialize": t},
+        )
+        objs.append(o)
+    return objs
+
+
+def test_vendor_writes_union_of_referenced_strategies(tmp_path: Path) -> None:
+    pkg = _make_pkg(tmp_path)
+    objs = _fake_objects(
+        (
+            ("list_scan", "list_filter"),
+            ("put_rmw", "patch_minimal"),
+            ("direct", "get_after_write"),
+        )
+    )
+    render._vendor_idempotency(
+        pkg,
+        objs,
+        {"federated": False, "root_package": "demo"},
+        render._env(),
+        [],
+    )
+    idem = pkg / "extras" / "idempotency"
+    assert (idem / "engine.py").exists() and (idem / "base.py").exists()
+    assert (idem / "__init__.py").exists()
+    assert (idem / "fetch" / "__init__.py").exists()
+    assert (idem / "fetch" / "list_scan.py").exists()
+    assert (idem / "fetch" / "list_filter.py").exists()
+    assert (idem / "mutate" / "put_rmw.py").exists()
+    assert (idem / "mutate" / "patch_minimal.py").exists()
+    assert (idem / "materialize" / "direct.py").exists()
+    assert (idem / "materialize" / "get_after_write.py").exists()
+    # Union only: unreferenced strategy modules are NOT written.
+    assert not (idem / "fetch" / "get.py").exists()
+    # The __init__ imports each vendored strategy so its self-registration runs.
+    init_src = (idem / "__init__.py").read_text(encoding="utf-8")
+    assert "from .fetch import list_scan" in init_src
+    assert "from .mutate import put_rmw" in init_src
+    assert "from .materialize import direct" in init_src
+    # Every emitted module parses clean.
+    for f in idem.rglob("*.py"):
+        ast.parse(f.read_text(encoding="utf-8"))
+
+
+def test_vendor_idempotency_registers_strategies_on_import(tmp_path: Path) -> None:
+    """Importing the vendored idempotency package runs each strategy's self-
+    registration, populating the base FETCH/MUTATE/MATERIALIZE registries."""
+    import importlib
+
+    pkg = _make_pkg(tmp_path)
+    # A minimal importable host package: extras/idempotency/base.py resolves
+    # `from ...exceptions import NotFoundException` up to the package root.
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "exceptions.py").write_text(
+        "class NotFoundException(Exception):\n    pass\n", encoding="utf-8"
+    )
+    (pkg / "extras").mkdir(exist_ok=True)
+    (pkg / "extras" / "__init__.py").write_text("", encoding="utf-8")
+    objs = _fake_objects(
+        (("list_scan",), ("put_rmw",), ("get_after_write",)),
+    )
+    render._vendor_idempotency(
+        pkg,
+        objs,
+        {"federated": False, "root_package": "demo"},
+        render._env(),
+        [],
+    )
+    if str(tmp_path) not in sys.path:
+        sys.path.insert(0, str(tmp_path))
+    try:
+        for name in list(sys.modules):
+            if name == "demo" or name.startswith("demo."):
+                del sys.modules[name]
+        mod = importlib.import_module("demo.extras.idempotency")
+        base = importlib.import_module("demo.extras.idempotency.base")
+        assert "list_scan" in base.FETCH
+        assert "put_rmw" in base.MUTATE
+        assert "get_after_write" in base.MATERIALIZE
+        assert hasattr(mod, "SyncMixin")
+    finally:
+        for name in list(sys.modules):
+            if name == "demo" or name.startswith("demo."):
+                del sys.modules[name]
+        if str(tmp_path) in sys.path:
+            sys.path.remove(str(tmp_path))
+
+
+def test_vendor_writes_no_idempotency_dir_when_off(tmp_path: Path) -> None:
+    pkg = _make_pkg(tmp_path)
+    loaded = load_product(str(_PRODUCTS / "adem" / "sdk.yml"))  # never opts in
+    render.vendor(pkg, loaded, wrapper_objects=[])
+    assert not (pkg / "extras" / "idempotency").exists()

@@ -164,6 +164,13 @@ def vendor(
             wrapper_objects,
             idempotency,
         )
+        if idempotency is not None:
+            # Vendor the idempotency engine + the union of referenced strategy
+            # modules BEFORE the pass-2 facade render, so `resources.py`'s
+            # `from .idempotency import SyncMixin` resolves on import. `objects`
+            # already carry the baked `_idempotency_meta` (resolve_idempotency ran
+            # inside build_wrapper_context).
+            _vendor_idempotency(pkg_dir, objects, ctx, builtin_env, written)
         # Pass 2: RE-render the facade in full now that `resources.py` exists —
         # bind `client.<object>` to the typed wrappers (sharing one `*Api`
         # instance per backing class), keep `_RESOURCES`, add `_WRAPPERS`.
@@ -250,3 +257,60 @@ def _vendor_resources(
     (extras / "resources.py").write_text(src, encoding="utf-8")
     written.append("resources.py")
     return objects
+
+
+def _vendor_idempotency(
+    pkg_dir: Path,
+    objects: list[Any],
+    ctx: dict[str, Any],
+    env: Environment,
+    written: list[str],
+) -> None:
+    """Vendor ``extras/idempotency/`` — the engine plus the UNION of referenced
+    strategy modules — when at least one object opts into idempotent sync.
+
+    Writes ``base.py`` + ``engine.py`` (the seams/registries + the SyncMixin
+    orchestrator), the ``fetch``/``mutate``/``materialize`` family subpackages
+    holding ONLY the strategy modules named in
+    :func:`~.idempotency.referenced_strategies` (an empty family is skipped
+    entirely), and a top-level ``__init__.py`` that re-exports the engine surface
+    and imports each vendored strategy module so its ``FETCH``/``MUTATE``/
+    ``MATERIALIZE`` self-registration runs at import time. Purely additive: a
+    product with no synced objects gets no ``extras/idempotency/`` at all.
+    """
+    from .idempotency import referenced_strategies
+
+    refs = referenced_strategies(objects)
+    if not any(refs.values()):
+        return
+    idem = pkg_dir / "extras" / "idempotency"
+    idem.mkdir(parents=True, exist_ok=True)
+    for core in ("base", "engine"):
+        (idem / f"{core}.py").write_text(
+            env.get_template(f"idempotency/{core}.py.jinja").render(**ctx),
+            encoding="utf-8",
+        )
+    for family in ("fetch", "mutate", "materialize"):
+        names = sorted(refs[family])
+        if not names:
+            continue
+        (idem / family).mkdir(exist_ok=True)
+        # The family subpackage is a plain namespace: the strategy submodules are
+        # imported by name from extras/idempotency/__init__.py, so an empty
+        # __init__ suffices (`from .fetch import list_scan` loads the submodule).
+        (idem / family / "__init__.py").write_text("", encoding="utf-8")
+        for name in names:
+            (idem / family / f"{name}.py").write_text(
+                env.get_template(f"idempotency/{family}/{name}.py.jinja").render(**ctx),
+                encoding="utf-8",
+            )
+    (idem / "__init__.py").write_text(
+        env.get_template("idempotency/__init__.py.jinja").render(
+            fetch=sorted(refs["fetch"]),
+            mutate=sorted(refs["mutate"]),
+            materialize=sorted(refs["materialize"]),
+            **ctx,
+        ),
+        encoding="utf-8",
+    )
+    written.append("idempotency/")
