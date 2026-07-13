@@ -4,6 +4,7 @@ import enum
 import sys
 import types
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -611,3 +612,49 @@ def test_integration_browser_shape_get_after_write_and_patch() -> None:
     r = s.apply(_Model(name="a", description="new"))
     # PATCH-minimal + GET-after materializes the updated state
     assert r.action == "updated" and r.after["description"] == "new"
+
+
+# --- resource-wrapper template wiring (resource.py.jinja) ---------------------
+
+
+def _object_view(*, sync: bool, idempotency_literal: str = "{}") -> SimpleNamespace:
+    """Minimal ObjectView-shaped namespace the resource template can render."""
+    return SimpleNamespace(
+        classname="AddressResource",
+        attr="address",
+        api_cls="AddressApi",
+        api_module="address_api",
+        bindings_literal="{}",
+        methods=[],
+        sync=sync,
+        idempotency_literal=idempotency_literal,
+    )
+
+
+def _render_resource(objects: list[SimpleNamespace], **params: object) -> str:
+    return (
+        render._env()
+        .get_template("facade/resource.py.jinja")
+        .render(objects=objects, imports=[], **params)
+    )
+
+
+def test_resource_renders_syncmixin_and_classvar_when_opted() -> None:
+    src = _render_resource(
+        [_object_view(sync=True, idempotency_literal='{"identity": ["name"]}')],
+        has_pagination=True,
+        has_idempotency=True,
+    )
+    assert "from .idempotency import SyncMixin" in src
+    assert "class AddressResource(SyncMixin):" in src
+    assert "_idempotency: ClassVar[dict[str, Any]] =" in src
+
+
+def test_resource_render_byte_identical_when_off() -> None:
+    off = _render_resource(
+        [_object_view(sync=False)],
+        has_pagination=True,
+        has_idempotency=False,
+    )
+    assert "SyncMixin" not in off
+    assert "_idempotency" not in off

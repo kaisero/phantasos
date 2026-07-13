@@ -145,6 +145,7 @@ _AUTH_PARAMS = {
     "has_retry": False,
 }
 _GOLDEN_SINGLE = Path(__file__).parent / "golden" / "scm_oauth_single_spec.golden.txt"
+_GOLDEN_RESOURCES_OFF = Path(__file__).parent / "golden" / "resources_off.golden.txt"
 
 
 def _render_auth(**extra: object) -> str:
@@ -181,6 +182,78 @@ def test_single_spec_auth_render_is_byte_identical() -> None:
     # The federated-only surface must NOT leak into single-spec output.
     assert "_BearerApiClient" not in golden
     assert "from ..api_client import ApiClient" in golden
+
+
+def _resources_off_objects() -> list[types.SimpleNamespace]:
+    """Two opt-OUT ObjectViews (one with methods, one empty) for the golden."""
+    lst = types.SimpleNamespace(
+        name="list",
+        sig="*, folder: str | None = None, all_pages: bool = False",
+        return_expr="AddressListResponse",
+        docstring="List addresses.",
+        is_list=True,
+        get_unwrap=False,
+        present_expr="{k for k in ('folder',) if locals()[k] is not None}",
+        call_dict="{'folder': folder}",
+    )
+    get = types.SimpleNamespace(
+        name="get",
+        sig="*, id: str",
+        return_expr="Address",
+        docstring="Get an address.",
+        is_list=False,
+        get_unwrap=True,
+        present_expr="{'id'}",
+        call_dict="{'id': id}",
+    )
+    return [
+        types.SimpleNamespace(
+            classname="AddressResource",
+            attr="address",
+            api_cls="AddressApi",
+            api_module="address_api",
+            bindings_literal="{'list': [], 'get': []}",
+            methods=[lst, get],
+            sync=False,
+            idempotency_literal="{}",
+        ),
+        types.SimpleNamespace(
+            classname="TagResource",
+            attr="tag",
+            api_cls="TagApi",
+            api_module="tag_api",
+            bindings_literal="{}",
+            methods=[],
+            sync=False,
+            idempotency_literal="{}",
+        ),
+    ]
+
+
+def test_resources_render_byte_identical_when_idempotency_off() -> None:
+    """Opt-out (no object opts in) renders resources.py byte-for-byte as before.
+
+    The load-bearing invariant: wiring SyncMixin in must not perturb a single
+    byte of output for a product that never opts a resource into sync (the
+    ``adem`` canary). The golden was captured from the pre-change template.
+    """
+    imports = [
+        ("models.address", "Address"),
+        ("models.address_list_response", "AddressListResponse"),
+    ]
+    src = (
+        render._env()
+        .get_template("facade/resource.py.jinja")
+        .render(
+            objects=_resources_off_objects(),
+            imports=imports,
+            has_pagination=True,
+            has_idempotency=False,
+        )
+    )
+    assert src == _GOLDEN_RESOURCES_OFF.read_text(encoding="utf-8")
+    assert "SyncMixin" not in src
+    assert "_idempotency" not in src
 
 
 def _make_pkg(tmp_path: Path) -> Path:

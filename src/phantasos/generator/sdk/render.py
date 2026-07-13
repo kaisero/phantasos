@@ -253,6 +253,7 @@ def _vendor_resources(
         objects=objects,
         imports=sorted(imports),
         has_pagination=loaded.pagination is not None,
+        has_idempotency=any(getattr(o, "sync", False) for o in objects),
     )
     (extras / "resources.py").write_text(src, encoding="utf-8")
     written.append("resources.py")
