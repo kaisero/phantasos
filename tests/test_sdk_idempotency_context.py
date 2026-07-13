@@ -200,6 +200,52 @@ def test_sync_false_keeps_object_off(access_sdk: Path) -> None:
     assert v.idempotency_literal == "{}"
 
 
+def test_write_only_field_resolves_f6_gate(browser_sdk: Path) -> None:
+    # F6: user_group's write models carry `userIds` (create) and `users`
+    # (update), but the UserGroup read model echoes neither — managed fields
+    # undetectable via GET. Declaring them under `write_only:` accepts the
+    # resource (knowingly partial sync) and bakes them into the literal so the
+    # engine subtracts them from the diff. Both undetectable fields must be
+    # listed — an escape hatch that only covers one still trips the gate on the
+    # other (see test_write_only_partial_declaration_still_fails_f6_gate).
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "resources": {
+                "user_group": {
+                    "identity": ["name"],
+                    "write_only": ["userIds", "users"],
+                }
+            }
+        }
+    )
+    v = _browser_views(browser_sdk, cfg)["user_group"]
+    assert v.sync is True
+    assert "'userIds'" in v.idempotency_literal
+    assert "\"write_only\": ['userIds', 'users']" in v.idempotency_literal
+
+
+def test_write_only_undeclared_field_fails_f6_gate(browser_sdk: Path) -> None:
+    # Same resource WITHOUT `write_only:` must fail the F6 gate loud — the fields
+    # stay managed, are absent from the read model, so drift on them is
+    # undetectable. The message names them AND the two resolutions.
+    cfg = IdempotencyConfig.model_validate(
+        {"resources": {"user_group": {"identity": ["name"]}}}
+    )
+    with pytest.raises(ValueError, match=r"user_group.*undetectable.*write_only"):
+        _browser_views(browser_sdk, cfg)
+
+
+def test_write_only_partial_declaration_still_fails_f6_gate(browser_sdk: Path) -> None:
+    # The escape hatch is per-field: declaring only ONE of two undetectable
+    # managed fields still fails the gate on the remaining one, so nothing goes
+    # undetected silently.
+    cfg = IdempotencyConfig.model_validate(
+        {"resources": {"user_group": {"identity": ["name"], "write_only": ["userIds"]}}}
+    )
+    with pytest.raises(ValueError, match=r"user_group.*users.*write_only"):
+        _browser_views(browser_sdk, cfg)
+
+
 def test_no_idempotency_leaves_every_object_off(access_sdk: Path) -> None:
     # Additive/opt-in exit check: idempotency=None -> sync False everywhere,
     # literal untouched, referenced_strategies empty.

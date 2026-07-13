@@ -270,6 +270,29 @@ def test_projection_maps_actual_objects_to_ids_no_false_drift() -> None:
     assert drifted.diff.changes["applications"]["before"] == [{"id": "a1", "name": "X"}]
 
 
+def test_write_only_excluded_from_diff_but_sent_on_create() -> None:
+    # F6: a write_only field is NOT part of the comparable set (never diffed),
+    # yet it IS carried into the create body (it rides `_present`, which does
+    # not subtract write_only) — set-once / partial sync.
+    base, eng = _engine_env()
+    meta = _meta(input_fields=["name", "userIds"], write_only=["userIds"])
+    res, rec = _stub(base, eng, meta, existing=None)
+    res.apply(_Model(name="a", userIds=["u1"]))
+    body = next(b for k, b in rec if k == "create")
+    assert body.model_dump()["userIds"] == ["u1"]  # sent on create
+
+
+def test_write_only_field_never_reported_as_drift() -> None:
+    # An existing object whose write_only field differs from desired shows NO
+    # drift (the field is excluded from the comparable set), so apply is a no-op.
+    base, eng = _engine_env()
+    actual = _Model(name="a", userIds=["u1"], id="1")
+    meta = _meta(input_fields=["name", "userIds"], write_only=["userIds"])
+    res, _ = _stub(base, eng, meta, existing=actual)
+    r = res.apply(_Model(name="a", userIds=["u2"]))
+    assert not r.changed and r.action == "unchanged"
+
+
 def test_scope_excluded_from_diff() -> None:
     base, eng = _engine_env()
     actual = _Model(name="a", ip_netmask="1.1.1.1/32", folder="Shared", id="1")
