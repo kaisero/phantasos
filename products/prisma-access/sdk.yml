@@ -175,6 +175,41 @@ subpackages:
         method: search
   - slug: mobile_agent
     spec: openapi/mobile-agent.yaml
+    idempotency:
+      defaults:
+        # Ground truth: every mobile_agent create/list op accepts `folder` ONLY
+        # (no snippet/device query param appears anywhere in the wrappers), and
+        # the body models carry no folder/snippet/device container fields at all.
+        # So the scope is folder-only — not the folder/snippet/device triple that
+        # objects/device_settings carry.
+        scope:
+          fields:
+            - folder
+          rule: exactly_one
+      resources:
+        # These GlobalProtect resources are normal named, id-addressed resources
+        # (real `id` UUID + `name`) with full CRUD (create/delete/get/list/replace),
+        # so each inherits the folder scope default and needs no per-resource
+        # metadata.
+        global_protect_forwarding_profile: {}
+        global_protect_regional_and_custom_proxy: {}
+        global_protect_source_application: {}
+        # global_protect_destination and global_protect_user_location are opted OUT.
+        # Their generated item models (ForwardingProfileDestinations,
+        # ForwardingProfileUserLocations) ship with an EMPTY `__properties` list, so
+        # the generated `from_dict` validates an empty `{}` and dumps every real
+        # field into `additional_properties` instead of the typed field. For
+        # destination that is fatal — its `name` is required, so `from_dict` raises
+        # on any real object read from the tenant (live-proven against the predefined
+        # `Prisma Access Explicit Proxy SAML Authentication Domains`); for
+        # user_location the round-trip silently loses typed fields, so the diff can't
+        # compare them. Idempotent sync needs a faithful read round-trip, which these
+        # models can't provide. Re-enable once the empty-__properties model-generation
+        # defect is fixed (tracked as a follow-up — it is not idempotency-specific).
+        global_protect_destination:
+          sync: false
+        global_protect_user_location:
+          sync: false
   - slug: posture
     spec: openapi/posture.yaml
     operations:

@@ -262,6 +262,39 @@ def test_list_scan_pages_past_first_page(address):
                 address.delete(id=leftover.id)
 
 
+@pytest.fixture()
+def global_protect_forwarding_profile(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.mobile_agent.global_protect_forwarding_profile
+
+
+def test_mobile_agent_fetch_wiring_read_only(global_protect_forwarding_profile):
+    """Federated read-wiring check for the mobile_agent idempotency opt-in (Batch 3).
+
+    SAFETY — no mutation on purpose. Unlike device_settings, mobile_agent
+    GlobalProtect resources are scoped to `folder` ONLY: their create/list ops
+    accept no snippet or device container, and the folder enum offers a single
+    value, `Mobile Users` — the live, shared, production folder that governs the
+    tenant's mobile VPN / GlobalProtect agent behavior. There is no disposable
+    snippet or throwaway folder to isolate a create->apply->drift->absent quartet,
+    and injecting even a uniquely-named `phx-sync-*` forwarding config into
+    `Mobile Users` would alter real agent configuration on the shared tenant.
+    Tenant integrity beats coverage, so this exercises ONLY the read half of the
+    freshly generated idempotency surface: fetch() drives the wired list_scan
+    fetch (paginated bare-array scan + identity match) against the live folder and
+    must round-trip without error. A random `phx-sync-*` name is asserted absent,
+    proving the fetch wiring resolves to None cleanly. Full apply/absent/drift
+    behavior for this shape is covered offline by the engine ring (smoke).
+
+    Targets `forwarding_profile` specifically: two of the five mobile_agent
+    resources (destination, user_location) are opted OUT because their generated
+    models ship an empty `__properties` and cannot round-trip a real read — see
+    the sdk.yml comment. `forwarding_profile` has a faithful model, so its read
+    path is the one under test here."""
+    missing = global_protect_forwarding_profile.fetch(name=_name(), folder="Mobile Users")
+    assert missing is None
+
+
 def test_from_access_token_provider_consulted_per_request():
     """Task 3.1 live seam: a caller-owned token source (Callable) drives a Client
     with no client_secret/scope wired into it, and the provider is pulled PER
