@@ -9,6 +9,9 @@ import pytest
 from {{ package }}.extras.auth import TokenManager
 from {{ package }}.extras.facade import Client
 from {{ package }}.models.create_or_replace_app_group_input import CreateOrReplaceAppGroupInput
+from {{ package }}.models.create_or_replace_app_input import CreateOrReplaceAppInput
+from {{ package }}.models.custom_application_input import CustomApplicationInput
+from {{ package }}.models.url_input import UrlInput
 
 _REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
 
@@ -19,10 +22,33 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture()
-def group():
+def client():
     c = Client.from_env()
-    yield c.application_group
+    yield c
     c.close()
+
+
+@pytest.fixture()
+def group(client):
+    return client.application_group
+
+
+def _mk_application(client, name):
+    """Create a minimal valid custom application; return its server id."""
+    created = client.application.create(
+        type="custom",
+        # create_application's body is the oneOf union CreateOrReplaceAppInput; the
+        # CustomApplicationInput variant must be wrapped (its __init__ takes the
+        # variant positionally and sets actual_instance).
+        body=CreateOrReplaceAppInput(
+            CustomApplicationInput(
+                name=name,
+                type="custom",
+                urls=[UrlInput(url=f"https://{name}.example.com/*")],
+            )
+        ),
+    )
+    return created.id
 
 
 def test_application_group_idempotency_quartet(group):
@@ -44,6 +70,78 @@ def test_application_group_idempotency_quartet(group):
         leftover = group.fetch(name=name)
         if leftover is not None:
             group.delete(id=leftover.id)
+
+
+def test_application_group_manages_applications_membership(client, group):
+    """Phase 5.1 Step 4 — the `applications` projections flip, live-proven.
+
+    `applications` is now a MANAGED, drift-comparable field (was `computed`). The
+    request sends member application IDs (List[str]); the server ECHOES them as
+    ApplicationGroupApplicationsInner objects. The `applications: id` projection
+    maps each echoed object back to its scalar id, so an apples-to-apples diff must
+    NOT report false drift on re-apply — that's the load-bearing assertion.
+    """
+    name = f"phx-sync-{uuid.uuid4().hex[:12]}"
+    app1_name = f"phx-sync-app-{uuid.uuid4().hex[:12]}"
+    app2_name = f"phx-sync-app-{uuid.uuid4().hex[:12]}"
+    app1_id = app2_id = None
+    try:
+        # 0) two real member applications the group will reference
+        app1_id = _mk_application(client, app1_name)
+        app2_id = _mk_application(client, app2_name)
+
+        # 1) create the group with BOTH members
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id, app2_id]))
+        assert r.changed and r.action == "created"
+        # get_after_write materialized the group; membership round-tripped. The
+        # server echoes `applications` as objects (dicts here in the raw `after`),
+        # so pull each element's id whether it arrives as a dict, a model, or a
+        # bare id string.
+        def _ids(apps):
+            out = set()
+            for a in apps or []:
+                if isinstance(a, dict):
+                    out.add(a["id"])
+                else:
+                    out.add(getattr(a, "id", a))
+            return out
+        assert _ids(r.after.get("applications")) == {app1_id, app2_id}, \
+            r.after.get("applications")
+
+        # 2) re-apply the SAME membership -> UNCHANGED. The server echoes
+        #    `applications` as objects; the `id` projection maps them back to ids,
+        #    so no FALSE drift. This is the whole point of the flip.
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id, app2_id]))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+
+        # 3) change membership (drop app2) -> REAL drift on exactly {applications}
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id]))
+        assert r.changed and set(r.diff.changes) == {"applications"}, r.diff.changes
+        refetched = group.fetch(name=name)
+        assert {a.id for a in (refetched.applications or [])} == {app1_id}
+
+        # 4) re-apply the reduced membership -> UNCHANGED again (projection holds)
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id]))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+
+        # 5) absent -> deleted; fetch -> None
+        assert group.absent(CreateOrReplaceAppGroupInput(name=name)).action == "deleted"
+        assert group.fetch(name=name) is None
+    finally:
+        # group first (members are referenced until it is gone), then both apps
+        leftover = group.fetch(name=name)
+        if leftover is not None:
+            group.delete(id=leftover.id)
+        for aid in (app1_id, app2_id):
+            if aid is not None:
+                try:
+                    client.application.delete(id=aid)
+                except Exception:
+                    pass
 
 
 def test_list_walks_all_pages(group):

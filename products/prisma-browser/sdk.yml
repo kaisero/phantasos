@@ -16,9 +16,54 @@ idempotency:
     read_only:
       - id
   resources:
+    # application_group is the one CRUD-complete, engine-drivable resource here:
+    # create(body) / delete(id) / patch update(id, body) / list(cursor) all take
+    # only body+id, and identity resolves by `name` via list_scan. `applications`
+    # is a PROJECTION (Phase 5.1 Step 4), not `computed`: the request sends member
+    # application IDs (List[str]) while the server ECHOES them as
+    # ApplicationGroupApplicationsInner objects (each with .id/.name/.type). The
+    # `id` projection maps each echoed object back to its scalar id so the diff
+    # compares ids-to-ids — `applications` is now a MANAGED, drift-comparable field.
     application_group:
-      computed:
-        - applications
+      projections:
+        applications: id
+    # --- opted OUT: none of the remaining list-bearing resources is engine-
+    # drivable through the generic create(body)/verb(id, body)/delete(id) surface;
+    # each is verified from _bindings in prisma_browser/extras/resources.py.
+    #
+    # application: create requires the `type` discriminator (['type']) and update
+    # requires (['id', 'type']); the engine's create(body=...) and mutate
+    # verb(id=..., body=...) supply no `type`, so the binding _select would raise
+    # at apply()-time. (The live test below still exercises the RAW typed
+    # create(type="custom", ...) to build app_group members — that path is fine.)
+    application:
+      sync: false
+    # device_group: id-addressed, but its get/update/replace/delete take a param
+    # named `device_group_id`, NOT `id`; the engine calls delete(id=...) /
+    # verb(id=..., body=...), so a `device_group.delete(id=...)` raises TypeError.
+    device_group:
+      sync: false
+    # application_plugin: create requires (['id']) — it is an upsert-by-id, not a
+    # server-assigned-id create; the engine's create(body=...) supplies no id, so
+    # _select("create", {"body"}) would raise. Not a name-keyed CRUD resource.
+    application_plugin:
+      sync: false
+    # user_group: create speaks `userIds` and update speaks `users` (a list of
+    # member-update objects) for the same membership, and the READ model
+    # (UserGroup) exposes neither — only id/name/provider/timestamps. So member
+    # membership is undetectable via GET (build gate #5), and the write shapes are
+    # asymmetric; only `name` would be drift-comparable. Left out until the API
+    # exposes member state on read.
+    user_group:
+      sync: false
+    # cloud_storage_provider: bindings are create/delete/get/list only — no update
+    # or replace op, so it fails the CRUD-complete bar (build gate #4).
+    cloud_storage_provider:
+      sync: false
+    # The four *_section resources (security/sign_in/customization/access_and_data)
+    # and the four *_rule resources have NO `list` op in their bindings — get is
+    # by-id only — so list_scan cannot resolve identity by name (same reason as
+    # prisma-access security_rule). Not opted in; no per-resource stanza needed.
 docs:
   showcase_resource: application
   showcase_variant: CustomApplicationInput
