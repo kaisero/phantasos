@@ -113,9 +113,82 @@ subpackages:
         # (UpdateBGPRouting) only — no create, no delete, no id, no scope. apply()
         # takes the fetch(via get) -> diff -> replace path; absent() raises
         # AbsentNotSupported. identity is empty (the blob always exists).
+        #
+        # NOTE: there is deliberately NO subpackage-level `defaults.scope` here.
+        # bgp_routing and shared_infrastructure_setting are scope-less, and
+        # internal_dns_server's list op carries no folder param either, so a
+        # blanket folder default would be wrong for them AND would leak a folder
+        # scope onto the bgp_routing singleton (scope = rc.scope or
+        # defaults.scope), breaking its non-destructive live test. The five
+        # folder-scoped resources therefore declare `scope` per-resource instead.
         bgp_routing:
           singleton: true
           identity: []
+        # shared_infrastructure_setting is a GET + PUT singleton like bgp_routing:
+        # its bindings are get (GetSharedInfrastructureSettings) + replace
+        # (UpdateSharedInfrastructureSettings) ONLY — no create, no delete, no id,
+        # no scope. So it takes the same fetch(get) -> diff -> put_singleton path
+        # and identity is empty (the blob always exists). `singleton: true` is
+        # correct precisely because there is no create/delete op (gate #7 would
+        # fire otherwise).
+        shared_infrastructure_setting:
+          singleton: true
+          identity: []
+        # internal_dns_server is a normal named, id-addressed resource (real `id`
+        # UUID + `name`) with full CRUD (create/delete/get/list/replace), but its
+        # list op carries NO folder/snippet/device param — it is scope-less, so
+        # identity is the bare `name` and no scope is declared. Its `name` on the
+        # create model auto-resolves identity; list_scan drives the fetch.
+        internal_dns_server: {}
+        # The five resources below are folder-scoped: their list (and, for
+        # traffic_steering_rule, create) op requires `folder` and accepts no
+        # snippet/device, so scope is folder-only with exactly_one selected —
+        # declared per-resource (not as a subpackage default) so it does not touch
+        # the scope-less bgp_routing/shared_infrastructure_setting singletons or
+        # internal_dns_server. All five are normal named, id-addressed resources
+        # with full CRUD (create/delete/get/list/replace) and faithful models.
+        remote_network:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        service_connection:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        service_connection_group:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        site:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        traffic_steering_rule:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        # bandwidth_allocation is opted OUT (`sync: false`). Its item model
+        # (BandwidthAllocations) carries NO `id` field at all — the resource is
+        # keyed by name + spn_name_list, and its delete op takes (name,
+        # spn_name_list), not an id. The idempotent engine is id-addressed (its
+        # put_rmw mutate and materialize paths read/write the model's id), so an
+        # id-less resource cannot drive the generic apply/absent path. It also has
+        # no `get` op (only create/delete/list/replace). Re-enable only if the
+        # engine grows a name-addressed path; until then this is the id-less
+        # escape hatch.
+        bandwidth_allocation:
+          sync: false
+        # application_default is NOT listed: its bindings are create-only (no
+        # delete/get/list/replace), so it has no update verb and no read path —
+        # build gate #4 (no update op) would fire. SKIP.
+        # location is NOT listed: its bindings are list-only (no
+        # create/delete/get/replace), so it also has no update verb — build
+        # gate #4 would fire. Read-only resource. SKIP.
   - slug: device_settings
     spec: openapi/device-settings.yaml
     idempotency:

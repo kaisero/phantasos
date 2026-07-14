@@ -407,3 +407,35 @@ def test_identity_services_fetch_wiring_read_only(local_user_group):
     in the folder round-trips through from_dict without error."""
     missing = local_user_group.fetch(name=_name(), folder="Shared")
     assert missing is None
+
+
+@pytest.fixture()
+def remote_network(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.deployment_services.remote_network
+
+
+def test_deployment_services_fetch_wiring_read_only(remote_network):
+    """Read-wiring check for the deployment_services idempotency opt-in (Batch 5 rollout).
+
+    SAFETY — READ-ONLY on purpose, and doubly so here: deployment_services
+    provisions REAL network infrastructure (remote_network / service_connection /
+    site create live IPsec tunnels, service connections, and branch sites on the
+    shared tenant). A create -> apply -> absent quartet would stand up and tear
+    down real network deployments, so it is categorically unsafe. The generic
+    apply/absent path is already live-proven on objects and device_settings
+    through the same engine and strategies, so this batch verifies only the
+    resource-shape-specific READ half: fetch() drives the wired list_scan (the
+    folder-scoped paginated bare-array scan + identity match) against a live
+    folder, which deserializes every real remote_network the tenant lists — the
+    exact failure mode a faulty generated model produces. A random `phx-sync-*`
+    name in the single valid `Remote Networks` folder must resolve to None
+    cleanly, proving the fetch wiring and that every real object in the folder
+    round-trips through from_dict without error.
+
+    Targets `remote_network` specifically: it is one of the five folder-scoped,
+    full-CRUD resources, so its read path exercises the per-resource folder scope
+    that the scope-less bgp_routing / shared_infrastructure_setting singletons and
+    the scope-less internal_dns_server do not."""
+    missing = remote_network.fetch(name=_name(), folder="Remote Networks")
+    assert missing is None
