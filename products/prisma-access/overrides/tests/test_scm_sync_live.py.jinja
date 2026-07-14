@@ -13,6 +13,8 @@ import {{ package }}
 from {{ package }}._auth import TokenManager, configuration_from_env
 from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
 from {{ package }}.objects.models import Addresses
+from {{ package }}.objects.models import AddressGroups
+from {{ package }}.objects.models import Services
 from {{ package }}.objects.models import Tags
 
 _REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
@@ -101,6 +103,91 @@ def test_tag_idempotency_quartet(tag):
         leftover = tag.fetch(name=name, folder=folder)
         if leftover is not None:
             tag.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def address_group(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.address_group
+
+
+def test_address_group_static_order_sensitivity(address, address_group):
+    """Deferred live check: `static` is declared order_sensitive in sdk.yml, so the
+    diff must treat member ORDER as state. Same order twice -> no drift; reordering
+    the same members -> real drift."""
+    folder = "Shared"
+    members = [_name(), _name()]
+    group = _name()
+    try:
+        # 0) member objects the group will reference
+        for i, nm in enumerate(members):
+            address.apply(Addresses(name=nm, folder=folder,
+                                    ip_netmask=f"10.30.{i}.0/24"))
+        # 1) create the group with static [a, b]
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=members))
+        assert r.changed and r.action == "created"
+        # 2) re-apply the SAME order -> unchanged (no false drift)
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=members))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) SAME members, reversed order -> real drift, order-sensitively detected
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=list(reversed(members))))
+        assert r.changed and set(r.diff.changes) == {"static"}
+        refetched = address_group.fetch(name=group, folder=folder)
+        assert refetched.static == list(reversed(members))
+        # 4) absent -> deleted (group first: members are referenced until then)
+        r = address_group.absent(AddressGroups(name=group, folder=folder))
+        assert r.action == "deleted"
+    finally:
+        leftover = address_group.fetch(name=group, folder=folder)
+        if leftover is not None:
+            address_group.delete(id=leftover.id)
+        for nm in members:
+            leftover = address.fetch(name=nm, folder=folder)
+            if leftover is not None:
+                address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def service(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.service
+
+
+def test_service_idempotency_round_trip(service):
+    """Live spot-check for one NEW objects opt-in (Batch 1 rollout): a real
+    create -> apply(no-op) -> apply(drift) -> absent round-trip on `service`."""
+    name = _name()
+    folder = "Shared"
+    # NOTE: from_dict, not model_validate — `protocol` is an OAG oneOf wrapper
+    # (Tcp|Udp) and only the generated from_dict reconstructs its actual_instance.
+    proto = {"protocol": {"tcp": {"port": "8080"}}}
+    try:
+        # 1) create
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "orig", **proto}))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "orig", **proto}))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify description -> drift on exactly that field; PUT RMW must
+        #    carry the oneOf `protocol` through unharmed
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "edited", **proto}))
+        assert r.changed and set(r.diff.changes) == {"description"}
+        assert service.fetch(name=name, folder=folder).description == "edited"
+        # 4) absent -> deleted; re-absent -> unchanged; fetch -> None
+        gone = Services.from_dict({"name": name, "folder": folder})
+        assert service.absent(gone).action == "deleted"
+        assert not service.absent(gone).changed
+        assert service.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = service.fetch(name=name, folder=folder)
+        if leftover is not None:
+            service.delete(id=leftover.id)
 
 
 @pytest.fixture()

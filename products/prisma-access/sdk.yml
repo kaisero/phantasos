@@ -28,6 +28,29 @@ subpackages:
           # order, so the diff must compare it order-SENSITIVELY (not as a set).
           order_sensitive:
             - static
+        application: {}
+        application_filter: {}
+        application_group: {}
+        # auto_tag_action is id-less: its model carries no `id` field, its delete
+        # op keys on `name`, and its PUT replace takes no id — the engine's
+        # id-addressed absent()/put_rmw cannot drive it. Explicit opt-out until an
+        # id-less mutate/delete path exists.
+        auto_tag_action:
+          sync: false
+        dynamic_user_group: {}
+        external_dynamic_list: {}
+        hip_object: {}
+        hip_profile: {}
+        http_server_profile: {}
+        log_forwarding_profile: {}
+        # quarantined_device is NOT listed: its bindings are create/delete/list
+        # only (no update or replace op), so it fails the CRUD-complete bar
+        # (build gate #4 would fire).
+        region: {}
+        schedule: {}
+        service: {}
+        service_group: {}
+        syslog_server_profile: {}
   - slug: network_services
     spec: openapi/network-services.yaml
     skip_validate_spec: true   # OAS 3.1 false positive under OAG validation
