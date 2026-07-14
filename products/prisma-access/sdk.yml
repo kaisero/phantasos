@@ -165,6 +165,60 @@ subpackages:
           identity: []
   - slug: identity_services
     spec: openapi/identity-services.yaml
+    idempotency:
+      defaults:
+        # These resources are FULL-triple scoped: every create/list op accepts
+        # folder/snippet/device (all three appear in the wrapper param_map), and
+        # the item models carry folder/snippet/device container fields. So the
+        # scope mirrors objects/device_settings — the folder/snippet/device
+        # triple with exactly-one selected.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # All 16 below are normal named, id-addressed resources (real `id` UUID +
+        # `name`) with full CRUD (create/delete/get/list/replace), so each inherits
+        # the folder/snippet/device scope default and needs no per-resource
+        # metadata. The model pre-scan found no empty-__properties defect here, so
+        # every generated item model round-trips a real read faithfully.
+        #
+        # authentication_portal is the one exception: its create/replace model
+        # carries a real `id` UUID but NO `name` field (unlike every other
+        # identity_services resource), and its paths are the collection shape
+        # (GET/POST /authentication-portals, GET/PUT/DELETE /{id}). There is at
+        # most one portal blob per folder/snippet/device, so identity WITHIN a
+        # scope is empty (`identity: []`) — the scope IS the key, exactly as the
+        # device_settings per-container blobs (tcp_setting, vpn_setting, …) are
+        # handled. It is NOT a singleton in the binding sense (it has real create
+        # AND delete ops, so `singleton: true` would trip build gate #7); its
+        # id-addressed get/replace/delete drive the engine normally. Without this,
+        # gate #2 fires: identity cannot be inferred from a name-less create model.
+        authentication_portal:
+          identity: []
+        authentication_profile: {}
+        authentication_rule: {}
+        authentication_sequence: {}
+        certificate_profile: {}
+        kerberos_server_profile: {}
+        ldap_server_profile: {}
+        local_user: {}
+        local_user_group: {}
+        mfa_server: {}
+        ocsp_responder: {}
+        radius_server_profile: {}
+        saml_server_profile: {}
+        scep_profile: {}
+        tacacs_server_profile: {}
+        tls_service_profile: {}
+        # certificate is NOT listed: its bindings are create/delete/export/import_/
+        # list only — no `get` and no `replace`/update verb, so it has no full
+        # create/delete/update lifecycle and fails the CRUD-complete bar
+        # (build gate #4 would fire).
+        # trusted_certificate_authority is NOT listed: its bindings are list-only
+        # (no create/delete/get/replace), so it also fails gate #4.
   - slug: incidents
     spec: openapi/incidents.yaml
     operations:

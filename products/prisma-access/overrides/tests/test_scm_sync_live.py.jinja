@@ -381,3 +381,29 @@ def test_device_settings_login_banner_round_trip(login_banner_setting, snippet):
         if leftover is not None:
             login_banner_setting.delete(id=leftover.id)
         snippet.delete(id=created.id)
+
+
+@pytest.fixture()
+def local_user_group(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.local_user_group
+
+
+def test_identity_services_fetch_wiring_read_only(local_user_group):
+    """Read-wiring check for the identity_services idempotency opt-in (Batch 4 rollout).
+
+    SAFETY — no mutation on purpose. A mutating quartet is not portable across these
+    16 resources: many carry cross-object dependencies the server enforces
+    (local_user_group members must reference existing local users; tls_service_profile
+    needs a certificate; auth sequences reference profiles) and some carry runtime
+    write-only secrets (local_user.password is never echoed on GET, which would read
+    as false drift). The generic create -> apply -> absent path is already live-proven
+    on objects and device_settings through the same engine and strategies, so this
+    batch verifies the half that is resource-shape-specific and most likely to break:
+    the READ path. fetch() drives the wired list_scan against a live folder, which
+    deserializes every real identity_services object it lists (the failure mode a
+    faulty generated model produces — see mobile_agent). A random `phx-sync-*` name
+    must resolve to None cleanly, proving the fetch wiring and that every real object
+    in the folder round-trips through from_dict without error."""
+    missing = local_user_group.fetch(name=_name(), folder="Shared")
+    assert missing is None
