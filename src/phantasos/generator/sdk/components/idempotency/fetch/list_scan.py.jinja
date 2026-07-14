@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from ..base import FETCH, NotFoundException
@@ -12,11 +13,27 @@ def _match(res: Any, candidates: list, identity: dict) -> list:
 
 def list_scan(res: Any, identity: dict, scope: dict, meta: dict) -> Any | None:
     opts = meta.get("fetch_opts", {})
+    kwargs: dict = dict(scope)
+    # `limit`/`all_pages` are pagination knobs that only exist on a PAGINATED list
+    # op. A non-paginated list op (e.g. device_settings, whose list surface is
+    # folder/snippet/device only — its underlying endpoint takes no limit/offset)
+    # returns the WHOLE set in one shot; forcing `limit=`/`all_pages=True` there
+    # routes through the offset paginator and raises TypeError. Pass each knob
+    # only when the wrapper's list actually accepts it.
+    params = inspect.signature(res.list).parameters
+    if "limit" in params:
+        kwargs["limit"] = opts.get("page_limit", 200)
+    if "all_pages" in params and "limit" in params:
+        kwargs["all_pages"] = True
     try:
-        page = res.list(all_pages=True, limit=opts.get("page_limit", 200), **scope)
+        page = res.list(**kwargs)
     except NotFoundException:
         return None
-    matches = _match(res, getattr(page, "data", None) or [], identity)
+    # A list op may return either a `{data: [...], total: N}` ENVELOPE (paginated
+    # collections) or a BARE array (device_settings list ops respond with a plain
+    # `List[Model]`, no envelope). Take the page itself when it is already a list.
+    candidates = page if isinstance(page, list) else (getattr(page, "data", None) or [])
+    matches = _match(res, candidates, identity)
     if len(matches) > 1:
         raise IdentityUnresolved(f"{identity}: {len(matches)} matches")
     if not matches:

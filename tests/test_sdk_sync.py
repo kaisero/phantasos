@@ -214,8 +214,9 @@ def test_put_rmw_body_survives_oneof_field() -> None:
     base, eng = _engine_env()
     pr = _exec_strategy("mutate", "put_rmw", base, eng)
     calls: dict[str, object] = {}
-    actual = _OneOfModel(name="a", protocol={"tcp": {"port": "80"}},
-                         description="keep", id="1")
+    actual = _OneOfModel(
+        name="a", protocol={"tcp": {"port": "80"}}, description="keep", id="1"
+    )
 
     class R:
         _present = eng.SyncMixin._present
@@ -316,6 +317,28 @@ def test_normalize_enum_value_and_nested() -> None:
     res, _ = _stub(base, eng, meta, existing=actual)
     r = res.apply(_Model(name="a", color=Color.RED, nested={"k": ["2", "1"]}))
     assert not r.changed  # enum -> value, nested list order-insensitive
+
+
+def test_normalize_nested_null_equals_absent_no_false_drift() -> None:
+    """A nested sub-object the user set sparsely (only the fields they care about)
+    must NOT read as drift against the SERVER echo, which fills every optional
+    sub-field with an explicit null. Live-proven on prisma-access device_settings:
+    desired `motd_and_banner={message, motd_enable}` vs actual
+    `{message, motd_enable, motd_title: null, ...}` — null == absent for equality."""
+    base, eng = _engine_env()
+    # actual carries the fully-expanded nested object (every optional key -> null)
+    actual = _Model(
+        name="a",
+        id="1",
+        settings={"message": "hi", "motd_enable": True, "title": None, "color": None},
+    )
+    meta = _meta(input_fields=["name", "settings"])
+    res, _ = _stub(base, eng, meta, existing=actual)
+    # desired sets only the two fields it cares about (a sparse nested dict)
+    r = res.apply(_Model(name="a", settings={"message": "hi", "motd_enable": True}))
+    assert not r.changed, r.diff.changes  # null-only extras must not read as drift
+    # a genuine nested change still surfaces
+    assert res.apply(_Model(name="a", settings={"message": "bye"})).changed
 
 
 def test_projection_maps_actual_objects_to_ids_no_false_drift() -> None:
@@ -471,6 +494,80 @@ def test_list_scan_pages_past_first_page() -> None:
     meta = _meta(fetch="list_scan", fetch_opts={"page_limit": 2, "hydrate": False})
     hit = ls.list_scan(RPaged(), {"name": "target"}, {}, meta)
     assert hit is not None and hit.id == "99"
+
+
+def test_list_scan_tolerates_list_without_pagination_params() -> None:
+    """list_scan must not force pagination kwargs onto a wrapper whose list op has
+    none. prisma-access device_settings list ops (e.g. login-banner) take only
+    folder/snippet/device (their endpoint has no limit/offset) — so passing
+    `limit=` OR routing `all_pages=True` through the offset paginator raises
+    TypeError and every fetch crashes. Mirror that strict signature and assert the
+    scan drives a single-shot `list(**scope)` with NO pagination knobs."""
+    base, eng = _engine_env()
+    ls = _exec_strategy("fetch", "list_scan", base, eng)
+    hit = _Model(name="a", id="1")
+    seen: dict[str, object] = {}
+
+    class RNoPage:
+        """A wrapper whose list op has no `limit`/`offset` param (device_settings
+        shape): `all_pages` is accepted but pagination itself is unsupported, so
+        list_scan must call it single-shot (never all_pages=True)."""
+
+        def list(
+            self,
+            folder: object = None,
+            snippet: object = None,
+            device: object = None,
+            *,
+            all_pages: bool = False,
+        ) -> object:
+            seen["all_pages"] = all_pages
+            return _Page([hit])
+
+        _full = eng.SyncMixin._full
+
+    meta = _meta(fetch="list_scan")
+    assert ls.list_scan(RNoPage(), {"name": "a"}, {}, meta) is hit
+    assert seen["all_pages"] is False  # single-shot, never routed to the paginator
+
+
+def test_list_scan_reads_bare_list_response() -> None:
+    """list_scan must match over a list op that returns a BARE array, not a
+    ``{data: [...]}`` envelope. prisma-access device_settings list ops respond
+    with `List[MotdBannerSettings]` directly (live-proven) — so a
+    ``getattr(page, "data", ...)``-only scan sees nothing, `fetch` always returns
+    None, and `apply` wrongly re-creates every time. The scan must treat a bare
+    list as the candidate set itself."""
+    base, eng = _engine_env()
+    ls = _exec_strategy("fetch", "list_scan", base, eng)
+    hit = _Model(name="a", id="1")
+
+    class RBareList:
+        """A wrapper whose list returns a plain Python list (no `.data`)."""
+
+        def list(
+            self,
+            folder: object = None,
+            snippet: object = None,
+            device: object = None,
+            *,
+            all_pages: bool = False,
+        ) -> object:
+            return [_Model(name="b", id="2"), hit]
+
+        _full = eng.SyncMixin._full
+
+    meta = _meta(fetch="list_scan")
+    assert ls.list_scan(RBareList(), {"name": "a"}, {}, meta) is hit
+    # empty bare list -> None (fetch miss -> create path)
+
+    class REmptyBare:
+        def list(self, **kw: object) -> object:
+            return []
+
+        _full = eng.SyncMixin._full
+
+    assert ls.list_scan(REmptyBare(), {"name": "a"}, {}, meta) is None
 
 
 def test_list_scan_hydrates_when_opted() -> None:

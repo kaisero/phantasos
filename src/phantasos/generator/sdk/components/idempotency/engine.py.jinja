@@ -46,7 +46,16 @@ def _normalize(value: Any, *, order_sensitive: bool) -> Any:
     """Canonicalize a value for the equality plane only (not for display)."""
     value = _jsonify(value)
     if isinstance(value, dict):
-        return {k: _normalize(v, order_sensitive=order_sensitive) for k, v in value.items()}
+        # A key set to null is equivalent to an absent key: the user's sparse
+        # nested object (only the sub-fields they care about) must compare equal
+        # to the SERVER echo, which expands every optional sub-field to explicit
+        # null (live-proven on device_settings' motd_and_banner). Drop null values
+        # so null == absent on the equality plane; display keeps the raw wire dict.
+        return {
+            k: _normalize(v, order_sensitive=order_sensitive)
+            for k, v in value.items()
+            if v is not None
+        }
     if isinstance(value, list):
         items = [_normalize(v, order_sensitive=order_sensitive) for v in value]
         if not order_sensitive:
