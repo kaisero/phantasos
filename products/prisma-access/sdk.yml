@@ -455,6 +455,98 @@ subpackages:
         method: initiate
   - slug: security_services
     spec: openapi/security-services.yaml
+    idempotency:
+      defaults:
+        # Ground truth: every security_services list op carries the full
+        # folder/snippet/device query-param triple (verified from the wrapper
+        # `list` param_maps in the security_services resources module), and the
+        # item models carry the matching folder/snippet/device container fields.
+        # So the scope is the folder/snippet/device triple with exactly_one
+        # selected — the same shape objects/network_services carry.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # The resources below are all normal named, id-addressed resources (real
+        # `id` UUID + `name`) with full CRUD (create/delete/get/list/replace — a
+        # `replace` is the PUT full-replace `update_*` raw op) and the
+        # folder/snippet/device scope triple, so each inherits the scope default
+        # and needs no per-resource metadata. application_override_rule and
+        # decryption_rule additionally carry a `move` op (rule ordering); it is
+        # not a CRUD verb and does not affect the apply/absent/fetch path.
+        anti_spyware_profile: {}
+        application_override_rule: {}
+        data_filtering_profile: {}
+        data_object: {}
+        decryption_exclusion: {}
+        decryption_profile: {}
+        decryption_rule: {}
+        dns_security_profile: {}
+        do_s_protection_profile: {}
+        do_s_protection_rule: {}
+        file_blocking_profile: {}
+        http_header_profile: {}
+        profile_group: {}
+        url_access_profile: {}
+        url_category: {}
+        vulnerability_protection_profile: {}
+        wild_fire_anti_virus_profile: {}
+        # anti_spyware_signature and vulnerability_protection_signature are the two
+        # signature resources keyed by `threat_id`, NOT `name` — their create/read
+        # model (AntiSpywareSignatures / VulnerabilityProtectionSignatures) has no
+        # `name` field at all (its __properties lead with
+        # ["id", "threat_id", ...]), so identity cannot be auto-inferred (gate #2
+        # fires on a blank `{}`). Identity is the bare `threat_id`, present on the
+        # read model, so the default list_scan fetch matches on it (its list op
+        # carries no name/threat_id query param — a full paginated scan + in-model
+        # match, exactly what list_scan does). Full CRUD otherwise, so both inherit
+        # the folder/snippet/device scope default.
+        anti_spyware_signature:
+          identity:
+            - threat_id
+        vulnerability_protection_signature:
+          identity:
+            - threat_id
+        # saas_tenant_restriction is get + replace ONLY (no create/delete/list/id),
+        # which looks like a GET + PUT singleton — but unlike the driveable
+        # bgp_routing / auto_vpn_setting / shared_infrastructure_setting singletons
+        # (whose `get` returns the settings OBJECT directly, so drift is detectable
+        # on the read model), its `get` returns a LIST ENVELOPE
+        # (GetSaasTenantRestrictions200Response, __properties
+        # ["data", "limit", "offset", "total"]) — the actual restriction lives
+        # inside `data[*]`, an array of SaasTenantRestrictions. So the singleton
+        # read model exposes NONE of the managed write fields (description, domains,
+        # headers, name, saas_edl live on the PUT body SaasTenantRestrictions, not
+        # on the envelope), and gate #5 correctly fires: those fields are
+        # undetectable via GET, so the engine could never detect drift or converge.
+        # A faithful read model (the object, not the list envelope) is a
+        # precondition for singleton sync, so this stays out until the get op is
+        # normalized to return the object. Opted OUT with the universal
+        # `sync: false` hatch.
+        saas_tenant_restriction:
+          sync: false
+        # NOT listed — not CRUD-complete under the id-addressed engine:
+        #   security_rule (build gate #4 / unresolvable fetch) — it has create,
+        #     delete, get, replace, and move, but NO `list` op. A non-singleton's
+        #     fetch is list_scan, which resolves identity (name -> id) by scanning
+        #     the scoped list; `get` alone takes an `id`, so without `list` the
+        #     engine cannot resolve a rule by name and drive apply/absent. It is a
+        #     full lifecycle otherwise, but the missing list op leaves no
+        #     name-addressed read path. SKIP until a list op exists.
+        #   ssl_decryption_setting — its raw ops are delete + get + post + put.
+        #     The PUT is `put_*` (not the `update_*` the engine canonicalizes to
+        #     `replace`) and the create is `post_*` (not `create_*`), so the engine
+        #     sees NEITHER a `create` nor a `replace`/`update` verb, only a `get`
+        #     and a `delete`. `singleton: true` would trip gate #7 (a delete op
+        #     exists); leaving it non-singleton trips gate #4 (no update verb). It
+        #     is a settings blob with a non-standard put/post shape the id-addressed
+        #     engine does not recognize. SKIP until the ops are renamed/normalized.
+        #   rule — list-only (no create/delete/get/replace); gate #4 (no update
+        #     verb, no read-by-id path). Read-only. SKIP.
+        #   url_filtering_category — list-only; gate #4. Read-only. SKIP.
 default_headers:
   X-PANW-Region:
     env: PANW_REGION

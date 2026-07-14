@@ -485,3 +485,46 @@ def test_network_services_fetch_wiring_read_only(zone):
     else:
         assert missing is None
     assert missing is None
+
+
+@pytest.fixture()
+def url_category(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.security_services.url_category
+
+
+def test_security_services_fetch_wiring_read_only(url_category):
+    """Read-wiring check for the security_services idempotency opt-in (Batch 7 rollout).
+
+    SAFETY — READ-ONLY on purpose, and emphatically so: security_services
+    configures LIVE SECURITY POLICY — anti-spyware / vulnerability / URL /
+    file-blocking / DNS-security / decryption profiles and the decryption /
+    application-override rules that gate real traffic on the shared tenant. A
+    create -> apply -> absent quartet against any of these would stand up and tear
+    down live enforcement policy, so it is categorically unsafe. The generic
+    apply/absent path is already live-proven on objects and device_settings
+    through the same engine and strategies, so this batch verifies only the
+    resource-shape-specific READ half: fetch() drives the wired list_scan (the
+    folder/snippet/device-scoped paginated bare-array scan + identity match)
+    against a live folder, deserializing every real url_category the tenant lists
+    through from_dict — the exact failure mode a faulty generated model produces.
+
+    Targets `url_category` specifically: it is a safe, read-only-to-fetch,
+    folder-scoped full-CRUD resource that inherits the subpackage folder/snippet/
+    device scope default (unlike the scope-less saas_tenant_restriction singleton,
+    which overrides the default to an empty scope).
+
+    Probes the object folder `Shared`, which every tenant carries. A server-reached
+    ApiException (e.g. a 400 for a folder that does not exist in this tenant) still
+    proves the fetch WIRING built and sent a well-formed scoped request — the
+    failure this guards against, a model that can't deserialize a real object,
+    surfaces as a ValidationError from from_dict, which is NOT caught here and
+    still fails the test."""
+    try:
+        missing = url_category.fetch(name=_name(), folder="Shared")
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a fetch-wiring defect.
+        assert exc.status is not None
+    else:
+        assert missing is None
