@@ -118,6 +118,51 @@ subpackages:
           identity: []
   - slug: device_settings
     spec: openapi/device-settings.yaml
+    idempotency:
+      defaults:
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # Every device_settings resource is a per-CONTAINER settings blob: its
+        # model carries `id` + the three scope containers + one payload object
+        # and NO `name`. There is at most one such blob per folder/snippet/device,
+        # so identity WITHIN a scope is empty (`identity: []`) — the scope IS the
+        # key. These are NOT singletons in the binding sense: they have real
+        # create AND delete ops (so `singleton: true` would trip build gate #7),
+        # and their id-addressed get/replace/delete drive the engine normally.
+        authentication_setting:
+          identity: []
+        content_id_setting:
+          identity: []
+        device_redistribution_collector_setting:
+          identity: []
+        general_setting:
+          identity: []
+        # ha_device is NOT listed: its bindings are list-only (no create, delete,
+        # get, update, or replace op), so it fails the CRUD-complete bar
+        # (build gate #4 — no update verb — would fire). Read-only resource.
+        login_banner_setting:
+          identity: []
+        management_interface_setting:
+          identity: []
+        service_route_setting:
+          identity: []
+        service_setting:
+          identity: []
+        session_setting:
+          identity: []
+        session_timeouts_setting:
+          identity: []
+        tcp_setting:
+          identity: []
+        update_schedule_setting:
+          identity: []
+        vpn_setting:
+          identity: []
   - slug: identity_services
     spec: openapi/identity-services.yaml
   - slug: incidents

@@ -11,7 +11,9 @@ import pytest
 
 import {{ package }}
 from {{ package }}._auth import TokenManager, configuration_from_env
+from {{ package }}.config_setup.models import Snippets
 from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
+from {{ package }}.device_settings.models import MotdBannerSettings
 from {{ package }}.objects.models import Addresses
 from {{ package }}.objects.models import AddressGroups
 from {{ package }}.objects.models import Services
@@ -285,3 +287,64 @@ def test_from_access_token_provider_consulted_per_request():
     str_client = {{ package }}.Client.from_access_token(token)
     page = str_client.objects.address.list(folder="Shared", limit=1)
     assert page is not None
+
+
+@pytest.fixture()
+def login_banner_setting(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.device_settings.login_banner_setting
+
+
+@pytest.fixture()
+def snippet(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.config_setup.snippet
+
+
+def test_device_settings_login_banner_round_trip(login_banner_setting, snippet):
+    """Live spot-check for the device_settings idempotency opt-in (Batch 2 rollout).
+
+    SAFETY: device_settings mutate REAL tenant device behavior, so this scopes the
+    whole round-trip to a DISPOSABLE, uniquely-named `phx-sync-*` snippet — never a
+    live folder — and picks login_banner (a cosmetic message-of-the-day banner: it
+    changes no traffic, routing, VPN, or session behavior). Both the banner and its
+    throwaway snippet are torn down in `finally`, so nothing survives.
+
+    Exercises the device_settings shape the offline engine can't reach: a list op
+    that returns a BARE array (no `{data}` envelope) driving list_scan, an
+    id-addressed create/replace/delete keyed by an EMPTY identity within the scope,
+    and a sparse nested `motd_and_banner` whose server echo expands every optional
+    sub-field to null (null == absent, so re-apply must be a true no-op)."""
+    name = _name()
+
+    def banner(message):
+        return MotdBannerSettings(
+            snippet=name,
+            motd_and_banner={"message": message, "motd_enable": True},
+        )
+
+    created = snippet.create(body=Snippets(name=name))
+    try:
+        # 1) create the banner in the disposable snippet
+        r = login_banner_setting.apply(banner("phx orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged. The load-bearing device_settings
+        #    proof: the server echo fills the nested object with null-valued
+        #    optional sub-fields, which must NOT read as drift.
+        r = login_banner_setting.apply(banner("phx orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) change the banner text -> drift on exactly the nested settings object,
+        #    driven through the id-addressed PUT read-modify-write
+        r = login_banner_setting.apply(banner("phx edited"))
+        assert r.changed and set(r.diff.changes) == {"motd_and_banner"}
+        got = login_banner_setting.fetch(snippet=name)
+        assert got.motd_and_banner.message == "phx edited"
+        # 4) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert login_banner_setting.absent(banner("x")).action == "deleted"
+        assert not login_banner_setting.absent(banner("x")).changed
+        assert login_banner_setting.fetch(snippet=name) is None
+    finally:
+        leftover = login_banner_setting.fetch(snippet=name)
+        if leftover is not None:
+            login_banner_setting.delete(id=leftover.id)
+        snippet.delete(id=created.id)
