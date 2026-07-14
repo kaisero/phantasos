@@ -271,21 +271,24 @@ def _ensure_model_validator_import(text: str) -> str:
 _SCOPE_VALIDATOR = '''
     @model_validator(mode="after")
     def _phantasos_scope_exactly_one(self):
-        """phantasos: exactly one scope container on a user-authored mutation body.
+        """phantasos: scope-container guard on a user-authored mutation body.
 
         SCM reuses ONE schema for request AND response, so this same class also
-        deserializes server-echoed objects (which carry a server-assigned ``id``
-        and may legitimately have zero or several containers). Enforce the
-        mutual-exclusion rule ONLY on user mutation bodies — skip it whenever a
-        server-assigned ``id`` is present — so building/reading real objects never
-        crashes. Defense-in-depth: the SCM server already rejects a bad scope.
+        deserializes server payloads: echoes carry a server-assigned ``id`` (and
+        may have zero or several containers), and folder LISTINGS surface
+        inherited objects — e.g. the ``predefined`` snippet's — with NO id and
+        SEVERAL containers set (live-proven). Raising on any shape a server can
+        produce would crash reads, so reject ONLY the one shape a server never
+        emits: no ``id`` and no container at all — the classic user mistake of
+        omitting folder/snippet/device. A genuine multi-container mutation is
+        rejected by the SCM server itself (defense-in-depth).
         """
         if getattr(self, "id", None) is not None:
             return self
         set_ = [f for f in {fields!r} if getattr(self, f, None) is not None]
-        if len(set_) != 1:
+        if not set_:
             raise ValueError(
-                f"exactly one of {fields_h} must be set (got {{set_ or 'none'}})"
+                "exactly one of {fields_h} must be set (got none)"
             )
         return self
 '''
@@ -306,10 +309,12 @@ def patch_scope_validators(
 
     *model_stems* is the set of model file stems (e.g. ``{"addresses"}``) whose
     class carries the ``scope`` group — the mutating body models of the scoped
-    resources. For each, a ``mode="after"`` validator enforces "exactly one of
-    the scope fields is set" on USER mutation bodies, while skipping server echoes
-    (identified by a server-assigned ``id``); see ``_SCOPE_VALIDATOR``. Idempotent;
-    a stem with no ``\\nclass `` anchor is skipped and written back unchanged.
+    resources. For each, a ``mode="after"`` validator rejects the no-id,
+    zero-container shape (a USER mutation body that forgot its container) while
+    letting every server-producible payload through — echoes carrying ``id``,
+    and id-less inherited listing items with several containers; see
+    ``_SCOPE_VALIDATOR``. Idempotent; a stem with no ``\\nclass `` anchor is
+    skipped and written back unchanged.
     """
     count = 0
     fields = tuple(scope_fields)

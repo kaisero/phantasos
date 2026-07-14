@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..base import MUTATE
+from ..base import MUTATE, revalidate
 
 
 def put_singleton(res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any:
@@ -10,7 +10,7 @@ def put_singleton(res: Any, desired: Any, actual: Any, diff: Any, meta: dict) ->
     # user-set fields, and replace with NO id (the singleton has none — its
     # `replace` binding takes no `id` kwarg).
     merged = {**actual.to_dict(), **res._present(desired)}
-    body = meta["models"]["update"].model_validate(merged)
+    body = revalidate(meta["models"]["update"], merged)
     verb = getattr(res, meta["update"]["verb"])  # F9: "replace" for PUT
     return verb(body=body)
 

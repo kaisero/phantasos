@@ -4,11 +4,12 @@ Requires the sibling ../prisma-access-sdk to be built (``phantasos sdk build
 prisma-access``). Proves against the REAL generated ``Addresses`` model — SCM's
 one-schema-for-request-and-response object — that:
 
-* a user-authored mutation body with zero or two scope containers is rejected at
-  construction (exactly-one-scope, UX / defense-in-depth);
+* a user-authored mutation body with ZERO scope containers is rejected at
+  construction (the one shape a server never produces; UX / defense-in-depth);
 * a server echo (a payload carrying the readOnly ``id``) round-trips
-  ``model_validate`` with zero OR two containers, so building/reading real objects
-  never crashes — settling the design's echo-guard question against real payloads.
+  ``model_validate`` with zero OR two containers, and an id-LESS inherited
+  listing item (SCM's ``predefined`` snippet objects carry no id and SEVERAL
+  containers) round-trips too, so building/reading real objects never crashes.
 
 SKIPS cleanly when the SDK is not built or its runtime deps are unavailable.
 NOTHING here is mocked: it drives the real generated model class.
@@ -58,20 +59,24 @@ def test_scope_validator_present_on_real_model(addresses: Any) -> None:
     assert hasattr(addresses, "_phantasos_scope_exactly_one")
 
 
-def test_mutation_body_requires_exactly_one_container(addresses: Any) -> None:
+def test_mutation_body_requires_a_container(addresses: Any) -> None:
     # exactly one container -> constructs
     assert addresses(name="phx-test", folder="Shared", ip_netmask="1.1.1.1/32")
-    # zero containers -> rejected
+    # zero containers (and no id) -> rejected: the one shape a server never
+    # produces, i.e. the classic user mistake of omitting the container.
     with pytest.raises(ValidationError):
         addresses(name="phx-test", ip_netmask="1.1.1.1/32")
-    # two containers -> rejected
-    with pytest.raises(ValidationError):
-        addresses(
-            name="phx-test",
-            folder="Shared",
-            snippet="s",
-            ip_netmask="1.1.1.1/32",
-        )
+    # two containers -> tolerated: folder listings surface INHERITED objects
+    # (e.g. SCM's `predefined` snippet) with several containers set and NO id,
+    # so the guard cannot raise on multi-container payloads without breaking
+    # reads. A genuine multi-container write is rejected by the server itself.
+    both = addresses(
+        name="phx-test",
+        folder="Shared",
+        snippet="s",
+        ip_netmask="1.1.1.1/32",
+    )
+    assert both.folder == "Shared" and both.snippet == "s"
 
 
 def test_server_echo_bypasses_scope_guard(addresses: Any) -> None:
@@ -90,6 +95,18 @@ def test_server_echo_bypasses_scope_guard(addresses: Any) -> None:
         }
     )
     assert echo_two.folder == "Shared" and echo_two.snippet == "s"
+
+
+def test_id_less_inherited_listing_item_bypasses_scope_guard(addresses: Any) -> None:
+    # Live-proven SCM shape (test_service_idempotency_round_trip found it): a
+    # folder listing surfaces objects inherited from the `predefined` snippet
+    # with NO id and BOTH folder and snippet set. Deserializing one must not
+    # raise, or every list_scan over such a folder crashes.
+    item = addresses.model_validate(
+        {"name": "service-http", "folder": "Shared", "snippet": "predefined"}
+    )
+    assert item.id is None
+    assert item.folder == "Shared" and item.snippet == "predefined"
 
 
 @pytest.fixture

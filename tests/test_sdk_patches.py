@@ -254,12 +254,15 @@ def test_scope_validator_runtime_behavior(tmp_path: Path) -> None:
     try:
         # exactly one container -> ok
         assert Addresses(name="a", folder="Shared").folder == "Shared"
-        # zero containers on a user body -> raises
+        # zero containers on a user body -> raises (the one server-impossible shape)
         with pytest.raises(ValidationError):
             Addresses(name="a")
-        # two containers on a user body -> raises
-        with pytest.raises(ValidationError):
-            Addresses(name="a", folder="Shared", snippet="s")
+        # two containers, NO id -> tolerated: folder listings surface inherited
+        # objects (e.g. SCM's `predefined` snippet) with several containers and
+        # no id, so raising here would break reads. The server rejects a genuine
+        # multi-container write itself.
+        inherited = Addresses(name="a", folder="Shared", snippet="s")
+        assert inherited.folder == "Shared" and inherited.snippet == "s"
         # server echo (id set) with zero containers -> NOT rejected
         echo0 = Addresses(id="uuid-1", name="a")
         assert echo0.id == "uuid-1"
@@ -268,5 +271,10 @@ def test_scope_validator_runtime_behavior(tmp_path: Path) -> None:
         assert echo2.id == "uuid-2"
         # model_validate of an echoed dict round-trips
         assert Addresses.model_validate({"id": "uuid-3", "name": "a"}).id == "uuid-3"
+        # model_validate of an id-LESS inherited listing item round-trips
+        pre = Addresses.model_validate(
+            {"name": "a", "folder": "Shared", "snippet": "predefined"}
+        )
+        assert pre.snippet == "predefined"
     finally:
         sys.modules.pop("addresses", None)

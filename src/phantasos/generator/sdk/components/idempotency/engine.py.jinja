@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, Optional
 
-from .base import FETCH, MUTATE, MATERIALIZE
+from .base import FETCH, MUTATE, MATERIALIZE, revalidate
 
 __all__ = ["Diff", "SyncResult", "AbsentNotSupported", "IdentityUnresolved", "SyncMixin"]
 
@@ -131,7 +131,7 @@ class SyncMixin:
         actual = FETCH[meta["fetch"]](self, identity, scope, meta)
         if actual is None:                                          # ---- CREATE
             present = self._present(desired)
-            body = meta["models"]["create"].model_validate(present)
+            body = revalidate(meta["models"]["create"], present)
             d = Diff(True, {k: {"before": None, "after": v} for k, v in present.items()})
             if check_mode:
                 return SyncResult(True, "created", None, present, d, None, desired)

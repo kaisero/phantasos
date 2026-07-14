@@ -171,6 +171,70 @@ def test_create_builds_body_and_calls_materialize() -> None:
     assert any(k == "create" for k, _ in rec)
 
 
+class _OneOfModel(_Model):
+    """Simulates an OAG model with a nested oneOf wrapper field: a bare
+    ``model_validate`` LOSES the field (OAG's oneOf wrapper leaves
+    ``actual_instance`` None -> the field serializes null), while the generated
+    ``from_dict`` reconstructs it. Live-proven on Services.protocol."""
+
+    @classmethod
+    def model_validate(cls, d: dict[str, object]) -> "_OneOfModel":
+        return cls(**{k: (None if k == "protocol" else v) for k, v in d.items()})
+
+    @classmethod
+    def from_dict(cls, d: dict[str, object]) -> "_OneOfModel":
+        return cls(**d)
+
+
+def test_revalidate_prefers_from_dict_over_model_validate() -> None:
+    base, _eng = _engine_env()
+    wire = {"name": "a", "protocol": {"tcp": {"port": "80"}}}
+    got = base.revalidate(_OneOfModel, wire)
+    assert got.protocol == {"tcp": {"port": "80"}}
+    # plain pydantic-style models (no from_dict) fall back to model_validate
+    plain = base.revalidate(_Model, {"name": "a"})
+    assert plain.name == "a"
+
+
+def test_create_body_survives_oneof_field() -> None:
+    # The engine's CREATE leg must rebuild the body via from_dict, or a nested
+    # oneOf field silently nulls out and the server rejects the create.
+    base, eng = _engine_env()
+    meta = _meta(
+        models={"create": _OneOfModel, "update": _OneOfModel, "read": _OneOfModel},
+        input_fields=["name", "description", "protocol"],
+    )
+    res, rec = _stub(base, eng, meta, existing=None)
+    res.apply(_OneOfModel(name="a", protocol={"tcp": {"port": "80"}}))
+    body = next(b for k, b in rec if k == "create")
+    assert body.protocol == {"tcp": {"port": "80"}}
+
+
+def test_put_rmw_body_survives_oneof_field() -> None:
+    base, eng = _engine_env()
+    pr = _exec_strategy("mutate", "put_rmw", base, eng)
+    calls: dict[str, object] = {}
+    actual = _OneOfModel(name="a", protocol={"tcp": {"port": "80"}},
+                         description="keep", id="1")
+
+    class R:
+        _present = eng.SyncMixin._present
+
+        def replace(self, *, id: object, body: object) -> object:
+            calls["body"] = body
+            return body
+
+    desired = _OneOfModel(name="a", description="edited")
+    meta = _meta(
+        models={"create": _OneOfModel, "update": _OneOfModel, "read": _OneOfModel},
+        input_fields=["name", "description", "protocol"],
+    )
+    body = pr.put_rmw(R(), desired, actual, None, meta)
+    dumped = body.model_dump()
+    assert dumped["description"] == "edited"
+    assert dumped["protocol"] == {"tcp": {"port": "80"}}  # oneOf preserved
+
+
 def test_reapply_identical_is_unchanged() -> None:
     base, eng = _engine_env()
     actual = _Model(name="a", ip_netmask="1.1.1.1/32", id="1")

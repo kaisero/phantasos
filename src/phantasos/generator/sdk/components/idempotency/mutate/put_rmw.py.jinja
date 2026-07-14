@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..base import MUTATE
+from ..base import MUTATE, revalidate
 
 
 def put_rmw(res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any:
     merged = {**actual.to_dict(), **res._present(desired)}
     merged.pop(meta["id_field"]["wire"], None)   # id routes to the URL, not the body
-    body = meta["models"]["update"].model_validate(merged)
+    body = revalidate(meta["models"]["update"], merged)
     verb = getattr(res, meta["update"]["verb"])  # F9: "replace" for PUT
     return verb(id=getattr(actual, meta["id_field"]["attr"]), body=body)
 
