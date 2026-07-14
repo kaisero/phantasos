@@ -54,6 +54,114 @@ subpackages:
   - slug: network_services
     spec: openapi/network-services.yaml
     skip_validate_spec: true   # OAS 3.1 false positive under OAG validation
+    idempotency:
+      defaults:
+        # Ground truth: every network_services list op carries the full
+        # folder/snippet/device query-param triple (verified from the wrapper
+        # `list` param_maps in the network_services resources module), and the
+        # item models carry the matching folder/snippet/device container fields.
+        # So the scope is the folder/snippet/device triple with exactly_one
+        # selected — the same shape objects/device_settings carry.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # The resources below are all normal named, id-addressed resources (real
+        # `id` UUID + `name`) with full CRUD (create/delete/get/list/replace) and
+        # the folder/snippet/device scope triple, so each inherits the scope
+        # default and needs no per-resource metadata.
+        aggregate_interface: {}
+        # bgp_address_family_profile is KEPT. The model pre-scan flagged the
+        # nested `ipv4` sub-object model (BgpAddressFamilyProfilesIpv4) as having
+        # an empty `__properties`, so its typed fields route into
+        # additional_properties. But the create/read model for THIS resource is
+        # BgpAddressFamilyProfiles, whose `__properties` is
+        # ["id","name","ipv4","folder","snippet","device"] — faithful. The empty
+        # bag only affects the nested ipv4 blob, and to_dict() re-emits that blob
+        # verbatim from additional_properties, so the read round-trip is lossless
+        # (proven: from_dict(x).to_dict() == x except the server-assigned `id`,
+        # which every resource drops). Unlike mobile_agent's destination (whose
+        # required `name` makes from_dict raise), nothing raises and no field is
+        # lost here, so the idempotency precondition holds.
+        bgp_address_family_profile: {}
+        bgp_authentication_profile: {}
+        # bgp_filtering_profile is KEPT for the same reason as
+        # bgp_address_family_profile: its create/read model BgpFilteringProfiles
+        # has a faithful `__properties`
+        # (["id","name","description","ipv4","folder","snippet","device"]); only
+        # the nested `ipv4` sub-object (BgpFilteringProfilesIpv4) has the empty
+        # `__properties`, and to_dict() re-emits that blob verbatim, so the read
+        # round-trip is lossless (proven: from_dict(x).to_dict() == x sans `id`).
+        bgp_filtering_profile: {}
+        bgp_redistribution_profile: {}
+        bgp_route_map: {}
+        bgp_route_map_redistribution: {}
+        config_match_list: {}
+        dhcp_interface: {}
+        dns_proxy: {}
+        ethernet_interface: {}
+        globalprotect_match_list: {}
+        hipmatch_match_list: {}
+        ike_crypto_profile: {}
+        ike_gateway: {}
+        i_psec_crypto_profile: {}
+        i_psec_tunnel: {}
+        interface_management_profile: {}
+        iptag_match_list: {}
+        layer2_subinterface: {}
+        layer3_subinterface: {}
+        link_tag: {}
+        lldp_profile: {}
+        logical_router: {}
+        loopback_interface: {}
+        nat_rule: {}
+        ospf_authentication_profile: {}
+        pbf_rule: {}
+        qo_s_policy_rule: {}
+        qo_s_profile: {}
+        route_access_list: {}
+        route_community_list: {}
+        route_path_access_list: {}
+        route_prefix_list: {}
+        sdwan_error_correction_profile: {}
+        sdwan_path_quality_profile: {}
+        sdwan_rule: {}
+        sdwan_saa_s_quality_profile: {}
+        sdwan_traffic_distribution_profile: {}
+        system_match_list: {}
+        tunnel_interface: {}
+        userid_match_list: {}
+        vlan_interface: {}
+        zone: {}
+        zone_protection_profile: {}
+        # auto_vpn_cluster is a normal named, id-addressed resource with full CRUD,
+        # but — unlike every other network_services resource — its list op carries
+        # NO folder/snippet/device query param (it is scope-less). A blank `{}`
+        # would inherit the folder/snippet/device default and wrongly attach a
+        # scope the list op can't accept, so it declares an explicit empty scope to
+        # override the default. Identity is the bare `name`.
+        auto_vpn_cluster:
+          scope:
+            fields: []
+        # auto_vpn_setting is a GET + PUT singleton like shared_infrastructure_setting:
+        # its bindings are get + replace ONLY — no create, no delete, no id, no
+        # scope. So it takes the fetch(get) -> diff -> put_singleton path and
+        # identity is empty (the blob always exists). `singleton: true` is correct
+        # precisely because there is no create/delete op (gate #7 would fire
+        # otherwise); the empty scope overrides the subpackage default so no folder
+        # scope leaks onto this scope-less singleton.
+        auto_vpn_setting:
+          singleton: true
+          identity: []
+          scope:
+            fields: []
+        # NOT listed (build gate #4 — not CRUD-complete, no update/read path):
+        #   auto_vpn_push_config          — create-only (no get/list/replace).
+        #   auto_vpn_monitor              — get-only (no create/update/delete).
+        #   remote_networks_license_info  — get-only (read-only license info).
     operations:
       vlan_interfaces.update_vlanl_interfaces_by_id:
         resource: vlan_interface

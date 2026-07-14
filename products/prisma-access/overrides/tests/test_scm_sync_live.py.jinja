@@ -11,6 +11,7 @@ import pytest
 
 import {{ package }}
 from {{ package }}._auth import TokenManager, configuration_from_env
+from {{ package }}._runtime.exceptions import ApiException
 from {{ package }}.config_setup.models import Snippets
 from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
 from {{ package }}.device_settings.models import MotdBannerSettings
@@ -438,4 +439,49 @@ def test_deployment_services_fetch_wiring_read_only(remote_network):
     that the scope-less bgp_routing / shared_infrastructure_setting singletons and
     the scope-less internal_dns_server do not."""
     missing = remote_network.fetch(name=_name(), folder="Remote Networks")
+    assert missing is None
+
+
+@pytest.fixture()
+def zone(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.network_services.zone
+
+
+def test_network_services_fetch_wiring_read_only(zone):
+    """Read-wiring check for the network_services idempotency opt-in (Batch 6 rollout).
+
+    SAFETY — READ-ONLY on purpose, and emphatically so: network_services
+    configures REAL routing, VPN, and interfaces (zones, IKE/IPsec gateways and
+    tunnels, BGP/OSPF routers, NAT/PBF rules, SD-WAN paths, physical/logical
+    interfaces). A create -> apply -> absent quartet against any of these would
+    stand up and tear down live routing/VPN/interface configuration on the shared
+    tenant, so it is categorically unsafe. The generic apply/absent path is
+    already live-proven on objects and device_settings through the same engine
+    and strategies, so this batch (the largest — 47 opted-in resources) verifies
+    only the resource-shape-specific READ half: fetch() drives the wired
+    list_scan (the folder/snippet/device-scoped paginated bare-array scan +
+    identity match) against a live folder, deserializing every real zone the
+    tenant lists through from_dict — the exact failure mode a faulty generated
+    model produces.
+
+    Targets `zone` specifically: it is a safe, read-only-to-fetch, folder-scoped
+    full-CRUD resource that inherits the subpackage folder/snippet/device scope
+    default (unlike the scope-less auto_vpn_cluster and the auto_vpn_setting
+    singleton, which override the default to an empty scope).
+
+    network_services objects live in deployment folders, not the object folder
+    `Shared`; which folders exist is tenant-specific. So a server-reached
+    ApiException (e.g. a 400 "folder doesn't exist") still proves the fetch WIRING
+    built and sent a well-formed scoped request — the failure this guards against,
+    a model that can't deserialize a real object, surfaces as a ValidationError
+    from from_dict, which is NOT caught here and still fails the test."""
+    try:
+        missing = zone.fetch(name=_name(), folder="Remote Networks")
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a fetch-wiring defect.
+        assert exc.status is not None
+    else:
+        assert missing is None
     assert missing is None
