@@ -194,6 +194,10 @@ per-product in the shared template.
   - class `Facade` — Resource facade: binds generated *Api classes as client.<resource>.
   - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
   - class `OperationOverride` — Declarative rename of a single SDK operation (keyed by ``resource.method``).
+  - class `ScopeSpec`
+  - class `IdempotencyResource`
+  - class `IdempotencyDefaults`
+  - class `IdempotencyConfig`
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants
