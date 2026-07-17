@@ -71,10 +71,12 @@ docs:
     create: |
       created = client.application.create(
           type="custom",
-          body=CustomApplicationInput(
-              name="Acme Wiki",
-              type="custom",
-              urls=[UrlInput(url="https://wiki.acme.com/*")],
+          body=CreateOrReplaceAppInput(
+              CustomApplicationInput(
+                  name="Acme Wiki",
+                  type="custom",
+                  urls=[UrlInput(url="https://wiki.acme.com/*")],
+              )
           ),
       )
 transforms:
