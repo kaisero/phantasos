@@ -98,6 +98,49 @@ class SyncMixin:
         scope = {k: v for k, v in kwargs.items() if k in self._scope_fields()}
         return identity, scope
 
+    def _declared_params(self) -> dict[str, Any]:
+        """The baked extra-required call params (`{name: {values, verbs, default}}`,
+        e.g. a rulebase `position` pre/post enum) — empty for most resources."""
+        return self._idempotency.get("params") or {}
+
+    def _resolve_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Validate + default-fill the caller's extra call params. Fail-loud on an
+        unknown name, a value outside the enum, or a missing param with no
+        declared default. Inert (`{}` in -> `{}` out) without declared params."""
+        declared = self._declared_params()
+        unknown = sorted(set(params) - set(declared))
+        if unknown:
+            raise ValueError(
+                f"unknown call param(s) {unknown}; declared: {sorted(declared)}"
+            )
+        resolved: dict[str, Any] = {}
+        for name, spec in declared.items():
+            value = _jsonify(params.get(name))
+            if value is None:
+                value = spec.get("default")
+            if value is None:
+                raise ValueError(
+                    f"required call param {name!r} not passed and no default declared"
+                )
+            if value not in spec["values"]:
+                raise ValueError(
+                    f"call param {name}={value!r} not one of {spec['values']}"
+                )
+            resolved[name] = value
+        return resolved
+
+    def _verb_params(self, resolved: dict[str, Any], verb: str) -> dict[str, Any]:
+        """The subset of resolved call params the given verb's binding requires."""
+        declared = self._declared_params()
+        return {k: v for k, v in resolved.items() if verb in declared[k]["verbs"]}
+
+    def _fetch_scope(self, scope: dict, resolved: dict[str, Any]) -> dict:
+        """Merge list-side call params into the scope dict handed to the fetch
+        strategy — list_scan forwards `dict(scope)` to `res.list` unchanged, and
+        `_match` compares identity fields only, so the extra key is transparent."""
+        listp = self._verb_params(resolved, "list")
+        return {**scope, **listp} if listp else scope
+
     def _comparable(self, present_desired: dict) -> list[str]:
         meta = self._idempotency
         excluded = (set(meta.get("server_only", [])) | self._scope_fields()
@@ -131,20 +174,25 @@ class SyncMixin:
 
     def fetch(self, **identity_and_scope: Any) -> Any | None:
         meta = self._idempotency
+        declared = self._declared_params()
+        resolved = self._resolve_params(
+            {k: identity_and_scope.pop(k) for k in list(identity_and_scope) if k in declared}
+        )
         identity, scope = self._split(identity_and_scope)
-        return FETCH[meta["fetch"]](self, identity, scope, meta)
+        return FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
 
-    def apply(self, desired: Any, *, check_mode: bool = False) -> SyncResult:
+    def apply(self, desired: Any, *, check_mode: bool = False, **params: Any) -> SyncResult:
         meta = self._idempotency
+        resolved = self._resolve_params(params)
         identity, scope = self._extract_identity(desired)
-        actual = FETCH[meta["fetch"]](self, identity, scope, meta)
+        actual = FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
         if actual is None:                                          # ---- CREATE
             present = self._present(desired)
             body = revalidate(meta["models"]["create"], present)
             d = Diff(True, {k: {"before": None, "after": v} for k, v in present.items()})
             if check_mode:
                 return SyncResult(True, "created", None, present, d, None, desired)
-            resp = self.create(body=body)
+            resp = self.create(body=body, **self._verb_params(resolved, "create"))
             after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
             return SyncResult(True, "created", None, self._full(after), d, None, after)
         d = self.diff(desired, actual)
@@ -154,16 +202,22 @@ class SyncMixin:
         if check_mode:                                             # ---- PREDICT
             after = {**self._full(actual), **{k: c["after"] for k, c in d.changes.items()}}
             return SyncResult(True, "updated", self._full(actual), after, d, actual, None)
-        resp = MUTATE[meta["mutate"]](self, desired, actual, d, meta)
+        # A positioned update verb (e.g. nat_rule's replace) gets its call params
+        # overlaid on the strategy's meta view; param-less resources pass `meta`
+        # itself, keeping the strategy call byte-for-byte inert.
+        call_params = self._verb_params(resolved, meta["update"]["verb"])
+        mutate_meta = {**meta, "call_params": call_params} if call_params else meta
+        resp = MUTATE[meta["mutate"]](self, desired, actual, d, mutate_meta)
         after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
         return SyncResult(True, "updated", self._full(actual), self._full(after), d, actual, after)
 
-    def absent(self, desired_or_identity: Any, *, check_mode: bool = False) -> SyncResult:
+    def absent(self, desired_or_identity: Any, *, check_mode: bool = False, **params: Any) -> SyncResult:
         meta = self._idempotency
         if meta.get("singleton"):
             raise AbsentNotSupported(meta.get("identity", ["<resource>"]))
+        resolved = self._resolve_params(params)
         identity, scope = self._extract_identity(desired_or_identity)
-        actual = FETCH[meta["fetch"]](self, identity, scope, meta)
+        actual = FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
         if actual is None:
             return SyncResult(False, "unchanged", None, None, Diff(False, {}), None, None)
         if not check_mode:

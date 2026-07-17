@@ -167,6 +167,21 @@ class ScopeSpec(BaseModel):
     rule: Literal["exactly_one"] = "exactly_one"
 
 
+class ParamSpec(BaseModel):
+    """One extra-required call param on a synced resource (e.g. the rulebase
+    ``position`` pre/post query enum on the prisma-access rule resources).
+
+    Detection, the value set and the requiring verbs are AUTO-DERIVED by the
+    idempotency producer from the built wrapper's bindings — config may not set
+    them. The only declarable fact is the default value: the vendor spec's
+    ``default:`` does not survive into the generated enum, so it lives here
+    (``None`` keeps the param call-time-required on apply/absent/fetch).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    default: str | None = None
+
+
 class IdempotencyResource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     identity: list[str] | None = None  # None -> infer; fail-loud on ambiguity
@@ -177,6 +192,10 @@ class IdempotencyResource(BaseModel):
     projections: dict[str, str] = {}  # F5: field -> item subfield (Phase 5)
     singleton: bool = False
     scope: ScopeSpec | None = None
+    # Extra-required call params (auto-detected; see ParamSpec) — an entry may
+    # only name a param the resource's ops actually require, and only sets its
+    # default value. E.g. `params: {position: {default: pre}}`.
+    params: dict[str, ParamSpec] = {}
     sync: bool = True  # False -> CRUD primitives only
     # Strategy overrides — ESCAPE HATCH, not routine (ADR-0004 / spec §5.5). Each
     # family is auto-selected + baked by the producer; set one only to force a

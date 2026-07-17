@@ -36,11 +36,13 @@ _BROWSER_SDK = _REPO_PARENT / "prisma-browser-sdk"
 
 # §4.1 sync surface: method name -> (positional-or-keyword params after self,
 # keyword-only params, whether it takes **kwargs). Signatures are asserted exactly
-# so a drift in the mixin's public shape trips the ring.
+# so a drift in the mixin's public shape trips the ring. apply/absent carry
+# **params for the extra-required call params (e.g. the rulebase `position`
+# enum) — validated against the baked `params` meta, inert without one.
 _SYNC_SURFACE = {
-    "apply": (["desired"], ["check_mode"], False),
-    "absent": (["desired_or_identity"], ["check_mode"], False),
-    "fetch": ([], [], True),  # **identity_and_scope
+    "apply": (["desired"], ["check_mode"], True),  # **params
+    "absent": (["desired_or_identity"], ["check_mode"], True),  # **params
+    "fetch": ([], [], True),  # **identity_and_scope (+ declared params)
     "diff": (["desired", "actual"], [], False),
 }
 

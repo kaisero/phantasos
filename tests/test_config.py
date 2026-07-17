@@ -164,3 +164,23 @@ def test_idempotency_resource_accepts_strategy_override_strings() -> None:
 
 def test_scope_spec_defaults_rule_exactly_one() -> None:
     assert ScopeSpec.model_validate({"fields": ["folder"]}).rule == "exactly_one"
+
+
+def test_idempotency_resource_accepts_params_default() -> None:
+    r = IdempotencyResource.model_validate({"params": {"position": {"default": "pre"}}})
+    assert r.params["position"].default == "pre"
+    # default is optional (None -> the param stays call-time-required)
+    bare = IdempotencyResource.model_validate({"params": {"position": {}}})
+    assert bare.params["position"].default is None
+
+
+def test_idempotency_param_spec_rejects_derived_facts() -> None:
+    # values/verbs are auto-derived by the producer — config may not set them.
+    with pytest.raises(ValidationError):
+        IdempotencyResource.model_validate(
+            {"params": {"position": {"values": ["pre", "post"]}}}
+        )
+    with pytest.raises(ValidationError):
+        IdempotencyResource.model_validate(
+            {"params": {"position": {"verbs": ["list"]}}}
+        )

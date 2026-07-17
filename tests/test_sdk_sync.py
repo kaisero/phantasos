@@ -996,6 +996,282 @@ def test_integration_singleton_absent_raises() -> None:
         Stub().absent(_Model(as_number="65000"))
 
 
+# --- extra-required call params (position threading) --------------------------
+
+
+def _position_meta(**over: object) -> dict[str, object]:
+    """nat_rule-ish shape: a required `position` query enum on list/create/replace,
+    threaded at call time (never a body/read-model field, so never diffed)."""
+    return _access_meta(
+        params={
+            "position": {
+                "values": ["pre", "post"],
+                "verbs": ["list", "create", "replace"],
+                "default": None,
+            }
+        },
+        **over,
+    )
+
+
+def test_apply_threads_param_into_fetch_scope_and_create() -> None:
+    """apply(position=...) folds the param into the scope dict handed to
+    list_scan (which forwards it to `res.list` UNCHANGED) and passes it to the
+    create leg when "create" is in the param's verbs."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    seen: dict[str, object] = {}
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            seen["list_kw"] = kw
+            return _Page([])
+
+        def create(self, *, body: _Model, position: object = None) -> object:
+            seen["create_position"] = position
+            return _Model(id="new", **body.model_dump())
+
+    r = Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"), position="pre")
+    assert r.changed and r.action == "created"
+    assert seen["list_kw"]["position"] == "pre"  # type: ignore[index]
+    assert seen["create_position"] == "pre"
+
+
+def test_apply_fills_declared_default_when_param_absent() -> None:
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    seen: dict[str, object] = {}
+    meta = _position_meta()
+    meta["params"]["position"]["default"] = "pre"  # type: ignore[index]
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = meta
+
+        def list(self, **kw: object) -> object:
+            seen["list_kw"] = kw
+            return _Page([])
+
+        def create(self, *, body: _Model, position: object = None) -> object:
+            seen["create_position"] = position
+            return _Model(id="new", **body.model_dump())
+
+    r = Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"))
+    assert r.action == "created"
+    assert seen["list_kw"]["position"] == "pre"  # type: ignore[index]
+    assert seen["create_position"] == "pre"
+
+
+def test_apply_missing_param_without_default_fails_loud() -> None:
+    base, eng = _engine_env()
+    _register_all(base, eng)
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()  # default: None
+
+        def list(self, **kw: object) -> object:
+            raise AssertionError("must fail before any fetch")
+
+    with pytest.raises(ValueError, match="position"):
+        Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"))
+
+
+def test_apply_bad_param_value_fails_loud() -> None:
+    base, eng = _engine_env()
+    _register_all(base, eng)
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            raise AssertionError("must fail before any fetch")
+
+    with pytest.raises(ValueError, match="position"):
+        Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"), position="mid")
+
+
+def test_apply_unknown_param_fails_loud() -> None:
+    base, eng = _engine_env()
+    _register_all(base, eng)
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            raise AssertionError("must fail before any fetch")
+
+    with pytest.raises(ValueError, match="rulebase"):
+        Stub().apply(
+            _Model(name="a", ip_netmask="1.1.1.1/32"), position="pre", rulebase="x"
+        )
+
+
+def test_apply_rejects_param_on_paramless_resource() -> None:
+    """A resource WITHOUT declared params must fail loud on a stray kwarg —
+    the `**params` surface is inert, not a silent sink."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _access_meta()
+
+        def list(self, **kw: object) -> object:
+            raise AssertionError("must fail before any fetch")
+
+    with pytest.raises(ValueError, match="position"):
+        Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"), position="pre")
+
+
+def test_fetch_threads_param_into_scope() -> None:
+    """The public fetch() accepts the declared param and merges it into the
+    scope dict — list_scan itself needs no change."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    seen: dict[str, object] = {}
+    hit = _Model(name="a", id="1")
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            seen["list_kw"] = kw
+            return _Page([hit])
+
+    assert Stub().fetch(name="a", position="post") is hit
+    assert seen["list_kw"]["position"] == "post"  # type: ignore[index]
+
+
+def test_absent_threads_param_to_fetch_never_delete() -> None:
+    """absent() needs the param for the fetch; delete stays id-only (the strict
+    `delete(*, id)` signature would raise on any stray kwarg)."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    actual = _Model(name="a", ip_netmask="1.1.1.1/32", id="1")
+    seen: dict[str, object] = {}
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            seen["list_kw"] = kw
+            return _Page([actual])
+
+        def delete(self, *, id: object) -> None:  # strict: id ONLY
+            seen["deleted"] = id
+
+    r = Stub().absent(_Model(name="a"), position="pre")
+    assert r.changed and r.action == "deleted"
+    assert seen["list_kw"]["position"] == "pre"  # type: ignore[index]
+    assert seen["deleted"] == "1"
+
+
+def test_param_not_forwarded_to_create_when_verbs_exclude_it() -> None:
+    """mfa_server shape: position is required on list ONLY — the create leg must
+    NOT receive it (the strict `create(*, body)` signature would raise)."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    seen: dict[str, object] = {}
+    meta = _position_meta()
+    meta["params"]["position"]["verbs"] = ["list"]  # type: ignore[index]
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = meta
+
+        def list(self, **kw: object) -> object:
+            seen["list_kw"] = kw
+            return _Page([])
+
+        def create(self, *, body: _Model) -> object:  # strict: NO position kwarg
+            return _Model(id="new", **body.model_dump())
+
+    r = Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"), position="pre")
+    assert r.action == "created"
+    assert seen["list_kw"]["position"] == "pre"  # type: ignore[index]
+
+
+def test_drift_forwards_param_to_positioned_replace() -> None:
+    """nat_rule shape: the update verb (`replace`) requires the param — the
+    mutate leg overlays it as `call_params` and put_rmw forwards it because the
+    verb's signature accepts it."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    actual = _Model(name="a", ip_netmask="1.1.1.1/32", id="1")
+    seen: dict[str, object] = {}
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = _position_meta()
+
+        def list(self, **kw: object) -> object:
+            return _Page([actual])
+
+        def replace(
+            self, *, id: object, body: _Model, position: object = None
+        ) -> object:
+            seen["replace_position"] = position
+            return _Model(**{**body.model_dump(), "id": id})
+
+    r = Stub().apply(_Model(name="a", ip_netmask="2.2.2.2/32"), position="pre")
+    assert r.changed and r.action == "updated"
+    assert seen["replace_position"] == "pre"
+
+
+def test_drift_omits_param_from_replace_when_verbs_exclude_it() -> None:
+    """qo_s_policy_rule shape: position on list/create only — the strict
+    `replace(*, id, body)` must not receive it on the mutate leg."""
+    base, eng = _engine_env()
+    _register_all(base, eng)
+    actual = _Model(name="a", ip_netmask="1.1.1.1/32", id="1")
+    meta = _position_meta()
+    meta["params"]["position"]["verbs"] = ["list", "create"]  # type: ignore[index]
+
+    class Stub(eng.SyncMixin):  # type: ignore[name-defined,misc]
+        _idempotency = meta
+
+        def list(self, **kw: object) -> object:
+            return _Page([actual])
+
+        def replace(self, *, id: object, body: _Model) -> object:  # strict
+            return _Model(**{**body.model_dump(), "id": id})
+
+    r = Stub().apply(_Model(name="a", ip_netmask="2.2.2.2/32"), position="pre")
+    assert r.changed and r.action == "updated"
+
+
+def test_put_rmw_forwards_call_params_signature_guarded() -> None:
+    """put_rmw forwards `meta['call_params']` entries the update verb's signature
+    accepts, and silently drops those it does not (mirror of list_scan's
+    pagination-knob guard) — no new strategy module."""
+    base, eng = _engine_env()
+    pr = _exec_strategy("mutate", "put_rmw", base, eng)
+    actual = _Model(name="a", ip_netmask="1.1.1.1/32", id="1")
+    desired = _Model(name="a", ip_netmask="2.2.2.2/32")
+    calls: dict[str, object] = {}
+
+    class RAccepts:
+        _present = eng.SyncMixin._present
+
+        def replace(
+            self, *, id: object, body: object, position: object = None
+        ) -> object:
+            calls["position"] = position
+            return body
+
+    meta = _meta(call_params={"position": "pre"})
+    pr.put_rmw(RAccepts(), desired, actual, None, meta)
+    assert calls["position"] == "pre"
+
+    class RStrict:
+        _present = eng.SyncMixin._present
+
+        def replace(self, *, id: object, body: object) -> object:
+            calls["strict"] = True
+            return body
+
+    pr.put_rmw(RStrict(), desired, actual, None, meta)  # must not raise
+    assert calls["strict"] is True
+
+
 # --- resource-wrapper template wiring (resource.py.jinja) ---------------------
 
 

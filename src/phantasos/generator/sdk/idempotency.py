@@ -5,7 +5,7 @@ place: it auto-selects the three strategy families (fetch / mutate / materialize
 from the introspected wrapper methods, bakes the per-resource ``_idempotency``
 class-var literal (strategy trio + identity/scope/models/id_field/…), adds the
 model classes' ``(module, class)`` import pairs, and fails loud (``ValueError``)
-on any of the seven build gates. ``referenced_strategies`` then folds every
+on any of the eight build gates. ``referenced_strategies`` then folds every
 synced object's trio into the per-family union that ``render.vendor`` uses to
 decide which strategy modules to write.
 
@@ -189,6 +189,76 @@ def _resolve_strategy(
     return getattr(resource, family) or getattr(defaults, family) or auto
 
 
+# Pagination knobs a list binding might require — never call params. (`id` routes
+# to the URL and is likewise excluded where the extra-required set is computed.)
+_PAGINATION_PARAMS = {"limit", "offset"}
+
+
+def _call_params(
+    o: ObjectView,
+    rc: IdempotencyResource,
+    scope_fields: set[str],
+    package: str,
+    verb_methods: list[tuple[str, MethodView | None]],
+) -> dict[str, dict[str, Any]] | None:
+    """Detect per-verb extra-required call params + fold in config defaults.
+
+    A verb's hard-required params are the INTERSECTION of its bindings'
+    ``requires`` (with several bindings, ``_select`` needs only one satisfiable).
+    Anything beyond the scope fields, the ``id`` routing param and the pagination
+    knobs must be an enum param with >= 2 values the engine can thread at call
+    time (e.g. the rulebase ``position`` pre/post query enum) — otherwise the
+    resource is undrivable and **gate #8** fails the build loud, replacing the
+    old silent "gates-green but undrivable" shape (ztna ``oid`` parent ids).
+
+    Returns the ``params`` meta (``{name: {values, verbs, default}}``) or
+    ``None`` when the resource has no extra-required param — the key is then
+    ABSENT from the literal, keeping param-less resources byte-identical.
+    """
+    detected: dict[str, dict[str, Any]] = {}
+    for verb, m in verb_methods:
+        if m is None or not m.bindings:
+            continue
+        required = set.intersection(*[set(b.requires) for b in m.bindings])
+        extra = required - scope_fields - {"id"} - _PAGINATION_PARAMS
+        for name in sorted(extra):
+            pv = next((p for p in m.params if p.name == name), None)
+            cls = _class_from(package, pv.import_from) if (pv and pv.is_enum) else None
+            values = [e.value for e in cls] if cls is not None else []
+            if len(values) < 2:
+                raise ValueError(
+                    f"idempotency: {o.attr}: the {verb} op requires param "
+                    f"{name!r}, which is not an enum call param the sync engine "
+                    f"can thread — opt out with `sync: false`"
+                )
+            spec = detected.setdefault(
+                name, {"values": values, "verbs": [], "default": None}
+            )
+            if spec["values"] != values:
+                raise ValueError(
+                    f"idempotency: {o.attr}: call param {name!r} resolves to "
+                    f"different value sets across verbs ({spec['values']} vs "
+                    f"{values}) — opt out with `sync: false`"
+                )
+            spec["verbs"].append(verb)
+    unknown = set(rc.params) - set(detected)
+    if unknown:
+        raise ValueError(
+            f"idempotency: {o.attr}: params: {', '.join(sorted(unknown))} not "
+            f"required by any of the resource's list/create/update ops — remove "
+            f"the entry (detection and values/verbs are auto-derived; config "
+            f"only sets the default of a detected param)"
+        )
+    for name, p in rc.params.items():
+        if p.default is not None and p.default not in detected[name]["values"]:
+            raise ValueError(
+                f"idempotency: {o.attr}: params.{name}.default {p.default!r} is "
+                f"not one of the op's enum values {detected[name]['values']}"
+            )
+        detected[name]["default"] = p.default
+    return detected or None
+
+
 # --------------------------------------------------------------------------- #
 # Per-resource metadata + gates
 # --------------------------------------------------------------------------- #
@@ -301,6 +371,16 @@ def _build_meta(
             f"otherwise silently read only the first page"
         )
 
+    # --- extra-required call params (gate #8) + `params` meta ------------- #
+    call_params = _call_params(
+        o,
+        rc,
+        scope_fields,
+        package,
+        [("list", list_m), ("create", create_m)]
+        + ([(update_method.name, update_method)] if update_method else []),
+    )
+
     # --- fields + server_only + F6 write-only gate (#5) ------------------- #
     input_fields = sorted(
         (set(_wire_keys(create_cls)) if create_cls else set())
@@ -335,7 +415,7 @@ def _build_meta(
     )
     update_name = update_cls.__name__ if update_cls else create_name
     read_name = read_cls.__name__ if read_cls else create_name
-    return {
+    meta: dict[str, Any] = {
         "identity": identity,
         "scope": scope_lit,
         "models": {
@@ -356,6 +436,11 @@ def _build_meta(
         _MATERIALIZE: materialize,
         "fetch_opts": {"page_limit": rc.page_limit, "hydrate": hydrate},
     }
+    # The key is baked ONLY when an extra-required param exists — a param-less
+    # resource must regenerate byte-identically (no `params` entry at all).
+    if call_params:
+        meta["params"] = call_params
+    return meta
 
 
 # --------------------------------------------------------------------------- #
@@ -365,6 +450,7 @@ def _build_meta(
 _ORDER = [
     "identity",
     "scope",
+    "params",  # extra-required call params — present only when detected
     "models",
     "input_fields",
     "server_only",
@@ -395,5 +481,7 @@ def _idempotency_literal(meta: dict[str, Any]) -> str:
     parts["models"] = (
         "{" + ", ".join(f'"{k}": {v}' for k, v in meta["models"].items()) + "}"
     )
-    body = ",\n".join(f'        "{k}": {parts[k]}' for k in _ORDER)
+    # `params` is optional — absent keys are skipped so a param-less resource's
+    # literal stays byte-identical to the pre-`params` output.
+    body = ",\n".join(f'        "{k}": {parts[k]}' for k in _ORDER if k in parts)
     return "{\n" + body + "\n    }"

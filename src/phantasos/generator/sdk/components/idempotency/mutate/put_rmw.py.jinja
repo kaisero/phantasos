@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from ..base import MUTATE, revalidate
@@ -10,7 +11,15 @@ def put_rmw(res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any:
     merged.pop(meta["id_field"]["wire"], None)   # id routes to the URL, not the body
     body = revalidate(meta["models"]["update"], merged)
     verb = getattr(res, meta["update"]["verb"])  # F9: "replace" for PUT
-    return verb(id=getattr(actual, meta["id_field"]["attr"]), body=body)
+    kwargs: dict[str, Any] = {"id": getattr(actual, meta["id_field"]["attr"]), "body": body}
+    # A positioned replace (nat_rule) arrives with the engine's `call_params`
+    # overlay; forward only what the verb's signature accepts (the same guard
+    # list_scan applies to pagination knobs). Absent overlay -> unchanged call.
+    call_params = meta.get("call_params") or {}
+    if call_params:
+        accepted = inspect.signature(verb).parameters
+        kwargs.update({k: v for k, v in call_params.items() if k in accepted})
+    return verb(**kwargs)
 
 
 MUTATE["put_rmw"] = put_rmw
