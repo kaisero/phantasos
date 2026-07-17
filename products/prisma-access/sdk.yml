@@ -117,17 +117,24 @@ subpackages:
         lldp_profile: {}
         logical_router: {}
         loopback_interface: {}
-        # nat_rule's list op requires a `position` (pre/post rule ordering) query
-        # param that the engine's list_scan does not thread, so fetch/apply raise
-        # ValueError before any HTTP. Opt out until the engine can thread required
-        # non-scope list params (the shared defect of the position-ordered rules).
+        # nat_rule opts in via the `position` (pre/post rulebase) call param: its
+        # list, create AND (uniquely among the rules) replace ops require the
+        # position query enum, which the engine threads from the declared param
+        # (default `pre`, overridable per call). Identity is `name` within `scope`:
+        # the required list `position` does NOT partition results (live-proven), so
+        # it is a create-placement param, inert for fetch.
         nat_rule:
-          sync: false
+          params:
+            position:
+              default: pre
         ospf_authentication_profile: {}
         pbf_rule: {}
-        # qo_s_policy_rule: same `position`-param list defect as nat_rule above.
+        # qo_s_policy_rule opts in via the `position` call param like nat_rule
+        # above (required on list + create; default `pre`).
         qo_s_policy_rule:
-          sync: false
+          params:
+            position:
+              default: pre
         qo_s_profile: {}
         route_access_list: {}
         route_community_list: {}
@@ -387,22 +394,30 @@ subpackages:
         authentication_portal:
           identity: []
         authentication_profile: {}
-        # authentication_rule's list op requires a `position` (rule ordering) query
-        # param that list_scan does not thread -> fetch/apply raise ValueError. Opt
-        # out until the engine threads required non-scope list params.
+        # authentication_rule opts in via the `position` (pre/post rulebase) call
+        # param: its list + create ops require the position query enum, which the
+        # engine threads from the declared param (default `pre`, overridable per
+        # call). Identity is `name` within `scope` (the required list `position`
+        # does not partition results — create-placement only, inert for fetch).
         authentication_rule:
-          sync: false
+          params:
+            position:
+              default: pre
         authentication_sequence: {}
         certificate_profile: {}
         kerberos_server_profile: {}
         ldap_server_profile: {}
         local_user: {}
         local_user_group: {}
-        # mfa_server's list op reuses the auth-rules `position` param (required),
-        # which list_scan does not thread -> fetch/apply raise ValueError. Opt out
-        # with the other position-param resources.
+        # mfa_server's LIST op reuses the auth-rules `position` param (required —
+        # a spec wart: MFA servers are not ordered rules; create takes no
+        # position). Opt in via the `position` call param (default `pre`), which
+        # the engine threads into list only; live proof asserts list(pre) and
+        # list(post) return the same objects.
         mfa_server:
-          sync: false
+          params:
+            position:
+              default: pre
         ocsp_responder: {}
         radius_server_profile: {}
         saml_server_profile: {}
@@ -485,25 +500,44 @@ subpackages:
         # decryption_rule additionally carry a `move` op (rule ordering); it is
         # not a CRUD verb and does not affect the apply/absent/fetch path.
         anti_spyware_profile: {}
-        # application_override_rule's list op requires a `position` (rule ordering)
-        # query param that list_scan does not thread -> fetch/apply raise
-        # ValueError. Opt out with the other position-param rule resources.
+        # application_override_rule opts in via the `position` (pre/post rulebase)
+        # call param: its list + create ops require the position query enum, which
+        # the engine threads from the declared param (default `pre`, overridable
+        # per call). Identity is `name` within `scope` (the required list `position`
+        # does not partition results — create-placement only, inert for fetch).
         application_override_rule:
-          sync: false
+          params:
+            position:
+              default: pre
         data_filtering_profile: {}
         data_object: {}
         decryption_exclusion: {}
         decryption_profile: {}
-        # decryption_rule: same `position`-param list defect as application_override
-        # rule above -> not idempotency-drivable; opt out.
+        # decryption_rule opts in via the `position` call param like
+        # application_override_rule above (required on list + create; default
+        # `pre`).
         decryption_rule:
-          sync: false
+          params:
+            position:
+              default: pre
         dns_security_profile: {}
         do_s_protection_profile: {}
         do_s_protection_rule: {}
         file_blocking_profile: {}
         http_header_profile: {}
         profile_group: {}
+        # security_rule stays OUT of idempotent sync. The `position` param is
+        # solved (the ListRules rebind + the position engine make it CRUD-complete
+        # and position-threadable), but its create/read model SecurityRules is the
+        # ONE security_services model that declares folder/snippet/device as
+        # REQUIRED strings rather than Optional (every other resource makes them
+        # optional so an exactly-one scope body is constructible). A single-scope
+        # body therefore fails client-side pydantic validation before any request,
+        # so apply/absent cannot build a body. This is a separate model-shape
+        # defect (the scope fields need relaxing to Optional, as elsewhere) — not
+        # a position problem; re-enable once that is fixed.
+        security_rule:
+          sync: false
         url_access_profile: {}
         url_category: {}
         vulnerability_protection_profile: {}
@@ -549,21 +583,6 @@ subpackages:
         saas_tenant_restriction:
           sync: false
         # NOT listed — the engine cannot drive these (documented skips):
-        #   security_rule — CRUD-complete AFTER the ListRules rebind below
-        #     (create/delete/get/list/replace + move) and it PASSES the seven
-        #     build gates — but the opt-in is deliberately withheld: its create
-        #     AND list raw ops REQUIRE the `position` query param
-        #     (components/parameters/position, required: true, enum pre/post —
-        #     the rulebase half), which the sync engine never sends (list_scan
-        #     passes scope + pagination knobs only; apply's create branch passes
-        #     `body` only), so fetch()/apply() die in binding selection with
-        #     `ValueError: missing required arg(s)` before any HTTP — a
-        #     gates-green opt-in the engine cannot actually drive. `name` is
-        #     also only unique per position half, so identity would straddle two
-        #     rulebases. SKIP until the engine can thread required non-scope
-        #     query params. (NOTE: the opted-in application_override_rule and
-        #     decryption_rule share this exact defect — their list AND create
-        #     bindings also require `position`.)
         #   ssl_decryption_setting — raw ops are delete + get + post + put; the
         #     post/put ARE create/replace semantically and rebinding them works,
         #     but every rebound shape fails a build gate against the real
@@ -586,8 +605,8 @@ subpackages:
       # api-class siblings (CreateSecurityRules, GetSecurityRulesByID, ...) it
       # names no object, so it classified onto a spurious read-only `rule`
       # resource. Rebind it onto security_rule, completing that resource's
-      # surface (and removing the `rule` wart). Surface hygiene only —
-      # security_rule stays OUT of idempotent sync (see the skip note above).
+      # surface (and removing the `rule` wart) — the list binding the
+      # position-threaded idempotency opt-in above drives.
       security_rules.list_rules:
         resource: security_rule
         method: list

@@ -15,6 +15,7 @@ from {{ package }}._runtime.exceptions import ApiException
 from {{ package }}.config_setup.models import Snippets
 from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
 from {{ package }}.device_settings.models import MotdBannerSettings
+from {{ package }}.identity_services.models import AuthenticationRules
 from {{ package }}.objects.models import Addresses
 from {{ package }}.objects.models import AddressGroups
 from {{ package }}.objects.models import Services
@@ -484,6 +485,145 @@ def test_network_services_fetch_wiring_read_only(zone):
     else:
         assert missing is None
     assert missing is None
+
+
+@pytest.fixture()
+def authentication_rule(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.authentication_rule
+
+
+def _authentication_rule_body(name, snip, description="orig"):
+    # Minimal "any" authentication rule — every required list field takes the
+    # reserved `any`, no enforcement profile — scoped to the disposable snippet,
+    # which no policy references. authentication_rule has Optional scope fields
+    # (so a single-scope body constructs) and a `description` to drift; its list
+    # AND create ops require `position`, so it exercises the positioned engine
+    # path. from_dict, not the ctor: the source-zone field is spec-named `from`
+    # (a Python keyword), aliased on the generated model.
+    return AuthenticationRules.from_dict(
+        {
+            "name": name,
+            "snippet": snip,
+            "from": ["any"],
+            "to": ["any"],
+            "source": ["any"],
+            "destination": ["any"],
+            "service": ["any"],
+            "description": description,
+        }
+    )
+
+
+def test_authentication_rule_position_quartet_and_name_uniqueness_probe(authentication_rule, snippet):
+    """Live proof of the position-threaded sync path (rules rollout) AND the
+    name-uniqueness probe that settles decision #1 of the position design.
+
+    SAFETY: rules are live security policy, so every mutation is scoped to a
+    DISPOSABLE, uniquely-named `phx-sync-*` snippet (created here, torn down in
+    `finally`) — no test rule ever lands in a live folder/rulebase that governs
+    real traffic.
+
+    authentication_rule is chosen for a reliably-constructible "any" body (Optional
+    scope fields, a `description` to drift); its list AND create ops require
+    `position`, so this proves the positioned fetch (position threaded into
+    list_scan's scope) and the positioned create end-to-end.
+    (nat_rule additionally requires position on REPLACE — that put_rmw call-param
+    forward is covered by the offline engine unit tests; the other four rules
+    share the create/fetch/absent paths proven here.)
+
+    DECISION #1 (recorded by this test): after creating rule N in the PRE
+    rulebase, applying the same name with position="post" tells us whether
+    `name` is unique per-(scope, position) — the server creates a SECOND object
+    (position is a real identity axis, the design's assumption) — or globally
+    unique (the server rejects the post create). The test asserts the invariants
+    of whichever branch the tenant takes. Step 1's identical pre-create proves
+    the body itself is valid, so a rejection in the post step is attributable to
+    the name, not the body."""
+    snip = _name()
+    name = _name()
+    created_snippet = snippet.create(body=Snippets(name=snip))
+    try:
+        # 1) create in the PRE rulebase: apply threads position into the fetch
+        #    scope (list requires it) and the create call (create requires it).
+        r = authentication_rule.apply(_authentication_rule_body(name, snip), position="pre")
+        assert r.changed and r.action == "created"
+        pre_obj = authentication_rule.fetch(name=name, snippet=snip, position="pre")
+        assert pre_obj is not None
+        # 2) re-apply identical -> unchanged: fetch-with-position found it, so
+        #    the positioned idempotency loop closes.
+        r = authentication_rule.apply(_authentication_rule_body(name, snip), position="pre")
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) uniqueness probe (settles decision #1): re-apply the SAME name with
+        #    position="post". FINDING (recorded live): the pre-created rule is
+        #    FOUND -> unchanged. The list `position` param is required by the API
+        #    but does NOT partition the result set (the server returns the rule
+        #    under either rulebase query), so a rule's identity is `name` within
+        #    `scope` ALONE. `position` is a create-placement param that is inert
+        #    for fetch (like mfa_server's list-op wart), so the engine's
+        #    default-position fetch finds a rule wherever it was placed.
+        r_post = authentication_rule.apply(_authentication_rule_body(name, snip), position="post")
+        assert not r_post.changed, (name, r_post.action)
+        assert authentication_rule.fetch(name=name, snippet=snip, position="post").id == pre_obj.id
+        # 4) drift: change one managed field -> exactly that field. fetch finds the
+        #    rule by name (position inert); the id-addressed replace converges it.
+        r = authentication_rule.apply(_authentication_rule_body(name, snip, description="edited"), position="pre")
+        assert r.changed and set(r.diff.changes) == {"description"}
+        refetched = authentication_rule.fetch(name=name, snippet=snip, position="pre")
+        assert refetched.description == "edited"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None.
+        assert authentication_rule.absent(_authentication_rule_body(name, snip), position="pre").action == "deleted"
+        assert not authentication_rule.absent(_authentication_rule_body(name, snip), position="pre").changed
+        assert authentication_rule.fetch(name=name, snippet=snip, position="pre") is None
+    finally:
+        for pos in ("pre", "post"):
+            try:
+                leftover = authentication_rule.fetch(name=name, snippet=snip, position=pos)
+                if leftover is not None:
+                    authentication_rule.delete(id=leftover.id)
+            except ApiException:
+                pass  # best-effort cleanup; the snippet delete below is the backstop
+        snippet.delete(id=created_snippet.id)
+
+
+@pytest.fixture()
+def mfa_server(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.mfa_server
+
+
+def test_mfa_server_position_param_is_inert_on_list(mfa_server):
+    """Decision #3 live check — READ-ONLY on purpose. mfa_server's list op
+    requires `position` only as a spec wart (it reuses the auth-rules parameter;
+    MFA servers are not ordered rules), so listing the pre and post "rulebases"
+    must return the SAME objects — the param is inert. Also proves the declared
+    default live: engine fetch() without an explicit position fills `pre` from
+    the baked meta and completes a well-formed scoped list.
+
+    Mirrors the read-wiring tolerance pattern: a server-reached ApiException
+    (tenant-specific folder shape) still proves the wiring sent well-formed
+    requests; a model that cannot deserialize a real object raises
+    ValidationError, which is NOT caught and still fails the test."""
+    try:
+        pre = mfa_server.list(folder="Shared", position="pre", all_pages=True)
+        post = mfa_server.list(folder="Shared", position="post", all_pages=True)
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a wiring defect.
+        assert exc.status is not None
+    else:
+        ids_pre = {(m.id, m.name) for m in (pre.data or [])}
+        ids_post = {(m.id, m.name) for m in (post.data or [])}
+        assert ids_pre == ids_post, "position must be inert for mfa_server"
+    # Engine path with the DEFAULT position (no kwarg): the baked default `pre`
+    # is filled in and threaded into the list scope; a random name resolves to
+    # None cleanly (same ApiException tolerance as above).
+    try:
+        missing = mfa_server.fetch(name=_name(), folder="Shared")
+    except ApiException as exc:
+        assert exc.status is not None
+    else:
+        assert missing is None
 
 
 @pytest.fixture()

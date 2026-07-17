@@ -306,6 +306,137 @@ def test_no_idempotency_leaves_every_object_off(access_sdk: Path) -> None:
     }
 
 
+# --- extra-required call params (`params` meta + gate #8) -------------------
+
+
+def _product_sub_operations(slug: str) -> dict[str, Any]:
+    """The prisma-access product's real per-subpackage ``operations:`` block."""
+    from phantasos.productconfig import load_product
+
+    return next(
+        s.config.operations
+        for s in load_product("prisma-access").subpackages
+        if s.config.slug == slug
+    )
+
+
+def _sub_views(
+    dist_root: Path, slug: str, cfg: IdempotencyConfig
+) -> dict[str, ObjectView]:
+    inv = introspect(f"prisma_access.{slug}", dist_root)
+    objects = build_wrapper_context(
+        inv,
+        _product_sub_operations(slug),
+        _discover_resources(dist_root / "prisma_access" / slug),
+        idempotency=cfg,
+        dist_root=dist_root,
+        has_pagination=True,
+    )
+    return {o.attr: o for o in objects}
+
+
+def _sub_sdk(slug: str) -> Path:
+    if not (_ACCESS_SDK / "prisma_access" / slug).exists():
+        pytest.skip("prisma-access-sdk not built (run: nox -s smoke)")
+    return _ACCESS_SDK
+
+
+_SCOPE_TRIO = {"scope": {"fields": ["folder", "snippet", "device"]}}
+
+
+def test_position_rule_bakes_params_meta_with_per_verb_threading() -> None:
+    # nat_rule: `position` is a required pre/post query enum on list, create AND
+    # replace (unique among the rules) — the producer must auto-derive the value
+    # set + verbs from the bindings and take ONLY the default from config.
+    dist = _sub_sdk("network_services")
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": _SCOPE_TRIO,
+            "resources": {"nat_rule": {"params": {"position": {"default": "pre"}}}},
+        }
+    )
+    v = _sub_views(dist, "network_services", cfg)["nat_rule"]
+    assert v.sync is True
+    meta = v._idempotency_meta  # type: ignore[attr-defined]
+    assert meta["params"] == {
+        "position": {
+            "values": ["pre", "post"],
+            "verbs": ["list", "create", "replace"],
+            "default": "pre",
+        }
+    }
+    lit = v.idempotency_literal
+    assert "\"params\": {'position': {'values': ['pre', 'post'], " in lit
+
+
+def test_list_only_position_bakes_list_verb_only() -> None:
+    # mfa_server: the position param is a spec wart on its LIST op only (create
+    # takes nothing) — verbs must be exactly ["list"], so the engine never
+    # forwards position to create/replace.
+    dist = _sub_sdk("identity_services")
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": _SCOPE_TRIO,
+            "resources": {"mfa_server": {"params": {"position": {"default": "pre"}}}},
+        }
+    )
+    v = _sub_views(dist, "identity_services", cfg)["mfa_server"]
+    meta = v._idempotency_meta  # type: ignore[attr-defined]
+    assert meta["params"]["position"]["verbs"] == ["list"]
+    assert meta["params"]["position"]["values"] == ["pre", "post"]
+
+
+def test_non_enum_required_param_trips_gate8() -> None:
+    # ztna connector_scheduled_upgrade: create/replace require `oid` — a
+    # free-form parent id, not an enum the engine can thread. Opting it in must
+    # fail LOUD at build time (gate #8), replacing today's silent
+    # "gates-green but undrivable" shape.
+    dist = _sub_sdk("ztna_connector")
+    cfg = IdempotencyConfig.model_validate(
+        {"resources": {"connector_scheduled_upgrade": {"identity": ["oid"]}}}
+    )
+    with pytest.raises(
+        ValueError, match=r"connector_scheduled_upgrade.*'oid'.*sync: false"
+    ):
+        _sub_views(dist, "ztna_connector", cfg)
+
+
+def test_plain_resource_bakes_no_params_key(access_sdk: Path) -> None:
+    # Byte-identical guarantee: a resource with no extra-required param bakes
+    # NO `params` key at all — neither in the meta nor in the emitted literal.
+    cfg = IdempotencyConfig.model_validate(
+        {"defaults": _SCOPE_TRIO, "resources": {"address": {}}}
+    )
+    v = _access_views(access_sdk, cfg)["address"]
+    assert "params" not in v._idempotency_meta  # type: ignore[attr-defined]
+    assert '"params"' not in v.idempotency_literal
+
+
+def test_declared_param_unknown_to_surface_fails_loud(access_sdk: Path) -> None:
+    # Config may only set the default of a DETECTED param — declaring one the
+    # resource's ops never require is a config bug, named loud.
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": _SCOPE_TRIO,
+            "resources": {"address": {"params": {"position": {"default": "pre"}}}},
+        }
+    )
+    with pytest.raises(ValueError, match=r"address.*position"):
+        _access_views(access_sdk, cfg)
+
+
+def test_declared_default_outside_enum_fails_loud() -> None:
+    dist = _sub_sdk("network_services")
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": _SCOPE_TRIO,
+            "resources": {"nat_rule": {"params": {"position": {"default": "mid"}}}},
+        }
+    )
+    with pytest.raises(ValueError, match=r"nat_rule.*mid"):
+        _sub_views(dist, "network_services", cfg)
+
+
 @pytest.fixture
 def security_sdk() -> Path:
     """Distribution root of the built federated security_services sub-package."""
@@ -324,13 +455,12 @@ def test_security_services_list_rules_rebound_and_shape_defects_stay_off(
     # rebind must fold it back in — completing security_rule's surface
     # (create/delete/get/list/move/replace) and removing the `rule` wart.
     #
-    # Negative space, pinned with the product's REAL per-sub config: the three
-    # shape-defect resources stay documented skips. security_rule passes the
-    # build gates but its create AND list raw ops REQUIRE the `position` query
-    # param, which the engine never sends (list_scan passes scope+pagination;
-    # apply's create branch passes body only) — a gates-green opt-in the engine
-    # cannot drive. ssl_decryption_setting / saas_tenant_restriction fail
-    # gate #5 (list-envelope GET hides every managed write field).
+    # Pinned with the product's REAL per-sub config: security_rule stays a
+    # documented skip — the ListRules rebind + the position engine solve its
+    # surface and `position`, but its SecurityRules model uniquely declares the
+    # scope fields REQUIRED, so a single-scope body won't construct (a separate
+    # model-shape defect). ssl_decryption_setting / saas_tenant_restriction also
+    # stay skips (gate #5 — list-envelope GET hides every managed write field).
     from phantasos.productconfig import load_product
 
     sub = next(
@@ -358,9 +488,56 @@ def test_security_services_list_rules_rebound_and_shape_defects_stay_off(
         "move",
         "replace",
     ]
-    for attr in (
-        "security_rule",
-        "ssl_decryption_setting",
-        "saas_tenant_restriction",
-    ):
+    assert sec.sync is False, (
+        "security_rule stays OUT: the ListRules rebind + position engine make it "
+        "CRUD-complete and position-threadable, but its SecurityRules model uniquely "
+        "declares folder/snippet/device as REQUIRED (not Optional), so a single-scope "
+        "body cannot be constructed client-side — a separate model-shape defect, not a "
+        "position problem"
+    )
+    for attr in ("security_rule", "ssl_decryption_setting", "saas_tenant_restriction"):
         assert by_attr[attr].sync is False, f"{attr} must stay a documented skip"
+
+
+def test_product_opts_in_the_position_rules_with_position_param() -> None:
+    # The product's REAL sdk.yml opts six position-ordered rule resources
+    # into sync, each declaring `params: {position: {default: pre}}`. The baked
+    # meta must carry the auto-derived pre/post value set and the per-resource
+    # requiring verbs: every rule needs position on list; all but mfa_server
+    # (whose create takes nothing — the position is a spec wart on its list op)
+    # need it on create; nat_rule uniquely also needs it on replace.
+    from phantasos.productconfig import load_product
+
+    expected_verbs = {
+        "network_services": {
+            "nat_rule": ["list", "create", "replace"],
+            "qo_s_policy_rule": ["list", "create"],
+        },
+        "identity_services": {
+            "authentication_rule": ["list", "create"],
+            "mfa_server": ["list"],
+        },
+        "security_services": {
+            "application_override_rule": ["list", "create"],
+            "decryption_rule": ["list", "create"],
+        },
+    }
+    subs = {s.config.slug: s.config for s in load_product("prisma-access").subpackages}
+    for slug, rules in expected_verbs.items():
+        dist = _sub_sdk(slug)
+        cfg = subs[slug].idempotency
+        assert cfg is not None
+        views = _sub_views(dist, slug, cfg)
+        for attr, verbs in rules.items():
+            v = views[attr]
+            assert v.sync is True, f"{slug}.{attr} must be opted in"
+            meta = v._idempotency_meta  # type: ignore[attr-defined]
+            assert meta["params"] == {
+                "position": {
+                    "values": ["pre", "post"],
+                    "verbs": verbs,
+                    "default": "pre",
+                }
+            }, f"{slug}.{attr}"
+            lit = v.idempotency_literal
+            assert "\"params\": {'position':" in lit, f"{slug}.{attr}"
