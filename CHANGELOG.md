@@ -62,6 +62,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the scope validator rejects only the no-container shape a server never
   emits (inherited/predefined listings carry several containers and must not
   crash reads). [ADR-0002 / ADR-0003 / ADR-0004]
+- **Idempotent sync for position-ordered rule resources.** The engine can now
+  thread a required non-scope call param that a resource's `list`/`create` op
+  demands. Six prisma-access rule resources — `nat_rule`, `qo_s_policy_rule`,
+  `authentication_rule`, `mfa_server`, `application_override_rule`,
+  `decryption_rule` — whose ops require a `position` (pre/post rulebase) query
+  enum now opt in via `params: {position: {default: pre}}`; the metadata
+  producer auto-derives the enum values and requiring verbs (a new build gate
+  fails loud when such a param is not a threadable enum), and `apply`/`absent`/
+  `fetch` accept the param, merging it into the fetch scope, the create call, and
+  (for `nat_rule`) the positioned replace. A rule's identity is `name` within its
+  scope — live testing established that the `position` list param does not
+  partition results, so it is a create-placement param, inert for fetch.
+  `security_rule` stays out pending an unrelated model fix (its model uniquely
+  declares the scope fields required, so a single-scope body cannot be built).
+- **Generated-model and opt-in corrections.** A `flatten_scm_bodies` fix strips
+  payload-free constraint-only `oneOf`/`anyOf` wrappers that made openapi-
+  generator drop a schema's own properties (empty `__properties`), re-enabling
+  `mobile_agent` destination/user_location. Six rule resources that had been
+  opted in but whose `list` requires `position` (never threaded before the engine
+  change) were corrected — opted out until the position work above, now re-in.
 - **`Client.from_access_token(token, *, host=...)`** — construct an SDK client from an
   externally-owned access token (a `str`, or a `Callable[[], str]` provider consulted
   per request so the caller can own refresh), skipping the SDK's own OAuth grant.

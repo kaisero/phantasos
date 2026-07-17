@@ -195,6 +195,7 @@ per-product in the shared template.
   - class `RetryConfig` — Retry policy with jitter (urllib3.Retry subclass) — on by default.
   - class `OperationOverride` — Declarative rename of a single SDK operation (keyed by ``resource.method``).
   - class `ScopeSpec`
+  - class `ParamSpec` — One extra-required call param on a synced resource (e.g. the rulebase
   - class `IdempotencyResource`
   - class `IdempotencyDefaults`
   - class `IdempotencyConfig`
