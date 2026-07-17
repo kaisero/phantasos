@@ -304,3 +304,63 @@ def test_no_idempotency_leaves_every_object_off(access_sdk: Path) -> None:
         "mutate": set(),
         "materialize": set(),
     }
+
+
+@pytest.fixture
+def security_sdk() -> Path:
+    """Distribution root of the built federated security_services sub-package."""
+    if not (_ACCESS_SDK / "prisma_access" / "security_services").exists():
+        pytest.skip("prisma-access-sdk not built (run: nox -s smoke)")
+    return _ACCESS_SDK
+
+
+def test_security_services_list_rules_rebound_and_shape_defects_stay_off(
+    security_sdk: Path,
+) -> None:
+    # GET /security-rules carries the bare operationId `ListRules`; unlike its
+    # api-class siblings (`CreateSecurityRules`, `GetSecurityRulesByID`, ...) it
+    # names no object, so it classifies to a spurious read-only `rule` resource
+    # instead of joining `security_rule`. The product's sdk.yml `operations:`
+    # rebind must fold it back in — completing security_rule's surface
+    # (create/delete/get/list/move/replace) and removing the `rule` wart.
+    #
+    # Negative space, pinned with the product's REAL per-sub config: the three
+    # shape-defect resources stay documented skips. security_rule passes the
+    # build gates but its create AND list raw ops REQUIRE the `position` query
+    # param, which the engine never sends (list_scan passes scope+pagination;
+    # apply's create branch passes body only) — a gates-green opt-in the engine
+    # cannot drive. ssl_decryption_setting / saas_tenant_restriction fail
+    # gate #5 (list-envelope GET hides every managed write field).
+    from phantasos.productconfig import load_product
+
+    sub = next(
+        s.config
+        for s in load_product("prisma-access").subpackages
+        if s.config.slug == "security_services"
+    )
+    inv = introspect("prisma_access.security_services", security_sdk)
+    objects = build_wrapper_context(
+        inv,
+        sub.operations,
+        _discover_resources(security_sdk / "prisma_access" / "security_services"),
+        idempotency=sub.idempotency,
+        dist_root=security_sdk,
+        has_pagination=True,
+    )
+    by_attr = {o.attr: o for o in objects}
+    assert "rule" not in by_attr, "ListRules must rebind onto security_rule"
+    sec = by_attr["security_rule"]
+    assert sorted(m.name for m in sec.methods) == [
+        "create",
+        "delete",
+        "get",
+        "list",
+        "move",
+        "replace",
+    ]
+    for attr in (
+        "security_rule",
+        "ssl_decryption_setting",
+        "saas_tenant_restriction",
+    ):
+        assert by_attr[attr].sync is False, f"{attr} must stay a documented skip"

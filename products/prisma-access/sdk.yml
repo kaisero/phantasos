@@ -117,10 +117,17 @@ subpackages:
         lldp_profile: {}
         logical_router: {}
         loopback_interface: {}
-        nat_rule: {}
+        # nat_rule's list op requires a `position` (pre/post rule ordering) query
+        # param that the engine's list_scan does not thread, so fetch/apply raise
+        # ValueError before any HTTP. Opt out until the engine can thread required
+        # non-scope list params (the shared defect of the position-ordered rules).
+        nat_rule:
+          sync: false
         ospf_authentication_profile: {}
         pbf_rule: {}
-        qo_s_policy_rule: {}
+        # qo_s_policy_rule: same `position`-param list defect as nat_rule above.
+        qo_s_policy_rule:
+          sync: false
         qo_s_profile: {}
         route_access_list: {}
         route_community_list: {}
@@ -380,14 +387,22 @@ subpackages:
         authentication_portal:
           identity: []
         authentication_profile: {}
-        authentication_rule: {}
+        # authentication_rule's list op requires a `position` (rule ordering) query
+        # param that list_scan does not thread -> fetch/apply raise ValueError. Opt
+        # out until the engine threads required non-scope list params.
+        authentication_rule:
+          sync: false
         authentication_sequence: {}
         certificate_profile: {}
         kerberos_server_profile: {}
         ldap_server_profile: {}
         local_user: {}
         local_user_group: {}
-        mfa_server: {}
+        # mfa_server's list op reuses the auth-rules `position` param (required),
+        # which list_scan does not thread -> fetch/apply raise ValueError. Opt out
+        # with the other position-param resources.
+        mfa_server:
+          sync: false
         ocsp_responder: {}
         radius_server_profile: {}
         saml_server_profile: {}
@@ -470,12 +485,19 @@ subpackages:
         # decryption_rule additionally carry a `move` op (rule ordering); it is
         # not a CRUD verb and does not affect the apply/absent/fetch path.
         anti_spyware_profile: {}
-        application_override_rule: {}
+        # application_override_rule's list op requires a `position` (rule ordering)
+        # query param that list_scan does not thread -> fetch/apply raise
+        # ValueError. Opt out with the other position-param rule resources.
+        application_override_rule:
+          sync: false
         data_filtering_profile: {}
         data_object: {}
         decryption_exclusion: {}
         decryption_profile: {}
-        decryption_rule: {}
+        # decryption_rule: same `position`-param list defect as application_override
+        # rule above -> not idempotency-drivable; opt out.
+        decryption_rule:
+          sync: false
         dns_security_profile: {}
         do_s_protection_profile: {}
         do_s_protection_rule: {}
@@ -516,29 +538,59 @@ subpackages:
         # undetectable via GET, so the engine could never detect drift or converge.
         # A faithful read model (the object, not the list envelope) is a
         # precondition for singleton sync, so this stays out until the get op is
-        # normalized to return the object. Opted OUT with the universal
-        # `sync: false` hatch.
+        # normalized to return the object. Unwrapping the envelope in the spec
+        # was investigated and rejected: GET /saas-tenant-restrictions is a real
+        # paginated collection surface (name/folder/snippet/device/offset/limit
+        # query params), so redeclaring its response as the bare object would
+        # misdescribe the live wire shape and break deserialization of the
+        # actual envelope the server returns. The clean fix is an engine-side
+        # singleton-from-list-envelope fetch strategy, not spec surgery. Opted
+        # OUT with the universal `sync: false` hatch.
         saas_tenant_restriction:
           sync: false
-        # NOT listed — not CRUD-complete under the id-addressed engine:
-        #   security_rule (build gate #4 / unresolvable fetch) — it has create,
-        #     delete, get, replace, and move, but NO `list` op. A non-singleton's
-        #     fetch is list_scan, which resolves identity (name -> id) by scanning
-        #     the scoped list; `get` alone takes an `id`, so without `list` the
-        #     engine cannot resolve a rule by name and drive apply/absent. It is a
-        #     full lifecycle otherwise, but the missing list op leaves no
-        #     name-addressed read path. SKIP until a list op exists.
-        #   ssl_decryption_setting — its raw ops are delete + get + post + put.
-        #     The PUT is `put_*` (not the `update_*` the engine canonicalizes to
-        #     `replace`) and the create is `post_*` (not `create_*`), so the engine
-        #     sees NEITHER a `create` nor a `replace`/`update` verb, only a `get`
-        #     and a `delete`. `singleton: true` would trip gate #7 (a delete op
-        #     exists); leaving it non-singleton trips gate #4 (no update verb). It
-        #     is a settings blob with a non-standard put/post shape the id-addressed
-        #     engine does not recognize. SKIP until the ops are renamed/normalized.
-        #   rule — list-only (no create/delete/get/replace); gate #4 (no update
-        #     verb, no read-by-id path). Read-only. SKIP.
+        # NOT listed — the engine cannot drive these (documented skips):
+        #   security_rule — CRUD-complete AFTER the ListRules rebind below
+        #     (create/delete/get/list/replace + move) and it PASSES the seven
+        #     build gates — but the opt-in is deliberately withheld: its create
+        #     AND list raw ops REQUIRE the `position` query param
+        #     (components/parameters/position, required: true, enum pre/post —
+        #     the rulebase half), which the sync engine never sends (list_scan
+        #     passes scope + pagination knobs only; apply's create branch passes
+        #     `body` only), so fetch()/apply() die in binding selection with
+        #     `ValueError: missing required arg(s)` before any HTTP — a
+        #     gates-green opt-in the engine cannot actually drive. `name` is
+        #     also only unique per position half, so identity would straddle two
+        #     rulebases. SKIP until the engine can thread required non-scope
+        #     query params. (NOTE: the opted-in application_override_rule and
+        #     decryption_rule share this exact defect — their list AND create
+        #     bindings also require `position`.)
+        #   ssl_decryption_setting — raw ops are delete + get + post + put; the
+        #     post/put ARE create/replace semantically and rebinding them works,
+        #     but every rebound shape fails a build gate against the real
+        #     models: the GET returns a LIST ENVELOPE
+        #     (GetSslDecryptionSettings200Response: data/limit/offset/total),
+        #     never the settings object, and the POST body
+        #     (SslDecryptionSettings, top-level fields) differs from the PUT
+        #     body (SslDecryptionSettingsGetPut, `ssl_decrypt`-wrapped) — so
+        #     `ssl_decrypt`, the entire managed payload, is undetectable via
+        #     GET. Verified against the built artifacts: the singleton rebind
+        #     (put->replace, post/delete hidden) and the full-CRUD rebind
+        #     (post->create, put->replace, get->list) both trip gate #5;
+        #     singleton with the delete kept trips gate #7. No id/name on any
+        #     model either. SKIP until the engine grows a
+        #     singleton-from-list-envelope fetch (same defect family as
+        #     saas_tenant_restriction above).
         #   url_filtering_category — list-only; gate #4. Read-only. SKIP.
+    operations:
+      # GET /security-rules ships the bare operationId `ListRules` — unlike its
+      # api-class siblings (CreateSecurityRules, GetSecurityRulesByID, ...) it
+      # names no object, so it classified onto a spurious read-only `rule`
+      # resource. Rebind it onto security_rule, completing that resource's
+      # surface (and removing the `rule` wart). Surface hygiene only —
+      # security_rule stays OUT of idempotent sync (see the skip note above).
+      security_rules.list_rules:
+        resource: security_rule
+        method: list
 default_headers:
   X-PANW-Region:
     env: PANW_REGION
