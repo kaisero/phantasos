@@ -76,20 +76,14 @@ REGISTRY = {
     "VA": ModelSchema(fields=[_mf("a", alias="a", required=True)]),
     "VB": ModelSchema(fields=[_mf("b", alias="b", required=True)]),
     # A -> B -> A cycle
-    "A": ModelSchema(
-        fields=[_mf("b", alias="b", kind="json", required=True, model_ref="B")]
-    ),
-    "B": ModelSchema(
-        fields=[_mf("a", alias="a", kind="json", required=True, model_ref="A")]
-    ),
+    "A": ModelSchema(fields=[_mf("b", alias="b", kind="json", required=True, model_ref="B")]),
+    "B": ModelSchema(fields=[_mf("a", alias="a", kind="json", required=True, model_ref="A")]),
 }
 
 
 def test_minimal_non_empty_guarantee() -> None:
     # all-optional Apps → first field saas → its required accessMode
-    assert synth_skeleton(REGISTRY, "Apps", full=False) == {
-        "saas": {"accessMode": "none"}
-    }
+    assert synth_skeleton(REGISTRY, "Apps", full=False) == {"saas": {"accessMode": "none"}}
 
 
 def test_minimal_required_only_when_required_present() -> None:
@@ -102,9 +96,7 @@ def test_full_includes_optionals_recursively() -> None:
 
 
 def test_list_of_model_wraps_in_array() -> None:
-    assert synth_skeleton(REGISTRY, "Rule", full=False) == {
-        "matches": [{"url": "string"}]
-    }
+    assert synth_skeleton(REGISTRY, "Rule", full=False) == {"matches": [{"url": "string"}]}
 
 
 def test_inline_oneof_uses_first_variant() -> None:
@@ -122,9 +114,7 @@ def test_unknown_model_is_empty() -> None:
 
 
 def test_value_precedence_example_beats_default_and_synth() -> None:
-    reg = {
-        "M": ModelSchema(fields=[_mf("x", required=True, default="dflt", example="ex")])
-    }
+    reg = {"M": ModelSchema(fields=[_mf("x", required=True, default="dflt", example="ex")])}
     assert synth_skeleton(reg, "M", full=False) == {"x": "ex"}
 
 

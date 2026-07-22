@@ -16,9 +16,7 @@ from pathlib import Path
 _APOSTROPHE_ENUM = re.compile(r"^(\s*[A-Z0-9_]+ = )'(.*'.*)'\s*$")
 _ENUM_CLASS = re.compile(r"^class (\w+)\(str, Enum\):", re.M)
 _ENUM_CLASS_INT = re.compile(r"^class (\w+)\(int, Enum\):", re.M)
-_ONEOF_FIRST_MATCH = re.compile(
-    r"(instance\.actual_instance = \w+\.from_json\(json_str\)\n)(\s*)match \+= 1"
-)
+_ONEOF_FIRST_MATCH = re.compile(r"(instance\.actual_instance = \w+\.from_json\(json_str\)\n)(\s*)match \+= 1")
 
 LENIENT_SOURCE = '''\
 """Forward-compatible string/int enum base (injected by phantasos).
@@ -96,14 +94,9 @@ def rebase_lenient_enums(pkg_dir: Path, *, package: str | None = None) -> int:
     rebased = 0
     for path in sorted((pkg_dir / "models").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        if (
-            not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text))
-            or "_lenient import" in text
-        ):
+        if not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text)) or "_lenient import" in text:
             continue
-        text = text.replace(
-            "from enum import Enum\n", "from enum import Enum\n" + import_line, 1
-        )
+        text = text.replace("from enum import Enum\n", "from enum import Enum\n" + import_line, 1)
         text, n1 = _ENUM_CLASS.subn(r"class \1(LenientStrEnum):", text)
         text, n2 = _ENUM_CLASS_INT.subn(r"class \1(LenientIntEnum):", text)
         path.write_text(text, encoding="utf-8")
@@ -152,9 +145,7 @@ def _ensure_model_serializer_import(text: str) -> str:
     # suppress a needed import while a method still gets injected (-> NameError).
     if "model_serializer," in text or "import model_serializer" in text:
         return text
-    return text.replace(
-        "from pydantic import ", "from pydantic import model_serializer, ", 1
-    )
+    return text.replace("from pydantic import ", "from pydantic import model_serializer, ", 1)
 
 
 def patch_oneof_unwrap_serializer(models_dir: Path) -> int:
@@ -169,9 +160,7 @@ def patch_oneof_unwrap_serializer(models_dir: Path) -> int:
         if "\n    def to_str(self)" not in text:
             continue  # anchor absent (OAG changed) — skip, don't write unchanged
         text = _ensure_model_serializer_import(text)
-        text = text.replace(
-            "\n    def to_str(self)", _UNWRAP_METHOD + "\n    def to_str(self)", 1
-        )
+        text = text.replace("\n    def to_str(self)", _UNWRAP_METHOD + "\n    def to_str(self)", 1)
         path.write_text(text, encoding="utf-8")
         count += 1
     return count
@@ -195,9 +184,7 @@ def patch_drop_empty_additional_properties(models_dir: Path) -> int:
         if "\n    def to_str(self)" not in text:
             continue  # anchor absent (OAG changed) — skip, don't write unchanged
         text = _ensure_model_serializer_import(text)
-        text = text.replace(
-            "\n    def to_str(self)", _DROP_EMPTY_METHOD + "\n    def to_str(self)", 1
-        )
+        text = text.replace("\n    def to_str(self)", _DROP_EMPTY_METHOD + "\n    def to_str(self)", 1)
         path.write_text(text, encoding="utf-8")
         count += 1
     return count
@@ -233,11 +220,7 @@ def patch_oneof_missing_imports(models_dir: Path, *, package: str | None = None)
         members: set[str] = set()
         for block in _OF_SCHEMAS.findall(text):
             members |= set(_OF_MEMBER.findall(block))
-        missing = sorted(
-            m
-            for m in members
-            if m in defined and defined[m] != path.stem and f"import {m}\n" not in text
-        )
+        missing = sorted(m for m in members if m in defined and defined[m] != path.stem and f"import {m}\n" not in text)
         if not missing:
             continue
         lines = "".join(f"from {pkg}.models.{defined[m]} import {m}\n" for m in missing)
@@ -256,9 +239,42 @@ def patch_oneof_missing_imports(models_dir: Path, *, package: str | None = None)
     return count
 
 
-def apply_generic_patches(
-    pkg_dir: Path, *, package: str | None = None
-) -> dict[str, int]:
+# typing names OAG uses as subscripted generics (`List[str]`, `ClassVar[List[str]]`)
+# but sometimes omits from the module's `from typing import ...` line.
+_TYPING_NAMES = ("List", "Dict", "Set", "Tuple", "Optional", "Union", "Any", "ClassVar")
+_TYPING_IMPORT = re.compile(r"^from typing import (.+)$", re.M)
+
+
+def patch_missing_typing_imports(models_dir: Path) -> int:
+    """Add typing names used as generics but absent from ``from typing import ...``.
+
+    OAG emits ``List[...]`` / ``ClassVar[List[str]]`` under ``from __future__ import
+    annotations`` while importing only a subset of ``typing`` (e.g. ``Any, ClassVar,
+    Dict, Optional`` but not ``List``). Lazy annotations mean the module still imports
+    and tests pass, but ruff ``F821`` and mypy ``name-defined`` both flag the dangling
+    name. Inject each used-but-unimported name into the existing typing import line.
+    Idempotent; only touches files that already have a ``from typing import`` line.
+    """
+    fixed = 0
+    for path in sorted(models_dir.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        m = _TYPING_IMPORT.search(text)
+        if not m:
+            continue
+        imported = {n.strip() for n in m.group(1).split(",") if n.strip()}
+        missing = [n for n in _TYPING_NAMES if n not in imported and re.search(rf"\b{n}\[", text)]
+        if not missing:
+            continue
+        new_line = "from typing import " + ", ".join(sorted(imported | set(missing)))
+        text = text[: m.start()] + new_line + text[m.end() :]
+        path.write_text(text, encoding="utf-8")
+        fixed += 1
+    return fixed
+
+
+def apply_generic_patches(pkg_dir: Path, *, package: str | None = None) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),
@@ -266,7 +282,6 @@ def apply_generic_patches(
         "oneof_first_match": patch_oneof_first_match(models),
         "oneof_unwrap": patch_oneof_unwrap_serializer(models),
         "oneof_missing_imports": patch_oneof_missing_imports(models, package=package),
-        "drop_empty_additional_properties": patch_drop_empty_additional_properties(
-            models
-        ),
+        "missing_typing_imports": patch_missing_typing_imports(models),
+        "drop_empty_additional_properties": patch_drop_empty_additional_properties(models),
     }

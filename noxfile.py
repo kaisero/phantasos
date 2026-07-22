@@ -23,6 +23,14 @@ nox.options.reuse_existing_virtualenvs = True
 # CI leaves it unset and uses the default ./.nox.
 if os.environ.get("NOX_ENVDIR"):
     nox.options.envdir = os.environ["NOX_ENVDIR"]
+
+# phantasos's own sessions build SDKs/CLIs to exercise them (smoke, docs, ring-3,
+# live), not to ship them — they must not run the generated-project finalize gate or
+# git snapshot. Those are end-user `phantasos sdk build` concerns that would slow
+# every build and create git repos in the CI workspace. `phantasos` subprocesses
+# spawned by these sessions inherit this env; direct end-user builds are unaffected.
+os.environ.setdefault("PHANTASOS_SKIP_FINALIZE", "1")
+
 nox.options.sessions = [
     "lint",
     "type_check",
@@ -59,38 +67,24 @@ def _stage_products(stage: str) -> list[str]:
     products: list[str] = cfg["products"]
     for name in products:
         if not (_PRODUCTS_DIR / name).is_dir():
-            raise ValueError(
-                f"nox.toml [{stage}] enrolls unknown product {name!r} "
-                f"(no products/{name}/)"
-            )
+            raise ValueError(f"nox.toml [{stage}] enrolls unknown product {name!r} (no products/{name}/)")
     return products
 
 
 def _stage_asserts(stage: str, product: str) -> list[dict[str, str]]:
     """Per-product post-build content assertions declared for ``stage``."""
-    return [
-        a
-        for a in _pipeline().get(stage, {}).get("assert", [])
-        if a.get("product") == product
-    ]
+    return [a for a in _pipeline().get(stage, {}).get("assert", []) if a.get("product") == product]
 
 
-def _run_content_asserts(
-    session: nox.Session, stage: str, product: str, site: Path
-) -> None:
+def _run_content_asserts(session: nox.Session, stage: str, product: str, site: Path) -> None:
     """Run the nox.toml per-product content guards for ``stage`` against ``site/``."""
     for check in _stage_asserts(stage, product):
         target = site / check["file"]
         text = target.read_text() if target.exists() else ""
         if "contains" in check and check["contains"] not in text:
-            session.error(
-                f"{product}: {check['file']} is missing {check['contains']!r}"
-            )
+            session.error(f"{product}: {check['file']} is missing {check['contains']!r}")
         if "not_contains" in check and check["not_contains"] in text:
-            session.error(
-                f"{product}: {check['file']} unexpectedly contains "
-                f"{check['not_contains']!r}"
-            )
+            session.error(f"{product}: {check['file']} unexpectedly contains {check['not_contains']!r}")
 
 
 def _sync(session: nox.Session, *groups: str) -> None:
@@ -217,9 +211,7 @@ def cli_smoke(session: nox.Session) -> None:
     pytest suite (which runs in the dev venv) cannot.
     """
     _sync(session)
-    session.run(
-        "python", str(Path(__file__).parent / "tests" / "cli_isolated_smoke.py")
-    )
+    session.run("python", str(Path(__file__).parent / "tests" / "cli_isolated_smoke.py"))
 
 
 @nox.session

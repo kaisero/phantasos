@@ -113,9 +113,7 @@ def _py_literal(value: object) -> str:
         return repr(value)
     if isinstance(value, str):
         return json.dumps(value)
-    raise TypeError(
-        f"cli.yml defaults values must be scalars, got {type(value).__name__}"
-    )
+    raise TypeError(f"cli.yml defaults values must be scalars, got {type(value).__name__}")
 
 
 def _render_type(f: Flag) -> str:
@@ -182,9 +180,7 @@ def _help_literal(text: str | None) -> str | None:
     return "(" + " ".join(parts) + ")"
 
 
-def _flag_view(
-    f: Flag, panel: str | None = None, *, models: dict[str, ModelSchema] | None = None
-) -> dict[str, object]:
+def _flag_view(f: Flag, panel: str | None = None, *, models: dict[str, ModelSchema] | None = None) -> dict[str, object]:
     choices = f.choices
     help_text: str | None = f.help
     completion: list[str] | None = None
@@ -218,9 +214,7 @@ def _flag_view(
         "completion": completion,
         "completer_name": completer_name,
         "panel": panel,
-        "default_literal": (
-            _py_literal(f.cli_default) if f.cli_default is not None else None
-        ),
+        "default_literal": (_py_literal(f.cli_default) if f.cli_default is not None else None),
     }
 
 
@@ -346,7 +340,7 @@ def _format_generated(paths: list[Path]) -> None:
     pyfiles = [str(p) for p in paths if p.suffix == ".py"]
     if not ruff or not pyfiles:
         return
-    common = ["--isolated", "--line-length", "88"]
+    common = ["--isolated", "--line-length", "120"]
     # import sorting / safe autofixes first, then format
     subprocess.run(
         [ruff, "check", "--fix", "--select", "I,UP", *common, *pyfiles],
@@ -391,9 +385,7 @@ def _enrich_ir(
                 required_for=list(spec.required_for),
                 flag=flag,
             )
-            for (header_name, spec), flag in zip(
-                default_headers.items(), flags, strict=True
-            )
+            for (header_name, spec), flag in zip(default_headers.items(), flags, strict=True)
         ]
         # ponytail: guard the one real collision risk — a connection flag clashing
         # with a credential field's flag (both become global --options). Reserved
@@ -422,14 +414,10 @@ def _render_commands(
     can ``written.extend(...)`` them."""
     written: list[str] = []
     resources = sorted({c.sdk_resource for c in ir.commands})
-    variant_groups: set[tuple[str, str]] = {
-        (c.verb, c.object) for c in ir.commands if c.variant or c.action
-    }
+    variant_groups: set[tuple[str, str]] = {(c.verb, c.object) for c in ir.commands if c.variant or c.action}
     by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
     for c in ir.commands:
-        by_resource[c.sdk_resource].append(
-            _command_view(c, variant_groups, models=ir.models)
-        )
+        by_resource[c.sdk_resource].append(_command_view(c, variant_groups, models=ir.models))
     for resource, cmds in by_resource.items():
         dest = gen / "commands" / f"{resource}.py"
         # Dedup enum-flag completers by completer_name across the module's commands
@@ -449,9 +437,7 @@ def _render_commands(
     (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
     written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
     # app factory
-    all_views = [
-        _command_view(c, variant_groups, models=ir.models) for c in ir.commands
-    ]
+    all_views = [_command_view(c, variant_groups, models=ir.models) for c in ir.commands]
     # Federated builds stamp every command with a sub-package slug; that gates the
     # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
     # (subpackage None) keeps the byte-identical 2-level loop.
@@ -516,9 +502,7 @@ def _render_docs(
     def render_doc(template: str, rel: str, **extra: object) -> None:
         dest = out_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(
-            env.get_template(template).render(**merged, **extra), encoding="utf-8"
-        )
+        dest.write_text(env.get_template(template).render(**merged, **extra), encoding="utf-8")
         written.append(rel)
 
     render_doc("docs/index.md.jinja", "docs/index.md")
@@ -544,9 +528,7 @@ def _render_docs(
     render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
     render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
     if doc_ctx["has_auth"]:
-        render_doc(
-            "docs/guides/authentication.md.jinja", "docs/guides/authentication.md"
-        )
+        render_doc("docs/guides/authentication.md.jinja", "docs/guides/authentication.md")
     # Named-environments guide — emitted whenever the CLI reads credential OR
     # connection env vars (`has_env`), mirroring the environment_commands seam.
     if ctx["has_env"]:

@@ -22,8 +22,7 @@ def paginate(list_method: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:
             **{**kwargs, "{{ limit_field }}": page_size, "{{ offset_field }}": offset}
         )
         items = getattr(page, "{{ data_field }}", None) or []
-        for item in items:
-            yield item
+        yield from items
         offset += len(items)
         total = getattr(page, "{{ total_field }}", None)
         # Stop on a short page (the usual last-page signal); the total guard is a

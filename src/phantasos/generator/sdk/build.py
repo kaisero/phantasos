@@ -72,7 +72,9 @@ def _generator_sha() -> str | None:
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
+def build(loaded: LoadedProduct, *, run_smoke: bool = True, verify: bool = True) -> dict[str, Any]:
+    from .. import finalize as finalize_stage
+    from .. import gitrepo
     from . import smoke
 
     cfg = loaded.config
@@ -93,6 +95,22 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True) -> dict[str, Any]:
     sha = _generator_sha()
     if sha:
         (project_dir / ".build-stamp").write_text(sha + "\n")
+
+    # Finalize: ruff --fix/format the whole tree, write uv.lock, and gate on the
+    # same lint + type_check CI runs (skipped with verify=False). Runs after the
+    # scaffold so the project's own ruff/mypy config applies.
+    result["finalize"] = finalize_stage.finalize(project_dir, verify=verify)
+
+    # Snapshot into a git repo on a per-build branch when a push remote is
+    # configured (no-op otherwise), ready to push the regenerated SDK upstream.
+    if cfg.project is not None:
+        result["git"] = gitrepo.snapshot(
+            project_dir,
+            distribution=cfg.project.distribution,
+            author=cfg.project.author,
+            author_email=cfg.project.author_email,
+            remote=cfg.project.git_remote,
+        )
 
     # Smoke (federated: the parent `<package>` has no api/, so this is a no-op count
     # until P2 makes the import-walk per sub-package).
@@ -161,9 +179,7 @@ def _generate_one(
     return pkg_dir, vendored, patch_stats
 
 
-def _build_single(
-    loaded: LoadedProduct, project_dir: Path, stats: defaultdict[str, int]
-) -> dict[str, Any]:
+def _build_single(loaded: LoadedProduct, project_dir: Path, stats: defaultdict[str, int]) -> dict[str, Any]:
     from . import generate, preprocess
 
     cfg = loaded.config
@@ -180,10 +196,7 @@ def _build_single(
     if cfg.transforms.tag_operations:
         preprocess.tag_operations(
             spec,
-            [
-                (t.path, t.method, t.operation_id, t.tag)
-                for t in cfg.transforms.tag_operations
-            ],
+            [(t.path, t.method, t.operation_id, t.tag) for t in cfg.transforms.tag_operations],
             stats,
         )
     hook_mod = _load_hooks(loaded)
@@ -211,9 +224,7 @@ def _build_single(
     return {"preprocess": dict(stats), "patches": patch_stats, "vendored": vendored}
 
 
-def _build_federated(
-    loaded: LoadedProduct, project_dir: Path, stats: defaultdict[str, int]
-) -> dict[str, Any]:
+def _build_federated(loaded: LoadedProduct, project_dir: Path, stats: defaultdict[str, int]) -> dict[str, Any]:
     """Loop each sub-package through generate -> patch -> vendor under one distribution.
 
     Each sub owns its spec (``loaded.spec_path`` is ``None`` for federated — B5), so
@@ -230,9 +241,7 @@ def _build_federated(
     vendored: dict[str, list[str]] = {}
     # spec-driven header scoping: per default_header, the slugs whose spec declares it
     # (as an in:header param) — the composer applies each header only to those subs.
-    header_declared_by: dict[str, list[str]] = {
-        name: [] for name in loaded.config.default_headers
-    }
+    header_declared_by: dict[str, list[str]] = {name: [] for name in loaded.config.default_headers}
     # per-sub host overrides: a sub on a different gateway (e.g. ztna-connector on
     # api.sase while the rest are api.strata) gets a host-overridden config copy.
     host_overrides: dict[str, str] = {}
@@ -395,9 +404,7 @@ def _render_shared_auth(loaded: LoadedProduct, project_dir: Path) -> None:
     (root / "_auth.py").write_text(src, encoding="utf-8")
 
 
-def _live_required_env(
-    auth: Any | None, default_headers: dict[str, HeaderSpec]
-) -> list[str]:
+def _live_required_env(auth: Any | None, default_headers: dict[str, HeaderSpec]) -> list[str]:
     """Env vars the emitted live smoke's skip-guard checks (auth creds + required
     region headers). Without any of these the composer raises a RuntimeError at
     construction/first-access, so the smoke must SKIP rather than ERROR. De-duped,
@@ -434,10 +441,7 @@ def _validate_live_smoke(
     known = set(slugs)
     for slug, probe in live_smoke.items():
         if slug not in known:
-            raise ValueError(
-                f"live_smoke: sub-package {slug!r} is not in subpackages "
-                f"({sorted(known)})"
-            )
+            raise ValueError(f"live_smoke: sub-package {slug!r} is not in subpackages ({sorted(known)})")
         if probe.object is None:
             continue  # auto-picked at runtime — nothing build-time to check
         inv = cli_operations(f"{package}.{slug}", sdk_path)
@@ -447,8 +451,7 @@ def _validate_live_smoke(
                 verbs_by_obj.setdefault(op.object_attr, set()).add(op.clean_method)
         if probe.object not in verbs_by_obj:
             raise ValueError(
-                f"live_smoke[{slug!r}]: object {probe.object!r} is not in {slug}'s "
-                f"_WRAPPERS ({sorted(verbs_by_obj)})"
+                f"live_smoke[{slug!r}]: object {probe.object!r} is not in {slug}'s _WRAPPERS ({sorted(verbs_by_obj)})"
             )
         if probe.verb not in verbs_by_obj[probe.object]:
             raise ValueError(
@@ -485,10 +488,7 @@ def _live_smoke_context(loaded: LoadedProduct, project_dir: Path) -> dict[str, A
 def _scaffold(loaded: LoadedProduct, project_dir: Path) -> None:
     """Render the project scaffold (built-in + per-product overrides) once."""
     if loaded.config.project is None:
-        raise ValueError(
-            "sdk.yml needs a 'project:' block to scaffold the SDK; "
-            "see docs/authoring.md"
-        )
+        raise ValueError("sdk.yml needs a 'project:' block to scaffold the SDK; see docs/authoring.md")
     readme_tpl = loaded.base_dir / "overrides" / "README.md.jinja"
     if not readme_tpl.exists():
         raise ValueError(

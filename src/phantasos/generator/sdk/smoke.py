@@ -58,8 +58,7 @@ def _ensure_smoke_venv(project_dir: Path) -> Path:
     pyproject = project_dir / "pyproject.toml"
     if not pyproject.exists():
         raise SmokeError(
-            f"no pyproject.toml in {project_dir}; cannot isolate the smoke check. "
-            f"Pass --no-smoke to skip."
+            f"no pyproject.toml in {project_dir}; cannot isolate the smoke check. Pass --no-smoke to skip."
         )
     key = hashlib.sha256(pyproject.read_bytes()).hexdigest()[:16]
     venv_dir = provision.cache_dir() / "smoke-envs" / key

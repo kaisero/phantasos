@@ -85,9 +85,7 @@ def test_context_groups_by_object_and_gates_guides() -> None:
     assert ctx["show_pagination_guide"] is True
     create = _commands(_objects(ctx)[0])[0]
     assert create["usage"] == "create widget"  # lean heading: no dist, no [OPTIONS]
-    assert (
-        create["example"] == 'acmecli create widget --name "example"'
-    )  # full runnable
+    assert create["example"] == 'acmecli create widget --name "example"'  # full runnable
     showcase = cast("dict[str, object]", ctx["showcase"])
     assert showcase["object"] == "widget"
     assert showcase["has_create"] is True
@@ -184,9 +182,7 @@ def test_federated_ir_groups_by_subpackage_then_object() -> None:
         for c in _commands(o)
         if c["key"] == "create:address"
     )
-    assert cast("str", create["example"]).startswith(
-        "prisma-access create objects address"
-    )
+    assert cast("str", create["example"]).startswith("prisma-access create objects address")
     # The HEADING (usage) mirrors the real invocation: verb + kebab sub-package +
     # object (+ leaf) — not the bare `create address` that silently dropped the
     # sub-package and so didn't match what the user actually types.
@@ -215,18 +211,14 @@ def test_context_key_set_is_the_documented_contract() -> None:
 def test_docs_flags_match_emitted_help() -> None:
     """D2 guard: the reference flag set per command equals the emitted CLI's."""
     ir = _ir()
-    variant_groups: set[tuple[str, str]] = {
-        (c.verb, c.object) for c in ir.commands if c.variant or c.action
-    }
+    variant_groups: set[tuple[str, str]] = {(c.verb, c.object) for c in ir.commands if c.variant or c.action}
     ctx = build_cli_docs_context(
         ir,
         CliDocsConfig(showcase_object="widget"),
         distribution="acmecli",
         site_name="x",
     )
-    docs_by_key = {
-        cast("str", cmd["key"]): cmd for o in _objects(ctx) for cmd in _commands(o)
-    }
+    docs_by_key = {cast("str", cmd["key"]): cmd for o in _objects(ctx) for cmd in _commands(o)}
     for c in ir.commands:
         emitted = _flag_names(_command_view(c, variant_groups)["all_flags"])
         d = docs_by_key[c.key]
@@ -244,9 +236,7 @@ def test_query_flags_split_filters_vs_pagination() -> None:
         distribution="acmecli",
         site_name="x",
     )
-    show = next(
-        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "show:widget"
-    )
+    show = next(c for o in _objects(ctx) for c in _commands(o) if c["key"] == "show:widget")
     assert _flag_names(show["pagination_flags"]) == {"--limit"}
     assert _flag_names(show["filter_flags"]) == {"--name"}
 
@@ -328,9 +318,7 @@ def test_example_override_applied_for_valid_key() -> None:
         distribution="acmecli",
         site_name="x",
     )
-    create = next(
-        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget"
-    )
+    create = next(c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget")
     assert create["example"] == "acmecli create widget --name Engineering"
 
 
@@ -366,8 +354,7 @@ def test_common_flags_match_emitted_template() -> None:
     from phantasos.generator.cli.docs import _COMMON_FLAGS
 
     tmpl = (
-        Path(__file__).parent.parent.parent
-        / "src/phantasos/generator/cli/templates/_generated/commands.py.jinja"
+        Path(__file__).parent.parent.parent / "src/phantasos/generator/cli/templates/_generated/commands.py.jinja"
     ).read_text()
     assert tmpl.count('rich_help_panel="Common"') == len(_COMMON_FLAGS)
     for f in _COMMON_FLAGS:
@@ -402,9 +389,7 @@ def test_flag_help_pipe_escaped_for_markdown_table() -> None:
         distribution="acmecli",
         site_name="x",
     )
-    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[
-        0
-    ]
+    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[0]
     assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
 
 
@@ -492,11 +477,7 @@ def test_model_description_fallback_is_pipe_and_newline_escaped() -> None:
         models={
             "Cfg": ModelSchema(
                 description="pick a | b\nor c",
-                fields=[
-                    ModelField(
-                        name="x", alias="x", py_type="str", kind="scalar", required=True
-                    )
-                ],
+                fields=[ModelField(name="x", alias="x", py_type="str", kind="scalar", required=True)],
             )
         },
     )
@@ -506,9 +487,7 @@ def test_model_description_fallback_is_pipe_and_newline_escaped() -> None:
         distribution="acmecli",
         site_name="x",
     )
-    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[
-        0
-    ]
+    row = cast("list[dict[str, object]]", _commands(_objects(ctx)[0])[0]["body_flags"])[0]
     assert row["help"] == "pick a \\| b or c"  # pipe escaped, newline -> space
 
 
@@ -552,11 +531,7 @@ def test_nested_model_flag_carries_unique_type_anchor() -> None:
     def _msr(name: str) -> "ModelSchema":
         return ModelSchema(
             description=f"{name} desc",
-            fields=[
-                ModelField(
-                    name="x", alias="x", py_type="str", kind="scalar", required=True
-                )
-            ],
+            fields=[ModelField(name="x", alias="x", py_type="str", kind="scalar", required=True)],
         )
 
     def _json_flag(flag: str, ref: str) -> Flag:
@@ -608,8 +583,6 @@ def test_scalar_flag_has_no_type_anchor() -> None:
         distribution="acmecli",
         site_name="x",
     )
-    create = next(
-        c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget"
-    )
+    create = next(c for o in _objects(ctx) for c in _commands(o) if c["key"] == "create:widget")
     row = cast("list[dict[str, object]]", create["body_flags"])[0]  # --name, scalar
     assert row["type_anchor"] is None

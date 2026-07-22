@@ -45,9 +45,7 @@ def expand(patterns: list[str]) -> list[Path]:
 def _first_doc_line(node: ast.AST) -> str:
     doc = (
         ast.get_docstring(node)
-        if isinstance(
-            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-        )
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
         else None
     )
     return doc.splitlines()[0].strip() if doc else ""
@@ -83,9 +81,7 @@ def public_api(files: list[Path]) -> str:
                 name = node.name
                 line = f"  - class `{name}` — {doc}" if doc else f"  - class `{name}`"
                 items.append(line)
-            elif isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ) and not node.name.startswith("_"):
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
                 doc = _first_doc_line(node)
                 sig = _signature(node)
                 line = f"  - `{sig}` — {doc}" if doc else f"  - `{sig}`"

@@ -18,10 +18,8 @@ DOC = REPO / ".agents" / "context" / "sdk-generator.md"
 TASKS = [
     "In which function and file does `phantasos sdk build` decide whether to run "
     "the smoke import-check, and what flag disables it?",
-    "List, in order, the pipeline stages build() runs from spec to emitted SDK, "
-    "naming the module for each.",
-    "Where are OpenAPI Generator's own setup.py/requirements/tox/CI suppressed, "
-    "and by what mechanism?",
+    "List, in order, the pipeline stages build() runs from spec to emitted SDK, naming the module for each.",
+    "Where are OpenAPI Generator's own setup.py/requirements/tox/CI suppressed, and by what mechanism?",
 ]
 
 

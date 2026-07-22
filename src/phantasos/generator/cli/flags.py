@@ -43,9 +43,5 @@ def dedupe_flags(c: Command) -> tuple[list[Flag], list[Flag]]:
     path_names = {f.param for f in c.path_params}
     body = [f for f in c.body_flags if f.param not in path_names]
     body_names = {f.param for f in body}
-    query = [
-        f
-        for f in c.query_flags
-        if f.param not in path_names and f.param not in body_names
-    ]
+    query = [f for f in c.query_flags if f.param not in path_names and f.param not in body_names]
     return body, query

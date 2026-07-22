@@ -71,9 +71,7 @@ def test_cache_store_roundtrip_perms_and_isolation(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         k1 = ac._key("https://auth/", "id-A", "scope-1")
         k2 = ac._key("https://auth/", "id-B", "scope-1")  # different principal
         assert k1 != k2 and len(k1) == 12
@@ -87,9 +85,7 @@ def test_cache_store_roundtrip_perms_and_isolation(
         assert "tok-A" not in f.name and "id-A" not in f.name
         # list + clear
         ac.write(k2, "tok-B", 8888888888.0)
-        assert sorted(ac.list_entries()) == sorted(
-            [(k1, 9999999999.0), (k2, 8888888888.0)]
-        )
+        assert sorted(ac.list_entries()) == sorted([(k1, 9999999999.0), (k2, 8888888888.0)])
         assert ac.clear() == 2 and ac.read(k1) is None
 
 
@@ -103,9 +99,7 @@ def test_cache_read_tolerates_corruption(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         k = ac._key("u", "c", "s")
         (ac.cache_dir() / f"token-{k}.json").write_text("{not json")
         assert ac.read(k) is None  # corrupt -> miss (fail open), no raise
@@ -155,9 +149,7 @@ def test_session_seed_persist_invalidate(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         tm = _StubTM()
         client = _StubClient(tm)
         assert ac.token_manager(client) is tm  # resolver finds single-spec shape
@@ -205,9 +197,7 @@ def test_token_manager_resolver_finds_federated_shape(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         tm = _StubTM()
         assert ac.token_manager(_StubFederatedClient(tm)) is tm
 
@@ -220,9 +210,7 @@ def _set_creds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SCOPE", "scope-x")
 
 
-def _fake_facade_with_tm(
-    recorder: list[Any], tm: _StubTM, fail_first_status: int | None = None
-) -> tuple[Any, Any]:
+def _fake_facade_with_tm(recorder: list[Any], tm: _StubTM, fail_first_status: int | None = None) -> tuple[Any, Any]:
     """A fake facade whose object attrs record calls AND drive the TokenManager
     the way the real SDK does (each call reads configuration.access_token ->
     tm.token()). The api_client.configuration exposes the stub TM the cache couples
@@ -273,9 +261,7 @@ def test_runtime_reuses_token_across_runs(
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM()
         rec: list[Any] = []
@@ -310,9 +296,7 @@ def test_runtime_401_invalidates_and_retries_once(
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM()
         # seeded-but-rejected token
@@ -338,9 +322,7 @@ def test_cache_commands(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         ac.write(ac._key("u", "c", "s"), "secret-token", time.time() + 600)
         main = importlib.import_module("fakesdk_cli.main")
         r = CliRunner()
@@ -354,9 +336,7 @@ def test_cache_commands(
 
 
 @contextmanager
-def _capture_auth_cache_logs(
-    caplog: pytest.LogCaptureFixture, level: int
-) -> Iterator[None]:
+def _capture_auth_cache_logs(caplog: pytest.LogCaptureFixture, level: int) -> Iterator[None]:
     """caplog's automatic handler lives on the root logger. Once any test in this
     file invokes `main.app`, `init_logging` sets `propagate=False` on the
     `fakesdk_cli` logger — a process-global object keyed by name that persists
@@ -383,9 +363,7 @@ def test_expired_entry_triggers_regrant(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         tm = _StubTM()
         ac.write(ac.key_for(tm), "old", time.time() - 1)  # EXPIRED
         s = ac.session(_StubClient(tm))
@@ -407,9 +385,7 @@ def test_corrupt_file_logs_warning(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         k = ac._key("u", "c", "s")
         ac.cache_dir()
         (ac._dir() / f"token-{k}.json").write_text("{bad")
@@ -429,9 +405,7 @@ def test_reuse_logs_info(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         tm = _StubTM()
         ac.write(ac.key_for(tm), "good", time.time() + 900)
         with _capture_auth_cache_logs(caplog, logging.INFO):
@@ -451,9 +425,7 @@ def test_token_value_never_logged(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         seeded_token = "seeded-secret-abc123"
         fresh_token = "fresh-secret-xyz789"
         tm = _StubTM()
@@ -480,9 +452,7 @@ def test_disabled_returns_no_session_and_debug(
     monkeypatch.setenv("FAKESDK_CACHE_ENABLED", "false")
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         with _capture_auth_cache_logs(caplog, logging.DEBUG):
             assert ac.session(_StubClient(_StubTM())) is None
         assert any("disabled" in r.message for r in caplog.records)
@@ -499,14 +469,10 @@ def test_unwritable_dir_fails_open(
     out = emit_cli(auth=True)
     blocked = tmp_path / "blocked"
     blocked.write_text("x")  # a FILE where the dir would go
-    monkeypatch.setenv(
-        "FAKESDK_CACHE_DIR", str(blocked / "sub")
-    )  # mkdir under a file -> OSError
+    monkeypatch.setenv("FAKESDK_CACHE_DIR", str(blocked / "sub"))  # mkdir under a file -> OSError
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         with _capture_auth_cache_logs(caplog, logging.WARNING):
             assert ac.cache_dir() is None  # can't create -> None
             ac.write("k", "t", time.time() + 900)  # no-op, no raise
@@ -527,9 +493,7 @@ def test_fresh_401_is_not_retried(
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM()
         rec: list[Any] = []  # NO cache seeded
@@ -554,9 +518,7 @@ def test_403_is_not_retried_cache_survives(
     with render_and_import(out, "fakesdk_cli"):
         rt = importlib.import_module("fakesdk_cli._generated.runtime")
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         tm = _StubTM()
         ac.write(ac.key_for(tm), "good", time.time() + 900)
@@ -582,9 +544,7 @@ def test_call_with_retry_seeded_unseeded_and_403(
     out = emit_cli(auth=True)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
 
         class _StubError(Exception):
             status: int | None = None
@@ -651,9 +611,7 @@ def test_dry_run_never_touches_cache(
     _set_creds(monkeypatch)
     with render_and_import(out, "fakesdk_cli"):
         ac = importlib.import_module("fakesdk_cli._generated.auth_cache")
-        importlib.import_module(
-            "fakesdk_cli._generated.config"
-        ).load_config.cache_clear()
+        importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
         main = importlib.import_module("fakesdk_cli.main")
         res = CliRunner().invoke(main.app, ["show", "widget", "--id", "1", "--dry-run"])
         assert res.exit_code == 0

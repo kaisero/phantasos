@@ -24,10 +24,7 @@ def render_table(ir: CliIR, unmapped: list[str]) -> str:
     for c in sorted(ir.commands, key=lambda c: c.key):
         lines.append(_table_row(c))
     if unmapped:
-        lines.append(
-            f"\n# UNMAPPED ({len(unmapped)})"
-            " — map in cli.yml (request:/override:/hide:)"
-        )
+        lines.append(f"\n# UNMAPPED ({len(unmapped)}) — map in cli.yml (request:/override:/hide:)")
         for key in sorted(unmapped):
             lines.append(f"  UNMAPPED  {key}")
     return "\n".join(lines)
@@ -55,10 +52,7 @@ def _render_federated_table(ir: CliIR, unmapped: list[str]) -> str:
         lines.append(f"  example: {' '.join(stub_parts)}")
 
     if unmapped:
-        lines.append(
-            f"\n# UNMAPPED ({len(unmapped)})"
-            " — map in cli.yml (request:/override:/hide:)"
-        )
+        lines.append(f"\n# UNMAPPED ({len(unmapped)}) — map in cli.yml (request:/override:/hide:)")
         for key in sorted(unmapped):
             lines.append(f"  UNMAPPED  {key}")
     return "\n".join(lines)
@@ -84,10 +78,7 @@ def render_stub(ir: CliIR, unmapped: list[str]) -> str:
         seen_objects.add(c.object)
         col_lines.append(f"  {c.object}: [{', '.join(s.path for s in c.columns)}]")
     if col_lines:
-        lines.append(
-            "# Table columns per object (JMESPath; model-derived"
-            " defaults shown — edit to curate)."
-        )
+        lines.append("# Table columns per object (JMESPath; model-derived defaults shown — edit to curate).")
         lines.append("columns:")
         lines.extend(col_lines)
     lines.append("hide: []")

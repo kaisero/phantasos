@@ -18,7 +18,9 @@ def lint(session: nox.Session) -> None:
 @nox.session
 def type_check(session: nox.Session) -> None:
     session.install("mypy", ".")
-    session.run("mypy", "{{ package }}")
+    # `-p <package>` (not a path) so a package whose top level is an implicit
+    # namespace (e.g. the CLI, no top-level __init__.py) isn't discovered twice.
+    session.run("mypy", "-p", "{{ package }}")
 
 
 @nox.session(python=PYTHON_VERSIONS)

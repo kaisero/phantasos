@@ -81,9 +81,7 @@ def _write_user_config(home: Path, body: str) -> None:
     (d / "config.yml").write_text(body, encoding="utf-8")
 
 
-def test_output_defaults_to_json_not_table(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_output_defaults_to_json_not_table(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import contextlib
     import io
 
@@ -130,9 +128,7 @@ def test_scalar_body_flags_use_real_types(emitted: Path, tmp_path: Path) -> None
     # on scalar body-flag typing (name/priority/enabled), not skeletons/model_ref.
     ir, _ = build_cli_ir(inv, CliConfig())
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path)
-    code = (
-        tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
-    ).read_text()
+    code = (tmp_path / "fakesdk_cli" / "_generated" / "commands" / "widget.py").read_text()
     # Scalar body flags get their REAL Python types (not bare str). Required ->
     # the bare scalar; optional -> the modern ``X | None`` union (matching what
     # ruff's UP rules emit, so no dangling Optional import). Assert the type
@@ -145,9 +141,7 @@ def test_scalar_body_flags_use_real_types(emitted: Path, tmp_path: Path) -> None
     assert "enabled: str | None = typer.Option(None" in code
 
 
-def test_scalar_type_validated_by_typer(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scalar_type_validated_by_typer(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     main = importlib.import_module("fakesdk_cli.main")
@@ -183,9 +177,7 @@ def test_enum_flag_accepts_unlisted_value(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     res = CliRunner().invoke(
         main.app,
         [
@@ -232,10 +224,7 @@ def test_error_headline_extraction(emitted: Path) -> None:
     #     AGNOSTIC fallback vocabulary applies (the default _ERROR_ENVELOPE) ---
     assert d._error_headline({"message": "boom"}) == "boom"
     # RFC 7807: detail preferred over title
-    assert (
-        d._error_headline({"title": "Bad Request", "detail": "x out of range"})
-        == "x out of range"
-    )
+    assert d._error_headline({"title": "Bad Request", "detail": "x out of range"}) == "x out of range"
     # gateway/transport `msg` lives in the generic tier
     assert d._error_headline({"msg": "Access denied"}) == "Access denied"
     assert d._error_headline({"error": "flat string"}) == "flat string"
@@ -264,10 +253,7 @@ def test_error_headline_extraction(emitted: Path) -> None:
         == "group name already exists"  # `error` string preferred via fallback order
     )
     assert d._error_headline({"error": {"message": "nested"}}, _NESTED_ENV) == "nested"
-    assert (
-        d._error_headline({"error": {"code": "X", "message": "Y"}}, _NESTED_ENV)
-        == "X: Y"
-    )
+    assert d._error_headline({"error": {"code": "X", "message": "Y"}}, _NESTED_ENV) == "X: Y"
 
     # --- a LIST envelope (config) drives _errors[] extraction ---
     assert (
@@ -277,10 +263,7 @@ def test_error_headline_extraction(emitted: Path) -> None:
         )
         == "API_I00035: Invalid Request Payload"
     )
-    assert (
-        d._error_headline({"_errors": [{"message": "no code here"}]}, _LIST_ENV)
-        == "no code here"
-    )
+    assert d._error_headline({"_errors": [{"message": "no code here"}]}, _LIST_ENV) == "no code here"
     assert d._error_headline({"_errors": []}, _LIST_ENV) is None
 
 
@@ -297,10 +280,7 @@ def test_render_error_api_exception_to_stderr(
         class _Exc:  # duck-typed ApiException
             status = 400
             reason = "Bad Request"
-            body = (
-                '{"errorResponse":{"error":"group name already exists",'
-                '"message":"failed to create device group"}}'
-            )
+            body = '{"errorResponse":{"error":"group name already exists","message":"failed to create device group"}}'
             data = None
 
         d.render_error(_Exc())
@@ -312,9 +292,7 @@ def test_render_error_api_exception_to_stderr(
     assert "response headers" not in err.lower()
 
 
-def test_render_error_non_api(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_render_error_non_api(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     d = importlib.import_module("fakesdk_cli._generated.diagnostics")
     d.render_error(ValueError("bad --flag value"))
     err = capsys.readouterr().err
@@ -347,13 +325,9 @@ def test_cli_runner_api_error_is_pretty(
                         '"message":"failed to create widget"}}',
                     )
 
-        monkeypatch.setattr(
-            facade.Client, "from_env", classmethod(lambda cls: _Client())
-        )
+        monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _Client()))
 
-        res = CliRunner().invoke(
-            main.app, ["create", "widget", "--name", "dup", "--priority", "1"]
-        )
+        res = CliRunner().invoke(main.app, ["create", "widget", "--name", "dup", "--priority", "1"])
     assert res.exit_code == 1, res.output
     assert "400 Bad Request" in res.output
     assert "widget name already exists" in res.output  # headline
@@ -383,9 +357,7 @@ def test_render_error_non_json_body(
     assert "502 Bad Gateway" in err and "upstream timeout" in err
 
 
-def test_render_none_is_silent(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_render_none_is_silent(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A None result (e.g. delete / HTTP 204) prints nothing in any format."""
     out = importlib.import_module("fakesdk_cli._generated.output")
     for fmt in ("json", "yaml", "table"):
@@ -395,9 +367,7 @@ def test_render_none_is_silent(
         assert captured.err == ""
 
 
-def test_cli_runner_delete_silent_when_none(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_runner_delete_silent_when_none(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A delete whose SDK method returns None succeeds with NO stdout (no 'null')."""
     from typer.testing import CliRunner
 
@@ -445,9 +415,7 @@ def test_show_help_renders_panels(
     assert "--output" in _panel_section(out, "Common")
 
 
-def test_render_dry_run_get_no_body(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_render_dry_run_get_no_body(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
     out.render_dry_run("GET", "https://api.test/devices?limit=50", None)
     captured = capsys.readouterr().out
@@ -455,9 +423,7 @@ def test_render_dry_run_get_no_body(
     assert "GET" in captured and "https://api.test/devices?limit=50" in captured
 
 
-def test_render_dry_run_post_with_body(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_render_dry_run_post_with_body(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
     out.render_dry_run(
         "POST",
@@ -506,9 +472,7 @@ def test_version_flag_wired(
         assert app_mod._resolve_version() in res.output
 
 
-def test_version_resolves_from_metadata(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_version_resolves_from_metadata(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
     monkeypatch.setattr(app_mod._metadata, "version", lambda dist: "9.9.9")
     assert app_mod._resolve_version() == "9.9.9"
@@ -547,22 +511,16 @@ def test_table_unwraps_list_envelope_and_uses_default_columns(
     assert "page_info" not in text
 
 
-def test_table_jmespath_columns_and_joined_preview(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_table_jmespath_columns_and_joined_preview(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
-    out.render(
-        [_row(1)], fmt="table", columns=["name", "MEMBERS=members[].name", "tags"]
-    )
+    out.render([_row(1)], fmt="table", columns=["name", "MEMBERS=members[].name", "tags"])
     text = capsys.readouterr().out
     assert "MEMBERS" in text
     assert "alice, bob, carol, +1 more" in text  # list-of-dicts preview via path
     assert "a, b, c, +2 more" in text  # scalar list preview
 
 
-def test_table_cell_rendering_rules(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_table_cell_rendering_rules(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
     row: dict[str, Any] = {
         "id": "x",
@@ -578,9 +536,7 @@ def test_table_cell_rendering_rules(
     assert "2 items" in text  # dicts w/o name/id -> count
 
 
-def test_table_heuristic_fallback_when_no_columns(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_table_heuristic_fallback_when_no_columns(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
     rows = [
         {
@@ -612,9 +568,7 @@ def test_columns_split_and_header_parsing(emitted: Path) -> None:
     ]  # comma inside () not split
 
 
-def test_table_invalid_runtime_columns_exits_cleanly(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_table_invalid_runtime_columns_exits_cleanly(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     import pytest
 
     out = importlib.import_module("fakesdk_cli._generated.output")
@@ -650,18 +604,14 @@ def test_columns_flag_implies_table_and_renders_curated(
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
-    res = runner.invoke(
-        app_mod.build_generated_app(), ["show", "widget", "--columns", "name,id"]
-    )
+    res = runner.invoke(app_mod.build_generated_app(), ["show", "widget", "--columns", "name,id"])
     assert res.exit_code == 0, res.output
     assert "alpha" in res.output and "w2" in res.output
     assert "page_info" not in res.output  # envelope unwrapped
     assert "{" not in res.output  # table, not json
 
 
-def test_show_without_columns_uses_ir_default_columns(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_show_without_columns_uses_ir_default_columns(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
@@ -679,9 +629,7 @@ def test_show_without_columns_uses_ir_default_columns(
 
     monkeypatch.setattr(rt, "_client", lambda **kw: _Client())
     runner = CliRunner()
-    res = runner.invoke(
-        app_mod.build_generated_app(), ["show", "widget", "--output", "table"]
-    )
+    res = runner.invoke(app_mod.build_generated_app(), ["show", "widget", "--output", "table"])
     assert res.exit_code == 0, res.output
     # ir default columns put id/name first and exclude the nested spec field
     assert "id" in res.output and "name" in res.output
@@ -690,7 +638,7 @@ def test_show_without_columns_uses_ir_default_columns(
 
 def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     """Non-gated capstone: the fakesdk-rendered `_generated/` passes the scaffold's
-    ruff config (E,F,I,UP,W; line-length 88) with ZERO errors. render_cli runs
+    ruff config (E,F,I,UP,W; line-length 120) with ZERO errors. render_cli runs
     `ruff format` post-render, so the emitted code is already clean."""
     import shutil
     import subprocess
@@ -701,9 +649,7 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     from phantasos.generator.cli.modelschema import build_model_registry
 
     inv = cli_operations("fakesdk", FIXTURE)
-    ir = build_cli_ir(
-        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
-    )[0]
+    ir = build_cli_ir(inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv))[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     gen = tmp_path / "fakesdk_cli" / "_generated"
     res = subprocess.run(  # noqa: S603 — trusted `ruff` binary (shutil.which)
@@ -714,7 +660,10 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
             "--select",
             "E,F,I,UP,W",
             "--line-length",
-            "88",
+            "120",
+            # match the scaffold's per-file-ignore for generated CLI code
+            "--ignore",
+            "UP042",
             str(gen),
         ],
         capture_output=True,
@@ -723,9 +672,7 @@ def test_fakesdk_generated_lint_clean(tmp_path: Path) -> None:
     assert res.returncode == 0, res.stdout + res.stderr
 
 
-def test_query_default_is_injected_and_overridable(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_query_default_is_injected_and_overridable(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
@@ -762,9 +709,7 @@ def test_query_default_shown_in_help(emitted: Path) -> None:
     from typer.testing import CliRunner
 
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
-    res = CliRunner().invoke(
-        app_mod.build_generated_app(), ["show", "widget", "--help"]
-    )
+    res = CliRunner().invoke(app_mod.build_generated_app(), ["show", "widget", "--help"])
     assert res.exit_code == 0
     assert "default:" in res.output and "gadget" in res.output
 
@@ -775,9 +720,7 @@ def test_model_body_defaults_still_not_rendered(emitted: Path) -> None:
     defaults to 'fast' in the model; the emitted option must stay None."""
     import pathlib
 
-    src = (
-        pathlib.Path(emitted) / "fakesdk_cli" / "_generated" / "commands" / "widget.py"
-    ).read_text(encoding="utf-8")
+    src = (pathlib.Path(emitted) / "fakesdk_cli" / "_generated" / "commands" / "widget.py").read_text(encoding="utf-8")
     mode_lines = [ln for ln in src.splitlines() if '"--mode"' in ln]
     assert mode_lines, "expected a --mode option in the emitted widgets module"
     for line in mode_lines:
@@ -878,9 +821,7 @@ def test_pager_flag_present_and_run_wires_it(
     assert seen == [True, False, None]
 
 
-def test_yaml_output_has_no_trailing_blank_line(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_yaml_output_has_no_trailing_blank_line(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = importlib.import_module("fakesdk_cli._generated.output")
 
     class _Model:
@@ -911,9 +852,7 @@ def test_yaml_output_colored_on_terminal(emitted: Path) -> None:
     assert "\x1b[" in buf.getvalue()  # ANSI styling present on a terminal
 
 
-def test_yaml_output_plain_and_round_trips_when_piped(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_yaml_output_plain_and_round_trips_when_piped(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     import yaml
 
     out = importlib.import_module("fakesdk_cli._generated.output")
@@ -930,9 +869,7 @@ def test_yaml_output_plain_and_round_trips_when_piped(
     assert yaml.safe_load(text) == payload
 
 
-def test_yaml_output_long_line_not_truncated_when_piped(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_yaml_output_long_line_not_truncated_when_piped(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     # Regression guard: rich Syntax crops to width 80 off-TTY unless soft_wrap=True.
     import yaml
 
@@ -1017,9 +954,7 @@ def test_autopager_blank_command_falls_back(
     assert capsys.readouterr().out.endswith("line49\n")
 
 
-def test_pager_command_resolution(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_pager_command_resolution(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("PAGER", raising=False)
@@ -1028,9 +963,7 @@ def test_pager_command_resolution(
     assert out.pager_command() == "less -RFX"  # built-in fallback
     monkeypatch.setenv("PAGER", "mypager")
     assert out.pager_command() == "mypager"  # $PAGER beats fallback
-    _write_user_config(
-        home, "configuration:\n  pager:\n    command: bat --paging=always\n"
-    )
+    _write_user_config(home, "configuration:\n  pager:\n    command: bat --paging=always\n")
     cfg.load_config.cache_clear()
     assert out.pager_command() == "bat --paging=always"  # config beats $PAGER
 
@@ -1089,11 +1022,7 @@ def _panel_section(help_output: str, title: str) -> str:
     """ANSI-stripped text of the Rich panel named `title`: from its header line to
     the next panel header (exclusive), or to EOF for the last panel."""
     lines = _strip_ansi(help_output).splitlines()
-    starts = [
-        (i, m.group(1).strip())
-        for i, line in enumerate(lines)
-        if (m := _PANEL_RE.search(line))
-    ]
+    starts = [(i, m.group(1).strip()) for i, line in enumerate(lines) if (m := _PANEL_RE.search(line))]
     for idx, (i, name) in enumerate(starts):
         if name == title:
             end = starts[idx + 1][0] if idx + 1 < len(starts) else len(lines)
@@ -1101,9 +1030,7 @@ def _panel_section(help_output: str, title: str) -> str:
     return ""
 
 
-def test_common_options_panel_renders_last(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_common_options_panel_renders_last(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

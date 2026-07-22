@@ -71,10 +71,7 @@ def validate_override_keys(
     keys = {f"{op.resource}.{op.method}" for op in inv.operations}
     unknown = set(overrides) - keys
     if unknown:
-        raise ValueError(
-            "sdk.yml operations: unknown operation key(s): "
-            f"{', '.join(sorted(unknown))}"
-        )
+        raise ValueError(f"sdk.yml operations: unknown operation key(s): {', '.join(sorted(unknown))}")
 
 
 # --------------------------------------------------------------------------- #
@@ -313,9 +310,7 @@ def _clean_verb_and_method(
 # --------------------------------------------------------------------------- #
 
 
-def _render_annotation(
-    live_type: object, package: str
-) -> tuple[str, tuple[str, str] | None, bool]:
+def _render_annotation(live_type: object, package: str) -> tuple[str, tuple[str, str] | None, bool]:
     """From a real type object -> (render expr, import or None, optional).
 
     Unwraps ``Annotated[T, ...]`` and ``Optional[T]`` / ``T | None``. A type from
@@ -368,9 +363,7 @@ def _hints_for(api_cls: type[Any], raw_method: str) -> dict[str, Any]:
 
 
 def _required_path_params(op: OperationInfo) -> tuple[str, ...]:
-    return tuple(
-        sorted(p.name for p in op.params if p.location == "path" and p.required)
-    )
+    return tuple(sorted(p.name for p in op.params if p.location == "path" and p.required))
 
 
 def _param_view(
@@ -553,12 +546,8 @@ def _build_method(
             if op_param.location == "body":
                 if body_model_live is None:
                     _unwrapped = _unwrap_optional(live_type)
-                    body_model_live = (
-                        _unwrapped if isinstance(_unwrapped, type) else None
-                    )
-                pv = _param_view(
-                    "body", op_param, live_type, package, force_optional=False
-                )
+                    body_model_live = _unwrapped if isinstance(_unwrapped, type) else None
+                pv = _param_view("body", op_param, live_type, package, force_optional=False)
                 if pv.import_from:
                     imports.add(pv.import_from)
                 if body is None:
@@ -567,9 +556,7 @@ def _build_method(
             if op_param.name in seen:
                 continue
             seen.add(op_param.name)
-            pv = _param_view(
-                op_param.name, op_param, live_type, package, force_optional=True
-            )
+            pv = _param_view(op_param.name, op_param, live_type, package, force_optional=True)
             if pv.import_from:
                 imports.add(pv.import_from)
             params.append(pv)
@@ -633,6 +620,11 @@ def _present_expr(mv: MethodView) -> str:
     Drives ``_select`` (most-specific binding whose ``requires`` are all present).
     """
     names = _wrapper_param_names(mv)
+    if not names:
+        # No params -> an always-empty set. Emit a typed `set[str]()` rather than
+        # `{k for k, v in {}.items() ...}`: mypy can't infer k/v over an empty dict
+        # literal and reports `var-annotated`.
+        return "set[str]()"
     inner = ", ".join(f'"{n}": {n}' for n in names)
     return "{k for k, v in {" + inner + "}.items() if v is not None}"
 
@@ -702,9 +694,7 @@ def _gate_collisions(objects: list[ObjectView]) -> None:
         seen: set[str] = set()
         for mv in ov.methods:
             if mv.name in seen:
-                raise ValueError(
-                    f"object {ov.attr!r}: method name collision on {mv.name!r}"
-                )
+                raise ValueError(f"object {ov.attr!r}: method name collision on {mv.name!r}")
             seen.add(mv.name)
 
 

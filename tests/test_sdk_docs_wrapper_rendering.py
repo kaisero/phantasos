@@ -24,14 +24,9 @@ import pytest
 _PA_SDK = Path(__file__).parent.parent.parent / "prisma-access-sdk"
 _BR_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
 
-_GEN_REF = (
-    Path(__file__).parent.parent
-    / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
-)
+_GEN_REF = Path(__file__).parent.parent / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
 
-_SDKS_BUILT = (_PA_SDK / "prisma_access").is_dir() and (
-    _BR_SDK / "prisma_browser"
-).is_dir()
+_SDKS_BUILT = (_PA_SDK / "prisma_access").is_dir() and (_BR_SDK / "prisma_browser").is_dir()
 
 pytestmark = [
     pytest.mark.real_sdk,
@@ -102,11 +97,7 @@ def _capture(package: str, sdk_root: Path) -> dict[str, str]:
     # sys.modules (introspection fixtures), which lacks `.extras`/real submodules.
     # Stash and purge the package so our import resolves against the real SDK on
     # sys.path, then restore so we don't clobber their cached module.
-    stashed = {
-        k: sys.modules.pop(k)
-        for k in list(sys.modules)
-        if k == package or k.startswith(package + ".")
-    }
+    stashed = {k: sys.modules.pop(k) for k in list(sys.modules) if k == package or k.startswith(package + ".")}
     script_path = sdk_root / "docs" / "scripts" / "gen_ref_pages.py"
     try:
         ns: dict[str, Any] = {"__file__": str(script_path)}
@@ -118,13 +109,9 @@ def _capture(package: str, sdk_root: Path) -> dict[str, str]:
             # mid-write (no `_SUBPACKAGES` -> single-spec path -> `extras` absent).
             # That is a transient rebuild race, not a rendering defect (the real
             # `--strict` proof is `nox -s sdk-docs`), so skip rather than fail.
-            pytest.skip(
-                f"{package} SDK not stably importable (concurrent rebuild?): {exc!r}"
-            )
+            pytest.skip(f"{package} SDK not stably importable (concurrent rebuild?): {exc!r}")
     finally:
-        for k in [
-            k for k in sys.modules if k == package or k.startswith(package + ".")
-        ]:
+        for k in [k for k in sys.modules if k == package or k.startswith(package + ".")]:
             del sys.modules[k]
         sys.modules.update(stashed)
         if saved_mod is not None:
@@ -190,9 +177,7 @@ def test_plain_model_page_is_converted_to_a_field_table() -> None:
     # a plain model page is now a heading-only autodoc block (keeps the autoref anchor)
     # + the 5-col field table — NOT the full `::: module` autodoc, and no
     # griffe-pydantic Config/Validators boilerplate (`extensions: []`).
-    assert dg.startswith(
-        "::: prisma_browser.models.device_group_request.DeviceGroupRequest\n"
-    )
+    assert dg.startswith("::: prisma_browser.models.device_group_request.DeviceGroupRequest\n")
     assert "extensions: []" in dg
     assert "| Field | Type | Required | Default | Description |" in dg
     assert dg.count("::: ") == 1  # single heading-only block, no leaf re-render
@@ -217,9 +202,7 @@ def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:
     if added:
         sys.path.insert(0, str(_BR_SDK))
     stashed = {
-        k: sys.modules.pop(k)
-        for k in list(sys.modules)
-        if k == "prisma_browser" or k.startswith("prisma_browser.")
+        k: sys.modules.pop(k) for k in list(sys.modules) if k == "prisma_browser" or k.startswith("prisma_browser.")
     }
     try:
         base = "prisma_browser.models"
@@ -239,11 +222,7 @@ def test_wrapper_body_synthesizes_constructable_full_nesting() -> None:
         obj = eval(out, ns)  # noqa: S307
         assert type(obj.actual_instance).__name__ == "RuleSummary"
     finally:
-        for k in [
-            k
-            for k in sys.modules
-            if k == "prisma_browser" or k.startswith("prisma_browser.")
-        ]:
+        for k in [k for k in sys.modules if k == "prisma_browser" or k.startswith("prisma_browser.")]:
             del sys.modules[k]
         sys.modules.update(stashed)
         if added and str(_BR_SDK) in sys.path:
@@ -269,9 +248,5 @@ def test_every_wrapper_page_has_a_single_autodoc_block() -> None:
     # a wrapper page never re-`:::`-renders a leaf (which would collide anchors).
     for package, root in (("prisma_access", _PA_SDK), ("prisma_browser", _BR_SDK)):
         pages = _capture(package, root)
-        offenders = {
-            k: v.count("::: ")
-            for k, v in pages.items()
-            if "/models/" in k and v.count("::: ") > 1
-        }
+        offenders = {k: v.count("::: ") for k, v in pages.items() if "/models/" in k and v.count("::: ") > 1}
         assert not offenders, f"{package}: pages with >1 autodoc block: {offenders}"

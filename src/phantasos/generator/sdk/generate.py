@@ -42,15 +42,28 @@ def write_openapi_generator_ignore(out_dir: Path) -> None:
 
 
 def prune_suppressed_files(out_dir: Path) -> None:
-    """Delete any pre-existing copies of the suppressed OAG files.
+    """Delete the suppressed OAG files and generator metadata from the output.
 
-    `.openapi-generator-ignore` stops OAG from *writing* these, but does not remove
-    ones left by earlier builds — this cleans them so the SDK stays junk-free.
+    `.openapi-generator-ignore` stops OAG from *writing* the support files, but does
+    not remove ones left by earlier builds — this cleans them so the SDK stays
+    junk-free. It also removes the generator's own bookkeeping — the
+    `.openapi-generator-ignore` file phantasos wrote (needed only *during*
+    generation) and the `.openapi-generator/` metadata folder — so neither lands in
+    the shipped project. (`generateMetadata=false` already stops the folder being
+    written; this is the belt-and-braces cleanup for pre-existing copies.)
     """
+    import shutil
+
     for rel in _OAG_IGNORE:
         target = out_dir / rel
         if target.is_file():
             target.unlink()
+    ignore_file = out_dir / ".openapi-generator-ignore"
+    if ignore_file.is_file():
+        ignore_file.unlink()
+    metadata_dir = out_dir / ".openapi-generator"
+    if metadata_dir.is_dir():
+        shutil.rmtree(metadata_dir)
 
 
 def ensure_jar() -> Path:
@@ -87,10 +100,12 @@ def _oag_cmd(
         "--package-name",
         package,
         "--additional-properties",
-        f"library={library},disallowAdditionalPropertiesIfNotPresent=false,"
-        f"useOneOfDiscriminatorLookup={lookup}",
+        f"library={library},disallowAdditionalPropertiesIfNotPresent=false,useOneOfDiscriminatorLookup={lookup}",
         "--global-property",
-        "modelDocs=false,apiDocs=false,modelTests=false,apiTests=false",
+        # generateMetadata=false suppresses the `.openapi-generator/` folder
+        # (FILES + VERSION); the `.openapi-generator-ignore` file phantasos writes
+        # itself is removed post-generation by `prune_suppressed_files`.
+        "modelDocs=false,apiDocs=false,modelTests=false,apiTests=false,generateMetadata=false",
         "--inline-schema-options",
         "RESOLVE_INLINE_ENUMS=true",
     ]

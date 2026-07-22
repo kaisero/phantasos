@@ -66,9 +66,7 @@ def built_cli(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, An
     sdk = Path(loaded.output_dir)
     pkg = loaded.config.package
     if not (sdk / Path(*pkg.split("."))).joinpath("__init__.py").exists():
-        pytest.skip(
-            "prisma-access SDK not built (run `phantasos sdk build prisma-access`)"
-        )
+        pytest.skip("prisma-access SDK not built (run `phantasos sdk build prisma-access`)")
 
     cfg = load_cli_config(Path(loaded.base_dir) / "cli.yml")
     out = tmp_path_factory.mktemp("prisma_access_cli_out")
@@ -78,11 +76,7 @@ def built_cli(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, An
         sys.path.insert(0, p)
 
     def _purge() -> None:
-        for m in [
-            n
-            for n in sys.modules
-            if n == "prisma_access_cli" or n.startswith("prisma_access_cli.")
-        ]:
+        for m in [n for n in sys.modules if n == "prisma_access_cli" or n.startswith("prisma_access_cli.")]:
             del sys.modules[m]
 
     try:
@@ -111,11 +105,7 @@ def built_cli(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, An
         # also drop the SDK itself on teardown (the mid-yield _purge keeps it — the
         # app needs it at runtime — but leaving it resident after the sdk path is
         # removed would leak a stale prisma_access into later modules).
-        for m in [
-            n
-            for n in sys.modules
-            if n == "prisma_access" or n.startswith("prisma_access.")
-        ]:
+        for m in [n for n in sys.modules if n == "prisma_access" or n.startswith("prisma_access.")]:
             del sys.modules[m]
         for p in added:
             if p in sys.path:
@@ -133,18 +123,14 @@ def test_build_has_no_unmapped_ops(built_cli: dict[str, Any]) -> None:
 # --- lazy composer is in the rebuilt artifact (region-unset construction) ----
 
 
-def test_lazy_composer_region_unset(
-    built_cli: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_lazy_composer_region_unset(built_cli: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     """The composing ``Client`` builds region-unset; ``.objects`` works; only
     ``.incidents`` (its ``required_for`` header) raises, and only on access."""
     monkeypatch.delenv("PANW_REGION", raising=False)
     import prisma_access
     from prisma_access._auth import configuration_from_credentials
 
-    cfg = configuration_from_credentials(
-        client_id="x", client_secret="y", scope="tsg_id:1"
-    )
+    cfg = configuration_from_credentials(client_id="x", client_secret="y", scope="tsg_id:1")
     client = prisma_access.Client(cfg)  # must NOT raise region-unset (lazy)
     assert client.objects is not None  # objects needs no region
     with pytest.raises(RuntimeError, match="X-PANW-Region"):

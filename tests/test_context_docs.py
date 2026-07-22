@@ -16,9 +16,7 @@ def _pkg(tmp_path: Path) -> Path:
         "def _private():\n"
         "    return 1\n"
     )
-    (pkg / "beta.py").write_text(
-        '"""Beta module."""\nclass Widget:\n    """A widget."""\n    pass\n'
-    )
+    (pkg / "beta.py").write_text('"""Beta module."""\nclass Widget:\n    """A widget."""\n    pass\n')
     return pkg
 
 
@@ -125,18 +123,14 @@ def _tree(tmp_path: Path) -> Path:
     return root
 
 
-def test_expand_single_explicit_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_expand_single_explicit_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _tree(tmp_path)
     monkeypatch.setattr(cd, "REPO", root)
     result = cd.expand(["a.py"])
     assert result == [root / "a.py"]
 
 
-def test_expand_star_py_returns_top_level_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_expand_star_py_returns_top_level_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _tree(tmp_path)
     monkeypatch.setattr(cd, "REPO", root)
     result = cd.expand(["*.py"])
@@ -145,9 +139,7 @@ def test_expand_star_py_returns_top_level_only(
     assert not any("sub" in str(p) for p in result)
 
 
-def test_expand_globstar_returns_nested_py(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_expand_globstar_returns_nested_py(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _tree(tmp_path)
     monkeypatch.setattr(cd, "REPO", root)
     result = cd.expand(["**/*.py"])
@@ -159,9 +151,7 @@ def test_expand_globstar_returns_nested_py(
     assert "d.txt" not in paths
 
 
-def test_expand_sorted_and_deduped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_expand_sorted_and_deduped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _tree(tmp_path)
     monkeypatch.setattr(cd, "REPO", root)
     # Two overlapping patterns both match a.py and b.py
@@ -187,9 +177,7 @@ end
 """
 
 
-def _setup_main_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, Path]:
+def _setup_main_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """Set up a temp CONTEXT dir + pkg dir; patch cd.CONTEXT and cd.BLOCKS."""
     context_dir = tmp_path / "context"
     context_dir.mkdir()
@@ -209,17 +197,13 @@ def _setup_main_env(
     return context_dir, doc
 
 
-def test_main_check_returns_1_when_stale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_main_check_returns_1_when_stale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _context_dir, _doc = _setup_main_env(tmp_path, monkeypatch)
     # The doc has "PLACEHOLDER" which differs from what render() produces.
     assert cd.main(["--check"]) == 1
 
 
-def test_main_write_then_check_returns_0(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_main_write_then_check_returns_0(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _context_dir, _doc = _setup_main_env(tmp_path, monkeypatch)
     # Write mode should update the doc.
     assert cd.main([]) == 0
@@ -227,9 +211,7 @@ def test_main_write_then_check_returns_0(
     assert cd.main(["--check"]) == 0
 
 
-def test_main_check_returns_1_not_crash_on_missing_markers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_main_check_returns_1_not_crash_on_missing_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     context_dir = tmp_path / "context"
     context_dir.mkdir()
     doc = context_dir / "test.md"

@@ -24,13 +24,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -158,9 +152,7 @@ def test_fedsdk_show_alpha_help_shows_widget_with_description(
         # widget appears as a subcommand with some description text
         assert "widget" in r.output
         # The description for widget is non-empty (there is text after 'widget')
-        widget_line = next(
-            (ln for ln in r.output.splitlines() if "widget" in ln.lower()), None
-        )
+        widget_line = next((ln for ln in r.output.splitlines() if "widget" in ln.lower()), None)
         assert widget_line is not None
         # There's something besides just "widget" on that line
         # (the description appears in Typer's help panel)
@@ -217,9 +209,7 @@ def test_single_spec_emitted_app_has_no_help_dicts(tmp_path: Path) -> None:
     from phantasos.generator.cli.modelschema import build_model_registry
 
     inv = cli_operations("fakesdk", FAKESDK)
-    ir = build_cli_ir(
-        inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv)
-    )[0]
+    ir = build_cli_ir(inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv))[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     app_text = (tmp_path / "fakesdk_cli" / "_generated" / "app.py").read_text()
 

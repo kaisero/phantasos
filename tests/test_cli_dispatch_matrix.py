@@ -181,12 +181,8 @@ def test_show_dispatch_matrix(
     monkeypatch.setenv("HOME", str(tmp_path))
     main = importlib.import_module("prisma_browser_cli.main")
     fired: list[str] = []
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: _show_client(fired))
-    )
-    res = CliRunner().invoke(
-        main.app, ["show", "application", *extra_args, "--output", "json"]
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _show_client(fired)))
+    res = CliRunner().invoke(main.app, ["show", "application", *extra_args, "--output", "json"])
     assert res.exit_code == 0, f"{extra_args}: {res.output}"
     assert expected_op in fired, f"fired={fired}"
 
@@ -206,9 +202,7 @@ def test_delete_dispatch_matrix(
     monkeypatch.setenv("HOME", str(tmp_path))
     main = importlib.import_module("prisma_browser_cli.main")
     fired: list[str] = []
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: _delete_client(fired))
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: _delete_client(fired)))
     res = CliRunner().invoke(main.app, ["delete", "application", *extra_args])
     assert res.exit_code == 0, f"{extra_args}: {res.output}"
     assert expected_op in fired, f"fired={fired}"
@@ -219,9 +213,7 @@ def test_delete_dispatch_matrix(
 # ---------------------------------------------------------------------------
 
 
-def test_all_pages_walks_and_injects_sort(
-    real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_all_pages_walks_and_injects_sort(real_cli: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """``show application --all`` must:
 
     (a) inject the cli.yml ``defaults`` ``sort=application.name`` and
@@ -236,9 +228,7 @@ def test_all_pages_walks_and_injects_sort(
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(
-        sys, "argv", ["prisma-browser-cli", "show", "application", "--all"]
-    )
+    monkeypatch.setattr(sys, "argv", ["prisma-browser-cli", "show", "application", "--all"])
     main = importlib.import_module("prisma_browser_cli.main")
     runner = CliRunner()
 
@@ -291,9 +281,7 @@ def test_all_pages_walks_and_injects_sort(
             return self._api_client
 
     client_instance = _FakeClient()
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: client_instance)
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client_instance))
 
     res = runner.invoke(main.app, ["show", "application", "--all", "--output", "json"])
     assert res.exit_code == 0, res.output
@@ -306,23 +294,15 @@ def test_all_pages_walks_and_injects_sort(
     # after enum coercion, sort/order arrive as enum objects with a `.value`.
     sort_val = first_kw.get("sort")
     order_val = first_kw.get("order")
-    assert sort_val is not None, (
-        f"'sort' not in first list_applications call; got {first_kw}"
-    )
-    assert order_val is not None, (
-        f"'order' not in first list_applications call; got {first_kw}"
-    )
+    assert sort_val is not None, f"'sort' not in first list_applications call; got {first_kw}"
+    assert order_val is not None, f"'order' not in first list_applications call; got {first_kw}"
     sort_str = getattr(sort_val, "value", str(sort_val))
-    assert "application.name" in sort_str, (
-        f"expected 'application.name' in sort value; got {sort_str!r}"
-    )
+    assert "application.name" in sort_str, f"expected 'application.name' in sort value; got {sort_str!r}"
     order_str = getattr(order_val, "value", str(order_val))
     assert "asc" in order_str, f"expected 'asc' in order value; got {order_str!r}"
 
     # (b) page 2 was fetched (list called at least twice).
-    assert call_count[0] >= 2, (
-        f"expected >=2 list calls for --all; got {call_count[0]}; raw_calls={raw_calls}"
-    )
+    assert call_count[0] >= 2, f"expected >=2 list calls for --all; got {call_count[0]}; raw_calls={raw_calls}"
 
     # (c) history entry records success; if http_uri is present it ends with
     #     /applications (URI is only captured when call_api fires, which our

@@ -79,9 +79,7 @@ def test_patched_models_serialize_cleanly(tmp_path: Path) -> None:
             "additional_properties": {"k": 1},
         }
         # oneOf wrapper unwraps to its actual_instance (and that inner drops empty bag)
-        assert Wrapper(actual_instance=Inner(id="z")).model_dump(mode="json") == {
-            "id": "z"
-        }
+        assert Wrapper(actual_instance=Inner(id="z")).model_dump(mode="json") == {"id": "z"}
     finally:
         sys.path.remove(str(tmp_path))
         for mod in ("patch_fixture_inner", "patch_fixture_wrapper"):
@@ -120,12 +118,8 @@ def test_patches_skip_when_to_str_anchor_absent(tmp_path: Path) -> None:
     assert patches.patch_oneof_unwrap_serializer(tmp_path) == 0
     assert patches.patch_drop_empty_additional_properties(tmp_path) == 0
     # files left byte-for-byte unchanged
-    assert (tmp_path / "wrapper_no_anchor.py").read_text(
-        encoding="utf-8"
-    ) == wrapper_no_anchor
-    assert (tmp_path / "inner_no_anchor.py").read_text(
-        encoding="utf-8"
-    ) == inner_no_anchor
+    assert (tmp_path / "wrapper_no_anchor.py").read_text(encoding="utf-8") == wrapper_no_anchor
+    assert (tmp_path / "inner_no_anchor.py").read_text(encoding="utf-8") == inner_no_anchor
 
 
 def test_oneof_missing_imports_adds_only_existing_siblings(tmp_path: Path) -> None:
@@ -154,3 +148,29 @@ def test_oneof_missing_imports_adds_only_existing_siblings(tmp_path: Path) -> No
     assert "import Tcp" in text  # the one OAG did emit is untouched
     # idempotent
     assert patches.patch_oneof_missing_imports(tmp_path, package="pkg") == 0
+
+
+def test_patch_missing_typing_imports_adds_used_but_unimported(tmp_path: Path) -> None:
+    """OAG emits `List[...]`/`ClassVar[List[str]]` under future annotations while
+    importing only a subset of typing (here: no `List`). The patch injects the
+    missing name into the existing import line; runtime was fine but ruff F821 /
+    mypy name-defined were not. Idempotent; touches only files missing the name."""
+    (tmp_path / "widget.py").write_text(
+        "from __future__ import annotations\n"
+        "from typing import Any, ClassVar, Optional\n\n\n"
+        "class Widget:\n"
+        "    __properties: ClassVar[List[str]] = ['a']\n"
+        "    tags: Optional[List[str]] = None\n",
+        encoding="utf-8",
+    )
+    # a file that already imports everything it uses is left alone
+    (tmp_path / "ok.py").write_text(
+        "from __future__ import annotations\nfrom typing import List\n\nx: List[int] = []\n",
+        encoding="utf-8",
+    )
+
+    assert patches.patch_missing_typing_imports(tmp_path) == 1
+    text = (tmp_path / "widget.py").read_text(encoding="utf-8")
+    assert "from typing import Any, ClassVar, List, Optional\n" in text
+    # idempotent, and the already-correct file is untouched
+    assert patches.patch_missing_typing_imports(tmp_path) == 0

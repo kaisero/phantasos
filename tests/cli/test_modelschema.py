@@ -23,10 +23,7 @@ class CreateOrReplaceAppGroupInput(BaseModel):  # no real docstring below
 
 def test_registry_captures_model_level_description() -> None:
     reg = registry_from_models([CreateMicrosoftProviderRequest])
-    assert (
-        reg["CreateMicrosoftProviderRequest"].description
-        == "Request body to create a Microsoft OneDrive provider."
-    )
+    assert reg["CreateMicrosoftProviderRequest"].description == "Request body to create a Microsoft OneDrive provider."
 
 
 def test_registry_drops_classname_only_docstring() -> None:

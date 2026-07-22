@@ -79,9 +79,7 @@ def _is_container(model: type[BaseModel]) -> bool:
     return True
 
 
-def _pick_variant(
-    model: type[BaseModel], variant: str | None
-) -> type[BaseModel] | None:
+def _pick_variant(model: type[BaseModel], variant: str | None) -> type[BaseModel] | None:
     vs = [v for v in _variants(model) if not _is_container(v)]  # skip container
     if variant:
         for v in vs:
@@ -186,9 +184,7 @@ def _value(tp: object, seen: frozenset[type], meta: Iterable[Any] = ()) -> str |
     return None  # ForwardRef / unresolved annotation: caller makes the level opaque
 
 
-def _model_expr(
-    model: type[BaseModel], seen: frozenset[type], *, variant: str | None = None
-) -> str:
+def _model_expr(model: type[BaseModel], seen: frozenset[type], *, variant: str | None = None) -> str:
     if model in seen:
         return f"{model.__name__}(...)"
     seen = seen | {model}

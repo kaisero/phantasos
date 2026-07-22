@@ -34,9 +34,7 @@ _VERB_SLOT = {
 }
 
 
-def classify_operations(
-    operations: list[OperationInfo], obj: str
-) -> dict[str, OperationInfo]:
+def classify_operations(operations: list[OperationInfo], obj: str) -> dict[str, OperationInfo]:
     """Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
 
     `operations` is the `cli_operations` inventory (each op stamped with
@@ -55,9 +53,7 @@ def classify_operations(
         if slot is None:
             continue
         existing = slots.get(slot)
-        if existing is None or _required_path_count(op) < _required_path_count(
-            existing
-        ):
+        if existing is None or _required_path_count(op) < _required_path_count(existing):
             slots[slot] = op
     return slots
 
@@ -87,18 +83,12 @@ def _op_dict(
             continue
         if p.location == "path":
             placeholder = p.enum_values[0] if p.enum_values else f"<{p.name}>"
-            required_args.append(
-                {"name": p.name, "kind": "path", "placeholder": str(placeholder)}
-            )
+            required_args.append({"name": p.name, "kind": "path", "placeholder": str(placeholder)})
     if op.has_body:
         body_param = next((p for p in op.params if p.location == "body"), None)
         body_model = body_param.body_model if body_param else None
         cls = resolve(body_model) if (resolve and body_model) else None
-        body_code = (
-            synthesize_body(cls, variant=variant)
-            if cls is not None
-            else f"{body_model}(...)"
-        )
+        body_code = synthesize_body(cls, variant=variant) if cls is not None else f"{body_model}(...)"
         required_args.append(
             {
                 "name": "body",
@@ -189,8 +179,7 @@ def _wrapper_objects(package: str, project_dir: Path) -> list[str]:
 def _validate_object(available: list[str], obj: str) -> None:
     if obj not in available:
         raise ValueError(
-            f"docs.showcase_resource {obj!r} is not a wrapper object; "
-            f"available objects: {sorted(available)}"
+            f"docs.showcase_resource {obj!r} is not a wrapper object; available objects: {sorted(available)}"
         )
 
 

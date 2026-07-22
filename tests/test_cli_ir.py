@@ -54,14 +54,8 @@ def test_command_with_bindings_roundtrip() -> None:
                 requires=["type", "id"],
             ),
         ],
-        path_params=[
-            Flag(name="--id", param="id", py_type="str", kind="id", required=False)
-        ],
-        body_flags=[
-            Flag(
-                name="--name", param="name", py_type="str", kind="scalar", required=True
-            )
-        ],
+        path_params=[Flag(name="--id", param="id", py_type="str", kind="id", required=False)],
+        body_flags=[Flag(name="--name", param="name", py_type="str", kind="scalar", required=True)],
     )
     ir = CliIR(sdk_package="fakesdk", sdk_version="9.9.9", commands=[cmd])
     assert ir.commands[0].key == "update:application"

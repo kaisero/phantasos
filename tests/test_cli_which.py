@@ -33,13 +33,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -112,9 +106,7 @@ def test_which_totally_unknown_exits_nonzero_no_crash(
 def test_single_spec_has_no_which_object(tmp_path: Path) -> None:
     """Federated-only gate: single-spec (`fakesdk`) must NOT emit `which_object`."""
     inv = cli_operations("fakesdk", FAKESDK)
-    ir = build_cli_ir(
-        inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv)
-    )[0]
+    ir = build_cli_ir(inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv))[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     cli_cmds = (tmp_path / "fakesdk_cli" / "_generated" / "cli_commands.py").read_text()
     app_py = (tmp_path / "fakesdk_cli" / "_generated" / "app.py").read_text()
