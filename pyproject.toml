@@ -92,7 +92,7 @@ dev = [
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
+line-length = 120
 src = ["src", "tests", "tools", "transformations"]
 
 [tool.ruff.lint]
@@ -116,6 +116,8 @@ ignore = []
 "src/phantasos/generator/sdk/build.py" = ["S603", "S607"]
 # render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
 "src/phantasos/generator/cli/render_cli.py" = ["S603"]
+# finalize.py runs the trusted `ruff`/`uv` binaries over the just-generated project.
+"src/phantasos/generator/finalize.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
 "src/phantasos/generator/sdk/provision.py" = ["S310"]
 # smoke.py shells out to the isolated venv's python/pip — trusted argv.

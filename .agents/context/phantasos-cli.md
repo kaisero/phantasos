@@ -100,9 +100,9 @@ phantasos = "phantasos.cli:main"
 
 <!-- GENERATED:api -->
 - `cli.py`
-  - `sdk_build(product, no_smoke)` — build an SDK from a product's sdk.yml
+  - `sdk_build(product, no_smoke, no_verify)` — build an SDK from a product's sdk.yml
   - `cli_discover(product, write_stub)` — print the classification table + cli.yml stub
-  - `cli_build(product)` — emit the CLI project from a built SDK
+  - `cli_build(product, no_verify)` — emit the CLI project from a built SDK
   - `main(argv)`
 <!-- /GENERATED:api -->
 

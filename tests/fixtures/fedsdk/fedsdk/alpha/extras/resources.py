@@ -126,9 +126,7 @@ class WidgetResource(_ResourceBase):
         )
 
     def get(self, id: str | None = None) -> Widget:
-        return self._call(
-            "get", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
-        )
+        return self._call("get", {k for k, v in {"id": id}.items() if v is not None}, {"id": id})
 
     def list(self, limit: int | None = None) -> WidgetList:
         return self._call(
@@ -145,6 +143,4 @@ class WidgetResource(_ResourceBase):
         )
 
     def delete(self, id: str | None = None) -> None:
-        return self._call(
-            "delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
-        )
+        return self._call("delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id})

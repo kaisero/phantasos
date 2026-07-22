@@ -35,9 +35,7 @@ _FED_CTX = {
     "federated": True,
     "package": "fedsdk",
     "live_smoke_literal": "{}",
-    "live_required_env_literal": repr(
-        ["CLIENT_ID", "CLIENT_SECRET", "SCOPE", "PANW_REGION"]
-    ),
+    "live_required_env_literal": repr(["CLIENT_ID", "CLIENT_SECRET", "SCOPE", "PANW_REGION"]),
 }
 
 
@@ -134,9 +132,7 @@ def test_no_zero_arg_list_is_skipped_not_a_pre_http_error(tmp_path: Path) -> Non
     mod = _load(_render(_FED_CTX), tmp_path)
 
     class _IdOnly:
-        _bindings: ClassVar[dict[str, Any]] = {
-            "list": [{"raw_method": "get_thing", "requires": ["id"]}]
-        }
+        _bindings: ClassVar[dict[str, Any]] = {"list": [{"raw_method": "get_thing", "requires": ["id"]}]}
 
     assert mod._auto_object({"thing": (_IdOnly, "things")}) is None
     mod._wrappers = lambda slug: {"thing": (_IdOnly, "things")}
@@ -144,9 +140,7 @@ def test_no_zero_arg_list_is_skipped_not_a_pre_http_error(tmp_path: Path) -> Non
         mod._resolve("alpha")
 
 
-def test_override_resolves_env_args_at_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_override_resolves_env_args_at_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     mod = _load(_render(_FED_CTX), tmp_path)
     mod._LIVE_SMOKE = {
         "alpha": {
@@ -189,9 +183,7 @@ def test_reached_server_tolerates_only_response_deser_errors(tmp_path: Path) -> 
 
 def test_override_skip_skips(tmp_path: Path) -> None:
     mod = _load(_render(_FED_CTX), tmp_path)
-    mod._LIVE_SMOKE = {
-        "alpha": {"skip": True, "object": None, "verb": "list", "args": {}}
-    }
+    mod._LIVE_SMOKE = {"alpha": {"skip": True, "object": None, "verb": "list", "args": {}}}
     with pytest.raises(pytest.skip.Exception), on_sys_path(FIXTURE):
         mod._resolve("alpha")
 
@@ -210,16 +202,12 @@ def test_validate_accepts_good_override() -> None:
 
 def test_validate_auto_pick_needs_no_introspection() -> None:
     # object=None even with a nonsense verb is fine — auto-pick is a runtime concern.
-    _validate_live_smoke(
-        {"alpha": LiveProbe(verb="nope")}, "fedsdk", ["alpha", "beta"], FIXTURE
-    )
+    _validate_live_smoke({"alpha": LiveProbe(verb="nope")}, "fedsdk", ["alpha", "beta"], FIXTURE)
 
 
 def test_validate_rejects_unknown_slug() -> None:
     with pytest.raises(ValueError, match="gamma"):
-        _validate_live_smoke(
-            {"gamma": LiveProbe()}, "fedsdk", ["alpha", "beta"], FIXTURE
-        )
+        _validate_live_smoke({"gamma": LiveProbe()}, "fedsdk", ["alpha", "beta"], FIXTURE)
 
 
 def test_validate_rejects_unknown_object() -> None:

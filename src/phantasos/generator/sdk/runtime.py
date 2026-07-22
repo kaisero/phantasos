@@ -31,9 +31,7 @@ from pathlib import Path
 
 import libcst as cst
 
-_RUNTIME = frozenset(
-    {"api_client", "configuration", "rest", "exceptions", "api_response"}
-)
+_RUNTIME = frozenset({"api_client", "configuration", "rest", "exceptions", "api_response"})
 _FILES = tuple(f"{m}.py" for m in _RUNTIME)
 
 
@@ -85,9 +83,7 @@ class _Rewrite(cst.CSTTransformer):
         joined = [*base, module] if module else base
         return ".".join(joined) if joined else None
 
-    def leave_ImportFrom(
-        self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom
-    ) -> cst.BaseSmallStatement:
+    def leave_ImportFrom(self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom) -> cst.BaseSmallStatement:
         mod = self._abs(len(updated_node.relative), _dotted(updated_node.module))
         if mod is None:
             return updated_node
@@ -133,10 +129,7 @@ class _AbstractModels(cst.CSTTransformer):
         kept = [
             s
             for s in updated_node.body
-            if not (
-                isinstance(s, cst.Import)
-                and any(_dotted(a.name) == self.target for a in s.names)
-            )
+            if not (isinstance(s, cst.Import) and any(_dotted(a.name) == self.target for a in s.names))
         ]
         if not kept:
             return cst.RemoveFromParent()
@@ -144,26 +137,18 @@ class _AbstractModels(cst.CSTTransformer):
             return updated_node.with_changes(body=kept)
         return updated_node
 
-    def leave_Attribute(
-        self, original_node: cst.Attribute, updated_node: cst.Attribute
-    ) -> cst.BaseExpression:
+    def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression:
         if _dotted(updated_node) == self.target:
             return cst.Attribute(value=cst.Name("self"), attr=cst.Name("models"))
         return updated_node
 
-    def leave_ClassDef(
-        self, original_node: cst.ClassDef, updated_node: cst.ClassDef
-    ) -> cst.BaseStatement:
-        if updated_node.name.value != "ApiClient" or not isinstance(
-            updated_node.body, cst.IndentedBlock
-        ):
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.BaseStatement:
+        if updated_node.name.value != "ApiClient" or not isinstance(updated_node.body, cst.IndentedBlock):
             return updated_node
         stmts = list(updated_node.body.body)
         idx = 1 if stmts and _is_docstring(stmts[0]) else 0  # keep the docstring first
         stmts.insert(idx, cst.parse_statement("models = None\n"))
-        return updated_node.with_changes(
-            body=updated_node.body.with_changes(body=tuple(stmts))
-        )
+        return updated_node.with_changes(body=updated_node.body.with_changes(body=tuple(stmts)))
 
 
 def _rewrite_file(path: Path, root: str, current_pkg: str) -> None:
@@ -192,9 +177,7 @@ def hoist_runtime(project_dir: Path, root_package: str, slugs: list[str]) -> Non
     donor_pkg = f"{root_package}.{donor}"
     # 1. Hoist the donor's runtime files and repoint their own runtime imports.
     for fname in _FILES:
-        (rt / fname).write_text(
-            (root / donor / fname).read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        (rt / fname).write_text((root / donor / fname).read_text(encoding="utf-8"), encoding="utf-8")
         _rewrite_file(rt / fname, root_package, donor_pkg)
     _abstract_models(rt / "api_client.py", root_package, donor)
 

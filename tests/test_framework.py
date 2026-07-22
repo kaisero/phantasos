@@ -27,9 +27,7 @@ def test_collapse_allof_over_array_ref() -> None:
     }
     stats = {"allof_collapsed": 0, "mojibake_fixed": 0, "enum_dups_removed": 0}
     preprocess.clean(spec, stats)
-    assert spec["components"]["schemas"]["S"]["properties"]["x"] == {
-        "$ref": "#/components/schemas/Arr"
-    }
+    assert spec["components"]["schemas"]["S"]["properties"]["x"] == {"$ref": "#/components/schemas/Arr"}
     assert stats["allof_collapsed"] == 1
 
 
@@ -40,9 +38,7 @@ def test_allof_over_object_ref_preserved() -> None:
                 "Obj": {"type": "object", "properties": {"a": {"type": "string"}}},
                 "S": {
                     "type": "object",
-                    "properties": {
-                        "x": {"allOf": [{"$ref": "#/components/schemas/Obj"}]}
-                    },
+                    "properties": {"x": {"allOf": [{"$ref": "#/components/schemas/Obj"}]}},
                 },
             }
         }
@@ -53,11 +49,7 @@ def test_allof_over_object_ref_preserved() -> None:
 
 
 def test_mojibake_and_enum_dedupe() -> None:
-    spec: dict[str, Any] = {
-        "components": {
-            "schemas": {"E": {"enum": ["TelefÃ³nica S.A.", "Telefónica S.A."]}}
-        }
-    }
+    spec: dict[str, Any] = {"components": {"schemas": {"E": {"enum": ["TelefÃ³nica S.A.", "Telefónica S.A."]}}}}
     stats = {"allof_collapsed": 0, "mojibake_fixed": 0, "enum_dups_removed": 0}
     preprocess.clean(spec, stats)
     assert spec["components"]["schemas"]["E"]["enum"] == ["Telefónica S.A."]
@@ -84,9 +76,7 @@ def test_hoist_items_and_tag_operations() -> None:
         "paths": {"/x": {"get": {"summary": "s"}}},
     }
     preprocess.hoist_items(spec, [("C", "items", "CEntry")])
-    assert spec["components"]["schemas"]["C"]["properties"]["items"]["items"] == {
-        "$ref": "#/components/schemas/CEntry"
-    }
+    assert spec["components"]["schemas"]["C"]["properties"]["items"]["items"] == {"$ref": "#/components/schemas/CEntry"}
     assert "CEntry" in spec["components"]["schemas"]
     preprocess.tag_operations(spec, [("/x", "get", "GetX", "Things")])
     assert spec["paths"]["/x"]["get"]["operationId"] == "GetX"
@@ -101,10 +91,7 @@ def test_apostrophe_patch(tmp_path: Path) -> None:
 
 
 def test_oneof_first_match_patch(tmp_path: Path) -> None:
-    src = (
-        "        instance.actual_instance = RuleSummary.from_json(json_str)\n"
-        "        match += 1\n"
-    )
+    src = "        instance.actual_instance = RuleSummary.from_json(json_str)\n        match += 1\n"
     f = tmp_path / "m.py"
     f.write_text("actual_instance = x\nfrom_json(json_str)\n" + src)
     assert patches.patch_oneof_first_match(tmp_path) == 1
@@ -179,9 +166,7 @@ def test_render_offset_pagination_respects_caller_limit() -> None:
     def list_method(**kw: int) -> SimpleNamespace:
         seen_limits.append(kw["limit"])
         off, lim = kw["offset"], kw["limit"]
-        return SimpleNamespace(
-            data=items[off : off + lim], total=len(items), limit=lim, offset=off
-        )
+        return SimpleNamespace(data=items[off : off + lim], total=len(items), limit=lim, offset=off)
 
     assert list(paginate(list_method, limit=50)) == items
     assert seen_limits == [50, 50, 50]  # 50 + 50 + 20 (short) -> 3 calls
@@ -200,9 +185,7 @@ def test_render_offset_pagination_total_guard_stops_runaway() -> None:
         if calls["n"] > 5:
             raise AssertionError("paginate did not stop — total guard missing")
         lim = kw["limit"]
-        return SimpleNamespace(
-            data=list(range(lim)), total=lim, limit=lim, offset=kw["offset"]
-        )
+        return SimpleNamespace(data=list(range(lim)), total=lim, limit=lim, offset=kw["offset"])
 
     out = list(paginate(list_method))
     assert len(out) == 100  # one full page, then offset(100) >= total(100) -> stop

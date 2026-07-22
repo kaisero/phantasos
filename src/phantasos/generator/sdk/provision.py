@@ -43,9 +43,7 @@ def _download_verified(url: str, sha256: str, dest: Path) -> None:
                 digest.update(chunk)
         actual = digest.hexdigest()
         if actual != sha256:
-            raise ProvisionError(
-                f"checksum mismatch for {url}\n  expected {sha256}\n  got      {actual}"
-            )
+            raise ProvisionError(f"checksum mismatch for {url}\n  expected {sha256}\n  got      {actual}")
         tmp_file.replace(dest)
     finally:
         if tmp_file.exists():
@@ -96,9 +94,7 @@ class _Jre:
 
 
 _JRE_RELEASE = "jdk-17.0.19+10"  # pinned latest Temurin 17 LTS patch
-_TEMURIN_BASE = (
-    "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
-)
+_TEMURIN_BASE = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10"
 
 _JRE: dict[str, _Jre] = {
     "linux-x64": _Jre(
@@ -145,9 +141,7 @@ def resolve_java() -> Path:
     if java.exists():
         return java
 
-    print(
-        f"  provisioning Temurin JRE {_JRE_RELEASE} ({key}, ~40 MB, one-time) -> {home}"
-    )
+    print(f"  provisioning Temurin JRE {_JRE_RELEASE} ({key}, ~40 MB, one-time) -> {home}")
     suffix = ".zip" if asset.url.endswith(".zip") else ".tar.gz"
     archive = cache_dir() / f"temurin-{_JRE_RELEASE}-{key}{suffix}"
     _download_verified(asset.url, asset.sha256, archive)
@@ -162,7 +156,5 @@ def resolve_java() -> Path:
     archive.unlink(missing_ok=True)
 
     if not java.exists():
-        raise ProvisionError(
-            f"java not found after extracting {asset.url} (looked for {java})"
-        )
+        raise ProvisionError(f"java not found after extracting {asset.url} (looked for {java})")
     return java

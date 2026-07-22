@@ -21,12 +21,8 @@ def _ctx(**over: object) -> dict[str, Any]:
 def test_scaffold_renders_builtin_and_strips_jinja(tmp_path: Path) -> None:
     builtin = tmp_path / "scaffold"
     (builtin / ".github" / "workflows").mkdir(parents=True)
-    (builtin / "pyproject.toml.jinja").write_text(
-        "name = '{{ distribution }}'\n", "utf-8"
-    )
-    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text(
-        "on: [push]\n", "utf-8"
-    )
+    (builtin / "pyproject.toml.jinja").write_text("name = '{{ distribution }}'\n", "utf-8")
+    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text("on: [push]\n", "utf-8")
     # non-jinja: copied verbatim
     (builtin / ".editorconfig").write_text("root = true\n", "utf-8")
     out = tmp_path / "sdk"
@@ -54,9 +50,7 @@ def test_override_replaces_builtin(tmp_path: Path) -> None:
 def test_conditional_skip_via_jinja(tmp_path: Path) -> None:
     builtin = tmp_path / "scaffold"
     builtin.mkdir()
-    (builtin / "test_pagination.py.jinja").write_text(
-        "{% if has_pagination %}import x{% endif %}", "utf-8"
-    )
+    (builtin / "test_pagination.py.jinja").write_text("{% if has_pagination %}import x{% endif %}", "utf-8")
     out = tmp_path / "sdk"
     out.mkdir()
     written = scaffold.render_scaffold(builtin, None, out, _ctx(has_pagination=False))
@@ -168,16 +162,12 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
                 "create": {"method": "create_widget", "required_args": []},
                 "read": {
                     "method": "get_widget_by_id",
-                    "required_args": [
-                        {"name": "id", "kind": "path", "placeholder": "<id>"}
-                    ],
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
                 },
                 "list": {"method": "list_widgets", "required_args": []},
                 "delete": {
                     "method": "delete_widget_by_id",
-                    "required_args": [
-                        {"name": "id", "kind": "path", "placeholder": "<id>"}
-                    ],
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
                 },
             },
         },
@@ -313,13 +303,9 @@ def test_scaffold_retry_test_gated(tmp_path: Path) -> None:
     }
     out_on = tmp_path / "on"
     out_on.mkdir()
-    scaffold.render_scaffold(
-        scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True}
-    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True})
     assert (out_on / "tests" / "test_retry.py").exists()
     out_off = tmp_path / "off"
     out_off.mkdir()
-    scaffold.render_scaffold(
-        scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False}
-    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False})
     assert not (out_off / "tests" / "test_retry.py").exists()

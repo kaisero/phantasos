@@ -63,9 +63,7 @@ class _ResourceBase:
     def _fetch(self, verb: str, present: set[str], kwargs: dict[str, Any]) -> Any:
         return self._call(verb, present, kwargs)
 
-    def _list(
-        self, verb: str, present: set[str], kwargs: dict[str, Any], all_pages: bool
-    ) -> Any:
+    def _list(self, verb: str, present: set[str], kwargs: dict[str, Any], all_pages: bool) -> Any:
         b = self._select(verb, present)
         fn = getattr(self._api, b["raw_method"])
         raw = self._to_raw(kwargs, b)
@@ -79,11 +77,7 @@ class _ResourceBase:
         present = {k for k, v in kwargs.items() if v is not None}
         b = self._select(verb, present)
         fn = getattr(self._api, b["serialize_name"])
-        params = {
-            k: (0 if k == "_host_index" else None)
-            for k in inspect.signature(fn).parameters
-            if k != "self"
-        }
+        params = {k: (0 if k == "_host_index" else None) for k in inspect.signature(fn).parameters if k != "self"}
         params.update(self._to_raw(kwargs, b))
         return fn(**params)
 
@@ -198,13 +192,9 @@ class WidgetResource(_ResourceBase):
         )
 
     def delete(self, id: str | None = None) -> None:
-        return self._call(
-            "delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
-        )
+        return self._call("delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id})
 
-    def get(
-        self, id: str | None = None, configuration_version: str | None = None
-    ) -> Widget:
+    def get(self, id: str | None = None, configuration_version: str | None = None) -> Widget:
         return self._fetch(
             "get",
             {
@@ -327,9 +317,7 @@ class GizmoResource(_ResourceBase):
     def __init__(self, api: GizmosApi) -> None:
         self._api = api
 
-    def create(
-        self, type: WidgetType | None = None, body: CreateGizmoInput | None = None
-    ) -> None:
+    def create(self, type: WidgetType | None = None, body: CreateGizmoInput | None = None) -> None:
         return self._call(
             "create",
             {k for k, v in {"type": type, "body": body}.items() if v is not None},
@@ -337,9 +325,7 @@ class GizmoResource(_ResourceBase):
         )
 
     def delete(self, id: str | None = None) -> None:
-        return self._call(
-            "delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id}
-        )
+        return self._call("delete", {k for k, v in {"id": id}.items() if v is not None}, {"id": id})
 
     def get(self, type: WidgetType | None = None, id: str | None = None) -> None:
         return self._fetch(
@@ -349,13 +335,9 @@ class GizmoResource(_ResourceBase):
         )
 
     def list(self, *, all_pages: bool = False) -> None:
-        return self._list(
-            "list", {k for k, v in {}.items() if v is not None}, {}, all_pages
-        )
+        return self._list("list", set[str](), {}, all_pages)
 
-    def update(
-        self, id: str | None = None, body: CreateGizmoInput | None = None
-    ) -> None:
+    def update(self, id: str | None = None, body: CreateGizmoInput | None = None) -> None:
         return self._call(
             "update",
             {k for k, v in {"id": id, "body": body}.items() if v is not None},

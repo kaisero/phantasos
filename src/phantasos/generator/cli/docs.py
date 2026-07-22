@@ -20,9 +20,7 @@ from .ir import CliIR, Command, Flag, ModelSchema, synth_skeleton
 # after the prose. The per-parameter details are already rendered in the flag tables
 # (from each Flag's `help`), so the block is pure redundancy + SDK-internal noise
 # (_request_timeout/_headers/...). Drop everything from the first directive onward.
-_SPHINX_BLOCK = re.compile(
-    r"^[ \t]*:(?:param|type|return|rtype|raises)\b", re.MULTILINE
-)
+_SPHINX_BLOCK = re.compile(r"^[ \t]*:(?:param|type|return|rtype|raises)\b", re.MULTILINE)
 
 # The universal "Common" help-panel flags injected into EVERY emitted command at
 # code-emit time (templates/_generated/commands.py.jinja). They are not in the CliIR,
@@ -153,10 +151,7 @@ def _schema_rows(
         tabs = None
         children = None
         if mf.variant_refs:
-            tabs = [
-                {"name": v, "rows": _schema_rows(models, v, _path=path)}
-                for v in mf.variant_refs
-            ]
+            tabs = [{"name": v, "rows": _schema_rows(models, v, _path=path)} for v in mf.variant_refs]
         elif mf.model_ref:
             children = _schema_rows(models, mf.model_ref, _path=path)
         rows.append(
@@ -166,15 +161,11 @@ def _schema_rows(
                     # ponytail: rsplit no-op on bare refs → single-spec unchanged
                     f"list[{mf.model_ref.rsplit('.', 1)[-1]}]"
                     if mf.model_ref_list and mf.model_ref
-                    else (
-                        mf.model_ref.rsplit(".", 1)[-1] if mf.model_ref else mf.py_type
-                    )
+                    else (mf.model_ref.rsplit(".", 1)[-1] if mf.model_ref else mf.py_type)
                 ),
                 "required": mf.required,
                 "help": _cell(mf.description or _ref_description(models, mf.model_ref)),
-                "choices": (
-                    [_cell(c) for c in mf.enum_values] if mf.enum_values else None
-                ),
+                "choices": ([_cell(c) for c in mf.enum_values] if mf.enum_values else None),
                 "children": children,
                 "tabs": tabs,
             }
@@ -192,9 +183,7 @@ def _anchor(key: str, flag_name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", base).strip("-")
 
 
-def _flag_row(
-    f: Flag, models: dict[str, ModelSchema] | None = None, *, key: str
-) -> dict[str, object]:
+def _flag_row(f: Flag, models: dict[str, ModelSchema] | None = None, *, key: str) -> dict[str, object]:
     schema = None
     if f.kind == "json" and f.model_ref and models:
         schema = _schema_rows(models, f.model_ref)
@@ -221,11 +210,7 @@ def _command_view(
     filters = [f for f in query if query_panel(f) == "Filters"]
     pagination = [f for f in query if query_panel(f) == "Pagination"]
     body_skeleton = (
-        {
-            f.param: synth_skeleton(models, f.model_ref, full=True)
-            for f in body
-            if f.kind == "json" and f.model_ref
-        }
+        {f.param: synth_skeleton(models, f.model_ref, full=True) for f in body if f.kind == "json" and f.model_ref}
         if models
         else {}
     )
@@ -238,21 +223,13 @@ def _command_view(
         "body_flags": [_flag_row(f, models, key=c.key) for f in body],
         "filter_flags": [_flag_row(f, models, key=c.key) for f in filters],
         "pagination_flags": [_flag_row(f, models, key=c.key) for f in pagination],
-        "example": render_invocation(
-            c, distribution=distribution, override=override, models=models
-        ),
-        "body_skeleton": (
-            json.dumps(body_skeleton, indent=2, default=_json_default)
-            if body_skeleton
-            else ""
-        ),
+        "example": render_invocation(c, distribution=distribution, override=override, models=models),
+        "body_skeleton": (json.dumps(body_skeleton, indent=2, default=_json_default) if body_skeleton else ""),
         "columns": [{"header": col.header, "path": col.path} for col in c.columns],
     }
 
 
-def _showcase(
-    commands: list[Command], obj: str, variant: str | None
-) -> dict[str, object]:
+def _showcase(commands: list[Command], obj: str, variant: str | None) -> dict[str, object]:
     verbs = {c.verb for c in commands if c.object == obj}
     sub = next((c.subpackage for c in commands if c.object == obj), None)
     return {
@@ -282,19 +259,14 @@ def build_cli_docs_context(
     objects = sorted({c.object for c in ir.commands})
     if docs.showcase_object not in objects:
         raise ValueError(
-            f"docs.showcase_object {docs.showcase_object!r} is not a CLI object; "
-            f"available objects: {objects}"
+            f"docs.showcase_object {docs.showcase_object!r} is not a CLI object; available objects: {objects}"
         )
     if docs.showcase_variant is not None:
         # Fail loud like showcase_object (D6). Validate against CREATE variants only:
         # the Quickstart shows the create example, so a variant that exists only on
         # (say) update would otherwise pass here yet silently drop the example.
         variants = sorted(
-            {
-                c.variant
-                for c in ir.commands
-                if c.object == docs.showcase_object and c.verb == "create" and c.variant
-            }
+            {c.variant for c in ir.commands if c.object == docs.showcase_object and c.verb == "create" and c.variant}
         )
         if docs.showcase_variant not in variants:
             raise ValueError(

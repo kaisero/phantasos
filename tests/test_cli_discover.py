@@ -74,9 +74,7 @@ def test_stub_prefills_columns_from_defaults() -> None:
                     ColumnSpec(header="name", path="name"),
                 ],
             ),
-            Command(
-                verb="show", object="gizmo", key="show:gizmo", sdk_resource="gizmos"
-            ),  # no columns -> omitted
+            Command(verb="show", object="gizmo", key="show:gizmo", sdk_resource="gizmos"),  # no columns -> omitted
         ],
     )
     stub = render_stub(ir, [])
@@ -90,9 +88,7 @@ def test_real_sdk_classifies_without_error(real_sdk: Path) -> None:
     try:
         inv = introspect("prisma_browser", real_sdk)
     except ImportError as exc:
-        pytest.skip(
-            f"prisma-browser-sdk runtime deps not installed in this venv: {exc}"
-        )
+        pytest.skip(f"prisma-browser-sdk runtime deps not installed in this venv: {exc}")
     ir, unmapped = build_cli_ir(inv, CliConfig())
     # no duplicate commands
     assert len({c.key for c in ir.commands}) == len(ir.commands)

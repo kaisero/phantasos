@@ -85,9 +85,7 @@ def test_errors_guide_documents_exit_codes(emit_cli: Callable[..., Path]) -> Non
 
 def test_quickstart_honors_showcase_variant(emit_cli: Callable[..., Path]) -> None:
     # D6: a oneOf-create showcase picks the configured variant for the Quickstart.
-    out = emit_cli(
-        docs=CliDocsConfig(showcase_object="gizmo", showcase_variant="complex")
-    )
+    out = emit_cli(docs=CliDocsConfig(showcase_object="gizmo", showcase_variant="complex"))
     quickstart = (out / "docs" / "quickstart.md").read_text()
     assert "fakesdk create gizmo complex" in quickstart
     assert "fakesdk create gizmo simple" not in quickstart
@@ -255,7 +253,4 @@ def test_environments_guide_in_nav(emit_cli: Callable[..., Path]) -> None:
     out = emit_cli(docs=CliDocsConfig(showcase_object="widget"), auth=True)
     cfg = yaml.safe_load((out / "mkdocs.yml").read_text())
     guides = next(s["Guides"] for s in cfg["nav"] if "Guides" in s)
-    assert any(
-        "environments.md" in (next(iter(g.values())) if isinstance(g, dict) else g)
-        for g in guides
-    )
+    assert any("environments.md" in (next(iter(g.values())) if isinstance(g, dict) else g) for g in guides)

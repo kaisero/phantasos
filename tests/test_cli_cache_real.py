@@ -62,11 +62,7 @@ def test_resolver_finds_tm_on_real_facade(
             pytest.skip(f"prisma-browser-sdk not importable: {exc}")
         ac = importlib.import_module("prisma_browser_cli._generated.auth_cache")
         # credential-free client: no network until a call is made
-        client = facade.Client(
-            auth.api_client_from_credentials(
-                client_id="x", client_secret="y", scope="z"
-            )
-        )
+        client = facade.Client(auth.api_client_from_credentials(client_id="x", client_secret="y", scope="z"))
         tm = ac.token_manager(client)
         assert tm is not None, "resolver failed on the real facade (coupling broke)"
         assert tm is client.api_client.configuration._token_manager
@@ -89,9 +85,7 @@ def test_real_tm_honors_seeded_token_without_grant(
 
             def request(self, *a: Any, **k: Any) -> None:
                 self.count += 1
-                raise AssertionError(
-                    "a grant was attempted despite a valid seeded token"
-                )
+                raise AssertionError("a grant was attempted despite a valid seeded token")
 
         http = _FakeHTTP()
         tm = auth.TokenManager("x", "y", "z", http=http)

@@ -13,6 +13,4 @@ from tools import context_docs
 
 
 def test_context_docs_generated_blocks_are_current() -> None:
-    assert context_docs.main(["--check"]) == 0, (
-        "Stale .agents/context/ generated blocks — run `uv run nox -s context`."
-    )
+    assert context_docs.main(["--check"]) == 0, "Stale .agents/context/ generated blocks — run `uv run nox -s context`."

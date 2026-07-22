@@ -46,9 +46,7 @@ def _root_field(node: dict[str, Any]) -> str | None:
         node = children[0]
 
 
-def resolve_columns(
-    entries: list[str | ColumnEntry], fields: list[FieldInfo], obj: str
-) -> list[ColumnSpec]:
+def resolve_columns(entries: list[str | ColumnEntry], fields: list[FieldInfo], obj: str) -> list[ColumnSpec]:
     """Normalize cli.yml column entries; raise ValueError (-> build failure) on
     invalid JMESPath or an unknown root field (best-effort, only when the item
     model's fields are known and the AST root is a plain field)."""
@@ -59,14 +57,11 @@ def resolve_columns(
         try:
             parsed = jmespath.compile(path).parsed
         except JMESPathError as exc:
-            raise ValueError(
-                f"cli.yml columns.{obj}: invalid JMESPath {path!r}: {exc}"
-            ) from exc
+            raise ValueError(f"cli.yml columns.{obj}: invalid JMESPath {path!r}: {exc}") from exc
         root = _root_field(parsed)
         if known and root is not None and root not in known:
             raise ValueError(
-                f"cli.yml columns.{obj}: unknown field {root!r} in {path!r}"
-                f" (available: {', '.join(sorted(known))})"
+                f"cli.yml columns.{obj}: unknown field {root!r} in {path!r} (available: {', '.join(sorted(known))})"
             )
         out.append(ColumnSpec(header=header, path=path))
     return out

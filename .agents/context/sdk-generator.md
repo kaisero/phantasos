@@ -281,7 +281,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 
 <!-- GENERATED:api -->
 - `build.py`
-  - `build(loaded, run_smoke)`
+  - `build(loaded, run_smoke, verify)`
 - `docs.py`
   - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
   - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples, subpackage)`
@@ -292,7 +292,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `assemble_reference_docstring(summary, example)` — Combine the one-line summary with an example block into a docstring body.
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
-  - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
+  - `prune_suppressed_files(out_dir)` — Delete the suppressed OAG files and generator metadata from the output.
   - `ensure_jar()`
   - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
 - `patches.py`
@@ -302,6 +302,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
   - `patch_oneof_missing_imports(models_dir, package)` — Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
+  - `patch_missing_typing_imports(models_dir)` — Add typing names used as generics but absent from ``from typing import ...``.
   - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
   - `load(path)`

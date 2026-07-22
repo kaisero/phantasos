@@ -24,8 +24,7 @@ def paginate(list_method: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:
     cursor: str | None = None
     while True:
         page = list_method(**({**kwargs, "cursor": cursor} if cursor else kwargs))
-        for item in getattr(page, "{{ data_field }}", None) or []:
-            yield item
+        yield from getattr(page, "{{ data_field }}", None) or []
         cursor = _next_cursor(page)
         if cursor is None:
             return

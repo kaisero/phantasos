@@ -48,13 +48,39 @@ docs = [
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "W"]
 
+# OpenAPI Generator output is machine-generated: autofixable issues are cleaned at
+# generation time, but a residue is irreducible (long embedded description strings,
+# generator idioms). Scope those away so CI lints our code strictly and the
+# generated runtime loosely. Patterns use ** to cover both the single-spec layout
+# (<pkg>/models) and the federated one (<pkg>/<sub>/models, hoisted <pkg>/_runtime).
+[tool.ruff.lint.per-file-ignores]
+"**/models/*.py" = ["E501", "F841", "UP031", "UP030", "UP042", "E741"]
+"**/api/*.py" = ["E501"]
+"**/configuration.py" = ["E501", "UP030", "UP031"]
+"**/api_client.py" = ["UP031"]
+"**/_lenient.py" = ["UP042"]
+# CLI projects: the generated command/runtime layer (str-subclass enums, etc.).
+"**/_generated/*.py" = ["UP042"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+# Third-party libs used by generated code that ship no type stubs: python-dateutil
+# (SDK api_client), PyYAML + jmespath (CLI runtime).
+module = ["dateutil.*", "yaml", "jmespath"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Generated CLI runtime (emitted verbatim from phantasos templates), checked loosely
+# like the SDK's generated OAG runtime; the hand-owned CLI code stays strict.
+module = ["*._generated.*"]
+disable_error_code = ["union-attr", "assignment", "arg-type", "index", "attr-defined"]
 {% if sdk_source_path is defined and sdk_source_path %}
 [tool.uv.sources]
 {{ sdk_dist }} = { path = "{{ sdk_source_path }}", editable = true }

@@ -81,20 +81,15 @@ def _seed_subpackage(root: Path, slug: str) -> None:
     _write(b / "api_client.py", _api_client_src(slug))
     _write(
         b / "configuration.py",
-        "class Configuration:\n"
-        "    @classmethod\n"
-        "    def get_default(cls):\n"
-        "        return cls()\n",
+        "class Configuration:\n    @classmethod\n    def get_default(cls):\n        return cls()\n",
     )
     _write(
         b / "api_response.py",
-        "from typing import TypeVar\n\nT = TypeVar('T')\n\n"
-        "class ApiResponse:\n    pass\n",
+        "from typing import TypeVar\n\nT = TypeVar('T')\n\nclass ApiResponse:\n    pass\n",
     )
     _write(
         b / "exceptions.py",
-        "class ApiException(Exception):\n    pass\n"
-        "class ApiValueError(ApiException):\n    pass\n",
+        "class ApiException(Exception):\n    pass\nclass ApiValueError(ApiException):\n    pass\n",
     )
     _write(
         b / "rest.py",
@@ -144,10 +139,7 @@ def test_hoist_runtime(tmp_path: Path) -> None:
     assert "from prisma_access._runtime import rest" in ac  # B2: non-dotted
     assert "from prisma_access._runtime.configuration import Configuration" in ac
     # alias preserved through the dotted-module rewrite:
-    assert (
-        "from prisma_access._runtime.api_response import ApiResponse, T as ApiResponseT"
-        in ac
-    )
+    assert "from prisma_access._runtime.api_response import ApiResponse, T as ApiResponseT" in ac
     assert "from prisma_access._runtime.exceptions import" in ac  # multi-line block
 
     # _runtime/rest.py repointed to the shared exceptions:
@@ -189,9 +181,7 @@ def test_hoist_runtime(tmp_path: Path) -> None:
     # remove the pre-existing modules before importing tmp_path's; restore after.
     def _drop() -> dict[str, ModuleType]:
         return {
-            m: sys.modules.pop(m)
-            for m in list(sys.modules)
-            if m == "prisma_access" or m.startswith("prisma_access.")
+            m: sys.modules.pop(m) for m in list(sys.modules) if m == "prisma_access" or m.startswith("prisma_access.")
         }
 
     saved = _drop()

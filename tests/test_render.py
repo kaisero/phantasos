@@ -44,9 +44,7 @@ def _exec_extras_errors(src: str) -> types.ModuleType:
     exc = types.ModuleType("_le_pkg.exceptions")
     for name in _EXC_NAMES:
         setattr(exc, name, type(name, (Exception,), {"body": None, "data": None}))
-    sys.modules.update(
-        {"_le_pkg": pkg, "_le_pkg.extras": extras, "_le_pkg.exceptions": exc}
-    )
+    sys.modules.update({"_le_pkg": pkg, "_le_pkg.extras": extras, "_le_pkg.exceptions": exc})
     try:
         mod = types.ModuleType("_le_pkg.extras.errors")
         mod.__package__ = "_le_pkg.extras"
@@ -79,9 +77,7 @@ def test_list_error_message_formats_single_entry() -> None:
 def test_list_error_message_joins_multiple_and_handles_missing_code() -> None:
     mod = _exec_extras_errors(_render_list_error())
     exc = mod.ApiException()
-    exc.body = json.dumps(
-        {"_errors": [{"code": "A", "message": "first"}, {"message": "second"}]}
-    )
+    exc.body = json.dumps({"_errors": [{"code": "A", "message": "first"}, {"message": "second"}]})
     assert mod.error_message(exc) == "A: first; second"
 
 
@@ -119,9 +115,7 @@ def test_nested_error_unwraps_configured_wrapper() -> None:
     # the prior CLI/SDK divergence where only the CLI peeled errorResponse).
     mod = _exec_extras_errors(_render_nested_error())
     exc = mod.ApiException()
-    exc.body = json.dumps(
-        {"errorResponse": {"error": {"code": "E1", "message": "boom"}}}
-    )
+    exc.body = json.dumps({"errorResponse": {"error": {"code": "E1", "message": "boom"}}})
     assert mod.error_message(exc) == "E1: boom"
 
 
@@ -146,11 +140,7 @@ _GOLDEN_SINGLE = Path(__file__).parent / "golden" / "scm_oauth_single_spec.golde
 
 
 def _render_auth(**extra: object) -> str:
-    return (
-        render._env()
-        .get_template("auth/scm_oauth.py.jinja")
-        .render(**{**_AUTH_PARAMS, **extra})
-    )
+    return render._env().get_template("auth/scm_oauth.py.jinja").render(**{**_AUTH_PARAMS, **extra})
 
 
 def test_federated_auth_emits_bearer_client_and_config_factory() -> None:
@@ -187,9 +177,7 @@ def _make_pkg(tmp_path: Path) -> Path:
     api = pkg / "api"
     api.mkdir(parents=True)
     (api / "__init__.py").write_text(
-        "# flake8: noqa\n"
-        "from demo.api.things_api import ThingsApi\n"
-        "from demo.api.users_api import UsersApi\n",
+        "# flake8: noqa\nfrom demo.api.things_api import ThingsApi\nfrom demo.api.users_api import UsersApi\n",
         encoding="utf-8",
     )
     return pkg
@@ -279,9 +267,7 @@ def test_vendor_facade_only(tmp_path: Path) -> None:
 def test_vendor_uses_loaded_product_and_include(tmp_path: Path) -> None:
     pkg = tmp_path / "out" / "acme"
     (pkg / "api").mkdir(parents=True)
-    (pkg / "api" / "__init__.py").write_text(
-        "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
-    )
+    (pkg / "api" / "__init__.py").write_text("from acme.api.things_api import ThingsApi\n", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     (prod / "templates").mkdir(parents=True)
     (prod / "templates" / "banner.py.jinja").write_text(
@@ -311,9 +297,7 @@ def test_vendor_custom_component_template(tmp_path: Path) -> None:
     (prod / "templates" / "api_key.py.jinja").write_text(
         "HEADER = '{{ header_name }}'  # {{ package }}\n", encoding="utf-8"
     )
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n"
         "auth: {type: ./templates/api_key.py.jinja, header_name: X-API-Key}\n",
@@ -331,12 +315,8 @@ def test_vendor_writes_retry(tmp_path: Path) -> None:
     (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
-    (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n", "utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (prod / "sdk.yml").write_text("package: acme\noutput: ../../out/acme\nbase_url: b\nfacade: false\n", "utf-8")
     loaded = load_product(str(prod / "sdk.yml"))
     written = render.vendor(pkg, loaded)
     assert "retry.py" in written
@@ -354,12 +334,9 @@ def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
     (pkg / "api" / "__init__.py").write_text("", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
     (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
-        "errors: {type: nested}\nfacade: false\n",
+        "package: acme\noutput: ../../out/acme\nbase_url: b\nerrors: {type: nested}\nfacade: false\n",
         "utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -372,18 +349,12 @@ def test_errors_exports_ratelimit_not_helper(tmp_path: Path) -> None:
 def test_auth_and_facade_use_default_retry(tmp_path: Path) -> None:
     pkg = tmp_path / "out" / "acme"
     (pkg / "api").mkdir(parents=True)
-    (pkg / "api" / "__init__.py").write_text(
-        "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
-    )
+    (pkg / "api" / "__init__.py").write_text("from acme.api.things_api import ThingsApi\n", encoding="utf-8")
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
     (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
-        "auth: {type: scm_oauth}\n"
-        "facade: true\n",
+        "package: acme\noutput: ../../out/acme\nbase_url: b\nauth: {type: scm_oauth}\nfacade: true\n",
         "utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -408,12 +379,9 @@ def test_include_rejects_path_escape(tmp_path: Path) -> None:
     prod = tmp_path / "products" / "acme"
     (prod / "templates").mkdir(parents=True)
     (prod / "templates" / "x.jinja").write_text("x\n", encoding="utf-8")
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
-        "package: acme\noutput: ../../out/acme\nbase_url: b\n"
-        "include: {'../escape.py': ./templates/x.jinja}\n",
+        "package: acme\noutput: ../../out/acme\nbase_url: b\ninclude: {'../escape.py': ./templates/x.jinja}\n",
         encoding="utf-8",
     )
     loaded = load_product(str(prod / "sdk.yml"))
@@ -429,21 +397,15 @@ def _emit_resources(real_sdk: Path, tmp_path: Path) -> str:
 
     inv = introspect("prisma_browser", real_sdk)
     overrides = load_product("prisma-browser").config.operations
-    objects = build_wrapper_context(
-        inv, overrides, _discover_resources(real_sdk / "prisma_browser")
-    )
+    objects = build_wrapper_context(inv, overrides, _discover_resources(real_sdk / "prisma_browser"))
 
     pkg = tmp_path / "out" / "prisma_browser"
     (pkg / "api").mkdir(parents=True)
-    init = (real_sdk / "prisma_browser" / "api" / "__init__.py").read_text(
-        encoding="utf-8"
-    )
+    init = (real_sdk / "prisma_browser" / "api" / "__init__.py").read_text(encoding="utf-8")
     (pkg / "api" / "__init__.py").write_text(init, encoding="utf-8")
     prod = tmp_path / "products" / "pb"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: prisma_browser\noutput: ../../out/prisma_browser\nbase_url: b\n"
         "pagination: {type: cursor}\nfacade: true\n",
@@ -476,9 +438,7 @@ def test_resources_emitted(real_sdk: Path, tmp_path: Path) -> None:
     ast.parse(src)
 
 
-def test_resources_multibinding_dispatch_via_select(
-    real_sdk: Path, tmp_path: Path
-) -> None:
+def test_resources_multibinding_dispatch_via_select(real_sdk: Path, tmp_path: Path) -> None:
     src = _emit_resources(real_sdk, tmp_path)
     # application.list collapses two raw ops; the by-type op routes `type` to path,
     # the plain op to query — both must appear in _bindings so _select can choose.
@@ -526,15 +486,11 @@ def test_facade_binds_object_wrappers(real_sdk: Path, tmp_path: Path) -> None:
 
     inv = introspect("prisma_browser", real_sdk)
     overrides = load_product("prisma-browser").config.operations
-    objects = build_wrapper_context(
-        inv, overrides, _discover_resources(real_sdk / "prisma_browser")
-    )
+    objects = build_wrapper_context(inv, overrides, _discover_resources(real_sdk / "prisma_browser"))
 
     prod = tmp_path / "products" / "pb"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: prisma_browser\noutput: ../../out/prisma_browser\nbase_url: b\n"
         "pagination: {type: cursor}\nfacade: true\n",
@@ -543,10 +499,7 @@ def test_facade_binds_object_wrappers(real_sdk: Path, tmp_path: Path) -> None:
     loaded = load_product(str(prod / "sdk.yml"))
 
     extras = real_sdk / "prisma_browser" / "extras"
-    backups = {
-        name: (extras / name).read_text(encoding="utf-8")
-        for name in ("facade.py", "resources.py")
-    }
+    backups = {name: (extras / name).read_text(encoding="utf-8") for name in ("facade.py", "resources.py")}
     if str(real_sdk) not in sys.path:
         sys.path.insert(0, str(real_sdk))
     try:

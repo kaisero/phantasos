@@ -32,9 +32,7 @@ def _config_path() -> Path:
 
 
 def _git_lines(root: Path, *args: str) -> list[str]:
-    proc = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
-    )
+    proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True)
     return [line for line in proc.stdout.splitlines() if line.strip()]
 
 
@@ -95,15 +93,10 @@ def main() -> int:
                 "UV_PROJECT_ENVIRONMENT",
                 f"{tempfile.gettempdir()}/phantasos-gate-venv-{_root_key(root)}",
             )
-            proc = subprocess.run(
-                cmd, cwd=root, capture_output=True, text=True, env=env
-            )
+            proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env)
             if proc.returncode != 0:
                 tail = "\n".join((proc.stdout + "\n" + proc.stderr).splitlines()[-50:])
-                failures.append(
-                    f"offline gate failed ({' '.join(cmd)}); fix before stopping:\n"
-                    f"{tail}"
-                )
+                failures.append(f"offline gate failed ({' '.join(cmd)}); fix before stopping:\n{tail}")
 
         if not failures:
             _write_blocks(state_path, session, 0)
@@ -124,8 +117,7 @@ def main() -> int:
         return 0
     except Exception as exc:  # fail OPEN by design
         print(
-            f"fast_gate hook error ({exc!r}) — failing open (allowing stop); "
-            "CI is the backstop.",
+            f"fast_gate hook error ({exc!r}) — failing open (allowing stop); CI is the backstop.",
             file=sys.stderr,
         )
         return 0

@@ -46,17 +46,13 @@ def application_item(real_sdk: Path) -> Iterator[Any]:
         ("non-web", "NonWebApplication"),
     ],
 )
-def test_discriminator_picks_correct_variant(
-    application_item: Any, type_value: str, expected_class: str
-) -> None:
+def test_discriminator_picks_correct_variant(application_item: Any, type_value: str, expected_class: str) -> None:
     item = application_item.from_dict({**_BASE, "type": type_value})
     assert type(item.actual_instance).__name__ == expected_class
 
 
 def test_catalog_fields_are_typed_not_demoted(application_item: Any) -> None:
-    item = application_item.from_dict(
-        {**_BASE, "type": "catalog", "catalog_name": "ssl"}
-    )
+    item = application_item.from_dict({**_BASE, "type": "catalog", "catalog_name": "ssl"})
     inst = item.actual_instance
     assert inst.catalog_name == "ssl"
     assert "catalog_name" not in inst.additional_properties

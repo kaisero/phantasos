@@ -43,9 +43,7 @@ class Client:
     def from_env(cls) -> Client:
         return cls()
 
-    def paginate(
-        self, list_method: Callable[..., Any], **filters: Any
-    ) -> Iterator[Any]:
+    def paginate(self, list_method: Callable[..., Any], **filters: Any) -> Iterator[Any]:
         return paginate(list_method, **filters)
 
     @property

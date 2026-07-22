@@ -6,9 +6,7 @@ from typing import Any
 import pytest
 
 
-def test_logging_config_defaults_and_env(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_logging_config_defaults_and_env(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     cfg.load_config.cache_clear()
@@ -63,9 +61,7 @@ def test_logging_captures_warnings_to_file_not_stderr(
     ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
     importlib.import_module("fakesdk_cli._generated.config").load_config.cache_clear()
     ls.init_logging()
-    warnings.warn(
-        "DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1
-    )
+    warnings.warn("DemoEnum: value 'x' is not defined in the OpenAPI spec", stacklevel=1)
     for h in logging.getLogger("py.warnings").handlers:  # flush; do NOT shutdown
         h.flush()
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
@@ -81,9 +77,7 @@ def test_logging_captures_warnings_to_file_not_stderr(
     assert "not defined in the OpenAPI spec" not in capsys.readouterr().err
 
 
-def test_logging_does_not_touch_root_logger(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_logging_does_not_touch_root_logger(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # M1: init_logging must NEVER mutate the root logger (that evicts pytest's
     # log-capture handler). Only the py.warnings + package loggers get the sink.
     import logging
@@ -99,18 +93,14 @@ def test_logging_does_not_touch_root_logger(
     assert logging.getLogger("fakesdk_cli").propagate is False
 
 
-def test_logging_rotates_and_gzips(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_logging_rotates_and_gzips(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import gzip
     import logging
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     ls = importlib.import_module("fakesdk_cli._generated.logging_setup")
     log = tmp_path / "rot.jsonl"
-    handler = ls._SecureRotatingFileHandler(
-        str(log), maxBytes=80, backupCount=2, encoding="utf-8", delay=True
-    )
+    handler = ls._SecureRotatingFileHandler(str(log), maxBytes=80, backupCount=2, encoding="utf-8", delay=True)
     handler.setFormatter(ls._JsonlFormatter())
     handler.rotator = ls._gzip_rotator
     handler.namer = ls._gzip_namer
@@ -131,9 +121,7 @@ def test_logging_rotates_and_gzips(
         rec_logger.handlers[:] = []
 
 
-def test_app_inits_logging_and_mirrors_diag(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_app_inits_logging_and_mirrors_diag(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import json
     import logging
 
@@ -151,9 +139,7 @@ def test_app_inits_logging_and_mirrors_diag(
         h.flush()
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
     assert log.exists()  # init ran at app build
-    msgs = [
-        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
-    ]
+    msgs = [json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()]
     assert any("a mirrored diagnostic line" in m for m in msgs)  # diag -> log sink
 
 
@@ -176,9 +162,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
         def list(self, *, all_pages: bool = False, **kw: Any) -> list[Any]:
             import warnings
 
-            warnings.warn(
-                "Color: value 'mauve' is not defined in the OpenAPI spec", stacklevel=1
-            )
+            warnings.warn("Color: value 'mauve' is not defined in the OpenAPI spec", stacklevel=1)
             return []
 
     class _Client:
@@ -189,9 +173,7 @@ def test_full_command_warning_not_on_stderr_but_in_log(
     assert res.exit_code == 0, res.output
     assert "not defined in the OpenAPI spec" not in res.output
     log = home / ".fakesdk_cli" / "logs" / "fakesdk_cli.jsonl"
-    msgs = [
-        json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()
-    ]
+    msgs = [json.loads(line)["msg"] for line in log.read_text(encoding="utf-8").splitlines()]
     assert any("not defined in the OpenAPI spec" in m for m in msgs)
 
 
@@ -254,9 +236,7 @@ def test_diagnostics(
     d.set_min_level(d.Level.INFO)  # reset for other tests
 
 
-def test_render_error_http_via_diagnostics(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_render_error_http_via_diagnostics(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     d: Any = importlib.import_module("fakesdk_cli._generated.diagnostics")
     import io
 
@@ -396,9 +376,7 @@ def _write_log(
     d.mkdir(parents=True, exist_ok=True)
 
     def _dump(rows: list[Any]) -> str:
-        return "".join(
-            (r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows
-        )
+        return "".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows)
 
     p = d / "fakesdk_cli.jsonl"
     p.write_text(_dump(active), encoding="utf-8")
@@ -416,9 +394,7 @@ def _load_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Any,
     return ls, home
 
 
-def test_log_files_orders_backups_then_active(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_log_files_orders_backups_then_active(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ls, home = _load_logging(monkeypatch, tmp_path)
     _write_log(home, active=[{"msg": "a"}], gz1=[{"msg": "b"}])
     assert [p.name for p in ls.log_files()] == [
@@ -462,9 +438,7 @@ def test_read_log_limit_takes_last_n_across_files(
     assert [r["msg"] for r in records] == ["c", "d"]
 
 
-def test_read_log_min_level_drops_below_floor(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_read_log_min_level_drops_below_floor(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ls, home = _load_logging(monkeypatch, tmp_path)
     _write_log(
         home,
@@ -518,9 +492,7 @@ def _log_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return home
 
 
-def test_show_cli_log_table_default(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_log_table_default(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     home = _log_home(monkeypatch, tmp_path)
@@ -559,9 +531,7 @@ def test_show_cli_log_level_filter_hides_below_floor(
     assert "info-hidden" not in res.output
 
 
-def test_show_cli_log_json_includes_traceback(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_log_json_includes_traceback(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     home = _log_home(monkeypatch, tmp_path)
@@ -584,9 +554,7 @@ def test_show_cli_log_json_includes_traceback(
     assert '"exc"' in res.output
 
 
-def test_show_cli_log_empty_state(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_log_empty_state(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     _log_home(monkeypatch, tmp_path)
@@ -596,9 +564,7 @@ def test_show_cli_log_empty_state(
     assert "log is empty" in res.output
 
 
-def test_show_cli_log_bad_level_exit_2(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_log_bad_level_exit_2(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     _log_home(monkeypatch, tmp_path)

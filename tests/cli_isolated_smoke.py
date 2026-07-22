@@ -93,18 +93,14 @@ def main() -> int:
             )
 
         # The clean venv must genuinely lack a top-level click (faithful repro).
-        no_click = subprocess.run(
-            [str(py), "-c", "import click"], capture_output=True, text=True
-        )
+        no_click = subprocess.run([str(py), "-c", "import click"], capture_output=True, text=True)
         assert no_click.returncode != 0, "expected NO top-level click in the clean venv"
 
         # 1. The import that previously failed, plus help for the whole tree.
         r = cli("--help")
         assert r.returncode == 0, f"`--help` failed:\n{r.stderr}"
         r = cli("environment", "--help")
-        assert r.returncode == 0 and "create" in r.stdout, (
-            f"`environment --help`:\n{r.stdout}{r.stderr}"
-        )
+        assert r.returncode == 0 and "create" in r.stdout, f"`environment --help`:\n{r.stdout}{r.stderr}"
 
         # 2. create (secret via flag so no prompt), auto-activate, file is 0o600.
         r = cli(
@@ -129,18 +125,14 @@ def main() -> int:
             " assert d['environments']['prod']['client_secret'] == 's3cr3t', d;"
             " assert d['default_environment'] == 'prod', d; print('ENV OK')"
         )
-        chk = subprocess.run(
-            [str(py), "-c", verify, str(env_file)], capture_output=True, text=True
-        )
+        chk = subprocess.run([str(py), "-c", verify, str(env_file)], capture_output=True, text=True)
         assert chk.returncode == 0 and "ENV OK" in chk.stdout, chk.stderr
         mode = stat.S_IMODE(env_file.stat().st_mode)
         assert mode == 0o600, oct(mode)
 
         # 3. show marks active and hides values.
         r = cli("environment", "show")
-        assert r.returncode == 0 and "prod" in r.stdout and "s3cr3t" not in r.stdout, (
-            r.stdout
-        )
+        assert r.returncode == 0 and "prod" in r.stdout and "s3cr3t" not in r.stdout, r.stdout
 
         # 4. create a second environment, delete it, assert it's gone.
         r = cli(

@@ -190,9 +190,7 @@ def test_cli_runner_show_create_delete(
     _, fake_client_cls = fake_client(calls)
     import fakesdk.extras.facade as facade
 
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
 
     r = CliRunner()
     res1 = r.invoke(main.app, ["show", "widget", "--output", "json"])
@@ -226,15 +224,11 @@ def test_cli_runner_variant_and_nonvariant_under_object(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
 
     r = CliRunner()
     # variant create: create gizmo simple (create_gizmo is variant-mapped)
-    res = r.invoke(
-        main.app, ["create", "gizmo", "simple", "--name", "g1", "--output", "json"]
-    )
+    res = r.invoke(main.app, ["create", "gizmo", "simple", "--name", "g1", "--output", "json"])
     assert res.exit_code == 0, res.output
     # non-variant patch under the update verb: update gizmo (patch_gizmo, no variant)
     res2 = r.invoke(
@@ -264,12 +258,8 @@ def test_runtime_coerces_int_query(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
-    res = CliRunner().invoke(
-        main.app, ["show", "widget", "--limit", "50", "--output", "json"]
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
+    res = CliRunner().invoke(main.app, ["show", "widget", "--limit", "50", "--output", "json"])
     assert res.exit_code == 0, res.output
     _, kw = next((n, k) for n, k in calls if n == "list")
     assert kw.get("limit") == 50 and isinstance(kw["limit"], int)  # coerced str->int
@@ -291,9 +281,7 @@ def test_bool_body_flag_accepts_value_and_coerces(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     r = CliRunner()
     for raw, expected in [("true", True), ("false", False)]:
         calls.clear()
@@ -331,9 +319,7 @@ def test_bool_body_flag_rejects_non_bool_value(
     import fakesdk.extras.facade as facade
 
     _, fake_client_cls = fake_client([])
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     res = CliRunner().invoke(
         main.app,
         ["create", "widget", "--name", "w", "--priority", "1", "--enabled", "maybe"],
@@ -357,9 +343,7 @@ def test_invalid_json_flag_reports_clean_error(
     import fakesdk.extras.facade as facade
 
     _, fake_client_cls = fake_client([])
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     res = CliRunner().invoke(
         main.app,
         ["create", "widget", "--name", "w", "--priority", "1", "--spec", "notjson"],
@@ -381,9 +365,7 @@ def test_runtime_json_error_example_minimal_and_debug_full(
     import fakesdk.extras.facade as facade
 
     _, fake_client_cls = fake_client([])
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     argv = [
         "create",
         "widget",
@@ -426,9 +408,7 @@ def test_runtime_anonymous_json_error_keeps_keyvalue_example(
     import fakesdk.extras.facade as facade
 
     _, fake_client_cls = fake_client([])
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
     res = CliRunner().invoke(
         main.app,
         ["create", "widget", "--name", "w", "--priority", "1", "--spec", "notjson"],
@@ -449,9 +429,7 @@ def test_cli_runner_request_actions(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
 
     r = CliRunner()
     # request is a verb group
@@ -509,9 +487,7 @@ def test_cli_runner_show_defaults_to_json(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
 
     res = CliRunner().invoke(main.app, ["show", "widget", "--id", "w1"])  # NO --output
     assert res.exit_code == 0, res.output
@@ -519,9 +495,7 @@ def test_cli_runner_show_defaults_to_json(
     assert "WidgetsApi" not in res.output and "object at 0x" not in res.output
 
 
-def test_create_missing_required_errors_cleanly(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_create_missing_required_errors_cleanly(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     main = importlib.import_module("fakesdk_cli.main")
@@ -529,9 +503,7 @@ def test_create_missing_required_errors_cleanly(
 
     monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: object()))
     res = CliRunner().invoke(main.app, ["create", "widget"])  # missing required --name
-    assert res.exit_code != 0 and (
-        "Missing option" in res.output or "required" in res.output.lower()
-    )
+    assert res.exit_code != 0 and ("Missing option" in res.output or "required" in res.output.lower())
 
 
 def test_update_requires_id(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -558,12 +530,8 @@ def test_update_body_fields_optional(
 
     calls: list[Any] = []
     _, fake_client_cls = fake_client(calls)
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: fake_client_cls())
-    )
-    res = CliRunner().invoke(
-        main.app, ["update", "widget", "--id", "w1", "--output", "json"]
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: fake_client_cls()))
+    res = CliRunner().invoke(main.app, ["update", "widget", "--id", "w1", "--output", "json"])
     assert res.exit_code == 0, res.output  # no required body flags
     assert any(n == "update" for n, _ in calls)  # PATCH backs `update`
 
@@ -579,9 +547,7 @@ def test_delete_requires_id(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert res.exit_code != 0
 
 
-def test_injected_defaults_not_sent_to_get_binding(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_injected_defaults_not_sent_to_get_binding(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     app_mod = importlib.import_module("fakesdk_cli._generated.app")
@@ -615,9 +581,7 @@ def test_injected_defaults_not_sent_to_get_binding(
     assert calls[-1] == {"name": "gadget", "limit": 50}
 
 
-def test_show_id_only_reports_no_list_operation(
-    emitted: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_show_id_only_reports_no_list_operation(emitted: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A show command backed only by get-by-id (no list) reports a clear
     'no list operation' error with an --id hint, not the generic no-match.
     Fails at _pick_binding before any client is constructed -> no fake facade."""

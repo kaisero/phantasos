@@ -47,9 +47,7 @@ def test_generator_block_overrides() -> None:
 def test_top_level_library_rejected() -> None:
     # `library` migrated into the generator: block (2026-06-11); extra=forbid rejects it
     with pytest.raises(ValidationError):
-        ProductConfig.model_validate(
-            {"package": "a", "output": "o", "base_url": "b", "library": "httpx"}
-        )
+        ProductConfig.model_validate({"package": "a", "output": "o", "base_url": "b", "library": "httpx"})
 
 
 def test_transforms_parse() -> None:
@@ -60,16 +58,12 @@ def test_transforms_parse() -> None:
             "base_url": "https://api/",
             "transforms": {
                 "hoist": [{"schema": "S", "field": "f", "item": "I"}],
-                "tag_operations": [
-                    {"path": "/x", "method": "get", "operation_id": "GetX", "tag": "X"}
-                ],
+                "tag_operations": [{"path": "/x", "method": "get", "operation_id": "GetX", "tag": "X"}],
             },
         }
     )
     assert cfg.transforms.hoist == [Hoist(schema="S", field="f", item="I")]
-    assert cfg.transforms.tag_operations[0] == TagOperation(
-        path="/x", method="get", operation_id="GetX", tag="X"
-    )
+    assert cfg.transforms.tag_operations[0] == TagOperation(path="/x", method="get", operation_id="GetX", tag="X")
 
 
 def test_unknown_top_level_key_rejected() -> None:
@@ -110,9 +104,7 @@ def test_resolve_missing_custom_path(tmp_path: Path) -> None:
     from phantasos.config import BUILTIN_AUTH
 
     with pytest.raises(ValueError, match="template not found"):
-        resolve_component(
-            {"type": "./templates/missing.jinja"}, BUILTIN_AUTH, base_dir=tmp_path
-        )
+        resolve_component({"type": "./templates/missing.jinja"}, BUILTIN_AUTH, base_dir=tmp_path)
 
 
 def test_resolve_unknown_builtin() -> None:
@@ -153,10 +145,7 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.config.package == "acme"
     assert isinstance(loaded.auth, ScmOAuth)
-    assert (
-        loaded.auth.token_url
-        == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
-    )
+    assert loaded.auth.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
     assert loaded.context["spec_version"] == "9.9.9"
     assert loaded.context["spec_title"] == "Acme"
     assert loaded.context["package"] == "acme"
@@ -175,12 +164,9 @@ def test_load_product_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_load_product_missing_include_source(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (d / "sdk.yml").write_text(
-        "package: acme\noutput: o\nbase_url: b\n"
-        "include: {x.py: ./templates/nope.jinja}\n",
+        "package: acme\noutput: o\nbase_url: b\ninclude: {x.py: ./templates/nope.jinja}\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match=r"template not found|not found"):
@@ -203,8 +189,7 @@ def test_load_product_generator_library_httpx(tmp_path: Path) -> None:
     d.mkdir(parents=True)
     (d / "openapi.yml").write_text(_OPENAPI, encoding="utf-8")
     (d / "sdk.yml").write_text(
-        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\n"
-        "generator: {library: httpx}\n",
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\ngenerator: {library: httpx}\n",
         encoding="utf-8",
     )
     loaded = load_product(str(d / "sdk.yml"))
@@ -229,12 +214,8 @@ def test_project_defaults() -> None:
 def test_retry_default_on(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
-    (d / "sdk.yml").write_text(
-        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (d / "sdk.yml").write_text("package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8")
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.retry is not None
     assert loaded.context["has_retry"] is True
@@ -244,9 +225,7 @@ def test_retry_default_on(tmp_path: Path) -> None:
 def test_retry_disabled(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
     (d / "sdk.yml").write_text(
         "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\nretry: false\n",
         "utf-8",
@@ -259,9 +238,7 @@ def test_retry_disabled(tmp_path: Path) -> None:
 def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {title: Acme, version: '9'}\npaths: {}\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {title: Acme, version: '9'}\npaths: {}\n", "utf-8")
     (d / "sdk.yml").write_text(
         "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n"
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, "
@@ -330,9 +307,7 @@ def test_docs_examples_and_variant_parse() -> None:
         {
             "showcase_resource": "applications",
             "showcase_variant": "CustomApplicationInput",
-            "examples": {
-                "create": "created = client.applications.create_application(...)"
-            },
+            "examples": {"create": "created = client.applications.create_application(...)"},
         }
     )
     assert cfg.showcase_variant == "CustomApplicationInput"

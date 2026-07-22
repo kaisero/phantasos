@@ -59,38 +59,24 @@ def _stage_products(stage: str) -> list[str]:
     products: list[str] = cfg["products"]
     for name in products:
         if not (_PRODUCTS_DIR / name).is_dir():
-            raise ValueError(
-                f"nox.toml [{stage}] enrolls unknown product {name!r} "
-                f"(no products/{name}/)"
-            )
+            raise ValueError(f"nox.toml [{stage}] enrolls unknown product {name!r} (no products/{name}/)")
     return products
 
 
 def _stage_asserts(stage: str, product: str) -> list[dict[str, str]]:
     """Per-product post-build content assertions declared for ``stage``."""
-    return [
-        a
-        for a in _pipeline().get(stage, {}).get("assert", [])
-        if a.get("product") == product
-    ]
+    return [a for a in _pipeline().get(stage, {}).get("assert", []) if a.get("product") == product]
 
 
-def _run_content_asserts(
-    session: nox.Session, stage: str, product: str, site: Path
-) -> None:
+def _run_content_asserts(session: nox.Session, stage: str, product: str, site: Path) -> None:
     """Run the nox.toml per-product content guards for ``stage`` against ``site/``."""
     for check in _stage_asserts(stage, product):
         target = site / check["file"]
         text = target.read_text() if target.exists() else ""
         if "contains" in check and check["contains"] not in text:
-            session.error(
-                f"{product}: {check['file']} is missing {check['contains']!r}"
-            )
+            session.error(f"{product}: {check['file']} is missing {check['contains']!r}")
         if "not_contains" in check and check["not_contains"] in text:
-            session.error(
-                f"{product}: {check['file']} unexpectedly contains "
-                f"{check['not_contains']!r}"
-            )
+            session.error(f"{product}: {check['file']} unexpectedly contains {check['not_contains']!r}")
 
 
 def _sync(session: nox.Session, *groups: str) -> None:
@@ -217,9 +203,7 @@ def cli_smoke(session: nox.Session) -> None:
     pytest suite (which runs in the dev venv) cannot.
     """
     _sync(session)
-    session.run(
-        "python", str(Path(__file__).parent / "tests" / "cli_isolated_smoke.py")
-    )
+    session.run("python", str(Path(__file__).parent / "tests" / "cli_isolated_smoke.py"))
 
 
 @nox.session

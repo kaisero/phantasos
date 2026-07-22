@@ -25,9 +25,7 @@ def builtin_dir() -> Path:
     return _BUILTIN
 
 
-def render_scaffold(
-    builtin: Path, overrides: Path | None, out_dir: Path, context: dict[str, Any]
-) -> list[str]:
+def render_scaffold(builtin: Path, overrides: Path | None, out_dir: Path, context: dict[str, Any]) -> list[str]:
     """Render built-in scaffold + overrides into out_dir. Overrides win by rel-path.
 
     `.jinja` templates are rendered (suffix stripped); other files are copied

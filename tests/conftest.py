@@ -142,9 +142,7 @@ def _ring3_stale_summary(skip_reasons: Iterable[str]) -> str | None:
     return None
 
 
-def pytest_terminal_summary(
-    terminalreporter: Any, exitstatus: int, config: pytest.Config
-) -> None:
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: pytest.Config) -> None:
     """Print the ring-3 staleness banner (stderr/summary only; never fails a run)."""
     reasons = [
         rep.longrepr[2] if isinstance(rep.longrepr, tuple) else str(rep.longrepr)
@@ -172,9 +170,7 @@ def real_sdk() -> Path:
     return REAL_SDK
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-apply the ``real_sdk`` marker to every test requesting that fixture."""
     for item in items:
         if "real_sdk" in getattr(item, "fixturenames", ()):
@@ -187,6 +183,11 @@ def pytest_collection_modifyitems(
 # ANSI into the "plain output" assertions. Drop it so emitted-CLI output is
 # deterministic regardless of the caller's environment.
 os.environ.pop("FORCE_COLOR", None)
+
+# The post-generation finalize stage (ruff/uv lock/nox gate) is meaningless and slow
+# on the stub/fake projects these tests build; skip it suite-wide. The dedicated
+# finalize test and real end-to-end generation exercise it explicitly.
+os.environ.setdefault("PHANTASOS_SKIP_FINALIZE", "1")
 
 
 @contextmanager
@@ -204,9 +205,7 @@ def _imported(out_dir: Path, package: str) -> Iterator[ModuleType]:
     """
 
     def _purge() -> None:
-        for name in [
-            m for m in sys.modules if m == package or m.startswith(package + ".")
-        ]:
+        for name in [m for m in sys.modules if m == package or m.startswith(package + ".")]:
             del sys.modules[name]
 
     entry = str(out_dir)
@@ -281,9 +280,7 @@ def emit_cli(tmp_path: Path) -> Callable[..., Path]:
         from phantasos.generator.cli.modelschema import build_model_registry
 
         inv = cli_operations("fakesdk", fixture)
-        ir = build_cli_ir(
-            inv, config, models=build_model_registry("fakesdk", fixture, inv)
-        )[0]
+        ir = build_cli_ir(inv, config, models=build_model_registry("fakesdk", fixture, inv))[0]
         render_cli(
             ir,
             package="fakesdk_cli",
@@ -362,15 +359,13 @@ def fake_client() -> Callable[[list[Any]], tuple[Any, type]]:
 
 @pytest.fixture
 def emitted(tmp_path: Path) -> Iterator[Path]:
-    """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""  # noqa: E501
+    """Emit the fakesdk CLI into tmp_path, importable as `fakesdk_cli` (env_prefix FAKESDK)."""
     from phantasos.generator.cli.classify import build_cli_ir, cli_operations
     from phantasos.generator.cli.modelschema import build_model_registry
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
-    ir = build_cli_ir(
-        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
-    )[0]
+    ir = build_cli_ir(inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv))[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
     with _imported(tmp_path, "fakesdk_cli"):
         yield tmp_path
@@ -387,9 +382,7 @@ def emitted_auth(tmp_path: Path) -> Iterator[Path]:
     from phantasos.generator.cli.render_cli import render_cli
 
     inv = cli_operations("fakesdk", FIXTURE)
-    ir = build_cli_ir(
-        inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv)
-    )[0]
+    ir = build_cli_ir(inv, _FAKESDK_CLI_CONFIG, models=build_model_registry("fakesdk", FIXTURE, inv))[0]
     render_cli(
         ir,
         package="fakesdk_cli",

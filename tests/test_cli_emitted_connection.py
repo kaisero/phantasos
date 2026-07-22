@@ -48,13 +48,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -85,9 +79,7 @@ def _fed_cli(tmp_path: Path) -> Iterator[None]:
         with on_sys_path(FEDSDK):
             yield
     finally:
-        for m in [
-            n for n in sys.modules if n == "fedsdk_cli" or n.startswith("fedsdk_cli.")
-        ]:
+        for m in [n for n in sys.modules if n == "fedsdk_cli" or n.startswith("fedsdk_cli.")]:
             del sys.modules[m]
         if added and entry in sys.path:
             sys.path.remove(entry)
@@ -99,9 +91,7 @@ def _read_envs(home: Path) -> dict[str, Any]:
     return data
 
 
-def test_create_stores_region_and_show_displays_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_create_stores_region_and_show_displays_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
     home = tmp_path / "home"
@@ -110,14 +100,10 @@ def test_create_stores_region_and_show_displays_it(
         main = importlib.import_module("fedsdk_cli.main")
 
         # the per-field connection flag is derived from the header (Region -> region)
-        create_help = _strip_ansi(
-            CliRunner().invoke(main.app, ["environment", "create", "--help"]).output
-        )
+        create_help = _strip_ansi(CliRunner().invoke(main.app, ["environment", "create", "--help"]).output)
         assert "--region" in create_help
 
-        res = CliRunner().invoke(
-            main.app, ["environment", "create", "prod", "--region", "us"]
-        )
+        res = CliRunner().invoke(main.app, ["environment", "create", "prod", "--region", "us"])
         assert res.exit_code == 0, res.output
         data = _read_envs(home)
         assert data["environments"]["prod"]["region"] == "us"
@@ -127,9 +113,7 @@ def test_create_stores_region_and_show_displays_it(
         assert "us" in show
 
 
-def test_active_environment_region_exported_before_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_active_environment_region_exported_before_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     (home / ".fedsdk").mkdir(parents=True)
     (home / ".fedsdk" / "environments.yml").write_text(
@@ -153,9 +137,7 @@ def test_active_environment_region_exported_before_client(
         assert seen["region"] == "eu"
 
 
-def test_env_var_beats_active_environment_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_env_var_beats_active_environment_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     (home / ".fedsdk").mkdir(parents=True)
     (home / ".fedsdk" / "environments.yml").write_text(
@@ -181,9 +163,7 @@ def test_env_var_beats_active_environment_value(
 
 def _render_single_spec(out: Path) -> Path:
     inv = cli_operations("fakesdk", FAKESDK)
-    ir = build_cli_ir(
-        inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv)
-    )[0]
+    ir = build_cli_ir(inv, CliConfig(), models=build_model_registry("fakesdk", FAKESDK, inv))[0]
     render_cli(ir, package="fakesdk_cli", out_dir=out, env_prefix="FAKESDK")
     return out
 
@@ -204,9 +184,7 @@ def test_single_spec_has_no_connection_flag_or_export(tmp_path: Path) -> None:
 # D3: command-aware connection pre-flight tests
 
 
-def test_preflight_exits_2_for_beta_without_region(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preflight_exits_2_for_beta_without_region(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """D3: 'show beta gadget' with no region → exit 2 naming FEDSDK_REGION + beta."""
     from typer.testing import CliRunner
 
@@ -225,9 +203,7 @@ def test_preflight_exits_2_for_beta_without_region(
     assert "Traceback" not in out
 
 
-def test_preflight_passes_for_alpha_without_region(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preflight_passes_for_alpha_without_region(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """D3: 'show alpha widget' with no region → pre-flight does not block.
 
     Alpha is not in region's required_for list. A dispatch sentinel proves
@@ -262,22 +238,17 @@ def test_preflight_passes_for_alpha_without_region(
             return _FakeFed()
 
         monkeypatch.setattr(rt, "_facade_from_env", _stub)
-        result = CliRunner().invoke(
-            main.app, ["show", "alpha", "widget", "--output", "json"]
-        )
+        result = CliRunner().invoke(main.app, ["show", "alpha", "widget", "--output", "json"])
     # pre-flight must NOT exit-2 for alpha (region not required for alpha sub)
     assert result.exit_code == 0, result.output
     # _facade_from_env must have been called — proves dispatch was reached, not merely
     # that pre-flight didn't fire (it could have short-circuited for another reason).
     assert dispatched.get("reached"), (
-        "dispatch never reached: pre-flight may have wrongly gated alpha, "
-        "or 'show alpha widget' is not a real command"
+        "dispatch never reached: pre-flight may have wrongly gated alpha, or 'show alpha widget' is not a real command"
     )
 
 
-def test_preflight_skips_for_dry_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preflight_skips_for_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """D3: --dry-run skips _preflight_connection; beta without region must NOT exit 2.
 
     Guards against the pre-flight ever being moved before the dry-run early return.
@@ -295,9 +266,7 @@ def test_preflight_skips_for_dry_run(
     assert result.exit_code != 2, result.output
 
 
-def test_preflight_passes_with_region_env_var(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preflight_passes_with_region_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """D3: 'show beta gadget' with FEDSDK_REGION set in env → pre-flight passes."""
     from typer.testing import CliRunner
 
@@ -322,9 +291,7 @@ def test_preflight_passes_with_region_env_var(
             beta = _BetaSub()
 
         monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _FakeFed())
-        result = CliRunner().invoke(
-            main.app, ["show", "beta", "gadget", "--output", "json"]
-        )
+        result = CliRunner().invoke(main.app, ["show", "beta", "gadget", "--output", "json"])
     # FEDSDK_REGION in env is enough — pre-flight must pass
     assert result.exit_code == 0, result.output
 
@@ -332,7 +299,5 @@ def test_preflight_passes_with_region_env_var(
 def test_single_spec_has_no_connection_preflight(tmp_path: Path) -> None:
     """D3: single-spec CLI must not emit _preflight_connection code."""
     out = _render_single_spec(tmp_path)
-    runtime_src = (out / "fakesdk_cli" / "_generated" / "runtime.py").read_text(
-        encoding="utf-8"
-    )
+    runtime_src = (out / "fakesdk_cli" / "_generated" / "runtime.py").read_text(encoding="utf-8")
     assert "_preflight_connection" not in runtime_src

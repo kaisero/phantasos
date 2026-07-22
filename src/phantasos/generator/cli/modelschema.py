@@ -56,11 +56,7 @@ def _resolve_ref(tp: object) -> tuple[str | None, bool, list[str] | None]:
         # its own ModelSchema); an inline Union[...] of models is variant_refs.
         return base.__name__, False, None
     if origin in (typing.Union, UnionType):
-        members = [
-            a
-            for a in typing.get_args(base)
-            if isinstance(a, type) and issubclass(a, BaseModel)
-        ]
+        members = [a for a in typing.get_args(base) if isinstance(a, type) and issubclass(a, BaseModel)]
         if len(members) >= 2:
             return None, False, [m.__name__ for m in members]
     return None, False, None
@@ -169,8 +165,6 @@ def _root_models(package: str, inv: OperationInventory) -> list[type[BaseModel]]
     return roots
 
 
-def build_model_registry(
-    package: str, sdk_path: Path, inv: OperationInventory
-) -> dict[str, ModelSchema]:
+def build_model_registry(package: str, sdk_path: Path, inv: OperationInventory) -> dict[str, ModelSchema]:
     with on_sys_path(sdk_path):
         return registry_from_models(_root_models(package, inv))

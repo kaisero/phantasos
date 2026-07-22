@@ -16,9 +16,7 @@ def inv() -> OperationInventory:
 
 
 def _op(inv: OperationInventory, resource: str, method: str) -> OperationInfo:
-    return next(
-        o for o in inv.operations if o.resource == resource and o.method == method
-    )
+    return next(o for o in inv.operations if o.resource == resource and o.method == method)
 
 
 def test_version_and_resources(inv: OperationInventory) -> None:
