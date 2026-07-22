@@ -23,6 +23,14 @@ nox.options.reuse_existing_virtualenvs = True
 # CI leaves it unset and uses the default ./.nox.
 if os.environ.get("NOX_ENVDIR"):
     nox.options.envdir = os.environ["NOX_ENVDIR"]
+
+# phantasos's own sessions build SDKs/CLIs to exercise them (smoke, docs, ring-3,
+# live), not to ship them — they must not run the generated-project finalize gate or
+# git snapshot. Those are end-user `phantasos sdk build` concerns that would slow
+# every build and create git repos in the CI workspace. `phantasos` subprocesses
+# spawned by these sessions inherit this env; direct end-user builds are unaffected.
+os.environ.setdefault("PHANTASOS_SKIP_FINALIZE", "1")
+
 nox.options.sessions = [
     "lint",
     "type_check",

@@ -64,6 +64,8 @@ select = ["E", "F", "I", "UP", "W"]
 "**/configuration.py" = ["E501", "UP030", "UP031"]
 "**/api_client.py" = ["UP031"]
 "**/_lenient.py" = ["UP042"]
+# Generated facade wrappers: long _bindings/method one-liners for long resource names.
+"**/extras/resources.py" = ["E501"]
 # CLI projects: the generated command/runtime layer (str-subclass enums, etc.).
 "**/_generated/*.py" = ["UP042"]
 
@@ -75,6 +77,13 @@ testpaths = ["tests"]
 # (SDK api_client), PyYAML + jmespath (CLI runtime).
 module = ["dateutil.*", "yaml", "jmespath"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Generated OpenAPI models: OAG's oneOf/anyOf wrappers have serialization signatures
+# mypy can't reconcile (union to_dict return types, oneof-validator assignments). The
+# models are machine-generated and runtime-tested; check them loosely, like ruff does.
+module = ["*.models.*"]
+disable_error_code = ["return-value", "assignment", "arg-type"]
 
 [[tool.mypy.overrides]]
 # Generated CLI runtime (emitted verbatim from phantasos templates), checked loosely

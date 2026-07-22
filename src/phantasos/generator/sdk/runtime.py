@@ -147,7 +147,9 @@ class _AbstractModels(cst.CSTTransformer):
             return updated_node
         stmts = list(updated_node.body.body)
         idx = 1 if stmts and _is_docstring(stmts[0]) else 0  # keep the docstring first
-        stmts.insert(idx, cst.parse_statement("models = None\n"))
+        # `object` (not the inferred `None`) so the composer's per-sub
+        # `_ac.models = <models module>` assignment type-checks; getattr stays valid.
+        stmts.insert(idx, cst.parse_statement("models: object = None\n"))
         return updated_node.with_changes(body=updated_node.body.with_changes(body=tuple(stmts)))
 
 

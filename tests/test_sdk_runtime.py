@@ -130,7 +130,7 @@ def test_hoist_runtime(tmp_path: Path) -> None:
         assert (rt / f"{fname}.py").exists(), f"_runtime/{fname}.py missing"
 
     ac = (rt / "api_client.py").read_text(encoding="utf-8")
-    assert "models = None" in ac  # B1: class-level default
+    assert "models: object = None" in ac  # B1: class-level default (typed for the composer's assignment)
     assert "def __init__(" in ac and "-> None:" in ac  # B1: __init__ untouched
     assert "header_value=None" in ac  # B1: full multi-line signature intact
     assert "getattr(self.models, klass)" in ac

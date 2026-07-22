@@ -14,9 +14,7 @@ _GIT = shutil.which("git")
 
 
 def _git(args: list[str], cwd: Path) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True
-    ).stdout.strip()
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True).stdout.strip()
 
 
 def _make_upstream(path: Path) -> str:
@@ -39,17 +37,13 @@ def _make_project(path: Path) -> None:
 
 def test_snapshot_no_remote_is_noop(tmp_path: Path) -> None:
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
-    result = gitrepo.snapshot(
-        tmp_path, distribution="d", author="A", author_email="a@b.c", remote=None
-    )
+    result = gitrepo.snapshot(tmp_path, distribution="d", author="A", author_email="a@b.c", remote=None)
     assert "skipped" in result
     assert not (tmp_path / ".git").exists()
 
 
 @pytest.mark.skipif(_GIT is None, reason="git not on PATH")
-def test_snapshot_bases_on_upstream_and_commits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_snapshot_bases_on_upstream_and_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # conftest sets this suite-wide; the snapshot must actually run here.
     monkeypatch.delenv("PHANTASOS_SKIP_FINALIZE", raising=False)
     upstream = _make_upstream(tmp_path / "upstream")
@@ -86,9 +80,7 @@ def test_snapshot_bases_on_upstream_and_commits(
 
 
 @pytest.mark.skipif(_GIT is None, reason="git not on PATH")
-def test_snapshot_falls_back_to_fresh_when_remote_unreachable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_snapshot_falls_back_to_fresh_when_remote_unreachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PHANTASOS_SKIP_FINALIZE", raising=False)
     project = tmp_path / "proj"
     _make_project(project)
