@@ -2,10 +2,13 @@
 
 When a product's ``project.git_remote`` is set, the emitted SDK/CLI is turned into
 a git repository ready to push upstream: `git init`, `origin` pointed at the
-configured remote, a unique per-build branch checked out, and every file committed
-with a message recording *when* it was generated, *who* generated it, and *from
-which phantasos commit + branch*. The user can then ``cd`` into the output and
-``git push origin <branch>`` to open a PR against the upstream project.
+configured remote, a unique per-build branch based on the upstream default branch
+(fetched, so the push is a clean one-commit diff rather than unrelated histories),
+and every file committed with a message recording *when* it was generated, *who*
+generated it, and *from which phantasos commit + branch*. The user can then ``cd``
+into the output and ``git push origin <branch>`` to open a PR against the upstream
+project. If the remote can't be fetched (offline / private without credentials /
+empty repo), it falls back to a fresh root commit.
 
 Runs after finalize (so uv.lock and the formatted tree are part of the commit).
 Honors ``PHANTASOS_SKIP_FINALIZE`` — the same switch that turns off the other
@@ -18,7 +21,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # src/phantasos/generator/gitrepo.py -> repo root
@@ -91,7 +94,7 @@ def snapshot(
     if not git:
         return {"skipped": "git not found"}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     sha, branch = _phantasos_sha_and_branch()
     build_branch = _build_branch(now, sha[:12] if sha else None)
     message = _commit_message(
@@ -104,9 +107,27 @@ def snapshot(
     )
 
     _run([git, "init", "-q"], project_dir)
-    _run([git, "checkout", "-q", "-B", build_branch], project_dir)
     _run([git, "remote", "remove", "origin"], project_dir)  # idempotent on rebuild
     _run([git, "remote", "add", "origin", remote], project_dir)
+    _run([git, "checkout", "-q", "-b", build_branch], project_dir)
+
+    # Base the build branch on the upstream default branch so the eventual push is a
+    # clean one-commit diff, not two unrelated histories. `fetch origin HEAD` grabs
+    # the remote's default branch; `reset --mixed` moves the branch + index onto it
+    # while leaving the generated working tree untouched (checkout would clobber it).
+    # GIT_TERMINAL_PROMPT=0 makes an unreachable/unauth'd remote fail fast rather than
+    # block on a credential prompt — then we fall back to a fresh root commit.
+    based_on = "fresh"
+    fetch = _run(
+        [git, "fetch", "--depth", "1", "--no-tags", "-q", "origin", "HEAD"],
+        project_dir,
+        GIT_TERMINAL_PROMPT="0",
+    )
+    if fetch.returncode == 0:
+        reset = _run([git, "reset", "--mixed", "-q", "FETCH_HEAD"], project_dir)
+        if reset.returncode == 0:
+            based_on = "upstream"
+
     _run([git, "add", "-A"], project_dir)
     # Identity passed inline so the commit never depends on the machine's global
     # git config; author and committer are both the configured project author.
@@ -127,5 +148,9 @@ def snapshot(
         project_dir,
     )
     if commit.returncode != 0:
-        return {"error": (commit.stdout + commit.stderr).strip()}
-    return {"branch": build_branch, "remote": remote}
+        out = (commit.stdout + commit.stderr).strip()
+        if "nothing to commit" in out:
+            # regenerated tree is byte-identical to upstream — nothing to push
+            return {"branch": build_branch, "remote": remote, "based_on": based_on, "note": "no changes"}
+        return {"error": out}
+    return {"branch": build_branch, "remote": remote, "based_on": based_on}

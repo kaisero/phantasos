@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from .productconfig import load_product
+from .productconfig import ProjectConfig, load_product
 
 if TYPE_CHECKING:
     from .generator.cli.cliconfig import CliConfig
@@ -168,7 +168,7 @@ def cli_build(
     # Snapshot into a git repo on a per-build branch when a push remote is
     # configured on the CLI's project (cli.yml wins over sdk.yml).
     cli_project = cfg.project or loaded.config.project
-    if getattr(cli_project, "git_remote", None):
+    if isinstance(cli_project, ProjectConfig) and cli_project.git_remote:
         git_snapshot(
             out_dir,
             distribution=str(scaffold_ctx["distribution"]),
