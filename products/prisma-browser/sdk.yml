@@ -106,3 +106,4 @@ project:
   author: Oliver Kaiser
   author_email: oliver.kaiser@outlook.com
   repo_url: https://github.com/kaisero/prisma-browser-sdk
+  git_remote: https://github.com/kaisero/prisma-browser-sdk.git

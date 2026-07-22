@@ -74,6 +74,7 @@ def _generator_sha() -> str | None:
 
 def build(loaded: LoadedProduct, *, run_smoke: bool = True, verify: bool = True) -> dict[str, Any]:
     from .. import finalize as finalize_stage
+    from .. import gitrepo
     from . import smoke
 
     cfg = loaded.config
@@ -99,6 +100,17 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True, verify: bool = True)
     # same lint + type_check CI runs (skipped with verify=False). Runs after the
     # scaffold so the project's own ruff/mypy config applies.
     result["finalize"] = finalize_stage.finalize(project_dir, verify=verify)
+
+    # Snapshot into a git repo on a per-build branch when a push remote is
+    # configured (no-op otherwise), ready to push the regenerated SDK upstream.
+    if cfg.project is not None:
+        result["git"] = gitrepo.snapshot(
+            project_dir,
+            distribution=cfg.project.distribution,
+            author=cfg.project.author,
+            author_email=cfg.project.author_email,
+            remote=cfg.project.git_remote,
+        )
 
     # Smoke (federated: the parent `<package>` has no api/, so this is a no-op count
     # until P2 makes the import-walk per sub-package).

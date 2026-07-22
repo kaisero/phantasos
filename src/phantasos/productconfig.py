@@ -44,6 +44,9 @@ class ProjectConfig(BaseModel):
     author: str
     author_email: str
     repo_url: str
+    # Optional push URL. When set, the generated project is git-initialized on a
+    # per-build branch and committed, ready to `git push origin <branch>` upstream.
+    git_remote: str | None = None
     description: str = ""
     license: str = "Apache-2.0"
     python_versions: list[str] = Field(default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"])

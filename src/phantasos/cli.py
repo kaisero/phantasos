@@ -131,6 +131,7 @@ def cli_build(
     from .generator.cli.render_cli import cli_overrides_dir, render_cli
     from .generator.cli.scaffold_context import build_cli_scaffold_context
     from .generator.finalize import FinalizeError, finalize
+    from .generator.gitrepo import snapshot as git_snapshot
 
     loaded = _load_or_exit(product)
     ir, cfg, unmapped = _build_ir_or_exit(loaded)
@@ -164,6 +165,17 @@ def cli_build(
     except FinalizeError as exc:
         typer.echo(f"ERROR: {exc}", err=True)
         raise typer.Exit(1) from exc
+    # Snapshot into a git repo on a per-build branch when a push remote is
+    # configured on the CLI's project (cli.yml wins over sdk.yml).
+    cli_project = cfg.project or loaded.config.project
+    if getattr(cli_project, "git_remote", None):
+        git_snapshot(
+            out_dir,
+            distribution=str(scaffold_ctx["distribution"]),
+            author=cli_project.author,
+            author_email=cli_project.author_email,
+            remote=cli_project.git_remote,
+        )
     typer.echo(f"emitted {len(written)} files to {out_dir} ({len(ir.commands)} commands)")
     if unmapped:
         typer.echo(f"note: {len(unmapped)} unmapped ops omitted (map in cli.yml)", err=True)
