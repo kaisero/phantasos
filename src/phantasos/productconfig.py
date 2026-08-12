@@ -298,7 +298,14 @@ _AUTO_EXPOSED = {
     "python_versions",
     "dependencies",
     "has_docs",
+    "ruff_spec",
 }
+
+
+def _ruff_spec() -> str:
+    from .generator.finalize import ruff_pin
+
+    return ruff_pin()
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -356,6 +363,8 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_retry": retry is not None,
         "has_docs": cfg.docs is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
+        # Pins the emitted noxfile's ruff to the one finalize formats with.
+        "ruff_spec": _ruff_spec(),
     }
     if cfg.project is not None:
         context.update(

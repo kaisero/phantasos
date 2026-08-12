@@ -11,6 +11,7 @@ import json
 import os
 import threading
 import time
+from typing import cast
 
 import urllib3
 {% if has_retry %}from .retry import default_retry
@@ -102,7 +103,9 @@ class _ProviderTokenSource:
 
 
 def api_client_from_token(token, *, host: str = DEFAULT_BASE_URL) -> ApiClient:
-    cfg = {{ config_class_name }}(token_manager=_ProviderTokenSource(token), host=host)
+    # `cast` not a subclass: _ProviderTokenSource deliberately duck-types
+    # TokenManager.token() without inheriting its OAuth machinery.
+    cfg = {{ config_class_name }}(token_manager=cast(TokenManager, _ProviderTokenSource(token)), host=host)
 {% if has_retry %}    cfg.retries = default_retry()
 {% endif %}    return {% if federated %}_BearerApiClient(cfg){% else %}ApiClient(cfg){% endif %}
 
@@ -175,7 +178,9 @@ def configuration_from_credentials(
 
 def configuration_from_token(token, *, host: str = DEFAULT_BASE_URL) -> {{ config_class_name }}:
     """Build the shared {{ config_class_name }} from a caller-owned token source."""
-    cfg = {{ config_class_name }}(token_manager=_ProviderTokenSource(token), host=host)
+    # `cast` not a subclass: _ProviderTokenSource deliberately duck-types
+    # TokenManager.token() without inheriting its OAuth machinery.
+    cfg = {{ config_class_name }}(token_manager=cast(TokenManager, _ProviderTokenSource(token)), host=host)
 {% if has_retry %}    cfg.retries = default_retry()
 {% endif %}    return cfg
 

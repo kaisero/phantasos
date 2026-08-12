@@ -4,7 +4,7 @@ from __future__ import annotations
 import enum
 import json
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from .base import FETCH, MUTATE, MATERIALIZE, revalidate
 
@@ -69,6 +69,15 @@ class SyncMixin:
     strategy named in `_idempotency`. Owns every uniform step (ADR-0004 / spec §5.2)."""
 
     _idempotency: ClassVar[dict[str, Any]]
+
+    if TYPE_CHECKING:
+        # Supplied by the resource wrapper this mixin is mixed into, not by the
+        # mixin itself — declared here so the CRUD calls below type-check. Typed as
+        # bare `Any` attributes rather than `def`s so each wrapper's own concrete
+        # signature isn't checked as an incompatible override. Under TYPE_CHECKING
+        # only, so the real wrapper methods still resolve at runtime.
+        create: Any
+        delete: Any
 
     def _present(self, model: Any) -> dict[str, Any]:
         return model.model_dump(by_alias=True, mode="json", exclude_unset=True)

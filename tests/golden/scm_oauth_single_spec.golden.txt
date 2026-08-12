@@ -11,6 +11,7 @@ import json
 import os
 import threading
 import time
+from typing import cast
 
 import urllib3
 
@@ -96,7 +97,9 @@ class _ProviderTokenSource:
 
 
 def api_client_from_token(token, *, host: str = DEFAULT_BASE_URL) -> ApiClient:
-    cfg = SdkConfiguration(token_manager=_ProviderTokenSource(token), host=host)
+    # `cast` not a subclass: _ProviderTokenSource deliberately duck-types
+    # TokenManager.token() without inheriting its OAuth machinery.
+    cfg = SdkConfiguration(token_manager=cast(TokenManager, _ProviderTokenSource(token)), host=host)
     return ApiClient(cfg)
 
 
