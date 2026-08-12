@@ -94,14 +94,8 @@ def collapse_allof(schemas: Any, node: Any, stats: dict[str, int]) -> None:
     if "allOf" in node and isinstance(node["allOf"], list):
         branches = node["allOf"]
         structural = [b for b in branches if _is_structural(b)]
-        annotation = [
-            b for b in branches if isinstance(b, dict) and set(b) <= ANNOTATION_KEYS
-        ]
-        if (
-            len(structural) == 1
-            and _is_ref(structural[0])
-            and len(structural) + len(annotation) == len(branches)
-        ):
+        annotation = [b for b in branches if isinstance(b, dict) and set(b) <= ANNOTATION_KEYS]
+        if len(structural) == 1 and _is_ref(structural[0]) and len(structural) + len(annotation) == len(branches):
             t = _resolve_type(schemas, structural[0])
             if t is not None and t != "object":
                 ref = structural[0]["$ref"]
@@ -134,9 +128,7 @@ def fix_strings_and_enums(node: Any, stats: dict[str, int]) -> None:
                 seen: set[str] = set()
                 out: list[Any] = []
                 for item in v:
-                    item2 = (
-                        _fix_mojibake(item, stats) if isinstance(item, str) else item
-                    )
+                    item2 = _fix_mojibake(item, stats) if isinstance(item, str) else item
                     key = item2 if isinstance(item2, str) else repr(item2)
                     if key in seen:
                         stats["enum_dups_removed"] += 1
@@ -228,14 +220,10 @@ def normalize_operation_ids(
                 oid = oid.replace("-", unify_separator)
             op["operationId"] = oid
             if stats is not None:
-                stats["operation_ids_normalized"] = (
-                    stats.get("operation_ids_normalized", 0) + 1
-                )
+                stats["operation_ids_normalized"] = stats.get("operation_ids_normalized", 0) + 1
 
 
-def fold_server_prefix(
-    spec: Any, base_url: str, stats: dict[str, int] | None = None
-) -> None:
+def fold_server_prefix(spec: Any, base_url: str, stats: dict[str, int] | None = None) -> None:
     """Fold a spec's ``servers[]`` URL path-prefix into every operation path.
 
     Federated specs declare their per-domain prefix (e.g. ``/config/objects/v1``)
@@ -263,9 +251,7 @@ def fold_server_prefix(
     spec["paths"] = {f"{prefix}{p}": item for p, item in paths.items()}
     spec["servers"] = [{"url": base_url}]
     if stats is not None:
-        stats["server_prefix_folded"] = stats.get("server_prefix_folded", 0) + len(
-            paths
-        )
+        stats["server_prefix_folded"] = stats.get("server_prefix_folded", 0) + len(paths)
 
 
 def resolve_sub_host(spec: Any, base_url: str) -> str:
@@ -317,11 +303,7 @@ def spec_declares_header(spec: Any, header_name: str) -> bool:
         if not isinstance(path_item, dict):
             continue
         groups = [path_item.get("parameters")]
-        groups += [
-            op.get("parameters")
-            for m, op in path_item.items()
-            if m in _HTTP_METHODS and isinstance(op, dict)
-        ]
+        groups += [op.get("parameters") for m, op in path_item.items() if m in _HTTP_METHODS and isinstance(op, dict)]
         for group in groups:
             if any(_match(p) for p in (group or [])):
                 return True
@@ -425,10 +407,7 @@ def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
         if placement:
             # A value-type union flattened too (a non-placement leaf is present)
             # means there's also a value field to pick.
-            note = (
-                "Supply exactly one of folder/snippet/device "
-                "(the configuration container)"
-            )
+            note = "Supply exactly one of folder/snippet/device (the configuration container)"
             if set(leaves) - _PLACEMENT:
                 note += ", and exactly one value field"
             note += "."
@@ -436,15 +415,9 @@ def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
             # Constraint-only wrapper: name the ALTERNATING fields (those not
             # required by every branch), first-seen order. oneOf = exactly one,
             # anyOf = at least one.
-            reqs = [
-                list(b.get("required") or [])
-                for key in ("oneOf", "anyOf")
-                for b in s.get(key) or []
-            ]
+            reqs = [list(b.get("required") or []) for key in ("oneOf", "anyOf") for b in s.get(key) or []]
             common = set.intersection(*(set(r) for r in reqs))
-            alternating = [
-                n for n in dict.fromkeys(n for r in reqs for n in r) if n not in common
-            ]
+            alternating = [n for n in dict.fromkeys(n for r in reqs for n in r) if n not in common]
             quant = "exactly one" if "oneOf" in s else "at least one"
             note = f"Supply {quant} of {'/'.join(alternating)}." if alternating else ""
         s.pop("oneOf", None)
@@ -475,18 +448,12 @@ def relax_readonly_required(spec: Any, stats: dict[str, int] | None = None) -> N
         props = s.get("properties")
         if not isinstance(required, list) or not isinstance(props, dict):
             continue
-        kept = [
-            r
-            for r in required
-            if not (isinstance(props.get(r), dict) and props[r].get("readOnly") is True)
-        ]
+        kept = [r for r in required if not (isinstance(props.get(r), dict) and props[r].get("readOnly") is True)]
         dropped = len(required) - len(kept)
         if dropped:
             s["required"] = kept
             if stats is not None:
-                stats["readonly_required_relaxed"] = (
-                    stats.get("readonly_required_relaxed", 0) + dropped
-                )
+                stats["readonly_required_relaxed"] = stats.get("readonly_required_relaxed", 0) + dropped
 
 
 # Unicode general-category -> permissive Python-`re`-valid equivalent. `re`'s str
@@ -496,9 +463,7 @@ def relax_readonly_required(spec: Any, stats: dict[str, int] | None = None) -> N
 # considered valid — over-matching (e.g. also accepting a symbol) is harmless.
 _PROP_EQUIV = {
     # letters + marks -> any Unicode "letter-ish" word char (not digit/underscore)
-    **dict.fromkeys(
-        ["L", "Lu", "Ll", "Lt", "Lm", "Lo", "M", "Mn", "Mc", "Me"], r"[^\W\d_]"
-    ),
+    **dict.fromkeys(["L", "Lu", "Ll", "Lt", "Lm", "Lo", "M", "Mn", "Mc", "Me"], r"[^\W\d_]"),
     # numbers -> Unicode digit
     **dict.fromkeys(["N", "Nd", "Nl", "No"], r"\d"),
     # punctuation + symbols -> any non-word, non-space char
@@ -519,9 +484,7 @@ def _translate_class(body: str) -> str:
     Python-valid alternatives (the `\\p{}` tokens can't live inside `[...]`)."""
     props = _PROP_RE.findall(body)
     rest = _PROP_RE.sub("", body)  # the literal/simple-escape remainder
-    alts = ([f"[{rest}]"] if rest else []) + [
-        _PROP_EQUIV.get(p, _PROP_FALLBACK) for p in props
-    ]
+    alts = ([f"[{rest}]"] if rest else []) + [_PROP_EQUIV.get(p, _PROP_FALLBACK) for p in props]
     return "(?:" + "|".join(dict.fromkeys(alts)) + ")"  # order-preserving dedup
 
 
@@ -540,9 +503,7 @@ def translate_unicode_property_regex(pattern: str) -> str:
         return pattern
     out = _CLASS_RE.sub(
         lambda m: (
-            _translate_class(m.group(1))
-            if (r"\p{" in m.group(1) and not m.group(1).startswith("^"))
-            else m.group(0)
+            _translate_class(m.group(1)) if (r"\p{" in m.group(1) and not m.group(1).startswith("^")) else m.group(0)
         ),
         pattern,
     )
@@ -564,15 +525,12 @@ def translate_property_patterns(spec: Any, stats: dict[str, int] | None = None) 
                     re.compile(new)  # fail loud at BUILD, not a runtime PatternError
                 except re.error as exc:
                     raise ValueError(
-                        f"could not translate Unicode-property pattern {p!r} to "
-                        f"Python-valid regex (got {new!r}): {exc}"
+                        f"could not translate Unicode-property pattern {p!r} to Python-valid regex (got {new!r}): {exc}"
                     ) from exc
                 if new != p:
                     node["pattern"] = new
                     if stats is not None:
-                        stats["property_patterns_translated"] = (
-                            stats.get("property_patterns_translated", 0) + 1
-                        )
+                        stats["property_patterns_translated"] = stats.get("property_patterns_translated", 0) + 1
             for v in node.values():
                 walk(v)
         elif isinstance(node, list):

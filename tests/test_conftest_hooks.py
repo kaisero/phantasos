@@ -19,12 +19,7 @@ def test_banner_fires_on_staleness_skip() -> None:
 
 def test_banner_quiet_when_sdk_absent_not_stale() -> None:
     # the "absent" skip reason must NOT trigger the loud line
-    assert (
-        _ring3_stale_summary(
-            ["Skipped: prisma-browser-sdk not built (run: nox -s smoke)"]
-        )
-        is None
-    )
+    assert _ring3_stale_summary(["Skipped: prisma-browser-sdk not built (run: nox -s smoke)"]) is None
 
 
 def test_banner_quiet_when_no_skips() -> None:

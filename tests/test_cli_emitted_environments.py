@@ -23,9 +23,7 @@ def _write_user_env_file(home: Path, body: str) -> None:
     (d / "environments.yml").write_text(body, encoding="utf-8")
 
 
-def test_env_file_is_auto_loaded(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_file_is_auto_loaded(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     main = importlib.import_module("fakesdk_cli.main")
@@ -114,8 +112,7 @@ def test_config_yml_stray_environments_key_is_flagged(
     home = tmp_path / "home"
     _write_user_config(
         home,
-        "configuration:\n  output:\n    format: json\n"
-        "environments:\n  prod:\n    client_id: x\n",
+        "configuration:\n  output:\n    format: json\nenvironments:\n  prod:\n    client_id: x\n",
     )
     monkeypatch.setenv("HOME", str(home))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
@@ -168,9 +165,7 @@ def test_env_vars_override_active_environment(
     assert captured["scope"] == "prod-scope"  # resolved from the env file
 
 
-def test_env_empty_exported_var_still_wins(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_empty_exported_var_still_wins(emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Presence-not-truthiness precedence: an exported-but-empty var still beats
     # the config value. Demonstrated on the OPTIONAL base_url field (an empty
     # REQUIRED field is now rejected by the pre-flight — see
@@ -251,9 +246,7 @@ def test_env_unknown_selected_environment_errors(
     assert exc.value.code == 2
 
 
-def test_env_selection_precedence(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_selection_precedence(emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "home"
     _write_user_env_file(
         home,
@@ -301,8 +294,7 @@ def test_env_option_in_help_and_threads_selection(
     home = tmp_path / "home"
     _write_user_env_file(
         home,
-        "environments:\n"
-        "  staging: {client_id: STAGING, client_secret: SEC, scope: SC}\n",
+        "environments:\n  staging: {client_id: STAGING, client_secret: SEC, scope: SC}\n",
     )
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.chdir(tmp_path)  # isolate from any developer .env above the repo
@@ -318,9 +310,7 @@ def test_env_option_in_help_and_threads_selection(
     main = importlib.import_module("fakesdk_cli.main")
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
 
-    help_out = _strip_ansi(
-        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
-    )
+    help_out = _strip_ansi(CliRunner().invoke(main.app, ["show", "widget", "--help"]).output)
     assert "--environment" in help_out
     # the short flag is advertised alongside the long flag
     env_line = next(ln for ln in help_out.splitlines() if "--environment" in ln)
@@ -343,9 +333,7 @@ def test_env_option_in_help_and_threads_selection(
         return _Client()
 
     monkeypatch.setattr(rt, "_facade_from_env", _fake)
-    res = CliRunner().invoke(
-        main.app, ["show", "widget", "-e", "staging", "--output", "json"]
-    )
+    res = CliRunner().invoke(main.app, ["show", "widget", "-e", "staging", "--output", "json"])
     assert res.exit_code == 0, res.output
     assert captured["client_id"] == "STAGING"  # -e selected staging's fields
 
@@ -529,16 +517,12 @@ def test_auth_failure_reraises_under_verbose(
 def test_no_auth_runtime_has_no_credential_preflight(emitted: Path) -> None:
     # The pre-flight is gated on ir.credential_fields: a no-auth CLI must not
     # emit any of the credential-error machinery.
-    src = (emitted / "fakesdk_cli" / "_generated" / "runtime.py").read_text(
-        encoding="utf-8"
-    )
+    src = (emitted / "fakesdk_cli" / "_generated" / "runtime.py").read_text(encoding="utf-8")
     assert "no credentials configured" not in src
     assert "authentication failed" not in src
 
 
-def test_no_auth_client_calls_facade_with_no_args(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_auth_client_calls_facade_with_no_args(emitted: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     captured: dict[str, Any] = {"called": False, "kwargs": None}
 
@@ -557,9 +541,7 @@ def test_no_auth_help_has_no_environment_flag(emitted: Path) -> None:
     from typer.testing import CliRunner
 
     main = importlib.import_module("fakesdk_cli.main")
-    help_out = _strip_ansi(
-        CliRunner().invoke(main.app, ["show", "widget", "--help"]).output
-    )
+    help_out = _strip_ansi(CliRunner().invoke(main.app, ["show", "widget", "--help"]).output)
     assert "--environment" not in help_out
     # a no-auth CLI also has no environment helpers / contextvar on the runtime
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
@@ -628,9 +610,7 @@ def test_env_create_writes_fields_and_auto_activates(
     assert data["default_environment"] == "prod"
 
 
-def test_env_create_stores_ref_verbatim(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_create_stores_ref_verbatim(emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     home = tmp_path / "home"
@@ -717,10 +697,7 @@ def test_env_activate_undefined_errors_and_existing_updates_default(
     home = tmp_path / "home"
     _write_user_env_file(
         home,
-        "default_environment: prod\n"
-        "environments:\n"
-        "  prod: {client_id: PROD}\n"
-        "  staging: {client_id: STAGING}\n",
+        "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n  staging: {client_id: STAGING}\n",
     )
     monkeypatch.setenv("HOME", str(home))
     main = importlib.import_module("fakesdk_cli.main")
@@ -783,9 +760,7 @@ def test_env_show_marks_active_and_hides_secrets(
     assert "PROD" not in out  # prod is inactive -> its fields aren't shown
 
 
-def test_env_show_empty_says_so(
-    emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_env_show_empty_says_so(emitted_auth: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     home = tmp_path / "home"
@@ -834,10 +809,7 @@ _DEFAULT_SKIP = object()
     [
         # non-default removed: file present, others + default survive
         pytest.param(
-            "default_environment: prod\n"
-            "environments:\n"
-            "  prod: {client_id: PROD}\n"
-            "  staging: {client_id: STAGING}\n",
+            "default_environment: prod\nenvironments:\n  prod: {client_id: PROD}\n  staging: {client_id: STAGING}\n",
             ["staging"],
             0,
             None,
@@ -1001,9 +973,7 @@ def test_env_group_emitted_and_visible_in_help(
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     # the hand-written module is emitted verbatim for an auth CLI
-    assert (
-        emitted_auth / "fakesdk_cli" / "_generated" / "environment_commands.py"
-    ).exists()
+    assert (emitted_auth / "fakesdk_cli" / "_generated" / "environment_commands.py").exists()
     main = importlib.import_module("fakesdk_cli.main")
     r = CliRunner()
     top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
@@ -1012,25 +982,19 @@ def test_env_group_emitted_and_visible_in_help(
     for verb in ("create", "activate", "show", "delete"):
         assert verb in env_help
     # the dynamic per-field create options are present, by kebab name
-    create_help = _strip_ansi(
-        r.invoke(main.app, ["environment", "create", "--help"]).output
-    )
+    create_help = _strip_ansi(r.invoke(main.app, ["environment", "create", "--help"]).output)
     assert "--client-id" in create_help
     assert "--client-secret" in create_help
     assert "--scope" in create_help
     assert "--base-url" in create_help
 
 
-def test_no_auth_has_no_environment_group(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_no_auth_has_no_environment_group(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     # the hand-written module is NOT emitted for a no-auth CLI
-    assert not (
-        emitted / "fakesdk_cli" / "_generated" / "environment_commands.py"
-    ).exists()
+    assert not (emitted / "fakesdk_cli" / "_generated" / "environment_commands.py").exists()
     main = importlib.import_module("fakesdk_cli.main")
     r = CliRunner()
     top_help = _strip_ansi(r.invoke(main.app, ["--help"]).output)
@@ -1087,9 +1051,7 @@ def test_resolve_effective_env_overrides_stored(
     cfg.environments_path().parent.mkdir(parents=True, exist_ok=True)
     cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
     # exported CLIENT_ID overrides the stored value (presence semantics)
-    eff = {
-        f.name: f for f in cfg.resolve_effective("prod", env={"CLIENT_ID": "env-id"})
-    }
+    eff = {f.name: f for f in cfg.resolve_effective("prod", env={"CLIENT_ID": "env-id"})}
     assert eff["client_id"].value == "env-id"
     assert eff["client_id"].source == cfg._Source.ENV
     assert eff["client_id"].env_var == "CLIENT_ID"
@@ -1130,10 +1092,7 @@ def test_resolve_effective_stored_ref_expands(
     # semantics and mask the stored ${MY_ID} we are exercising here.
     for var in ("CLIENT_ID", "CLIENT_SECRET", "SCOPE", "BASE_URL"):
         monkeypatch.delenv(var, raising=False)
-    eff = {
-        f.name: f
-        for f in cfg.resolve_effective("prod", env=dict(__import__("os").environ))
-    }
+    eff = {f.name: f for f in cfg.resolve_effective("prod", env=dict(__import__("os").environ))}
     assert eff["client_id"].value == "from-ref"
     assert eff["client_id"].source == cfg._Source.STORED_REF
 
@@ -1146,9 +1105,7 @@ def test_resolve_effective_unset(
 ) -> None:
     cfg = _cfg(emit_cli, render_and_import, monkeypatch, tmp_path)
     eff = {f.name: f for f in cfg.resolve_effective(None, env={})}
-    assert (
-        eff["client_id"].value is None and eff["client_id"].source == cfg._Source.UNSET
-    )
+    assert eff["client_id"].value is None and eff["client_id"].source == cfg._Source.UNSET
 
 
 def test_client_credentials_parity(
@@ -1243,9 +1200,7 @@ def test_environment_show_reflects_env_override(
         main = importlib.import_module("fakesdk_cli.main")
         # an exported CLIENT_ID overrides prod's stored client_id (presence)
         monkeypatch.setenv("CLIENT_ID", "env-id")
-        res = CliRunner().invoke(
-            main.app, ["environment", "show"], env={"NO_COLOR": "1"}
-        )
+        res = CliRunner().invoke(main.app, ["environment", "show"], env={"NO_COLOR": "1"})
         assert res.exit_code == 0, res.output
         assert "prod (active — default_environment)" in res.output
         # effective value + source
@@ -1277,7 +1232,5 @@ def test_environment_show_active_reason_env(
         cfg.environments_path().write_text(__import__("yaml").safe_dump(envs))
         monkeypatch.setenv("FAKESDK_ENVIRONMENT", "staging")
         main = importlib.import_module("fakesdk_cli.main")
-        res = CliRunner().invoke(
-            main.app, ["environment", "show"], env={"NO_COLOR": "1"}
-        )
+        res = CliRunner().invoke(main.app, ["environment", "show"], env={"NO_COLOR": "1"})
         assert "staging (active — via FAKESDK_ENVIRONMENT)" in res.output

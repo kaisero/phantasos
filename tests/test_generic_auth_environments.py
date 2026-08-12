@@ -23,10 +23,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
 def test_scm_oauth_registered_and_bakes_token_url() -> None:
     assert BUILTIN_AUTH["scm_oauth"] is ScmOAuth
-    assert (
-        ScmOAuth(type="scm_oauth").token_url
-        == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
-    )
+    assert ScmOAuth(type="scm_oauth").token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
 
 
 @pytest.mark.parametrize("model", BUILTIN_AUTH.values())
@@ -59,9 +56,7 @@ def test_arbitrary_auth_component_drives_credential_fields(tmp_path: Path) -> No
             return [
                 CredentialField(name="api_key_id", env_var="API_KEY_ID"),
                 CredentialField(name="api_key", env_var="API_KEY", secret=True),
-                CredentialField(
-                    name="base_url", env_var="BASE_URL", client_kwarg="host"
-                ),
+                CredentialField(name="base_url", env_var="BASE_URL", client_kwarg="host"),
             ]
 
     ir = build_cli_ir(introspect("fakesdk", _FIXTURE), CliConfig())[0]
@@ -73,9 +68,7 @@ def test_arbitrary_auth_component_drives_credential_fields(tmp_path: Path) -> No
         auth=StubAuth(),
     )
 
-    emitted = json.loads(
-        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
-    )
+    emitted = json.loads((tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text())
     names = [f["name"] for f in emitted["credential_fields"]]
     assert names == ["api_key_id", "api_key", "base_url"]
     assert "client_id" not in names  # no SCM bleed-through
@@ -89,9 +82,7 @@ def test_no_auth_gives_empty_credential_fields(tmp_path: Path) -> None:
     ir = build_cli_ir(introspect("fakesdk", _FIXTURE), CliConfig())[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
 
-    emitted = json.loads(
-        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
-    )
+    emitted = json.loads((tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text())
     assert emitted["credential_fields"] == []
 
 
@@ -115,9 +106,7 @@ def test_connection_fields_enriched_from_default_headers(tmp_path: Path) -> None
         default_headers=default_headers,
     )
 
-    emitted = json.loads(
-        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
-    )
+    emitted = json.loads((tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text())
     cf = emitted["connection_fields"]
     assert len(cf) == 2
     by_name = {f["name"]: f for f in cf}
@@ -134,9 +123,7 @@ def test_no_default_headers_gives_empty_connection_fields(tmp_path: Path) -> Non
     ir = build_cli_ir(introspect("fakesdk", _FIXTURE), CliConfig())[0]
     render_cli(ir, package="fakesdk_cli", out_dir=tmp_path, env_prefix="FAKESDK")
 
-    emitted = json.loads(
-        (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
-    )
+    emitted = json.loads((tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text())
     assert emitted["connection_fields"] == []
 
 

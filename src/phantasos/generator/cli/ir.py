@@ -43,8 +43,7 @@ class CredentialField(BaseModel):
         # would collide with them. Caught at codegen, not CLI invocation.
         if v in {"name", "force"}:
             raise ValueError(
-                f"credential field name {v!r} is reserved "
-                "(collides with `create`'s name argument / --force flag)"
+                f"credential field name {v!r} is reserved (collides with `create`'s name argument / --force flag)"
             )
         return v
 
@@ -261,9 +260,7 @@ class CliIR(BaseModel):
 _LEAF_SYNTH: dict[str, Any] = {"str": "string", "int": 0, "float": 0.0, "bool": False}
 
 
-def synth_skeleton(
-    models: dict[str, ModelSchema], model_name: str | None, *, full: bool
-) -> Any:
+def synth_skeleton(models: dict[str, ModelSchema], model_name: str | None, *, full: bool) -> Any:
     """Synthesize a JSON skeleton for ``model_name`` from the registry.
 
     full=True → all fields incl. optionals (docs). full=False → required-only
@@ -299,9 +296,7 @@ def _synth(
             continue
         out[mf.alias] = _field_value(models, mf, full=full, path=here)
     if not full and not out and schema.fields:
-        out[schema.fields[0].alias] = _field_value(
-            models, schema.fields[0], full=full, path=here
-        )
+        out[schema.fields[0].alias] = _field_value(models, schema.fields[0], full=full, path=here)
     return out
 
 

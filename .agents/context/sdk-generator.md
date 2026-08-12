@@ -324,7 +324,7 @@ Two live-proven runtime invariants (Batch-1 objects rollout):
 
 <!-- GENERATED:api -->
 - `build.py`
-  - `build(loaded, run_smoke)`
+  - `build(loaded, run_smoke, verify)`
 - `docs.py`
   - `classify_operations(operations, obj)` — Map each CRUD slot to the wrapper op (clean verb) for `obj` (present only).
   - `shape_context(inventory, obj, site_name, auth, has_pagination, resolve, variant, examples, subpackage)`
@@ -335,7 +335,7 @@ Two live-proven runtime invariants (Batch-1 objects rollout):
   - `assemble_reference_docstring(summary, example)` — Combine the one-line summary with an example block into a docstring body.
 - `generate.py`
   - `write_openapi_generator_ignore(out_dir)` — Suppress OAG's supporting files so phantasos's scaffold owns them.
-  - `prune_suppressed_files(out_dir)` — Delete any pre-existing copies of the suppressed OAG files.
+  - `prune_suppressed_files(out_dir)` — Delete the suppressed OAG files and generator metadata from the output.
   - `ensure_jar()`
   - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
 - `idempotency.py`
@@ -349,6 +349,7 @@ Two live-proven runtime invariants (Batch-1 objects rollout):
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
   - `patch_oneof_missing_imports(models_dir, package)` — Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
   - `patch_scope_validators(models_dir, scope_fields, model_stems)` — Inject an exactly-one-scope ``model_validator`` on each named scoped model.
+  - `patch_missing_typing_imports(models_dir)` — Add typing names used as generics but absent from ``from typing import ...``.
   - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
   - `load(path)`

@@ -38,9 +38,7 @@ def test_cli_build_returns_zero_on_success(
         pkg = Path(out_dir) / package
         (pkg / "api").mkdir(parents=True)
         (pkg / "__init__.py").write_text("", encoding="utf-8")
-        (pkg / "api" / "__init__.py").write_text(
-            "from acme.api.things_api import ThingsApi\n", encoding="utf-8"
-        )
+        (pkg / "api" / "__init__.py").write_text("from acme.api.things_api import ThingsApi\n", encoding="utf-8")
         (pkg / "api" / "things_api.py").write_text(
             "class ThingsApi:\n    def list_things(self):\n        return []\n",
             encoding="utf-8",
@@ -57,9 +55,7 @@ def test_cli_build_returns_zero_on_success(
     assert (tmp_path / "out" / "acme" / "extras" / "facade.py").exists()
 
 
-def test_cli_build_missing_product_returns_2(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_build_missing_product_returns_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     assert cli.main(["sdk", "build", "nope"]) == 2
 
@@ -69,9 +65,7 @@ def test_cli_build_invalid_sdk_yml_returns_2(
 ) -> None:
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: o\nbase_url: b\npagintion: {type: cursor}\n",
         encoding="utf-8",
@@ -82,22 +76,16 @@ def test_cli_build_invalid_sdk_yml_returns_2(
     assert "ERROR" in capsys.readouterr().err
 
 
-def test_build_runs_transforms_then_hook(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_build_runs_transforms_then_hook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import builtins
 
     from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
     order: list[str] = []
-    monkeypatch.setattr(
-        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
-    )
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", lambda *a, **k: None)
     monkeypatch.setattr("phantasos.generator.sdk.render.vendor", lambda *a, **k: [])
-    monkeypatch.setattr(
-        "phantasos.generator.sdk.patches.apply_generic_patches", lambda d, **k: {}
-    )
+    monkeypatch.setattr("phantasos.generator.sdk.patches.apply_generic_patches", lambda d, **k: {})
     monkeypatch.setattr(
         "phantasos.generator.sdk.smoke.smoke",
         lambda *a, **k: {"skipped": True, "operations": 0},
@@ -137,9 +125,7 @@ def test_build_runs_transforms_then_hook(
     assert order == ["transforms", "hook"]
 
 
-def test_build_writes_ignore_and_scaffolds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_build_writes_ignore_and_scaffolds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from phantasos.generator.sdk import build
     from phantasos.productconfig import load_product
 
@@ -190,17 +176,11 @@ def test_build_writes_ignore_and_scaffolds(
     assert calls == ["generate", "scaffold"]
 
 
-def test_build_requires_project_block(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
-    )
+def test_build_requires_project_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", lambda *a, **k: None)
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out\nbase_url: b\nfacade: false\n",
         encoding="utf-8",
@@ -210,17 +190,11 @@ def test_build_requires_project_block(
     assert rc == 2
 
 
-def test_build_requires_readme_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "phantasos.generator.sdk.generate.generate", lambda *a, **k: None
-    )
+def test_build_requires_readme_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("phantasos.generator.sdk.generate.generate", lambda *a, **k: None)
     prod = tmp_path / "products" / "acme"
     prod.mkdir(parents=True)
-    (prod / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (prod / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (prod / "sdk.yml").write_text(
         "package: acme\noutput: ../../out\nbase_url: b\nfacade: false\n"
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c,"
@@ -232,9 +206,7 @@ def test_build_requires_readme_override(
     assert rc == 2
 
 
-def test_removed_top_level_build_errors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_removed_top_level_build_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # `phantasos build` no longer exists -> usage error, exit 2
     monkeypatch.chdir(tmp_path)
     assert cli.main(["build", "acme"]) == 2

@@ -40,13 +40,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),  # G1: enroll alpha (allowlist needs it listed)
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -114,17 +108,13 @@ def _fed_runtime(tmp_path: Path) -> Iterator[Any]:
         with on_sys_path(FEDSDK):  # the SDK is "installed" for the runtime's imports
             yield importlib.import_module("fedsdk_cli._generated.runtime")
     finally:
-        for m in [
-            n for n in sys.modules if n == "fedsdk_cli" or n.startswith("fedsdk_cli.")
-        ]:
+        for m in [n for n in sys.modules if n == "fedsdk_cli" or n.startswith("fedsdk_cli.")]:
             del sys.modules[m]
         if added and entry in sys.path:
             sys.path.remove(entry)
 
 
-def test_federated_dispatch_navigates_sub_then_object(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_federated_dispatch_navigates_sub_then_object(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with _fed_runtime(tmp_path) as rt:
         import fedsdk
         import fedsdk.alpha.models as alpha_models
@@ -152,9 +142,7 @@ def test_federated_dispatch_navigates_sub_then_object(
         assert body.name == "w1" and body.size == 3
 
 
-def test_federated_list_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_federated_list_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with _fed_runtime(tmp_path) as rt:
         import fedsdk
 
@@ -249,9 +237,7 @@ def test_federated_sdk_error_is_funnelled(
 
                 self.alpha = _Sub()
 
-        monkeypatch.setattr(
-            fedsdk.Client, "from_env", classmethod(lambda cls, **kw: _Boom())
-        )
+        monkeypatch.setattr(fedsdk.Client, "from_env", classmethod(lambda cls, **kw: _Boom()))
         with pytest.raises(SystemExit) as ei:
             rt.run(
                 "create:widget",

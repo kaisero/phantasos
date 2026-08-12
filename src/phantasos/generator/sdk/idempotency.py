@@ -173,10 +173,7 @@ def _is_query_param(list_method: MethodView | None, wire_field: str) -> bool:
     """Whether *wire_field* is a ``query`` param on the list method's surface."""
     if list_method is None:
         return False
-    for p in list_method.params:
-        if p.raw_name == wire_field and p.location == "query":
-            return True
-    return False
+    return any(p.raw_name == wire_field and p.location == "query" for p in list_method.params)
 
 
 def _resolve_strategy(
@@ -231,9 +228,7 @@ def _call_params(
                     f"{name!r}, which is not an enum call param the sync engine "
                     f"can thread — opt out with `sync: false`"
                 )
-            spec = detected.setdefault(
-                name, {"values": values, "verbs": [], "default": None}
-            )
+            spec = detected.setdefault(name, {"values": values, "verbs": [], "default": None})
             if spec["values"] != values:
                 raise ValueError(
                     f"idempotency: {o.attr}: call param {name!r} resolves to "
@@ -348,11 +343,7 @@ def _build_meta(
         auto_mutate = "put_rmw"
     mutate = _resolve_strategy(_MUTATE, rc, defaults, auto_mutate)
     upd_ret = update_method.return_model if update_method else ""
-    auto_mat = (
-        "direct"
-        if (upd_ret and read_cls is not None and upd_ret == read_cls.__name__)
-        else "get_after_write"
-    )
+    auto_mat = "direct" if (upd_ret and read_cls is not None and upd_ret == read_cls.__name__) else "get_after_write"
     materialize = _resolve_strategy(_MATERIALIZE, rc, defaults, auto_mat)
 
     # --- fetch gates (#3 list_filter query params, #6 pagination) --------- #
@@ -377,21 +368,15 @@ def _build_meta(
         rc,
         scope_fields,
         package,
-        [("list", list_m), ("create", create_m)]
-        + ([(update_method.name, update_method)] if update_method else []),
+        [("list", list_m), ("create", create_m)] + ([(update_method.name, update_method)] if update_method else []),
     )
 
     # --- fields + server_only + F6 write-only gate (#5) ------------------- #
     input_fields = sorted(
-        (set(_wire_keys(create_cls)) if create_cls else set())
-        | (set(_wire_keys(update_cls)) if update_cls else set())
+        (set(_wire_keys(create_cls)) if create_cls else set()) | (set(_wire_keys(update_cls)) if update_cls else set())
     )
     server_only = sorted(
-        {id_wire}
-        | set(defaults.read_only)
-        | set(defaults.computed)
-        | set(rc.read_only)
-        | set(rc.computed)
+        {id_wire} | set(defaults.read_only) | set(defaults.computed) | set(rc.read_only) | set(rc.computed)
     )
     managed = set(input_fields) - set(server_only) - scope_fields - set(rc.write_only)
     read_keys = set(_wire_keys(read_cls)) if read_cls else set()
@@ -410,9 +395,7 @@ def _build_meta(
         if imp is not None:
             o.imports.add(_rel_import(imp))
 
-    create_name = (
-        create_cls.__name__ if create_cls else (read_cls and read_cls.__name__)
-    )
+    create_name = create_cls.__name__ if create_cls else (read_cls and read_cls.__name__)
     update_name = update_cls.__name__ if update_cls else create_name
     read_name = read_cls.__name__ if read_cls else create_name
     meta: dict[str, Any] = {
@@ -478,9 +461,7 @@ def _idempotency_literal(meta: dict[str, Any]) -> str:
     parts = {k: repr(v) for k, v in meta.items()}
     # `models` values are BARE class identifiers (referencing the imported live
     # classes), not repr strings.
-    parts["models"] = (
-        "{" + ", ".join(f'"{k}": {v}' for k, v in meta["models"].items()) + "}"
-    )
+    parts["models"] = "{" + ", ".join(f'"{k}": {v}' for k, v in meta["models"].items()) + "}"
     # `params` is optional — absent keys are skipped so a param-less resource's
     # literal stays byte-identical to the pre-`params` output.
     body = ",\n".join(f'        "{k}": {parts[k]}' for k in _ORDER if k in parts)

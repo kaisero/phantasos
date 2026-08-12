@@ -3,9 +3,7 @@ from phantasos.generator.cli.ir import Command, Flag
 
 
 def _f(name: str, *, required: bool = True) -> Flag:
-    return Flag(
-        name=f"--{name}", param=name, py_type="str", kind="scalar", required=required
-    )
+    return Flag(name=f"--{name}", param=name, py_type="str", kind="scalar", required=required)
 
 
 def test_query_panel_splits_pagination_from_filters() -> None:
@@ -14,22 +12,8 @@ def test_query_panel_splits_pagination_from_filters() -> None:
 
 
 def test_leaf_prefers_variant_then_action() -> None:
-    assert (
-        leaf(
-            Command(
-                verb="create", object="g", variant="simple", key="k", sdk_resource="g"
-            )
-        )
-        == "simple"
-    )
-    assert (
-        leaf(
-            Command(
-                verb="request", object="w", action="suspend", key="k", sdk_resource="w"
-            )
-        )
-        == "suspend"
-    )
+    assert leaf(Command(verb="create", object="g", variant="simple", key="k", sdk_resource="g")) == "simple"
+    assert leaf(Command(verb="request", object="w", action="suspend", key="k", sdk_resource="w")) == "suspend"
     assert leaf(Command(verb="show", object="w", key="k", sdk_resource="w")) is None
 
 

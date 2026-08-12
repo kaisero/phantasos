@@ -58,11 +58,7 @@ class TestFreezeOracle:
             "freeze_oracle.py",
             {
                 "tool_name": "Write",
-                "tool_input": {
-                    "file_path": (
-                        "products/x/overrides/tests/test_sdk_crud_live.py.jinja"
-                    )
-                },
+                "tool_input": {"file_path": ("products/x/overrides/tests/test_sdk_crud_live.py.jinja")},
                 "cwd": "/repo",
             },
             config,
@@ -70,9 +66,7 @@ class TestFreezeOracle:
         assert proc.returncode == 0
         assert _decision(proc) == "deny"
 
-    def test_denies_edit_to_protected_absolute_path(
-        self, config: Path, tmp_path: Path
-    ) -> None:
+    def test_denies_edit_to_protected_absolute_path(self, config: Path, tmp_path: Path) -> None:
         target = tmp_path / "repo" / "tests" / "acceptance" / "test_x.py"
         proc = run_hook(
             "freeze_oracle.py",
@@ -175,13 +169,9 @@ class TestFastGate:
         assert out["decision"] == "block"
         assert "BOOM" in out["reason"]
 
-    def test_dirty_protected_path_blocks_even_when_gate_passes(
-        self, repo: Path
-    ) -> None:
+    def test_dirty_protected_path_blocks_even_when_gate_passes(self, repo: Path) -> None:
         cfg = _write_gate_config(repo, PASS_CMD)
-        frozen = (
-            repo / "products" / "p" / "overrides" / "tests" / "test_sdk_crud_live.py"
-        )
+        frozen = repo / "products" / "p" / "overrides" / "tests" / "test_sdk_crud_live.py"
         frozen.write_text("# weakened!\n")
         proc = run_hook("fast_gate.py", _stop_payload(), cfg)
         out = json.loads(proc.stdout)
@@ -209,18 +199,14 @@ class TestFastGate:
 
     def test_disabled_gate_allows_even_when_dirty(self, repo: Path) -> None:
         cfg = _write_gate_config(repo, FAIL_CMD, enabled="false")
-        frozen = (
-            repo / "products" / "p" / "overrides" / "tests" / "test_sdk_crud_live.py"
-        )
+        frozen = repo / "products" / "p" / "overrides" / "tests" / "test_sdk_crud_live.py"
         frozen.write_text("# weakened!\n")
         proc = run_hook("fast_gate.py", _stop_payload(), cfg)
         assert proc.returncode == 0
         assert proc.stdout.strip() == ""
 
     def test_fails_open_on_broken_config(self, tmp_path: Path) -> None:
-        proc = run_hook(
-            "fast_gate.py", _stop_payload(), tmp_path / "does-not-exist.toml"
-        )
+        proc = run_hook("fast_gate.py", _stop_payload(), tmp_path / "does-not-exist.toml")
         assert proc.returncode == 0
         assert proc.stdout.strip() == ""
         assert "failing open" in proc.stderr

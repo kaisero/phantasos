@@ -72,8 +72,7 @@ def main() -> int:
         return 0
     except Exception as exc:  # fail CLOSED by design
         _deny(
-            f"freeze_oracle hook error ({exc!r}) — failing closed: no writes "
-            "allowed until the harness config is fixed."
+            f"freeze_oracle hook error ({exc!r}) — failing closed: no writes allowed until the harness config is fixed."
         )
         return 0
 

@@ -122,11 +122,7 @@ def union_members(model: type[BaseModel]) -> list[str] | None:
         return None
     inner = unwrap_optional(field.annotation)
     if get_origin(inner) in (Union, UnionType):
-        return [
-            getattr(a, "__name__", None) or str(a)
-            for a in get_args(inner)
-            if a is not type(None)
-        ]
+        return [getattr(a, "__name__", None) or str(a) for a in get_args(inner) if a is not type(None)]
     return None
 
 
@@ -194,9 +190,7 @@ def _docstring_parts(fn: object) -> tuple[str, str]:
     return head.strip(), rest.strip()
 
 
-def introspect(
-    package: str, sdk_path: Path, *, registry_attr: str = "_RESOURCES"
-) -> OperationInventory:
+def introspect(package: str, sdk_path: Path, *, registry_attr: str = "_RESOURCES") -> OperationInventory:
     with on_sys_path(sdk_path):
         return _introspect(package, registry_attr)
 
@@ -216,9 +210,7 @@ def _introspect(package: str, registry_attr: str) -> OperationInventory:
                 hints = {}
             sig = inspect.signature(callable_fn)
             summary, description = _docstring_parts(callable_fn)
-            return_model, items_field, response_fields = _response_info(
-                hints.get("return")
-            )
+            return_model, items_field, response_fields = _response_info(hints.get("return"))
             params: list[ParamInfo] = []
             body_fields: dict[str, list[FieldInfo]] = {}
             for pname, p in sig.parameters.items():

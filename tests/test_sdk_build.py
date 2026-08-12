@@ -72,13 +72,9 @@ def test_scope_fields_reads_defaults_then_resources() -> None:
     assert _scope_fields(IdempotencyConfig()) is None
     from phantasos.config import ScopeSpec
 
-    on_defaults = IdempotencyConfig(
-        defaults=IdempotencyDefaults(scope=ScopeSpec(fields=["folder", "snippet"]))
-    )
+    on_defaults = IdempotencyConfig(defaults=IdempotencyDefaults(scope=ScopeSpec(fields=["folder", "snippet"])))
     assert _scope_fields(on_defaults) == ("folder", "snippet")
-    on_resource = IdempotencyConfig(
-        resources={"addr": IdempotencyResource(scope=ScopeSpec(fields=["device"]))}
-    )
+    on_resource = IdempotencyConfig(resources={"addr": IdempotencyResource(scope=ScopeSpec(fields=["device"]))})
     assert _scope_fields(on_resource) == ("device",)
 
 
@@ -96,9 +92,7 @@ def test_scope_model_stems_matches_full_scope_group(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (models / "partial.py").write_text(  # only one scope field -> not a scoped body
-        "from pydantic import BaseModel\n\n"
-        "class Partial(BaseModel):\n"
-        "    folder: str | None = None\n",
+        "from pydantic import BaseModel\n\nclass Partial(BaseModel):\n    folder: str | None = None\n",
         encoding="utf-8",
     )
     (models / "__init__.py").write_text("", encoding="utf-8")
@@ -161,11 +155,7 @@ def _oag_toolchain_cached() -> bool:
         key = provision._platform_key()
     except provision.ProvisionError:
         return False
-    java = (
-        provision.cache_dir()
-        / f"temurin-{provision._JRE_RELEASE}-{key}"
-        / provision._JRE[key].java_subpath
-    )
+    java = provision.cache_dir() / f"temurin-{provision._JRE_RELEASE}-{key}" / provision._JRE[key].java_subpath
     return java.exists()
 
 
@@ -181,9 +171,7 @@ def test_build_emits_wrapper() -> None:
     res = build(loaded, run_smoke=True)
 
     # Smoke: every generated module must import cleanly.
-    assert res["smoke"]["failed"] == 0, (
-        f"Smoke import failures: {res['smoke']['failures']}"
-    )
+    assert res["smoke"]["failed"] == 0, f"Smoke import failures: {res['smoke']['failures']}"
 
     # resources.py must exist in the output package's extras/ directory.
     # Use loaded.output_dir (resolves relative to the product's base_dir).
@@ -200,9 +188,7 @@ def test_build_emits_wrapper() -> None:
     not _oag_toolchain_cached(),
     reason="OAG toolchain not provisioned (offline/CI)",
 )
-def test_full_federation_twelve_subpackages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_full_federation_twelve_subpackages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Federated build loop emits ALL 12 sub-packages under the distribution root.
 
     sdk.yml federates the full 12 specs (P2.2). Each one runs the real OAG
@@ -257,9 +243,7 @@ def test_full_federation_twelve_subpackages(
 
     def _drop() -> dict[str, ModuleType]:
         return {
-            m: sys.modules.pop(m)
-            for m in list(sys.modules)
-            if m == "prisma_access" or m.startswith("prisma_access.")
+            m: sys.modules.pop(m) for m in list(sys.modules) if m == "prisma_access" or m.startswith("prisma_access.")
         }
 
     saved = _drop()
@@ -277,9 +261,7 @@ def test_full_federation_twelve_subpackages(
         # 1. Hoist shape: ONE runtime api_client; NO per-sub copies (all 12).
         assert (root / "_runtime" / "api_client.py").exists()
         for slug in _ALL_SLUGS:
-            assert not (root / slug / "api_client.py").exists(), (
-                f"per-sub api_client leaked for {slug}"
-            )
+            assert not (root / slug / "api_client.py").exists(), f"per-sub api_client leaked for {slug}"
 
         # Build a config whose token never touches the network: pre-seed the
         # TokenManager cache so `.token()` returns FAKETOKEN without a fetch.
@@ -384,13 +366,8 @@ def test_full_federation_twelve_subpackages(
         # merges into every request), not on Configuration. Spec-driven scoping:
         # X-PANW-Region rides ONLY the subs that declare it (incidents +
         # ztna_connector), NOT objects/network which never declared the header.
-        assert (
-            client.incidents.api_client.default_headers["X-PANW-Region"] == "americas"
-        )
-        assert (
-            client.ztna_connector.api_client.default_headers["X-PANW-Region"]
-            == "americas"
-        )
+        assert client.incidents.api_client.default_headers["X-PANW-Region"] == "americas"
+        assert client.ztna_connector.api_client.default_headers["X-PANW-Region"] == "americas"
         assert "X-PANW-Region" not in client.objects.api_client.default_headers
         assert "X-PANW-Region" not in client.network_services.api_client.default_headers
         # prisma-tenant env unset -> optional header simply not applied (no raise).
@@ -401,17 +378,11 @@ def test_full_federation_twelve_subpackages(
         assert client.objects.api_client.models is objects_models
         assert client.ztna_connector.api_client.models is ztna_models
         # The three facades share the ONE connection pool the composer built.
-        assert (
-            client.objects.api_client.rest_client
-            is client.ztna_connector.api_client.rest_client
-        )
+        assert client.objects.api_client.rest_client is client.ztna_connector.api_client.rest_client
         # Per-sub host: ztna-connector's spec declares api.sase, the rest api.strata.
         # Its handle gets a host-overridden config COPY (sharing the TokenManager +
         # the pool above); objects et al. keep the shared config object.
-        assert (
-            client.ztna_connector.api_client.configuration.host
-            == "https://api.sase.paloaltonetworks.com"
-        )
+        assert client.ztna_connector.api_client.configuration.host == "https://api.sase.paloaltonetworks.com"
         assert client.objects.api_client.configuration.host == cfg.host
         assert client.ztna_connector.api_client.configuration is not cfg
         assert client.objects.api_client.configuration is cfg

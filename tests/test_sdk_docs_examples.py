@@ -134,9 +134,7 @@ class _Wrapper(BaseModel):
 
 def test_oneof_picks_named_variant() -> None:
     # WRAP form: the named variant is nested inside its wrapper (C2).
-    assert synthesize_body(_Wrapper, variant="UrlInput").startswith(
-        "_Wrapper(UrlInput("
-    )
+    assert synthesize_body(_Wrapper, variant="UrlInput").startswith("_Wrapper(UrlInput(")
 
 
 def test_oneof_defaults_to_first_variant() -> None:
@@ -256,9 +254,7 @@ def test_reference_example_path_only_op_shows_client_call() -> None:
         path_args=[("id", "<id>")],
         body_model=None,
     )
-    assert ex == (
-        '**Example:**\n\n```python\nclient.custom_app.get(\n    id="<id>",\n)\n```'
-    )
+    assert ex == ('**Example:**\n\n```python\nclient.custom_app.get(\n    id="<id>",\n)\n```')
 
 
 def test_reference_example_list_no_args() -> None:
@@ -294,9 +290,7 @@ def test_reference_example_all_optional_body_shows_nav_line_with_hint() -> None:
 
 def test_reference_example_override_is_used_verbatim() -> None:
     # D6: an authored override is shown even when the synthesized body would be empty.
-    override = (
-        'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))'
-    )
+    override = 'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))'
     ex = reference_example(
         attr="custom_app",
         method="update",
@@ -305,9 +299,7 @@ def test_reference_example_override_is_used_verbatim() -> None:
         override=override,
     )
     assert ex == (
-        "**Example:**\n\n```python\n"
-        'updated = client.custom_app.update(id="abc", body=AllOptional(name="x"))\n'
-        "```"
+        '**Example:**\n\n```python\nupdated = client.custom_app.update(id="abc", body=AllOptional(name="x"))\n```'
     )
 
 

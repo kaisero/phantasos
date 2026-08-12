@@ -22,9 +22,7 @@ def _clean_idem_modules() -> Iterator[None]:
             sys.modules.pop(name, None)
 
 
-def _exec_idem_module(
-    name: str, src: str, deps: dict[str, types.ModuleType]
-) -> types.ModuleType:
+def _exec_idem_module(name: str, src: str, deps: dict[str, types.ModuleType]) -> types.ModuleType:
     """Exec a rendered extras/idempotency/*.py in a stub package tree."""
     pkg = types.ModuleType("_ip")
     pkg.__path__ = []
@@ -96,11 +94,7 @@ class _Model:
     def model_dump(
         self, *, by_alias: bool = True, mode: str = "json", exclude_unset: bool = False
     ) -> dict[str, object]:
-        return {
-            k: v
-            for k, v in self.__dict__.items()
-            if k not in ("_set",) and (not exclude_unset or k in self._set)
-        }
+        return {k: v for k, v in self.__dict__.items() if k not in ("_set",) and (not exclude_unset or k in self._set)}
 
     def to_dict(self) -> dict[str, object]:
         return self.model_dump()
@@ -214,9 +208,7 @@ def test_put_rmw_body_survives_oneof_field() -> None:
     base, eng = _engine_env()
     pr = _exec_strategy("mutate", "put_rmw", base, eng)
     calls: dict[str, object] = {}
-    actual = _OneOfModel(
-        name="a", protocol={"tcp": {"port": "80"}}, description="keep", id="1"
-    )
+    actual = _OneOfModel(name="a", protocol={"tcp": {"port": "80"}}, description="keep", id="1")
 
     class R:
         _present = eng.SyncMixin._present
@@ -344,9 +336,7 @@ def test_normalize_nested_null_equals_absent_no_false_drift() -> None:
 def test_projection_maps_actual_objects_to_ids_no_false_drift() -> None:
     base, eng = _engine_env()
     actual = _Model(name="a", id="1", applications=[{"id": "a1", "name": "X"}])
-    meta = _meta(
-        input_fields=["name", "applications"], projections={"applications": "id"}
-    )
+    meta = _meta(input_fields=["name", "applications"], projections={"applications": "id"})
     res, _ = _stub(base, eng, meta, existing=actual)
     # desired member-id strings vs actual member objects -> equal after projection
     assert not res.apply(_Model(name="a", applications=["a1"])).changed
@@ -404,9 +394,7 @@ def test_sync_result_shape() -> None:
 # --- strategy modules (fetch/mutate/materialize) -----------------------------
 
 
-def _exec_strategy(
-    family: str, name: str, base: types.ModuleType, eng: types.ModuleType
-) -> types.ModuleType:
+def _exec_strategy(family: str, name: str, base: types.ModuleType, eng: types.ModuleType) -> types.ModuleType:
     src = _render_idem(f"{family}/{name}.py.jinja", federated=False)
     deps = {
         "_ip.extras.idempotency.base": base,
@@ -1102,9 +1090,7 @@ def test_apply_unknown_param_fails_loud() -> None:
             raise AssertionError("must fail before any fetch")
 
     with pytest.raises(ValueError, match="rulebase"):
-        Stub().apply(
-            _Model(name="a", ip_netmask="1.1.1.1/32"), position="pre", rulebase="x"
-        )
+        Stub().apply(_Model(name="a", ip_netmask="1.1.1.1/32"), position="pre", rulebase="x")
 
 
 def test_apply_rejects_param_on_paramless_resource() -> None:
@@ -1205,9 +1191,7 @@ def test_drift_forwards_param_to_positioned_replace() -> None:
         def list(self, **kw: object) -> object:
             return _Page([actual])
 
-        def replace(
-            self, *, id: object, body: _Model, position: object = None
-        ) -> object:
+        def replace(self, *, id: object, body: _Model, position: object = None) -> object:
             seen["replace_position"] = position
             return _Model(**{**body.model_dump(), "id": id})
 
@@ -1251,9 +1235,7 @@ def test_put_rmw_forwards_call_params_signature_guarded() -> None:
     class RAccepts:
         _present = eng.SyncMixin._present
 
-        def replace(
-            self, *, id: object, body: object, position: object = None
-        ) -> object:
+        def replace(self, *, id: object, body: object, position: object = None) -> object:
             calls["position"] = position
             return body
 
@@ -1290,11 +1272,7 @@ def _object_view(*, sync: bool, idempotency_literal: str = "{}") -> SimpleNamesp
 
 
 def _render_resource(objects: list[SimpleNamespace], **params: object) -> str:
-    return (
-        render._env()
-        .get_template("facade/resource.py.jinja")
-        .render(objects=objects, imports=[], **params)
-    )
+    return render._env().get_template("facade/resource.py.jinja").render(objects=objects, imports=[], **params)
 
 
 def test_resource_renders_syncmixin_and_classvar_when_opted() -> None:

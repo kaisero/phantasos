@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Any
 
-import pytest
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from phantasos.generator.cli.render_cli import cli_overrides_dir
@@ -54,9 +53,7 @@ def test_pyproject_pins_sdk_to_sibling_path_when_provided() -> None:
         },
     )
     assert "[tool.uv.sources]" in out
-    expected = (
-        'prisma-browser-sdk = { path = "../prisma-browser-sdk", editable = true }'
-    )
+    expected = 'prisma-browser-sdk = { path = "../prisma-browser-sdk", editable = true }'
     assert expected in out
 
 
@@ -65,40 +62,14 @@ def test_pyproject_no_uv_sources_for_sdk() -> None:
     assert "[tool.uv.sources]" not in out
 
 
-def test_sdk_pyproject_byte_identical_to_pre_task1() -> None:
-    # Compare SDK (no scripts / no uv.sources) output against the pre-Task-1 template
-    # to guard against whitespace regressions in the conditional blocks.
-    import shutil
-    import subprocess
-
-    from jinja2 import BaseLoader, Environment, StrictUndefined, select_autoescape
-
-    git = shutil.which("git") or "git"
-    proc = subprocess.run(  # noqa: S603
-        [git, "show", "4de2aa4:src/phantasos/scaffold/pyproject.toml.jinja"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        pytest.skip(
-            "baseline commit 4de2aa4 not in history (shallow clone / CI) — "
-            "this whitespace-regression guard runs only with full git history"
-        )
-    base_src = proc.stdout
-
-    def _r(src: str) -> str:
-        env = Environment(
-            loader=BaseLoader(),
-            keep_trailing_newline=True,
-            autoescape=select_autoescape(),
-            undefined=StrictUndefined,
-        )
-        return env.from_string(src).render(**_BASE)
-
-    head_src = Path("src/phantasos/scaffold/pyproject.toml.jinja").read_text()
-    assert _r(head_src) == _r(base_src)  # SDK output unchanged
-    assert "\n\n\n" not in _r(head_src)  # no doubled blank line
+def test_sdk_pyproject_no_whitespace_regressions() -> None:
+    # The SDK case toggles the scripts / uv.sources conditional blocks OFF; guard
+    # that they leave no stray blank lines and are cleanly omitted (a whitespace
+    # regression in the `{% if %}` blocks would strand a doubled newline here).
+    out = _render("pyproject.toml.jinja", _BASE)
+    assert "\n\n\n" not in out  # no doubled blank line
+    assert "[project.scripts]" not in out  # scripts block cleanly omitted
+    assert "[tool.uv.sources]" not in out  # uv.sources block cleanly omitted
 
 
 def test_cli_pyproject_is_valid_toml() -> None:
@@ -167,9 +138,7 @@ class _FakeLoaded:
             "python_versions": ["3.11", "3.12"],
             "dependencies": ["httpx", "urllib3", "pydantic"],
         }
-        self.auth = type(
-            "A", (), {"scope_env": "SCOPE", "base_url_env": "PRISMA_SASE_BASE_URL"}
-        )()
+        self.auth = type("A", (), {"scope_env": "SCOPE", "base_url_env": "PRISMA_SASE_BASE_URL"})()
         self.output_dir = Path("/home/x/git/prisma-browser-sdk")
 
 

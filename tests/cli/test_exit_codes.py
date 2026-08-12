@@ -10,14 +10,7 @@ guard.
 import re
 from pathlib import Path
 
-TEMPLATES = (
-    Path(__file__).parent.parent.parent
-    / "src"
-    / "phantasos"
-    / "generator"
-    / "cli"
-    / "templates"
-)
+TEMPLATES = Path(__file__).parent.parent.parent / "src" / "phantasos" / "generator" / "cli" / "templates"
 
 
 def test_runtime_uses_only_documented_exit_codes() -> None:
@@ -40,6 +33,5 @@ def test_runtime_uses_only_documented_exit_codes() -> None:
             if m.group(1) not in allowed_code:
                 offenders.append(f"{rel}: code={m.group(1)}")
     assert not offenders, (
-        "Undocumented exit codes found; update docs/guides/errors.md.jinja and this "
-        "guard:\n  " + "\n  ".join(offenders)
+        "Undocumented exit codes found; update docs/guides/errors.md.jinja and this guard:\n  " + "\n  ".join(offenders)
     )

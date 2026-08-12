@@ -177,10 +177,6 @@ def test_idempotency_resource_accepts_params_default() -> None:
 def test_idempotency_param_spec_rejects_derived_facts() -> None:
     # values/verbs are auto-derived by the producer — config may not set them.
     with pytest.raises(ValidationError):
-        IdempotencyResource.model_validate(
-            {"params": {"position": {"values": ["pre", "post"]}}}
-        )
+        IdempotencyResource.model_validate({"params": {"position": {"values": ["pre", "post"]}}})
     with pytest.raises(ValidationError):
-        IdempotencyResource.model_validate(
-            {"params": {"position": {"verbs": ["list"]}}}
-        )
+        IdempotencyResource.model_validate({"params": {"position": {"verbs": ["list"]}}})

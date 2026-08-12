@@ -105,9 +105,7 @@ def vendor(
         fields = component.model_dump()
         template = fields.pop("template")
         fields.pop("type", None)
-        (extras / name).write_text(
-            render_template(template, **{**fields, **extra}), encoding="utf-8"
-        )
+        (extras / name).write_text(render_template(template, **{**fields, **extra}), encoding="utf-8")
         written.append(name)
 
     if suppress_auth:
@@ -126,9 +124,7 @@ def vendor(
     if loaded.facade:
         # Pass 1: raw-`*Api` facade (exposes `_RESOURCES`, NO wrapper imports) so
         # the package is importable and introspect(...) can read `_RESOURCES`.
-        write_component(
-            "facade.py", loaded.facade, resources=_discover_resources(pkg_dir)
-        )
+        write_component("facade.py", loaded.facade, resources=_discover_resources(pkg_dir))
     if loaded.retry:
         write_component("retry.py", loaded.retry)
 
@@ -138,9 +134,7 @@ def vendor(
             raise ValueError(f"include destination {dest!r} escapes extras/")
         target.parent.mkdir(parents=True, exist_ok=True)
         rel = (loaded.base_dir / source).resolve().relative_to(loaded.base_dir)
-        target.write_text(
-            product_env.get_template(str(rel)).render(**ctx), encoding="utf-8"
-        )
+        target.write_text(product_env.get_template(str(rel)).render(**ctx), encoding="utf-8")
         written.append(dest)
 
     (extras / "__init__.py").write_text(
@@ -200,11 +194,7 @@ def _invalidate_pkg_modules(package: str) -> None:
     import sys
 
     for name in list(sys.modules):
-        if (
-            name == package
-            or name == f"{package}.extras"
-            or name.startswith(f"{package}.extras.")
-        ):
+        if name == package or name == f"{package}.extras" or name.startswith(f"{package}.extras."):
             del sys.modules[name]
 
 

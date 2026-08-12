@@ -42,13 +42,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -125,9 +119,7 @@ def _probe(out: Path, *args: str, pkg: str = "fedsdk_cli") -> dict[str, Any]:
         capture_output=True,
         text=True,
     )
-    line = next(
-        (ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE_JSON:")), None
-    )
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE_JSON:")), None)
     assert line is not None, f"probe produced no result:\n{proc.stdout}\n{proc.stderr}"
     result: dict[str, Any] = json.loads(line[len("PROBE_JSON:") :])
     return result
@@ -166,17 +158,13 @@ print("PROBE_JSON:" + json.dumps({"completions": comps, "leaf": leaf}))
 """
 
 
-def _complete(
-    out: Path, comp_words: str, comp_cword: str, *, pkg: str = "fedsdk_cli"
-) -> dict[str, Any]:
+def _complete(out: Path, comp_words: str, comp_cword: str, *, pkg: str = "fedsdk_cli") -> dict[str, Any]:
     proc = subprocess.run(  # noqa: S603 — trusted argv (sys.executable + fixed script)
         [sys.executable, "-c", _COMPLETE_PROBE, str(out), pkg, comp_words, comp_cword],
         capture_output=True,
         text=True,
     )
-    line = next(
-        (ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE_JSON:")), None
-    )
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE_JSON:")), None)
     assert line is not None, f"probe produced no result:\n{proc.stdout}\n{proc.stderr}"
     result: dict[str, Any] = json.loads(line[len("PROBE_JSON:") :])
     return result
@@ -352,9 +340,7 @@ def test_lazy_leaf_dispatch_runs(
     with render_and_import(out, "fedsdk_cli"), on_sys_path(FEDSDK):
         rt = importlib.import_module("fedsdk_cli._generated.runtime")
         calls: list[Any] = []
-        monkeypatch.setattr(
-            rt, "_facade_from_env", lambda **kw: _fake_fed_client(calls)
-        )
+        monkeypatch.setattr(rt, "_facade_from_env", lambda **kw: _fake_fed_client(calls))
         app = importlib.import_module("fedsdk_cli._generated.app").build_generated_app()
         r = CliRunner().invoke(app, ["show", "alpha", "widget", "--output", "json"])
         assert r.exit_code == 0, r.output
@@ -422,9 +408,7 @@ def test_ss_did_you_mean_and_no_args_help(
 
         r_verb = runner.invoke(app, ["shwo"])
         assert r_verb.exit_code == 2
-        assert "Did you mean" in _strip(r_verb.output) and "show" in _strip(
-            r_verb.output
-        )
+        assert "Did you mean" in _strip(r_verb.output) and "show" in _strip(r_verb.output)
 
         r_obj = runner.invoke(app, ["show", "widdget"])  # lazy object
         assert r_obj.exit_code == 2

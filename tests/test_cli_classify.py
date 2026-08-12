@@ -123,9 +123,7 @@ def test_fields_to_flags_kinds() -> None:
 
 
 def test_snake_case_field_becomes_kebab_flag() -> None:
-    fields = [
-        FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)
-    ]
+    fields = [FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)]
     assert fields_to_flags(fields)[0].name == "--ip-netmask"
 
 
@@ -248,9 +246,7 @@ def _id_body_op(method: str, *, required_name: bool = True) -> OperationInfo:
         ],
         body_fields={
             "CheckInput": [
-                FieldInfo(
-                    name="name", annotation="str", kind="scalar", required=required_name
-                ),
+                FieldInfo(name="name", annotation="str", kind="scalar", required=required_name),
                 FieldInfo(name="note", annotation="str", kind="scalar", required=False),
             ]
         },
@@ -258,9 +254,7 @@ def _id_body_op(method: str, *, required_name: bool = True) -> OperationInfo:
 
 
 def test_update_put_only_keeps_body_required() -> None:
-    inv = OperationInventory(
-        sdk_package="p", sdk_version="1", operations=[_id_body_op("update_check_by_id")]
-    )
+    inv = OperationInventory(sdk_package="p", sdk_version="1", operations=[_id_body_op("update_check_by_id")])
     ir, unmapped = build_cli_ir(inv, CliConfig())
     cmd = {c.key: c for c in ir.commands}["update:check"]
     assert {b.sub_verb for b in cmd.bindings} == {"put"}
@@ -343,9 +337,7 @@ def test_bindings_carry_body_and_variant_metadata() -> None:
     by_key = {c.key: c for c in ir.commands}
 
     # plain body: build the param's model, no wrapper
-    create_widget = next(
-        b for b in by_key["create:widget"].bindings if b.sub_verb == "create"
-    )
+    create_widget = next(b for b in by_key["create:widget"].bindings if b.sub_verb == "create")
     assert create_widget.body_param == "widget_input"
     assert create_widget.body_model == "WidgetInput"
     assert create_widget.body_wrapper is None

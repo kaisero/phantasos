@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from .productconfig import load_product
+from .productconfig import ProjectConfig, load_product
 
 if TYPE_CHECKING:
     from .generator.cli.cliconfig import CliConfig
@@ -54,18 +54,22 @@ def _build_ir_or_exit(loaded: LoadedProduct) -> tuple[CliIR, CliConfig, list[str
 
 @sdk_app.command("build")
 def sdk_build(
-    product: str = typer.Argument(
-        ..., help="product name (products/<name>/sdk.yml) or a path to sdk.yml"
-    ),
+    product: str = typer.Argument(..., help="product name (products/<name>/sdk.yml) or a path to sdk.yml"),
     no_smoke: bool = typer.Option(
         False,
         "--no-smoke",
         help="skip the isolated import-check (offline/locked-down builds)",
     ),
+    no_verify: bool = typer.Option(
+        False,
+        "--no-verify",
+        help="skip the post-generation CI gate (ruff/mypy via nox)",
+    ),
 ) -> None:
     """build an SDK from a product's sdk.yml"""
     from pydantic import ValidationError
 
+    from .generator.finalize import FinalizeError
     from .generator.sdk import build
 
     try:
@@ -77,7 +81,10 @@ def sdk_build(
         typer.echo(f"ERROR: invalid sdk.yml:\n{exc}", err=True)
         raise typer.Exit(2) from exc
     try:
-        result = build(loaded, run_smoke=not no_smoke)
+        result = build(loaded, run_smoke=not no_smoke, verify=not no_verify)
+    except FinalizeError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1) from exc
     except ValueError as exc:
         typer.echo(f"ERROR: {exc}", err=True)
         raise typer.Exit(2) from exc
@@ -86,10 +93,7 @@ def sdk_build(
     if s.get("skipped"):
         typer.echo(f"built {pkg}: smoke skipped; operations: {s['operations']}")
         return
-    typer.echo(
-        f"built {pkg}: imported {s['imported']} modules, "
-        f"{s['failed']} failures; operations: {s['operations']}"
-    )
+    typer.echo(f"built {pkg}: imported {s['imported']} modules, {s['failed']} failures; operations: {s['operations']}")
     for name, err in s["failures"][:10]:
         typer.echo(f"  FAIL {name} {err}")
     if s["failed"]:
@@ -98,12 +102,8 @@ def sdk_build(
 
 @cli_app.command("discover")
 def cli_discover(
-    product: str = typer.Argument(
-        ..., help="product name (products/<name>/) or path to sdk.yml"
-    ),
-    write_stub: bool = typer.Option(
-        False, "--write-stub", help="write products/<name>/cli.yml.stub next to sdk.yml"
-    ),
+    product: str = typer.Argument(..., help="product name (products/<name>/) or path to sdk.yml"),
+    write_stub: bool = typer.Option(False, "--write-stub", help="write products/<name>/cli.yml.stub next to sdk.yml"),
 ) -> None:
     """print the classification table + cli.yml stub"""
     from .generator.cli.discover import render_stub, render_table
@@ -119,14 +119,19 @@ def cli_discover(
 
 @cli_app.command("build")
 def cli_build(
-    product: str = typer.Argument(
-        ..., help="product name (products/<name>/) or path to sdk.yml"
+    product: str = typer.Argument(..., help="product name (products/<name>/) or path to sdk.yml"),
+    no_verify: bool = typer.Option(
+        False,
+        "--no-verify",
+        help="skip the post-generation CI gate (ruff/mypy via nox)",
     ),
 ) -> None:
     """emit the CLI project from a built SDK"""
     from . import scaffold
     from .generator.cli.render_cli import cli_overrides_dir, render_cli
     from .generator.cli.scaffold_context import build_cli_scaffold_context
+    from .generator.finalize import FinalizeError, finalize
+    from .generator.gitrepo import snapshot as git_snapshot
 
     loaded = _load_or_exit(product)
     ir, cfg, unmapped = _build_ir_or_exit(loaded)
@@ -140,11 +145,7 @@ def cli_build(
     scaffold_ctx = build_cli_scaffold_context(loaded, ir, cfg)
     cli_pkg = f"{loaded.config.package}_cli"
     out_dir = Path(loaded.output_dir).parent / str(scaffold_ctx["distribution"])
-    docs_site_name = (
-        f"{scaffold_ctx.get('spec_title')} CLI"
-        if scaffold_ctx.get("spec_title")
-        else None
-    )
+    docs_site_name = f"{scaffold_ctx.get('spec_title')} CLI" if scaffold_ctx.get("spec_title") else None
     written = render_cli(
         ir,
         package=cli_pkg,
@@ -158,16 +159,26 @@ def cli_build(
         docs_repo_url=scaffold_ctx.get("repo_url"),
         docs_description=scaffold_ctx.get("description") or "",
     )
-    written = written + scaffold.render_scaffold(
-        scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx
-    )
-    typer.echo(
-        f"emitted {len(written)} files to {out_dir} ({len(ir.commands)} commands)"
-    )
-    if unmapped:
-        typer.echo(
-            f"note: {len(unmapped)} unmapped ops omitted (map in cli.yml)", err=True
+    written = written + scaffold.render_scaffold(scaffold.builtin_dir(), cli_overrides_dir(), out_dir, scaffold_ctx)
+    try:
+        finalize(out_dir, verify=not no_verify)
+    except FinalizeError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    # Snapshot into a git repo on a per-build branch when a push remote is
+    # configured on the CLI's project (cli.yml wins over sdk.yml).
+    cli_project = cfg.project or loaded.config.project
+    if isinstance(cli_project, ProjectConfig) and cli_project.git_remote:
+        git_snapshot(
+            out_dir,
+            distribution=str(scaffold_ctx["distribution"]),
+            author=cli_project.author,
+            author_email=cli_project.author_email,
+            remote=cli_project.git_remote,
         )
+    typer.echo(f"emitted {len(written)} files to {out_dir} ({len(ir.commands)} commands)")
+    if unmapped:
+        typer.echo(f"note: {len(unmapped)} unmapped ops omitted (map in cli.yml)", err=True)
 
 
 def main(argv: list[str] | None = None) -> int:

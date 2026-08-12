@@ -46,9 +46,7 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
     sdk_distribution = base.get("distribution") or f"{_pkg}-sdk"
     cli_package = f"{base['package']}_cli"
     cli_distribution = (
-        f"{sdk_distribution[:-4]}-cli"
-        if sdk_distribution.endswith("-sdk")
-        else f"{sdk_distribution}-cli"
+        f"{sdk_distribution[:-4]}-cli" if sdk_distribution.endswith("-sdk") else f"{sdk_distribution}-cli"
     )
     sdk_source_path = f"../{Path(loaded.output_dir).name}"
 

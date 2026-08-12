@@ -96,15 +96,11 @@ def classify_name(method: str) -> Classification | None:
         if method.startswith(prefix):
             noun = _strip_id_suffix(method[len(prefix) :])
             noun = _singularize(noun)
-            return Classification(
-                verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
-            )
+            return Classification(verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-"))
     return _opmodel_classify_name(method)
 
 
-def cli_operations(
-    package: str, sdk_path: Path, *, registry_attr: str = "_WRAPPERS"
-) -> OperationInventory:
+def cli_operations(package: str, sdk_path: Path, *, registry_attr: str = "_WRAPPERS") -> OperationInventory:
     """Inventory built from the SDK's typed wrappers (`_WRAPPERS`/`_bindings`).
 
     The CLI's command tree is still classified off the RAW operation names, so
@@ -127,9 +123,7 @@ def cli_operations(
     the wrappers.
     """
     inv = introspect(package, sdk_path, registry_attr="_RESOURCES")
-    by_raw: dict[tuple[str, str], OperationInfo] = {
-        (op.resource, op.method): op for op in inv.operations
-    }
+    by_raw: dict[tuple[str, str], OperationInfo] = {(op.resource, op.method): op for op in inv.operations}
 
     with on_sys_path(sdk_path):
         facade = importlib.import_module(f"{package}.extras.facade")
@@ -178,9 +172,7 @@ def _flag_name(param: str) -> str:
     return "--" + param.replace("_", "-")
 
 
-def fields_to_flags(
-    fields: list[FieldInfo], schema: ModelSchema | None = None
-) -> list[Flag]:
+def fields_to_flags(fields: list[FieldInfo], schema: ModelSchema | None = None) -> list[Flag]:
     # When a ModelSchema is supplied (the deepened path), stamp each json body
     # flag's model_ref by FIELD NAME (FieldInfo.name == ModelField.name; both are
     # python field names, NOT aliases). Without a schema (models=None) every
@@ -222,21 +214,15 @@ class ResolvedVariant(BaseModel):
     model: str  # variant model class name, e.g. "CustomApplicationInput"
 
 
-def resolve_variants(
-    op: OperationInfo, vmap: VariantMap | None
-) -> list[ResolvedVariant]:
+def resolve_variants(op: OperationInfo, vmap: VariantMap | None) -> list[ResolvedVariant]:
     """Map a method's path-enum values to variant models via cli.yml (the SDK oneOf
     wrapper is undiscriminated, so this mapping must be authored)."""
     if vmap is None:
         return []
-    return [
-        ResolvedVariant(name=value, model=model) for value, model in vmap.map.items()
-    ]
+    return [ResolvedVariant(name=value, model=model) for value, model in vmap.map.items()]
 
 
-def _query_flags(
-    params: list[ParamInfo], defaults: dict[str, Any] | None = None
-) -> list[Flag]:
+def _query_flags(params: list[ParamInfo], defaults: dict[str, Any] | None = None) -> list[Flag]:
     defaults = defaults or {}
     return [
         Flag(
@@ -257,9 +243,7 @@ def _query_flags(
     ]
 
 
-def _body_flags_for(
-    op: OperationInfo, model: str | None, models: dict[str, ModelSchema] | None
-) -> list[Flag]:
+def _body_flags_for(op: OperationInfo, model: str | None, models: dict[str, ModelSchema] | None) -> list[Flag]:
     reg = models or {}
     if model and model in op.body_fields:
         return fields_to_flags(op.body_fields[model], reg.get(model))
@@ -434,11 +418,7 @@ def _emit_command(
     bp_wrapper: str | None
     if body_model:  # variant command: build the variant, wrap in the param's model
         bp_model = body_model
-        bp_wrapper = (
-            body_info.body_model
-            if body_info and body_info.body_model != body_model
-            else None
-        )
+        bp_wrapper = body_info.body_model if body_info and body_info.body_model != body_model else None
     elif body_info:  # plain body: build the param's model directly
         bp_model = body_info.body_model
         bp_wrapper = None
@@ -560,9 +540,7 @@ def _resolve_columns(
     objects = {c.object for c in groups.values()}
     unknown_objects = set(cfg.columns) - objects
     if unknown_objects:
-        raise ValueError(
-            "cli.yml columns: unknown object(s): " + ", ".join(sorted(unknown_objects))
-        )
+        raise ValueError("cli.yml columns: unknown object(s): " + ", ".join(sorted(unknown_objects)))
     resolved: dict[str, list[ColumnSpec]] = {}
     for obj in objects:
         entries = cfg.columns.get(obj)

@@ -8,9 +8,7 @@ from phantasos.generator.sdk import smoke
 from phantasos.generator.sdk.smoke import SmokeError
 
 
-def _make_generated_pkg(
-    project_dir: Path, pkgname: str, *, broken: bool = False, reqs: str = ""
-) -> None:
+def _make_generated_pkg(project_dir: Path, pkgname: str, *, broken: bool = False, reqs: str = "") -> None:
     """Write a tiny generated-style SDK (package + api + pyproject.toml)."""
     pkg = project_dir / pkgname
     api = pkg / "api"
@@ -85,9 +83,7 @@ def test_sanitized_env_strips_leaky_vars(monkeypatch: pytest.MonkeyPatch) -> Non
     assert env["KEEP_ME"] == "yes"
 
 
-def test_ensure_smoke_venv_creates_and_caches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ensure_smoke_venv_creates_and_caches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
     proj = tmp_path / "proj"
     _make_generated_pkg(proj, "demo_v", reqs="")  # empty reqs -> offline, fast
@@ -106,9 +102,7 @@ def test_ensure_smoke_venv_missing_pyproject(tmp_path: Path) -> None:
         smoke._ensure_smoke_venv(proj)
 
 
-def test_import_walk_counts_and_isolates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_import_walk_counts_and_isolates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
     # Leak a bogus PYTHONPATH in the parent; the subprocess must NOT inherit it.
     monkeypatch.setenv("PYTHONPATH", "/totally/bogus/path")
@@ -120,9 +114,7 @@ def test_import_walk_counts_and_isolates(
     assert result["failures"] == []
 
 
-def test_import_walk_reports_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_import_walk_reports_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
     proj = tmp_path / "proj"
     _make_generated_pkg(proj, "demo_broken", broken=True, reqs="")
@@ -131,9 +123,7 @@ def test_import_walk_reports_failures(
     assert any(name.endswith("broken") for name, _ in result["failures"])
 
 
-def test_smoke_combines_walk_and_ops(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_smoke_combines_walk_and_ops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path / "cache"))
     proj = tmp_path / "proj"
     _make_generated_pkg(proj, "demo_full", reqs="")
@@ -144,9 +134,7 @@ def test_smoke_combines_walk_and_ops(
     assert result["skipped"] is False
 
 
-def test_smoke_skipped_via_env_does_not_build_venv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_smoke_skipped_via_env_does_not_build_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cache = tmp_path / "cache"
     monkeypatch.setenv("PHANTASOS_CACHE", str(cache))
     monkeypatch.setenv("PHANTASOS_SKIP_SMOKE", "1")

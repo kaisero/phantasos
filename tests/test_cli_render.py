@@ -27,9 +27,7 @@ def test_bool_scalar_renders_as_value_taking_option() -> None:
         kind="scalar",
         required=True,
     )
-    opt = Flag(
-        name="--enabled", param="enabled", py_type="bool", kind="scalar", required=False
-    )
+    opt = Flag(name="--enabled", param="enabled", py_type="bool", kind="scalar", required=False)
     assert _render_type(req) == "str"
     assert _render_type(opt) == "str | None"
 
@@ -37,9 +35,7 @@ def test_bool_scalar_renders_as_value_taking_option() -> None:
 def test_int_scalar_still_renders_native_type() -> None:
     # Regression guard: non-bool scalars keep their REAL Python type so Typer
     # validates them itself (only bool needs the str-then-coerce treatment).
-    f = Flag(
-        name="--priority", param="priority", py_type="int", kind="scalar", required=True
-    )
+    f = Flag(name="--priority", param="priority", py_type="int", kind="scalar", required=True)
     assert _render_type(f) == "int"
 
 
@@ -146,9 +142,7 @@ def test_error_envelope_threaded_from_component(tmp_path: Path) -> None:
     )
     diag = _diag(tmp_path / "list")
     assert '"errors_field": "_errors"' in diag and '"error_field": None' in diag
-    ir_json = json.loads(
-        (tmp_path / "list" / "fakesdk_cli" / "_generated" / "ir.json").read_text()
-    )
+    ir_json = json.loads((tmp_path / "list" / "fakesdk_cli" / "_generated" / "ir.json").read_text())
     assert ir_json["error_envelope"]["errors_field"] == "_errors"
 
     # nested -> wrapper + error_field; the `errorResponse` wrapper is config and

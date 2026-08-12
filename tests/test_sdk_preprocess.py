@@ -210,17 +210,13 @@ def test_hoist_items_hoists_inline_array_item_into_component() -> None:
     p.hoist_items(spec, [("A", "arr", "ArrItem")], stats)
     schemas = spec["components"]["schemas"]
     assert schemas["ArrItem"] == {"type": "object", "properties": {"x": {}}}
-    assert schemas["A"]["properties"]["arr"]["items"] == {
-        "$ref": "#/components/schemas/ArrItem"
-    }
+    assert schemas["A"]["properties"]["arr"]["items"] == {"$ref": "#/components/schemas/ArrItem"}
     assert stats["items_hoisted"] == 1
 
 
 def test_hoist_items_without_stats_still_hoists() -> None:
     # The stats dict is optional; the hoist still happens when it is omitted.
-    spec = _spec_with(
-        {"A": {"properties": {"arr": {"type": "array", "items": {"type": "object"}}}}}
-    )
+    spec = _spec_with({"A": {"properties": {"arr": {"type": "array", "items": {"type": "object"}}}}})
     p.hoist_items(spec, [("A", "arr", "ArrItem")])
     assert "ArrItem" in spec["components"]["schemas"]
 
@@ -247,9 +243,7 @@ def test_tag_operations_adds_operation_id_and_tag() -> None:
 
 def test_tag_operations_preserves_existing_id_and_tags() -> None:
     # setdefault must not clobber an existing operationId or non-empty tags.
-    spec: dict[str, Any] = {
-        "paths": {"/y": {"post": {"operationId": "Keep", "tags": ["T0"]}}}
-    }
+    spec: dict[str, Any] = {"paths": {"/y": {"post": {"operationId": "Keep", "tags": ["T0"]}}}}
     stats: defaultdict[str, int] = defaultdict(int)
     p.tag_operations(spec, [("/y", "post", "New", "Tnew")], stats)
     op = spec["paths"]["/y"]["post"]
@@ -281,9 +275,7 @@ def test_clean_runs_collapse_and_mojibake_over_a_spec() -> None:
     }
     stats: defaultdict[str, int] = defaultdict(int)
     p.clean(spec, stats)
-    assert spec["components"]["schemas"]["Wrapper"] == {
-        "$ref": "#/components/schemas/Str"
-    }
+    assert spec["components"]["schemas"]["Wrapper"] == {"$ref": "#/components/schemas/Str"}
     assert stats["allof_collapsed"] == 1
 
 
@@ -297,9 +289,7 @@ def test_normalize_strips_suffix_and_dots() -> None:
             }
         }
     }
-    normalize_operation_ids(
-        spec, strip_suffix=".v2", dots_to_underscore=True, unify_separator="_"
-    )
+    normalize_operation_ids(spec, strip_suffix=".v2", dots_to_underscore=True, unify_separator="_")
     ops = spec["paths"]["/cg"]
     assert ops["post"]["operationId"] == "create_connector_group"
     assert ops["get"]["operationId"] == "list_connector_groups"
@@ -391,9 +381,7 @@ def test_spec_declares_header_component_param() -> None:
     from phantasos.generator.sdk.preprocess import spec_declares_header
 
     spec: dict[str, Any] = {
-        "components": {
-            "parameters": {"Region": {"in": "header", "name": "x-panw-region"}}
-        },
+        "components": {"parameters": {"Region": {"in": "header", "name": "x-panw-region"}}},
         "paths": {},
     }
     assert spec_declares_header(spec, "x-panw-region")
@@ -405,9 +393,7 @@ def test_spec_declares_header_inline_op_param() -> None:
     from phantasos.generator.sdk.preprocess import spec_declares_header
 
     spec: dict[str, Any] = {
-        "paths": {
-            "/x": {"get": {"parameters": [{"in": "header", "name": "X-PANW-Region"}]}}
-        },
+        "paths": {"/x": {"get": {"parameters": [{"in": "header", "name": "X-PANW-Region"}]}}},
     }
     assert spec_declares_header(spec, "x-panw-region")
 
@@ -426,11 +412,7 @@ def test_resolve_sub_host_shared_when_server_matches_base() -> None:
     from phantasos.generator.sdk.preprocess import resolve_sub_host
 
     base = "https://api.strata.paloaltonetworks.com"
-    spec: dict[str, Any] = {
-        "servers": [
-            {"url": "https://api.strata.paloaltonetworks.com/config/objects/v1"}
-        ]
-    }
+    spec: dict[str, Any] = {"servers": [{"url": "https://api.strata.paloaltonetworks.com/config/objects/v1"}]}
     assert resolve_sub_host(spec, base) == base
 
 
@@ -438,9 +420,7 @@ def test_resolve_sub_host_overrides_when_different_gateway() -> None:
     from phantasos.generator.sdk.preprocess import resolve_sub_host
 
     base = "https://api.strata.paloaltonetworks.com"
-    spec: dict[str, Any] = {
-        "servers": [{"url": "https://api.sase.paloaltonetworks.com"}]
-    }
+    spec: dict[str, Any] = {"servers": [{"url": "https://api.sase.paloaltonetworks.com"}]}
     assert resolve_sub_host(spec, base) == "https://api.sase.paloaltonetworks.com"
 
 
@@ -703,9 +683,7 @@ def test_flatten_constraint_only_oneof_with_not_flattens() -> None:
         "internal_host_detection",
         "ip_addresses",
     }
-    assert s["description"] == (
-        "Supply exactly one of internal_host_detection/ip_addresses."
-    )
+    assert s["description"] == ("Supply exactly one of internal_host_detection/ip_addresses.")
     assert stats["flatten_scm_bodies"] == 1
 
 
@@ -787,10 +765,7 @@ def test_flatten_placement_only_appends_exactly_one_hint() -> None:
     )
     p.flatten_scm_bodies(spec)
     s = spec["components"]["schemas"]["Tag"]
-    assert (
-        s["description"]
-        == "Supply exactly one of folder/snippet/device (the configuration container)."
-    )
+    assert s["description"] == "Supply exactly one of folder/snippet/device (the configuration container)."
 
 
 def test_flatten_membership_appends_value_field_hint_and_keeps_existing_desc() -> None:
@@ -925,9 +900,7 @@ def test_flatten_collision_merges_does_not_clobber() -> None:
         {
             "Zone": {
                 "type": "object",
-                "properties": {
-                    "folder": {"type": "string", "description": "real folder prop"}
-                },
+                "properties": {"folder": {"type": "string", "description": "real folder prop"}},
                 "oneOf": [
                     {
                         "properties": {"folder": {"type": "string", "maxLength": 64}},
@@ -1000,10 +973,6 @@ def test_translate_property_patterns_fails_loud_on_untranslatable() -> None:
 
     # a `\p{}` form the translator can't handle (negated property) stays invalid for
     # Python's `re` -> must fail at BUILD, not as a runtime PatternError on deserialize
-    spec: dict[str, Any] = {
-        "components": {
-            "schemas": {"X": {"properties": {"n": {"pattern": r"^\p{^L}$"}}}}
-        }
-    }
+    spec: dict[str, Any] = {"components": {"schemas": {"X": {"properties": {"n": {"pattern": r"^\p{^L}$"}}}}}}
     with pytest.raises(ValueError, match="Python-valid regex"):
         p.translate_property_patterns(spec)

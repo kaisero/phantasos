@@ -132,9 +132,7 @@ def test_shape_context_shapes_wrapper_showcase_and_credentials() -> None:
     from phantasos.config import ScmOAuth
     from phantasos.generator.sdk.docs import shape_context
 
-    inv = OperationInventory(
-        sdk_package="prisma_browser", sdk_version="1.0.0", operations=APPLICATION
-    )
+    inv = OperationInventory(sdk_package="prisma_browser", sdk_version="1.0.0", operations=APPLICATION)
     ctx: dict[str, Any] = shape_context(
         inv,
         obj="application",
@@ -234,11 +232,7 @@ def test_shape_context_falls_back_without_resolver() -> None:
         auth=None,
         has_pagination=False,
     )
-    body = next(
-        a
-        for a in ctx["showcase"]["operations"]["create"]["required_args"]
-        if a["kind"] == "body"
-    )
+    body = next(a for a in ctx["showcase"]["operations"]["create"]["required_args"] if a["kind"] == "body")
     assert body["body_code"] == "AppInput(...)"
 
 
@@ -246,9 +240,7 @@ def test_shape_context_call_path_prefixes_subpackage() -> None:
     """Federated: call path is `<sub>.<object>` while `attr` stays a clean id."""
     from phantasos.generator.sdk.docs import shape_context
 
-    inv = OperationInventory(
-        sdk_package="prisma_access", sdk_version="1", operations=APPLICATION
-    )
+    inv = OperationInventory(sdk_package="prisma_access", sdk_version="1", operations=APPLICATION)
     ctx: dict[str, Any] = shape_context(
         inv,
         obj="application",
@@ -266,12 +258,8 @@ def test_shape_context_call_path_prefixes_subpackage() -> None:
 def test_shape_context_call_path_is_bare_object_when_no_subpackage() -> None:
     from phantasos.generator.sdk.docs import shape_context
 
-    inv = OperationInventory(
-        sdk_package="prisma_browser", sdk_version="1", operations=APPLICATION
-    )
-    ctx: dict[str, Any] = shape_context(
-        inv, obj="application", site_name="x", auth=None, has_pagination=False
-    )
+    inv = OperationInventory(sdk_package="prisma_browser", sdk_version="1", operations=APPLICATION)
+    ctx: dict[str, Any] = shape_context(inv, obj="application", site_name="x", auth=None, has_pagination=False)
     sc: dict[str, Any] = ctx["showcase"]
     assert sc["attr"] == "application"
     assert sc["call_path"] == "application"  # single-spec: no prefix
@@ -302,9 +290,7 @@ def _loaded_for_docs(package: str, sub: str | None) -> Any:
     )
 
 
-def _patch_docs_collaborators(
-    monkeypatch: pytest.MonkeyPatch, captured: dict[str, Any]
-) -> None:
+def _patch_docs_collaborators(monkeypatch: pytest.MonkeyPatch, captured: dict[str, Any]) -> None:
     import importlib
 
     from phantasos.generator.cli import classify as classify_mod
@@ -316,13 +302,9 @@ def _patch_docs_collaborators(
         captured["wrapper_pkg"] = package
         return ["address"]
 
-    def fake_cli_operations(
-        package: str, sdk_path: Any, **_: Any
-    ) -> OperationInventory:
+    def fake_cli_operations(package: str, sdk_path: Any, **_: Any) -> OperationInventory:
         captured["cli_pkg"] = package
-        return OperationInventory(
-            sdk_package=package, sdk_version="1", operations=[list_op]
-        )
+        return OperationInventory(sdk_package=package, sdk_version="1", operations=[list_op])
 
     real_import = importlib.import_module
 
@@ -348,9 +330,7 @@ def test_build_docs_context_targets_showcase_subpackage(
 
     captured: dict[str, Any] = {}
     _patch_docs_collaborators(monkeypatch, captured)
-    ctx: dict[str, Any] = docs.build_docs_context(
-        _loaded_for_docs("prisma_access", "objects"), Path("/x")
-    )
+    ctx: dict[str, Any] = docs.build_docs_context(_loaded_for_docs("prisma_access", "objects"), Path("/x"))
     assert captured["wrapper_pkg"] == "prisma_access.objects"
     assert captured["cli_pkg"] == "prisma_access.objects"
     assert captured["models_pkg"] == "prisma_access.objects.models"
@@ -368,9 +348,7 @@ def test_build_docs_context_single_spec_targets_root_package(
 
     captured: dict[str, Any] = {}
     _patch_docs_collaborators(monkeypatch, captured)
-    ctx: dict[str, Any] = docs.build_docs_context(
-        _loaded_for_docs("prisma_browser", None), Path("/x")
-    )
+    ctx: dict[str, Any] = docs.build_docs_context(_loaded_for_docs("prisma_browser", None), Path("/x"))
     # single-spec targeting is unchanged: root package, bare call path
     assert captured["wrapper_pkg"] == "prisma_browser"
     assert captured["cli_pkg"] == "prisma_browser"

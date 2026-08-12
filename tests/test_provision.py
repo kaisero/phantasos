@@ -31,9 +31,7 @@ class _FakeResp:
         return self._data
 
 
-def test_download_verified_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_download_verified_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     payload = b"hello-jre-bytes"
     monkeypatch.setattr("urllib.request.urlopen", lambda url: _FakeResp(payload))
     dest = tmp_path / "out.bin"
@@ -42,9 +40,7 @@ def test_download_verified_success(
     assert dest.read_bytes() == payload
 
 
-def test_download_verified_checksum_mismatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_download_verified_checksum_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", lambda url: _FakeResp(b"corrupt"))
     dest = tmp_path / "out.bin"
     with pytest.raises(ProvisionError, match="checksum mismatch"):
@@ -85,9 +81,7 @@ def test_safe_extract_rejects_traversal(tmp_path: Path) -> None:
         ("Windows", "AMD64", "windows-x64"),
     ],
 )
-def test_platform_key(
-    monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str
-) -> None:
+def test_platform_key(monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected: str) -> None:
     monkeypatch.setattr("platform.system", lambda: system)
     monkeypatch.setattr("platform.machine", lambda: machine)
     assert provision._platform_key() == expected
@@ -113,9 +107,7 @@ def test_resolve_java_override_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         provision.resolve_java()
 
 
-def test_resolve_java_cache_hit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_java_cache_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
     monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")
@@ -123,15 +115,11 @@ def test_resolve_java_cache_hit(
     java = home / provision._JRE["linux-x64"].java_subpath
     java.parent.mkdir(parents=True)
     java.write_text("")
-    monkeypatch.setattr(
-        provision, "_download_verified", lambda *a: pytest.fail("downloaded")
-    )
+    monkeypatch.setattr(provision, "_download_verified", lambda *a: pytest.fail("downloaded"))
     assert provision.resolve_java() == java
 
 
-def test_resolve_java_downloads_and_extracts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_java_downloads_and_extracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PHANTASOS_JAVA", raising=False)
     monkeypatch.setenv("PHANTASOS_CACHE", str(tmp_path))
     monkeypatch.setattr(provision, "_platform_key", lambda: "linux-x64")

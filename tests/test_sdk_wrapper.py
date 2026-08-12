@@ -28,12 +28,7 @@ def _overrides() -> dict[str, OperationOverride]:
 def test_object_granularity_and_multibinding(real_sdk: Path) -> None:
     inv = introspect("prisma_browser", real_sdk)
     overrides = _overrides()
-    views = {
-        v.attr: v
-        for v in build_wrapper_context(
-            inv, overrides, _discover_resources(real_sdk / "prisma_browser")
-        )
-    }
+    views = {v.attr: v for v in build_wrapper_context(inv, overrides, _discover_resources(real_sdk / "prisma_browser"))}
     # RA: the access_and_data_policy api class backs THREE object wrappers.
     assert {
         "access_and_data_rule",
@@ -75,10 +70,7 @@ def test_paramview_from_live_types(real_sdk: Path) -> None:
     """ParamView annotations come from LIVE introspected types, not ParamInfo repr."""
     inv = introspect("prisma_browser", real_sdk)
     views = {
-        v.attr: v
-        for v in build_wrapper_context(
-            inv, _overrides(), _discover_resources(real_sdk / "prisma_browser")
-        )
+        v.attr: v for v in build_wrapper_context(inv, _overrides(), _discover_resources(real_sdk / "prisma_browser"))
     }
     dg = views["device_group"]
     listm = next(x for x in dg.methods if x.name == "list")
@@ -106,14 +98,10 @@ def test_none_classified_without_crud_anchor_fails(real_sdk: Path) -> None:
     inv = OperationInventory(
         sdk_package="p",
         sdk_version="0",
-        operations=[
-            OperationInfo(resource="ops", method="publish_draft_configuration")
-        ],
+        operations=[OperationInfo(resource="ops", method="publish_draft_configuration")],
     )
     with pytest.raises(ValueError, match="maps to no CRUD object"):
-        build_wrapper_context(
-            inv, {}, [{"attr": "ops", "module": "ops_api", "cls": "OpsApi"}]
-        )
+        build_wrapper_context(inv, {}, [{"attr": "ops", "module": "ops_api", "cls": "OpsApi"}])
 
 
 def test_collision_fails() -> None:
@@ -239,9 +227,7 @@ def test_showcase_override_used_verbatim_even_for_update(real_sdk: Path) -> None
     inv = introspect("prisma_browser", real_sdk)
     docs = DocsConfig(
         showcase_resource="access_and_data_rule",
-        examples=DocsExamples(
-            update='updated = client.access_and_data_rule.update(id="abc")'
-        ),
+        examples=DocsExamples(update='updated = client.access_and_data_rule.update(id="abc")'),
     )
     objects = build_wrapper_context(inv, _overrides(), _discover(real_sdk), docs=docs)
     rule = next(o for o in objects if o.classname == "AccessAndDataRuleResource")

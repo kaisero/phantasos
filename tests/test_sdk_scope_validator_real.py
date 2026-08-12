@@ -34,9 +34,7 @@ def addresses() -> Iterator[Any]:
     sdk = Path(loaded.output_dir)
     pkg = loaded.config.package
     if not (sdk / Path(*pkg.split("."))).joinpath("__init__.py").exists():
-        pytest.skip(
-            "prisma-access SDK not built (run `phantasos sdk build prisma-access`)"
-        )
+        pytest.skip("prisma-access SDK not built (run `phantasos sdk build prisma-access`)")
     sys.path.insert(0, str(sdk))
     try:
         try:
@@ -47,9 +45,7 @@ def addresses() -> Iterator[Any]:
         # built before `patch_scope_validators` existed. `nox -s smoke` rebuilds it
         # (prisma-access is enrolled), which is where this ring actually asserts.
         if not hasattr(Addresses, "_phantasos_scope_exactly_one"):
-            pytest.skip(
-                "prisma-access SDK predates the scope validator (rebuild: nox -s smoke)"
-            )
+            pytest.skip("prisma-access SDK predates the scope validator (rebuild: nox -s smoke)")
         yield Addresses
     finally:
         sys.path.remove(str(sdk))
@@ -82,9 +78,7 @@ def test_mutation_body_requires_a_container(addresses: Any) -> None:
 def test_server_echo_bypasses_scope_guard(addresses: Any) -> None:
     # A server echo carries the readOnly `id`; it may legitimately have zero OR
     # several containers and MUST round-trip model_validate without raising.
-    echo_none = addresses.model_validate(
-        {"id": "12345678-1234-1234-1234-123456789abc", "name": "phx-test"}
-    )
+    echo_none = addresses.model_validate({"id": "12345678-1234-1234-1234-123456789abc", "name": "phx-test"})
     assert echo_none.id == "12345678-1234-1234-1234-123456789abc"
     echo_two = addresses.model_validate(
         {
@@ -102,9 +96,7 @@ def test_id_less_inherited_listing_item_bypasses_scope_guard(addresses: Any) -> 
     # folder listing surfaces objects inherited from the `predefined` snippet
     # with NO id and BOTH folder and snippet set. Deserializing one must not
     # raise, or every list_scan over such a folder crashes.
-    item = addresses.model_validate(
-        {"name": "service-http", "folder": "Shared", "snippet": "predefined"}
-    )
+    item = addresses.model_validate({"name": "service-http", "folder": "Shared", "snippet": "predefined"})
     assert item.id is None
     assert item.folder == "Shared" and item.snippet == "predefined"
 
@@ -121,9 +113,7 @@ def auto_tag_actions() -> Iterator[Any]:
     sdk = Path(loaded.output_dir)
     pkg = loaded.config.package
     if not (sdk / Path(*pkg.split("."))).joinpath("__init__.py").exists():
-        pytest.skip(
-            "prisma-access SDK not built (run `phantasos sdk build prisma-access`)"
-        )
+        pytest.skip("prisma-access SDK not built (run `phantasos sdk build prisma-access`)")
     sys.path.insert(0, str(sdk))
     try:
         try:
@@ -137,10 +127,7 @@ def auto_tag_actions() -> Iterator[Any]:
         # was built while the id-less validator was still emitted. `nox -s smoke`
         # rebuilds it, which is where this ring actually asserts.
         if hasattr(AutoTagActions, "_phantasos_scope_exactly_one"):
-            pytest.skip(
-                "prisma-access SDK predates the id-less scope-guard fix "
-                "(rebuild: nox -s smoke)"
-            )
+            pytest.skip("prisma-access SDK predates the id-less scope-guard fix (rebuild: nox -s smoke)")
         yield AutoTagActions
     finally:
         sys.path.remove(str(sdk))
@@ -159,7 +146,5 @@ def test_id_less_scoped_model_accepts_zero_or_two_containers(
     # `name`/`filter` are the schema-required fields, unrelated to the scope group.
     zero = auto_tag_actions.model_validate({"name": "phx-test", "filter": "tag1"})
     assert zero.name == "phx-test"
-    two = auto_tag_actions.model_validate(
-        {"name": "phx-test", "filter": "tag1", "folder": "Shared", "snippet": "s"}
-    )
+    two = auto_tag_actions.model_validate({"name": "phx-test", "filter": "tag1", "folder": "Shared", "snippet": "s"})
     assert two.folder == "Shared" and two.snippet == "s"

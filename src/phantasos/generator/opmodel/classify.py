@@ -58,9 +58,7 @@ def classify_name(method: str) -> Classification | None:
         if method.startswith(prefix):
             noun = _strip_id_suffix(method[len(prefix) :])
             noun = _singularize(noun)
-            return Classification(
-                verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-")
-            )
+            return Classification(verb=verb, sub_verb=sub_verb, object=noun.replace("_", "-"))
     return None
 
 
@@ -97,7 +95,5 @@ def OBJECT_OF(method: str) -> str | None:  # noqa: N802
         return None
     for prefix, _, _ in _VERB_PREFIXES:
         if method.startswith(prefix):
-            return _singularize(_strip_id_suffix(method[len(prefix) :])).replace(
-                "_", "-"
-            )
+            return _singularize(_strip_id_suffix(method[len(prefix) :])).replace("_", "-")
     return None

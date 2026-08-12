@@ -45,11 +45,12 @@ class ProjectConfig(BaseModel):
     author: str
     author_email: str
     repo_url: str
+    # Optional push URL. When set, the generated project is git-initialized on a
+    # per-build branch and committed, ready to `git push origin <branch>` upstream.
+    git_remote: str | None = None
     description: str = ""
     license: str = "Apache-2.0"
-    python_versions: list[str] = Field(
-        default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"]
-    )
+    python_versions: list[str] = Field(default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"])
     dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
 
 
@@ -200,16 +201,11 @@ class ProductConfig(BaseModel):
         federated = bool(self.subpackages)
         explicit_spec = self.spec is not None
         if federated and explicit_spec:
-            raise ValueError(
-                "set either `spec:` (single-spec) or `subpackages:` (federated), "
-                "not both"
-            )
+            raise ValueError("set either `spec:` (single-spec) or `subpackages:` (federated), not both")
         if not federated and self.spec is None:
             self.spec = "./openapi.yml"  # restore legacy default
         if not federated and self.live_smoke:
-            raise ValueError(
-                "`live_smoke` is federated-only; single-spec products must not set it"
-            )
+            raise ValueError("`live_smoke` is federated-only; single-spec products must not set it")
         if federated and self.idempotency is not None:
             raise ValueError(
                 "top-level `idempotency:` is federated-illegal; declare it "
@@ -219,9 +215,7 @@ class ProductConfig(BaseModel):
             seen: set[str] = set()
             for sub in self.subpackages:
                 if not _SLUG_RE.match(sub.slug):
-                    raise ValueError(
-                        f"sub-package slug {sub.slug!r} must match {_SLUG_RE.pattern}"
-                    )
+                    raise ValueError(f"sub-package slug {sub.slug!r} must match {_SLUG_RE.pattern}")
                 if sub.slug in seen:
                     raise ValueError(f"duplicate sub-package slug {sub.slug!r}")
                 seen.add(sub.slug)
@@ -241,9 +235,7 @@ class CustomComponent(BaseModel):
         return dict(self.__pydantic_extra__ or {})
 
 
-def resolve_component(
-    block: dict[str, Any], registry: Mapping[str, type], base_dir: Path
-) -> Any:
+def resolve_component(block: dict[str, Any], registry: Mapping[str, type], base_dir: Path) -> Any:
     """Turn a raw sdk.yml component block into a validated component model."""
     type_ = block.get("type")
     if isinstance(type_, str) and (type_.startswith("./") or type_.endswith(".jinja")):
@@ -254,9 +246,7 @@ def resolve_component(
         return CustomComponent(**data)
     model = registry.get(type_) if isinstance(type_, str) else None
     if model is None:
-        raise ValueError(
-            f"unknown component type {type_!r}; expected one of {sorted(registry)}"
-        )
+        raise ValueError(f"unknown component type {type_!r}; expected one of {sorted(registry)}")
     return model(**block)
 
 
@@ -328,14 +318,8 @@ def load_product(name_or_path: str) -> LoadedProduct:
     cfg = ProductConfig(**_read_yaml(sdk_path))
 
     auth = resolve_component(cfg.auth, BUILTIN_AUTH, base_dir) if cfg.auth else None
-    pagination = (
-        resolve_component(cfg.pagination, BUILTIN_PAGINATION, base_dir)
-        if cfg.pagination
-        else None
-    )
-    errors = (
-        resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
-    )
+    pagination = resolve_component(cfg.pagination, BUILTIN_PAGINATION, base_dir) if cfg.pagination else None
+    errors = resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
     facade = None
     if cfg.facade:
         block = {"type": "default"} if cfg.facade is True else dict(cfg.facade)
@@ -356,9 +340,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
     else:
         # validator restores the legacy default, so cfg.spec is non-None here
         spec_path = (base_dir / cast(str, cfg.spec)).resolve()
-        info = (
-            (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
-        )
+        info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
         spec_version, spec_title = info.get("version"), info.get("title")
 
     context: dict[str, Any] = {
@@ -390,9 +372,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
         )
     collisions = set(cfg.vars) & _AUTO_EXPOSED
     if collisions:
-        raise ValueError(
-            f"vars keys {sorted(collisions)} shadow reserved auto-exposed names"
-        )
+        raise ValueError(f"vars keys {sorted(collisions)} shadow reserved auto-exposed names")
     context.update(cfg.vars)
 
     for _dest, source in cfg.include.items():
@@ -400,26 +380,18 @@ def load_product(name_or_path: str) -> LoadedProduct:
         if not src_path.is_relative_to(base_dir):
             raise ValueError(f"include source {source!r} escapes the product dir")
         if not src_path.exists():
-            raise ValueError(
-                f"include source {source!r}: template not found at {src_path}"
-            )
+            raise ValueError(f"include source {source!r}: template not found at {src_path}")
 
     sub_loaded: list[LoadedSubPackage] = []
     for sub in cfg.subpackages:
         sub_spec = (base_dir / sub.spec).resolve()
-        sub_info = (
-            (_read_yaml(sub_spec) or {}).get("info", {}) if sub_spec.exists() else {}
-        )
+        sub_info = (_read_yaml(sub_spec) or {}).get("info", {}) if sub_spec.exists() else {}
         sub_pkg = f"{cfg.package}.{sub.slug}"
         sub_ctx = dict(context)
         sub_ctx["package"] = sub_pkg
         sub_ctx["spec_title"] = sub_info.get("title")
         sub_ctx["spec_version"] = sub_info.get("version")
-        sub_loaded.append(
-            LoadedSubPackage(
-                package=sub_pkg, spec_path=sub_spec, context=sub_ctx, config=sub
-            )
-        )
+        sub_loaded.append(LoadedSubPackage(package=sub_pkg, spec_path=sub_spec, context=sub_ctx, config=sub))
 
     return LoadedProduct(
         config=cfg,

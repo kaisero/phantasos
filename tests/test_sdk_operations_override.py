@@ -11,9 +11,7 @@ from phantasos.generator.sdk.wrapper import (
 
 
 def _inv(*keys: str) -> OperationInventory:
-    ops = [
-        OperationInfo(resource=k.split(".")[0], method=k.split(".")[1]) for k in keys
-    ]
+    ops = [OperationInfo(resource=k.split(".")[0], method=k.split(".")[1]) for k in keys]
     return OperationInventory(sdk_package="p", sdk_version="0", operations=ops)
 
 

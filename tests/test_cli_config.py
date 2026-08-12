@@ -63,12 +63,7 @@ def test_columns_section_loads(tmp_path: Path) -> None:
 
     p = tmp_path / "cli.yml"
     p.write_text(
-        "columns:\n"
-        "  device-group:\n"
-        "    - id\n"
-        "    - name\n"
-        "    - header: MEMBERS\n"
-        '      path: "members[].name"\n',
+        'columns:\n  device-group:\n    - id\n    - name\n    - header: MEMBERS\n      path: "members[].name"\n',
         encoding="utf-8",
     )
     cfg = load_cli_config(p)

@@ -137,9 +137,7 @@ def test_access_address_meta_and_scope_trio(access_pkg: Any) -> None:
 def _strategy_modules(idem_dir: Path) -> dict[str, set[str]]:
     """The per-family set of vendored strategy module stems under *idem_dir*."""
     return {
-        family: {
-            p.stem for p in (idem_dir / family).glob("*.py") if p.name != "__init__.py"
-        }
+        family: {p.stem for p in (idem_dir / family).glob("*.py") if p.name != "__init__.py"}
         for family in ("fetch", "mutate", "materialize")
     }
 

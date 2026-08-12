@@ -11,9 +11,7 @@ def _write_user_config(home: Path, body: str) -> None:
     (d / "config.yml").write_text(body, encoding="utf-8")
 
 
-def test_config_defaults_when_no_user_file(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_defaults_when_no_user_file(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     c = cfg.get()
@@ -154,13 +152,9 @@ def test_config_bad_bool_env_diagnostics(
     assert "✖" not in err
 
 
-def test_config_effective_dict_excludes_extras(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_effective_dict_excludes_extras(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "home"
-    _write_user_config(
-        home, "configuration:\n  output:\n    format: table\n    extra_key: 1\n"
-    )
+    _write_user_config(home, "configuration:\n  output:\n    format: table\n    extra_key: 1\n")
     monkeypatch.setenv("HOME", str(home))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     eff = cfg.effective_dict()
@@ -192,9 +186,7 @@ def test_config_show_yaml_routes_through_shared_console(
     assert "\x1b[" in buf.getvalue()  # YAML went through print_yaml -> _console
 
 
-def test_config_init_and_show_commands(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_init_and_show_commands(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -222,9 +214,7 @@ def test_config_init_and_show_commands(
     assert "format: json" in res.output
 
 
-def test_config_group_in_its_own_help_panel(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_group_in_its_own_help_panel(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -237,9 +227,7 @@ def test_config_group_in_its_own_help_panel(
     assert any("CLI" in line and "─" in line for line in res.output.splitlines())
 
 
-def test_config_set_unset(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_set_unset(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import yaml as _yaml
     from typer.testing import CliRunner
 
@@ -260,16 +248,12 @@ def test_config_set_unset(
     assert data["configuration"]["output"]["format"] == "yaml"
 
     # bool coercion (history.enabled)
-    assert (
-        r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code == 0
-    )
+    assert r.invoke(main.app, ["config", "set", "history.enabled", "false"]).exit_code == 0
     data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert data["configuration"]["history"]["enabled"] is False
 
     # int coercion (history.max_size_mb)
-    assert (
-        r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code == 0
-    )
+    assert r.invoke(main.app, ["config", "set", "history.max_size_mb", "7"]).exit_code == 0
     data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert data["configuration"]["history"]["max_size_mb"] == 7
 
@@ -286,9 +270,7 @@ def test_config_set_unset(
     assert r.invoke(main.app, ["config", "unset", "nope.key"]).exit_code == 2
 
 
-def test_config_set_show_reflects(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_config_set_show_reflects(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     home = tmp_path / "home"
@@ -301,9 +283,7 @@ def test_config_set_show_reflects(
     assert "level: debug" in res.output
 
 
-def test_dotenv_reaches_config_layer(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_dotenv_reaches_config_layer(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import os
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

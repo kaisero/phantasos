@@ -35,13 +35,7 @@ def _fed_cfg() -> CliConfig:
     return CliConfig(
         subpackages={
             "alpha": CliConfig(),
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
 
@@ -110,9 +104,7 @@ def test_federated_merge_namespaces_colliding_models() -> None:
     assert "PageInfo" not in ir.models
 
     # alpha's widget body flag points at ALPHA's qualified PageInfo (not beta's).
-    create_widget = next(
-        c for c in ir.commands if c.object == "widget" and c.verb == "create"
-    )
+    create_widget = next(c for c in ir.commands if c.object == "widget" and c.verb == "create")
     page_flag = next(f for f in create_widget.body_flags if f.param == "page_info")
     assert page_flag.model_ref == "alpha.PageInfo"
 
@@ -161,9 +153,7 @@ def test_federated_help_annotation_shows_bare_model_name() -> None:
     human-facing label is stripped.
     """
     ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
-    create_widget = next(
-        c for c in ir.commands if c.object == "widget" and c.verb == "create"
-    )
+    create_widget = next(c for c in ir.commands if c.object == "widget" and c.verb == "create")
     page_flag = next(f for f in create_widget.body_flags if f.param == "page_info")
     assert page_flag.model_ref == "alpha.PageInfo"  # qualified ref kept for lookup
 
@@ -180,9 +170,7 @@ def test_federated_help_annotation_shows_bare_model_name() -> None:
 def test_federated_docs_type_column_shows_bare_model_name() -> None:
     """_flag_row / _schema_rows type columns show bare names for federated refs."""
     ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
-    create_widget = next(
-        c for c in ir.commands if c.object == "widget" and c.verb == "create"
-    )
+    create_widget = next(c for c in ir.commands if c.object == "widget" and c.verb == "create")
     page_flag = next(f for f in create_widget.body_flags if f.param == "page_info")
 
     row = _flag_row(page_flag, ir.models, key="create:widget")
@@ -221,27 +209,17 @@ def test_federated_cli_yml_flows_per_sub_delta() -> None:
     cfg = CliConfig(
         subpackages={
             "alpha": CliConfig(columns={"widget": ["name"]}),
-            "beta": CliConfig(
-                request={
-                    "gadgets.compute_gadget": RequestMapping(
-                        object="gadget", action="compute"
-                    )
-                }
-            ),
+            "beta": CliConfig(request={"gadgets.compute_gadget": RequestMapping(object="gadget", action="compute")}),
         }
     )
     ir, unmapped = build_ir("fedsdk", FEDSDK, cfg)
 
     # alpha's per-sub `columns` delta applied to widget (default would include `id`).
-    widget_show = next(
-        c for c in ir.commands if c.object == "widget" and c.verb == "show"
-    )
+    widget_show = next(c for c in ir.commands if c.object == "widget" and c.verb == "show")
     assert [(c.header, c.path) for c in widget_show.columns] == [("name", "name")]
 
     # beta's per-sub `request` delta mapped `compute` -> a beta-stamped command.
-    compute = next(
-        c for c in ir.commands if c.object == "gadget" and c.verb == "request"
-    )
+    compute = next(c for c in ir.commands if c.object == "gadget" and c.verb == "request")
     assert compute.action == "compute"
     assert compute.subpackage == "beta"
     # nothing left unmapped -> the federated build succeeds.
@@ -273,9 +251,7 @@ def test_federated_enrollment_allowlist_restricts_to_listed_subs() -> None:
     the real P0 thin-slice (objects + incidents) buildable without mapping the
     other subs' non-CRUD ops.
     """
-    ir, unmapped = build_ir(
-        "fedsdk", FEDSDK, CliConfig(subpackages={"alpha": CliConfig()})
-    )
+    ir, unmapped = build_ir("fedsdk", FEDSDK, CliConfig(subpackages={"alpha": CliConfig()}))
     assert {c.subpackage for c in ir.commands} == {"alpha"}
     assert not any(c.object == "gadget" for c in ir.commands)  # beta not enrolled
     assert not unmapped

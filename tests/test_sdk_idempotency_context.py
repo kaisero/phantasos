@@ -129,9 +129,7 @@ def test_put_object_bakes_list_scan_put_rmw_direct(access_sdk: Path) -> None:
 
 
 def test_patch_object_bakes_patch_minimal_get_after_write(browser_sdk: Path) -> None:
-    cfg = IdempotencyConfig.model_validate(
-        {"defaults": {"read_only": ["id"]}, "resources": {"application_group": {}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"defaults": {"read_only": ["id"]}, "resources": {"application_group": {}}})
     v = _browser_views(browser_sdk, cfg)["application_group"]
     lit = v.idempotency_literal
     assert "\"fetch\": 'list_scan'" in lit  # no proven name filter -> default
@@ -176,9 +174,7 @@ def test_list_filter_without_query_param_gate(access_sdk: Path) -> None:
     cfg = IdempotencyConfig.model_validate(
         {
             "defaults": {"scope": {"fields": ["folder", "snippet", "device"]}},
-            "resources": {
-                "address": {"fetch": "list_filter", "identity": ["description"]}
-            },
+            "resources": {"address": {"fetch": "list_filter", "identity": ["description"]}},
         }
     )
     with pytest.raises(ValueError, match="list_filter"):
@@ -206,9 +202,7 @@ def test_pagination_gate_when_no_component(access_sdk: Path) -> None:
 
 def test_singleton_sanity_gate(access_sdk: Path) -> None:
     # address has a create binding — declaring it singleton must fail.
-    cfg = IdempotencyConfig.model_validate(
-        {"resources": {"address": {"singleton": True}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"resources": {"address": {"singleton": True}}})
     with pytest.raises(ValueError, match="singleton"):
         _access_views(access_sdk, cfg)
 
@@ -219,9 +213,7 @@ def test_singleton_bgp_routing_bakes_get_put_singleton_direct(
     # bgp_routing is a true singleton (GET + PUT, no id): its update-on-drift must
     # auto-select the id-less `put_singleton` mutate, not `put_rmw` (which would
     # crash extracting an absent id). fetch is `get`; identity is empty.
-    cfg = IdempotencyConfig.model_validate(
-        {"resources": {"bgp_routing": {"singleton": True, "identity": []}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"resources": {"bgp_routing": {"singleton": True, "identity": []}}})
     v = _deployment_views(deployment_sdk, cfg)["bgp_routing"]
     assert v.sync is True
     lit = v.idempotency_literal
@@ -234,9 +226,7 @@ def test_singleton_bgp_routing_bakes_get_put_singleton_direct(
 
 
 def test_sync_false_keeps_object_off(access_sdk: Path) -> None:
-    cfg = IdempotencyConfig.model_validate(
-        {"resources": {"quarantined_device": {"sync": False}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"resources": {"quarantined_device": {"sync": False}}})
     v = _access_views(access_sdk, cfg)["quarantined_device"]
     assert v.sync is False
     assert v.idempotency_literal == "{}"
@@ -270,9 +260,7 @@ def test_write_only_undeclared_field_fails_f6_gate(browser_sdk: Path) -> None:
     # Same resource WITHOUT `write_only:` must fail the F6 gate loud — the fields
     # stay managed, are absent from the read model, so drift on them is
     # undetectable. The message names them AND the two resolutions.
-    cfg = IdempotencyConfig.model_validate(
-        {"resources": {"user_group": {"identity": ["name"]}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"resources": {"user_group": {"identity": ["name"]}}})
     with pytest.raises(ValueError, match=r"user_group.*undetectable.*write_only"):
         _browser_views(browser_sdk, cfg)
 
@@ -313,16 +301,10 @@ def _product_sub_operations(slug: str) -> dict[str, Any]:
     """The prisma-access product's real per-subpackage ``operations:`` block."""
     from phantasos.productconfig import load_product
 
-    return next(
-        s.config.operations
-        for s in load_product("prisma-access").subpackages
-        if s.config.slug == slug
-    )
+    return next(s.config.operations for s in load_product("prisma-access").subpackages if s.config.slug == slug)
 
 
-def _sub_views(
-    dist_root: Path, slug: str, cfg: IdempotencyConfig
-) -> dict[str, ObjectView]:
+def _sub_views(dist_root: Path, slug: str, cfg: IdempotencyConfig) -> dict[str, ObjectView]:
     inv = introspect(f"prisma_access.{slug}", dist_root)
     objects = build_wrapper_context(
         inv,
@@ -392,21 +374,15 @@ def test_non_enum_required_param_trips_gate8() -> None:
     # fail LOUD at build time (gate #8), replacing today's silent
     # "gates-green but undrivable" shape.
     dist = _sub_sdk("ztna_connector")
-    cfg = IdempotencyConfig.model_validate(
-        {"resources": {"connector_scheduled_upgrade": {"identity": ["oid"]}}}
-    )
-    with pytest.raises(
-        ValueError, match=r"connector_scheduled_upgrade.*'oid'.*sync: false"
-    ):
+    cfg = IdempotencyConfig.model_validate({"resources": {"connector_scheduled_upgrade": {"identity": ["oid"]}}})
+    with pytest.raises(ValueError, match=r"connector_scheduled_upgrade.*'oid'.*sync: false"):
         _sub_views(dist, "ztna_connector", cfg)
 
 
 def test_plain_resource_bakes_no_params_key(access_sdk: Path) -> None:
     # Byte-identical guarantee: a resource with no extra-required param bakes
     # NO `params` key at all — neither in the meta nor in the emitted literal.
-    cfg = IdempotencyConfig.model_validate(
-        {"defaults": _SCOPE_TRIO, "resources": {"address": {}}}
-    )
+    cfg = IdempotencyConfig.model_validate({"defaults": _SCOPE_TRIO, "resources": {"address": {}}})
     v = _access_views(access_sdk, cfg)["address"]
     assert "params" not in v._idempotency_meta  # type: ignore[attr-defined]
     assert '"params"' not in v.idempotency_literal
@@ -463,11 +439,7 @@ def test_security_services_list_rules_rebound_and_shape_defects_stay_off(
     # stay skips (gate #5 — list-envelope GET hides every managed write field).
     from phantasos.productconfig import load_product
 
-    sub = next(
-        s.config
-        for s in load_product("prisma-access").subpackages
-        if s.config.slug == "security_services"
-    )
+    sub = next(s.config for s in load_product("prisma-access").subpackages if s.config.slug == "security_services")
     inv = introspect("prisma_access.security_services", security_sdk)
     objects = build_wrapper_context(
         inv,

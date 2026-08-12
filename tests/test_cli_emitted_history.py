@@ -13,9 +13,7 @@ def _write_user_config(home: Path, body: str) -> None:
     (d / "config.yml").write_text(body, encoding="utf-8")
 
 
-def test_history_config_defaults_and_env(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_history_config_defaults_and_env(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cfg = importlib.import_module("fakesdk_cli._generated.config")
     h = cfg.get().history
@@ -60,9 +58,7 @@ def test_history_record_appends_with_incrementing_ids(
     assert path.name == "history.jsonl" and path.parent.name == ".fakesdk_cli"
 
 
-def test_history_disabled_writes_nothing(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_history_disabled_writes_nothing(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "home"
     _write_user_config(home, "configuration:\n  history:\n    enabled: false\n")
     hist = _hist(monkeypatch, tmp_path)
@@ -131,9 +127,7 @@ def test_history_write_failure_warns_and_continues(
     if _os.access(locked, _os.W_OK):  # running as root: permission bits ineffective
         pytest.skip("cannot make dir read-only (running as privileged user)")
     home = tmp_path / "home"
-    _write_user_config(
-        home, f"configuration:\n  history:\n    file: {locked / 'sub' / 'h.jsonl'}\n"
-    )
+    _write_user_config(home, f"configuration:\n  history:\n    file: {locked / 'sub' / 'h.jsonl'}\n")
     hist = _hist(monkeypatch, tmp_path)
     hist.record({"ts": "t", "command": "x", "status": "success"})  # must not raise
     assert "could not write history" in capsys.readouterr().err
@@ -197,9 +191,7 @@ def test_runtime_records_success_and_error(
     assert "not found" in bad["error"]
 
 
-def test_runtime_dry_run_leaves_no_trace(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_runtime_dry_run_leaves_no_trace(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     hist = importlib.import_module("fakesdk_cli._generated.history")
@@ -207,9 +199,7 @@ def test_runtime_dry_run_leaves_no_trace(
     assert not hist.history_path().exists()
 
 
-def test_meta_commands_leave_no_trace(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_meta_commands_leave_no_trace(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -249,9 +239,7 @@ def test_runtime_verbose_records_bodies(
     assert entry["response_body"]["id"] == "new"
 
 
-def test_show_cli_history_table_limit_entry(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_history_table_limit_entry(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -284,9 +272,7 @@ def test_show_cli_history_table_limit_entry(
     assert res.exit_code == 2
 
 
-def test_show_cli_history_empty_state(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_show_cli_history_empty_state(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from typer.testing import CliRunner
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -325,9 +311,7 @@ def test_runtime_verbose_paginate_all_records_list_body(
     assert isinstance(entry["response_body"], list)
 
 
-def _oag_fake_client(
-    raise_exc: Exception | None = None, query: str = "?expand=1&tag=a&tag=b"
-) -> tuple[Any, type]:
+def _oag_fake_client(raise_exc: Exception | None = None, query: str = "?expand=1&tag=a&tag=b") -> tuple[Any, type]:
     """Fake with the openapi-generator + facade shape: the api_client lives on the
     CLIENT (facade level), shared by every wrapper, and the typed `widget` wrapper
     routes its `get` through `client.api_client.call_api`. The runtime now wraps
@@ -353,9 +337,7 @@ def _oag_fake_client(
             self._api_client = api_client
 
         def get(self, **kw: Any) -> Any:
-            return self._api_client.call_api(
-                "GET", f"https://api.example.com/v1/widgets/{kw['id']}{query}"
-            )
+            return self._api_client.call_api("GET", f"https://api.example.com/v1/widgets/{kw['id']}{query}")
 
     class _Client:
         def __init__(self) -> None:
@@ -365,9 +347,7 @@ def _oag_fake_client(
     return facade, _Client
 
 
-def test_history_captures_http_method_and_uri(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_history_captures_http_method_and_uri(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     hist = importlib.import_module("fakesdk_cli._generated.history")
@@ -384,9 +364,7 @@ def test_history_captures_http_method_and_uri(
     assert client.api_client.call_api.__name__ == "call_api"
 
 
-def test_history_captures_http_fields_on_error(
-    emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_history_captures_http_fields_on_error(emitted: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import fakesdk.exceptions
 
     fx: Any = fakesdk.exceptions
@@ -398,9 +376,7 @@ def test_history_captures_http_fields_on_error(
     rt = importlib.import_module("fakesdk_cli._generated.runtime")
     hist = importlib.import_module("fakesdk_cli._generated.history")
     facade, client_cls = _oag_fake_client(raise_exc=exc, query="")
-    monkeypatch.setattr(
-        facade.Client, "from_env", classmethod(lambda cls: client_cls())
-    )
+    monkeypatch.setattr(facade.Client, "from_env", classmethod(lambda cls: client_cls()))
     with pytest.raises(SystemExit):
         _run_show_widget(rt)
     (entry,), _ = hist.read_entries(0)

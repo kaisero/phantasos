@@ -16,10 +16,7 @@ from pydantic import BaseModel, StrictInt, StrictStr
 
 from phantasos import scaffold
 
-_GEN_REF = (
-    Path(__file__).parent.parent
-    / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
-)
+_GEN_REF = Path(__file__).parent.parent / "src/phantasos/scaffold/docs/scripts/gen_ref_pages.py.jinja"
 
 
 def _render_gen_ref(package: str) -> str:
@@ -93,26 +90,20 @@ def _ctx(**over: Any) -> dict[str, Any]:
                             "name": "body",
                             "kind": "body",
                             "body_model": "CreateOrReplaceAppInput",
-                            "body_code": (
-                                'CustomApplicationInput(\n    name="example",\n)'
-                            ),
+                            "body_code": ('CustomApplicationInput(\n    name="example",\n)'),
                         },
                     ],
                 },
                 "read": {
                     "method": "get",
                     "example_override": None,
-                    "required_args": [
-                        {"name": "id", "kind": "path", "placeholder": "<id>"}
-                    ],
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
                 },
                 "list": {"method": "list", "required_args": []},
                 "delete": {
                     "method": "delete",
                     "example_override": None,
-                    "required_args": [
-                        {"name": "id", "kind": "path", "placeholder": "<id>"}
-                    ],
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
                 },
             },
         },
@@ -170,9 +161,7 @@ def test_architecture_teaches_wrapper_not_raw(tmp_path: Path) -> None:
 
 
 def test_no_docs_when_flag_false(tmp_path: Path) -> None:
-    scaffold.render_scaffold(
-        scaffold.builtin_dir(), None, tmp_path, _ctx(has_docs=False)
-    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, _ctx(has_docs=False))
     assert not (tmp_path / "mkdocs.yml").exists()
     # render_scaffold does dest.parent.mkdir() before the whitespace-skip check,
     # so an EMPTY docs/ dir may be created even when every template gates out.
@@ -301,11 +290,7 @@ def test_gen_ref_pages_single_spec_byte_identical_modulo_package() -> None:
     federated = _render_gen_ref("prisma_access")
     single = _render_gen_ref("prisma_browser")
     ast.parse(single)
-    diff = [
-        (a, b)
-        for a, b in zip(single.splitlines(), federated.splitlines(), strict=True)
-        if a != b
-    ]
+    diff = [(a, b) for a, b in zip(single.splitlines(), federated.splitlines(), strict=True) if a != b]
     assert diff == [('PACKAGE = "prisma_browser"', 'PACKAGE = "prisma_access"')]
 
 
@@ -335,9 +320,7 @@ def test_crud_renders_synthesized_body_code(tmp_path: Path) -> None:
 
 def test_crud_uses_manual_override_verbatim(tmp_path: Path) -> None:
     ctx = _ctx()
-    ctx["showcase"]["operations"]["create"]["example_override"] = (
-        "created = client.application.create(MAGIC)"
-    )
+    ctx["showcase"]["operations"]["create"]["example_override"] = "created = client.application.create(MAGIC)"
     scaffold.render_scaffold(scaffold.builtin_dir(), None, tmp_path, ctx)
     crud = (tmp_path / "docs/guides/crud.md").read_text()
     assert "MAGIC" in crud
@@ -506,12 +489,7 @@ def test_container_branch_detected_and_payload_isolated() -> None:
     kinds = {b["label"]: b["kind"] for b in branches}
     assert kinds["_ContainerType"] == "container"
     assert kinds["_GroupType"] == "payload"
-    leaves = [
-        leaf.__name__
-        for b in branches
-        if b["kind"] == "payload"
-        for leaf in b["leaves"]
-    ]
+    leaves = [leaf.__name__ for b in branches if b["kind"] == "payload" for leaf in b["leaves"]]
     assert {"_Static", "_Dynamic"} <= set(leaves)
 
 
