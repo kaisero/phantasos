@@ -261,6 +261,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A generated SDK passes its own CI gate again.** `phantasos sdk build` exited 1
+  on any product with idempotent sync enabled: the emitted `SyncMixin` called
+  `create`/`delete` supplied by the wrapper it mixes into, and the caller-owned
+  token source deliberately duck-types `TokenManager` without inheriting it —
+  both of which the generated project's `mypy` run rejected. The emitted noxfile
+  also installed an unpinned `ruff`, so the version that formats the project at
+  build time and the version that re-checks that formatting could disagree
+  (0.16 formats Markdown code blocks that 0.15 leaves alone) and the project could
+  never satisfy its own `ruff format --check`. The emitted noxfile now pins the
+  exact ruff the build formats with.
 - **`environment show` now reports EFFECTIVE settings** — when an environment variable
   (or `.env`) overrides a named environment's stored value, `environment show` shows the
   value that will actually be used and its source (a `FIELD | VALUE | SOURCE` table;
