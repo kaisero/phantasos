@@ -5,6 +5,10 @@
 # the PR's commit range, so this config (read from HEAD) applies the allowlist across
 # history too — an inline `# gitleaks:allow` comment would NOT, since it wouldn't be
 # present in the commit that first introduced the line.
+#
+# Recurring by-design patterns belong here. A one-off finding in a single historical
+# commit belongs in `.gitleaksignore` instead, pinned by fingerprint — that suppresses
+# exactly one finding rather than a whole shape of string.
 
 [extend]
 useDefault = true

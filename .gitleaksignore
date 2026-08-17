@@ -1,0 +1,21 @@
+# Reviewed gitleaks findings that are confirmed false positives.
+#
+# One fingerprint per line, in the form
+#   <commit>:<path>:<rule-id>:<line>
+# Pinning the exact commit+path+rule+line means an entry suppresses precisely
+# one known finding and cannot mask a real credential elsewhere in the file --
+# unlike a path or regex allowlist in .gitleaks.toml, which stays broad. Use
+# this file for one-off historical findings; use .gitleaks.toml for a pattern
+# that recurs by design (see the fake test-token allowlist there).
+#
+# Note this is about HISTORY, not the working tree. CI scans the PR's commit
+# range, and a release PR (develop -> main) spans every commit since main last
+# moved -- so a finding in a long-deleted file resurfaces on every release PR.
+# Deleting the offending file does not clear it; only an entry here does.
+
+# products/ngts/openapi.yml carried a vendor OpenAPI `example` block whose
+# "privateKey" value is a placeholder: -----BEGIN PRIVATE KEY----- wrapping a
+# run of U+22C6 STAR OPERATOR characters, not base64 and not a key. The file was
+# deleted in c505977, but the blob stays in history and the default `private-key`
+# rule matches the PEM header regardless of the body.
+21582b82081ca36435a93cffd3e51f084c61fc8c:products/ngts/openapi.yml:private-key:12691
