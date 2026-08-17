@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import enum
+{% if has_env -%}
+import contextvars
+{% endif -%}
 import functools
 import importlib
 import inspect
 import json
+{%- if has_env %}
+import os
+{%- endif %}
 import shlex
 import sys
 import time
@@ -21,7 +26,7 @@ from pydantic import ValidationError
 from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
-from .spec import CliIR, Command, Flag, MethodBinding
+from .spec import CliIR, Command, Flag, MethodBinding, synth_skeleton
 
 
 @functools.lru_cache(maxsize=1)
@@ -34,36 +39,210 @@ def _commands() -> dict[str, Command]:
     return {c.key: c for c in _ir().commands}
 
 
-def _client() -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
+def _facade_from_env(**kw: Any) -> Any:
+    """Tiny seam over the facade's ``Client.from_env`` so tests can monkeypatch
+    the credential threading without standing up a real client."""
+    return importlib.import_module(_ir().facade_module).Client.from_env(**kw)
+{% if has_env %}
+
+# Per-invocation environment selection. A contextvar (not a module global) so the
+# selection is scoped to the running command and never leaks across CliRunner
+# invocations sharing the imported module.
+_SELECTED_ENV: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "selected_env", default=None
+)
+
+
+def select_environment(name: str | None) -> None:
+    """Record the environment chosen by ``--environment/-e`` for this command."""
+    _SELECTED_ENV.set(name)
+
+
+def _selected_environment_source() -> tuple[str | None, str]:
+    """The active environment and WHY, by precedence:
+    -e flag (contextvar) > {{ env_prefix }}_ENVIRONMENT env var > default_environment.
+    Source ∈ {"flag","env","default","none"}. Empty {{ env_prefix }}_ENVIRONMENT is
+    treated as absent (falls through). Logs the winning source at DEBUG."""
+    from . import config as _config
+
+    flag = _SELECTED_ENV.get()
+    if flag:
+        name, source = flag, "flag"
+    elif os.environ.get("{{ env_prefix }}_ENVIRONMENT"):
+        name, source = os.environ["{{ env_prefix }}_ENVIRONMENT"], "env"
+    else:
+        d = _config.default_environment()
+        name, source = (d, "default") if d else (None, "none")
+    _config._ENV_LOG.debug("selected environment %r (source: %s)", name, source)
+    return name, source
+
+
+def _selected_environment() -> str | None:
+    return _selected_environment_source()[0]
+{% endif -%}
+{% if ir.connection_fields %}
+
+
+def _preflight_connection(cmd: Command) -> None:
+    """Exit 2 if a connection field required for this command's sub-package is missing.
+
+    A field is required for this invocation when field.required is True OR
+    cmd.subpackage is in field.required_for. Resolution mirrors _client():
+    exported env var > active-environment value (region lives in the env config).
+    """
+    from . import config as _config
+
+    name = _selected_environment()
+    eff = {e.env_var: e for e in _config.resolve_effective(name) if e.kind == "connection"}
+    for f in _ir().connection_fields:
+        needed = f.required or (
+            cmd.subpackage is not None and cmd.subpackage in f.required_for
+        )
+        if not needed:
+            continue
+        # Value + env-var precedence come from the shared resolver (connection
+        # fields use truthiness — an empty region header is treated as absent).
+        val = eff[f.env].value if f.env in eff else None
+        if not val:
+            # f.flag is the field's `environment create --<flag>` spelling.
+            flag = f.flag or f.name.split("-")[-1].lower()
+            sub = cmd.subpackage
+            if sub and sub in f.required_for:
+                why = f"the '{sub}' sub-package requires {f.env}"
+            else:
+                why = f"{f.env} is required"
+            headline = (
+                f"environment '{name}' is missing {f.env}: {why}"
+                if name
+                else f"missing {f.env}: {why}"
+            )
+            _diag.fail(
+                headline,
+                code=2,
+                hint=(
+                    f"set {f.env} (env var or .env) "
+                    f"or run 'environment create <name> --{flag} <value>'"
+                ),
+            )
+{% endif %}
+
+
+def _client(verbose: bool = False) -> Any:  # no lru_cache: one-shot CLI + keeps monkeypatch reliable
     try:
         from dotenv import find_dotenv, load_dotenv
         load_dotenv(find_dotenv(usecwd=True))  # loads ./.env (and parent dirs) into os.environ if present
     except ModuleNotFoundError:
         pass
-    facade = importlib.import_module(_ir().facade_module)
-    return facade.Client.from_env()
+{%- if has_env %}
+    from . import config as _config
 
-
-def _models() -> Any:
-    return importlib.import_module(f"{_ir().sdk_package}.models")
-
-
-def _sdk_exc() -> type[BaseException]:
+    # Resolve the active named environment (if any), then let presence-based env
+    # vars override its fields per the locked precedence. NEVER use truthiness:
+    # an exported-but-empty CLIENT_ID= must still win over the config value.
+    name = _selected_environment()
+    if name is not None and name not in _config._raw_environments():
+        # An env was explicitly selected (-e / {{ env_prefix }}_ENVIRONMENT /
+        # default_environment) but isn't defined — fail loudly rather than
+        # silently falling back to ambient env-var auth (wrong-credentials risk).
+        _diag.fail(
+            f"unknown environment '{name}' (run 'environment show')",
+            code=2,
+        )
+{%- endif %}
+{%- if ir.credential_fields %}
+    # Value + env-var-override precedence (presence, not truthiness) come from the
+    # shared resolver. _client still owns the required-empty policy: a required
+    # credential resolving to None OR "" is unusable (the SDK rejects empties with
+    # `if not v`), so pre-empt the raw RuntimeError with a clean message here.
+    overrides: dict[str, Any] = {}
+    missing: list[str] = []
+    _req = {f.name: f.required for f in _ir().credential_fields}  # required stays IR-driven
+    for e in _config.resolve_effective(name):
+        if e.kind != "credential":
+            continue
+        if e.value is not None:
+            overrides[e.client_kwarg] = e.value
+        if _req.get(e.name) and not e.value:
+            missing.append(e.env_var)
+    if missing:
+        joined = ", ".join(missing)
+        if name:
+            headline = f"environment '{name}' is missing required credentials: {joined}"
+        elif overrides:
+            headline = f"missing required credentials: {joined}"
+        else:
+            headline = "no credentials configured"
+        _diag.fail(
+            headline,
+            code=2,
+            hint=(
+                f"run 'environment create <name>' to save credentials, "
+                f"or set {joined} (e.g. in a .env file)"
+            ),
+        )
+{%- endif %}
+{%- if ir.connection_fields %}
+    # Connection headers: export each to its env var BEFORE building the client
+    # (the SDK reads them from the environment; there is no kwarg path).
+    # Precedence: exported env var > active-environment value (the env config).
+    for e in _config.resolve_effective(name):
+        if e.kind == "connection" and e.env_var not in os.environ and e.value is not None:
+            os.environ[e.env_var] = e.value
+{%- endif %}
+{%- if ir.credential_fields %}
     try:
-        mod = importlib.import_module(f"{_ir().sdk_package}.exceptions")
+        return _facade_from_env(**overrides)
+    except RuntimeError as exc:
+        # Credentials are present but auth still failed (token endpoint down,
+        # network error, rejected secret). Keep --verbose's traceback for debugging.
+        if verbose:
+            raise
+        _diag.fail(f"authentication failed: {exc}", code=1)
+{%- else %}
+    return _facade_from_env()
+{%- endif %}
+
+
+def _models(cmd: Command) -> Any:
+    # Federated: each sub-package ships its own `models` module
+    # (`{pkg}.{sub}.models`) — there is NO top-level `{pkg}.models`. Single-spec
+    # keeps the bare path. `_build_body` then `getattr`s the BARE body_model name.
+    pkg = _ir().sdk_package
+    if cmd.subpackage:
+        return importlib.import_module(f"{pkg}.{cmd.subpackage}.models")
+    return importlib.import_module(f"{pkg}.models")
+
+
+def _sdk_exc(cmd: Command) -> type[BaseException]:
+    # Federated: the SDK base exception lives under `_runtime` (the top-level package
+    # has no `exceptions` module); single-spec keeps the bare `{pkg}.exceptions`.
+    pkg = _ir().sdk_package
+    mod_name = f"{pkg}._runtime.exceptions" if cmd.subpackage else f"{pkg}.exceptions"
+    try:
+        mod = importlib.import_module(mod_name)
     except ModuleNotFoundError:
         return Exception
     base = getattr(mod, "OpenApiException", None)
     return base if isinstance(base, type) else Exception
 
 
-def _accepted_params(resource: str, sdk_method: str) -> set[str] | None:
-    """Param names the bound SDK method accepts, or None if undeterminable /
+def _accepted_params(cmd: Command, sdk_method: str) -> set[str] | None:
+    """Param names the bound wrapper method accepts, or None if undeterminable /
     **kwargs-tolerant (then nothing is dropped). Credential-free: inspects the
-    facade's API class, never an instantiated client."""
+    facade's typed wrapper class, never an instantiated client. The wrapper verb
+    accepts the clean param surface (e.g. ``sort``/``order``/``all_pages`` for a
+    list), so cli.yml-injected defaults are filtered against it, not the raw
+    ``*Api`` signature. Federated: the wrappers live on the SUB's facade
+    (`{pkg}.{sub}.extras.facade`), not the top-level composing package."""
     try:
-        facade = importlib.import_module(_ir().facade_module)
-        fn = getattr(facade._RESOURCES[resource], sdk_method)
+        if cmd.subpackage:
+            facade = importlib.import_module(
+                f"{_ir().sdk_package}.{cmd.subpackage}.extras.facade"
+            )
+        else:
+            facade = importlib.import_module(_ir().facade_module)
+        wrapper_cls = facade._WRAPPERS[cmd.sdk_resource][0]
+        fn = getattr(wrapper_cls, sdk_method)
         sig = inspect.signature(fn)
     except Exception:
         # fail-open: dropping nothing preserves pre-feature behavior, and the
@@ -131,14 +310,26 @@ def _fail_input(exc: InputError) -> NoReturn:
 
 
 _SUBVERB_PRIORITY = {
-    "patch": 0, "create": 1, "update": 2, "delete": 3,
-    "get": 4, "list": 5, "bulk_create": 6, "bulk_delete": 7,
+    "patch": 0, "put": 1, "create": 2, "update": 3, "delete": 4,
+    "get": 5, "list": 6, "bulk_create": 7, "bulk_delete": 8,
 }
 
 
 def _pick_binding(cmd: Command, present: set[str]) -> MethodBinding:
     candidates = [b for b in cmd.bindings if set(b.requires) <= present]
     if not candidates:
+        if cmd.get_by_id_only:
+            # A `show` backed only by get-by-id (no list endpoint exists).
+            # Reaching here means --id was omitted; say so precisely instead of
+            # the generic no-match message.
+            _diag.fail(
+                f"'{cmd.verb} {cmd.object}' has no list operation",
+                code=2,
+                hint=(
+                    f"fetch a single {cmd.object} by id, "
+                    f"e.g. '{cmd.verb} {cmd.object} --id <id>'"
+                ),
+            )
         _diag.fail(f"no operation for '{cmd.key}' matches the given arguments", code=2)
     best_len = max(len(b.requires) for b in candidates)
     top = [b for b in candidates if len(b.requires) == best_len]
@@ -166,6 +357,15 @@ def _skeleton(model: Any) -> dict[str, Any]:
             continue
         out[f.alias or name] = _placeholder(f.annotation)
     return out
+
+
+def _registry_example(flag: Flag) -> str | None:
+    if not flag.model_ref:
+        return None
+    from . import config as _config  # local import — the module's convention
+    full = _config.log_level_int(_config.get().logging.level) <= 10  # debug or trace
+    skel = synth_skeleton(_ir().models, flag.model_ref, full=full)
+    return json.dumps(skel, separators=(",", ":"))
 
 
 def _describe_json_field(model_cls: Any, param: str) -> tuple[str | None, str | None]:
@@ -208,11 +408,15 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
         try:
             parsed[k] = _coerce(flags[k], v)
         except InputError as exc:
-            if flags[k].kind == "json" and exc.expected is None:
-                exp, ex = _describe_json_field(model_cls, k)
-                exc.expected, exc.example = exp, (
-                    f"{flags[k].name} '{ex}'" if ex else None
-                )
+            fl = flags[k]
+            if fl.kind == "json" and exc.expected is None:
+                exp, live_ex = _describe_json_field(model_cls, k)
+                exc.expected = exp
+                reg = _registry_example(fl)
+                # D11: registry skeleton for known models; anonymous json (no
+                # model_ref → reg is None) keeps the live {"key": "value"} fallback.
+                ex = reg if reg is not None else live_ex
+                exc.example = f"{fl.name} '{ex}'" if ex else None
             raise
     if extra:
         parsed.update(extra)  # pre-resolved (e.g. variant discriminator); no coercion
@@ -229,44 +433,34 @@ def _build_body(binding: MethodBinding, body: dict[str, Any],
 
 
 def _dry_run(cmd: Command, binding: MethodBinding, kwargs: dict[str, Any]) -> None:
-    """Print the HTTP request that would be sent, via the SDK's <method>_serialize
-    (no request performed, no credentials needed). Falls back to a call reference
-    if the SDK lacks the serialize convention."""
+    """Print the HTTP request that would be sent, via the typed wrapper's
+    ``_serialize`` seam (no request performed, no credentials needed). The
+    wrapper selects the right backing op, renames ``body``/enum params to the
+    raw surface, and delegates to the generated ``<method>_serialize`` — so the
+    dry-run sees the exact request the live call would build. Falls back to a
+    call reference if the wrapper lacks the serialize seam (test fakes)."""
     try:
-        pkg = _ir().sdk_package
-        api_client_mod = importlib.import_module(f"{pkg}.api_client")
-        config_mod = importlib.import_module(f"{pkg}.configuration")
-        facade = importlib.import_module(_ir().facade_module)
-        client = facade.Client(api_client_mod.ApiClient(config_mod.Configuration()))
+        if cmd.subpackage:
+            # Federated: build just this SUB's facade (credential-free) and navigate
+            # to its object wrapper. The top-level package has no `api_client`/
+            # `configuration` module and its composing `Client` wants credentials —
+            # the per-sub facade serializes without either.
+            sub = f"{_ir().sdk_package}.{cmd.subpackage}"
+            sub_mod = importlib.import_module(sub)
+            facade = importlib.import_module(f"{sub}.extras.facade")
+            api_client = sub_mod.ApiClient(sub_mod.Configuration())
+        else:
+            pkg = _ir().sdk_package
+            api_client_mod = importlib.import_module(f"{pkg}.api_client")
+            config_mod = importlib.import_module(f"{pkg}.configuration")
+            facade = importlib.import_module(_ir().facade_module)
+            api_client = api_client_mod.ApiClient(config_mod.Configuration())
+        client = facade.Client(api_client)
         api = getattr(client, cmd.sdk_resource)
-        serialize = getattr(api, f"_{binding.sdk_method}_serialize", None)
+        serialize = getattr(api, "_serialize", None)
         if serialize is None:
-            raise AttributeError(f"no _{binding.sdk_method}_serialize")
-        # Build complete kwargs: all params default to None (_host_index=0),
-        # then overlay the domain kwargs we already have.
-        sig = inspect.signature(serialize)
-        complete: dict[str, Any] = {
-            k: (0 if k == "_host_index" else None)
-            for k in sig.parameters
-        }
-        complete.update(kwargs)
-        # Coerce string values to enum types where the public method expects them.
-        # The _serialize methods have no type hints; use the public method's hints.
-        pub = getattr(api, binding.sdk_method, None)
-        if pub is not None:
-            try:
-                hints = typing.get_type_hints(pub)
-            except Exception:
-                hints = {}
-            for k, v in list(complete.items()):
-                hint = hints.get(k)
-                if typing.get_origin(hint) is typing.Union:
-                    inner = [a for a in typing.get_args(hint) if a is not type(None)]
-                    hint = inner[0] if len(inner) == 1 else None
-                if (hint is not None and isinstance(hint, type)
-                        and issubclass(hint, enum.Enum) and isinstance(v, str)):
-                    complete[k] = hint(v)
-        method, url, _headers, body, *_rest = serialize(**complete)
+            raise AttributeError("wrapper has no _serialize seam")
+        method, url, _headers, body, *_rest = serialize(binding.sdk_method, **kwargs)
     except Exception:  # dry-run must never fail hard
         print(f"DRY-RUN {cmd.key} -> {cmd.sdk_resource}.{binding.sdk_method}(...)")
         return
@@ -368,7 +562,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 kwargs[k] = _coerce(path_flags[k], v)
         if cmd.variant and cmd.variant_param:
             kwargs[cmd.variant_param] = cmd.variant
-        accepted = _accepted_params(cmd.sdk_resource, binding.sdk_method)
+        accepted = _accepted_params(cmd, binding.sdk_method)
         for k, v in query.items():
             if v is None:
                 continue
@@ -387,7 +581,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
     http_capture: dict[str, str] = {}
     try:
         if binding.body_model:
-            models_mod = _models()
+            models_mod = _models(cmd)
             extra: dict[str, Any] = {}
             if cmd.variant and cmd.variant_param:
                 model_cls = getattr(models_mod, binding.body_model, None)
@@ -402,15 +596,31 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
         if dry_run:
             _dry_run(cmd, binding, kwargs)
             return
-        client = _client()
-        api = getattr(client, cmd.sdk_resource)
+{%- if ir.connection_fields %}
+        _preflight_connection(cmd)
+{%- endif %}
+        client = _client(verbose=verbose)
+{%- if ir.credential_fields %}
+        from . import auth_cache as _auth_cache
+        _cache = _auth_cache.session(client)
+        if _cache is not None:
+            _cache.seed_if_valid()
+{%- endif %}
+        # Dispatch through the typed object wrapper. Federated: the composing client
+        # exposes one handle per sub-package, so navigate `client.<sub>.<object>`;
+        # single-spec (subpackage None) stays one level: `client.<object>`. Either
+        # way `binding.sdk_method` is the wrapper's clean verb (e.g. `get`, `list`,
+        # `create`), which translates `body`/enum params to the raw `*Api` surface.
+        sub_client = getattr(client, cmd.subpackage) if cmd.subpackage else client
+        api = getattr(sub_client, cmd.sdk_resource)
         method = getattr(api, binding.sdk_method)
         # Observe the actual outgoing request: every generated SDK method routes
         # through api_client.call_api(method, url, ...) with the query string
-        # already appended to url. Wrap it for the duration of the call (first
-        # invocation wins under --all; restored in finally). Non-OAG clients
-        # (test fakes) lack the shape -> fields simply absent.
-        api_client = getattr(api, "api_client", None)
+        # already appended to url. Wrap it at the (sub-)facade level (the wrappers
+        # share one api_client) for the duration of the call (first invocation wins
+        # under --all; restored in finally). Non-OAG clients (test fakes) lack the
+        # shape -> fields simply absent.
+        api_client = getattr(sub_client, "api_client", None)
         original_call = getattr(api_client, "call_api", None)
         if callable(original_call):
             def _capturing_call(*args: Any, **kw: Any) -> Any:
@@ -420,15 +630,35 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
                 return original_call(*args, **kw)
             api_client.call_api = _capturing_call
         started = time.monotonic()
+        def _dispatch() -> Any:
+            if binding.sub_verb == "list":
+                # The wrapper list method paginates internally via `all_pages`;
+                # the synthesized envelope carries every item under items_field.
+                r = method(**kwargs, all_pages=paginate_all)
+                # RETAIN today's --all JSON/YAML shape: render the items array, not
+                # the synthesized envelope object (table already unwraps via
+                # items_field). A single page keeps its envelope.
+                if paginate_all and output in ("json", "yaml"):
+                    return getattr(r, cmd.items_field) if cmd.items_field else r
+                return r
+            return method(**kwargs)
         try:
-            if binding.sub_verb == "list" and paginate_all:
-                pg = getattr(client, "paginate", None)
-                result = list(pg(method, **kwargs)) if pg else method(**kwargs)
-            else:
-                result = method(**kwargs)
+{%- if ir.credential_fields %}
+            result = (
+                _cache.call_with_retry(_dispatch, _sdk_exc(cmd))
+                if _cache is not None
+                else _dispatch()
+            )
+{%- else %}
+            result = _dispatch()
+{%- endif %}
         finally:
             if callable(original_call):
                 api_client.call_api = original_call
+{%- if ir.credential_fields %}
+        if _cache is not None:
+            _cache.persist()
+{%- endif %}
         duration_ms = int((time.monotonic() - started) * 1000)
         if hooks and (post := getattr(hooks, "after_call", None)) and callable(post):
             result = post(binding.sdk_method, result, cmd) or result
@@ -445,7 +675,7 @@ def run(key: str, *, path: dict[str, Any], body: dict[str, Any],
             )
     except InputError as exc:
         _fail_input(exc)
-    except (_sdk_exc(), ValidationError) as exc:
+    except (_sdk_exc(cmd), ValidationError) as exc:
         _history.record(_history_entry(cmd, binding, "error", exc=exc,
                                        http=http_capture))
         if verbose:

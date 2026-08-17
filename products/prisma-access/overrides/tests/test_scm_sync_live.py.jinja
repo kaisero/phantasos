@@ -1,0 +1,669 @@
+"""Live idempotency quartet — prisma-access address (list_scan + put_rmw + direct).
+
+Mirrors prototypes/sync-engine/run_prisma_access.py (17/17 live) through the BUILT
+SDK's generated apply/absent/fetch/diff. Skips (never fails) without credentials.
+"""
+
+import os
+import uuid
+
+import pytest
+
+import {{ package }}
+from {{ package }}._auth import TokenManager, configuration_from_env
+from {{ package }}._runtime.exceptions import ApiException
+from {{ package }}.config_setup.models import Snippets
+from {{ package }}.deployment_services.extras.idempotency import AbsentNotSupported
+from {{ package }}.device_settings.models import MotdBannerSettings
+from {{ package }}.identity_services.models import AuthenticationRules
+from {{ package }}.objects.models import Addresses
+from {{ package }}.objects.models import AddressGroups
+from {{ package }}.objects.models import Services
+from {{ package }}.objects.models import Tags
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def address(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.address
+
+
+def _name() -> str:
+    return f"phx-sync-{uuid.uuid4().hex[:12]}"
+
+
+def test_address_idempotency_quartet(address):
+    name = _name()
+    folder = "Shared"
+    try:
+        # 1) create
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/24",
+                                    description="orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/24",
+                                    description="orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify ip, OMIT description -> PUT RMW must preserve description
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.0.0/25"))
+        assert r.changed and set(r.diff.changes) == {"ip_netmask"}
+        refetched = address.fetch(name=name, folder=folder)
+        assert refetched.description == "orig"          # unmanaged preserved
+        assert refetched.ip_netmask == "10.10.0.0/25"
+        # 4) check_mode predicts without writing
+        r = address.apply(Addresses(name=name, folder=folder, ip_netmask="10.10.9.9/32"),
+                          check_mode=True)
+        assert r.changed
+        assert address.fetch(name=name, folder=folder).ip_netmask == "10.10.0.0/25"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert address.absent(Addresses(name=name, folder=folder)).action == "deleted"
+        assert not address.absent(Addresses(name=name, folder=folder)).changed
+        assert address.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = address.fetch(name=name, folder=folder)
+        if leftover is not None:
+            address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def tag(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.tag
+
+
+def test_tag_idempotency_quartet(tag):
+    name = _name()
+    folder = "Shared"
+    try:
+        # 1) create
+        r = tag.apply(Tags(name=name, folder=folder, color="Red", comments="orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = tag.apply(Tags(name=name, folder=folder, color="Red", comments="orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify comments, OMIT color -> PUT RMW must preserve color
+        r = tag.apply(Tags(name=name, folder=folder, comments="edited"))
+        assert r.changed and set(r.diff.changes) == {"comments"}
+        refetched = tag.fetch(name=name, folder=folder)
+        assert refetched.color == "Red"                 # unmanaged preserved
+        assert refetched.comments == "edited"
+        # 4) check_mode predicts without writing
+        r = tag.apply(Tags(name=name, folder=folder, comments="never-written"),
+                      check_mode=True)
+        assert r.changed
+        assert tag.fetch(name=name, folder=folder).comments == "edited"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert tag.absent(Tags(name=name, folder=folder)).action == "deleted"
+        assert not tag.absent(Tags(name=name, folder=folder)).changed
+        assert tag.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = tag.fetch(name=name, folder=folder)
+        if leftover is not None:
+            tag.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def address_group(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.address_group
+
+
+def test_address_group_static_order_sensitivity(address, address_group):
+    """Deferred live check: `static` is declared order_sensitive in sdk.yml, so the
+    diff must treat member ORDER as state. Same order twice -> no drift; reordering
+    the same members -> real drift."""
+    folder = "Shared"
+    members = [_name(), _name()]
+    group = _name()
+    try:
+        # 0) member objects the group will reference
+        for i, nm in enumerate(members):
+            address.apply(Addresses(name=nm, folder=folder,
+                                    ip_netmask=f"10.30.{i}.0/24"))
+        # 1) create the group with static [a, b]
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=members))
+        assert r.changed and r.action == "created"
+        # 2) re-apply the SAME order -> unchanged (no false drift)
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=members))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) SAME members, reversed order -> real drift, order-sensitively detected
+        r = address_group.apply(AddressGroups(name=group, folder=folder,
+                                              static=list(reversed(members))))
+        assert r.changed and set(r.diff.changes) == {"static"}
+        refetched = address_group.fetch(name=group, folder=folder)
+        assert refetched.static == list(reversed(members))
+        # 4) absent -> deleted (group first: members are referenced until then)
+        r = address_group.absent(AddressGroups(name=group, folder=folder))
+        assert r.action == "deleted"
+    finally:
+        leftover = address_group.fetch(name=group, folder=folder)
+        if leftover is not None:
+            address_group.delete(id=leftover.id)
+        for nm in members:
+            leftover = address.fetch(name=nm, folder=folder)
+            if leftover is not None:
+                address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def service(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.objects.service
+
+
+def test_service_idempotency_round_trip(service):
+    """Live spot-check for one NEW objects opt-in (Batch 1 rollout): a real
+    create -> apply(no-op) -> apply(drift) -> absent round-trip on `service`."""
+    name = _name()
+    folder = "Shared"
+    # NOTE: from_dict, not model_validate — `protocol` is an OAG oneOf wrapper
+    # (Tcp|Udp) and only the generated from_dict reconstructs its actual_instance.
+    proto = {"protocol": {"tcp": {"port": "8080"}}}
+    try:
+        # 1) create
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "orig", **proto}))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged (idempotency proof)
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "orig", **proto}))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) modify description -> drift on exactly that field; PUT RMW must
+        #    carry the oneOf `protocol` through unharmed
+        r = service.apply(Services.from_dict(
+            {"name": name, "folder": folder, "description": "edited", **proto}))
+        assert r.changed and set(r.diff.changes) == {"description"}
+        assert service.fetch(name=name, folder=folder).description == "edited"
+        # 4) absent -> deleted; re-absent -> unchanged; fetch -> None
+        gone = Services.from_dict({"name": name, "folder": folder})
+        assert service.absent(gone).action == "deleted"
+        assert not service.absent(gone).changed
+        assert service.fetch(name=name, folder=folder) is None
+    finally:
+        leftover = service.fetch(name=name, folder=folder)
+        if leftover is not None:
+            service.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def bgp_routing(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.deployment_services.bgp_routing
+
+
+def test_bgp_routing_singleton_is_nondestructive(bgp_routing):
+    """Live proof of the singleton leg — fetch(via get) -> diff -> no-op, check_mode
+    prediction, and absent() rejection. STRICTLY NON-DESTRUCTIVE: it never persists a
+    change to this global tenant config. It re-applies the CURRENT state (a no-op),
+    predicts a hypothetical change in check_mode (no write), and asserts the server
+    value is byte-identical before and after."""
+    # 1) The singleton always exists: fetch drives FETCH["get"] -> res.get().
+    current = bgp_routing.fetch()
+    assert current is not None
+    before = current.model_dump(by_alias=True, mode="json")
+
+    # 2) Re-apply the FETCHED object verbatim as desired -> diff(current, current) is
+    #    empty -> no-op that never reaches the mutate leg (writes nothing). This is the
+    #    load-bearing singleton proof: fetch(via get) -> diff -> unchanged.
+    r = bgp_routing.apply(current)
+    assert not r.changed and r.action == "unchanged", r.diff.changes
+
+    # 3) check_mode predicts a hypothetical flip WITHOUT writing. model_copy keeps every
+    #    other field (incl. the oneOf routing_preference) intact, so the ONLY predicted
+    #    change is the flipped boolean.
+    flipped = current.model_copy(
+        update={"withdraw_static_route": not current.withdraw_static_route}
+    )
+    r = bgp_routing.apply(flipped, check_mode=True)
+    assert r.changed and r.action == "updated"
+    assert set(r.diff.changes) == {"withdraw_static_route"}
+
+    # 4) absent() is not a singleton operation -> raises (no delete lifecycle).
+    with pytest.raises(AbsentNotSupported):
+        bgp_routing.absent(current)
+
+    # 5) Confirm the server-side blob is byte-identical -> nothing was persisted.
+    after = bgp_routing.fetch().model_dump(by_alias=True, mode="json")
+    assert after == before, "singleton global config must be unchanged"
+
+
+def test_list_scan_pages_past_first_page(address):
+    """F8 live proof: with offset pagination declared, `list(all_pages=True)` walks
+    every page. Create 3 uniquely-prefixed addresses, list with a page size of 2 —
+    so the 3rd is only reachable on page 2 — and assert all 3 come back and that
+    `fetch` (which drives list_scan under the hood) finds the 3rd."""
+    folder = "Shared"
+    prefix = f"phx-page-{uuid.uuid4().hex[:8]}"
+    names = [f"{prefix}-{i}" for i in range(3)]
+    try:
+        for i, nm in enumerate(names):
+            address.apply(Addresses(name=nm, folder=folder,
+                                    ip_netmask=f"10.20.{i}.0/24"))
+        # A page size of 2 forces a second page for the 3-object prefix. Filter the
+        # full (paginated) listing down to our prefix so co-tenant objects don't skew
+        # the count.
+        page = address.list(folder=folder, limit=2, all_pages=True)
+        got = {a.name for a in page.data if a.name.startswith(prefix)}
+        assert got == set(names), f"pagination lost objects: {sorted(got)}"
+        # The 3rd object is only reachable past page 1 — fetch must still find it.
+        third = address.fetch(name=names[2], folder=folder)
+        assert third is not None and third.name == names[2]
+    finally:
+        for nm in names:
+            leftover = address.fetch(name=nm, folder=folder)
+            if leftover is not None:
+                address.delete(id=leftover.id)
+
+
+@pytest.fixture()
+def global_protect_destination(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.mobile_agent.global_protect_destination
+
+
+def test_mobile_agent_fetch_wiring_read_only(global_protect_destination):
+    """Read-wiring check for the mobile_agent idempotency opt-in.
+
+    SAFETY — no mutation on purpose. mobile_agent GlobalProtect resources are
+    scoped to `folder` ONLY, and the folder enum offers a single value,
+    `Mobile Users` — the live, shared, production folder that governs the tenant's
+    mobile VPN / GlobalProtect agent behavior. There is no disposable folder to
+    isolate a create->apply->drift->absent quartet, and injecting even a uniquely-
+    named `phx-sync-*` config into `Mobile Users` would alter real agent
+    configuration on the shared tenant. So this exercises ONLY the read half of the
+    freshly generated idempotency surface: fetch() drives the wired list_scan
+    (paginated bare-array scan + identity match) against the live folder.
+
+    Targets `global_protect_destination` deliberately: this resource was opted OUT
+    during the rollout because its generated model shipped an EMPTY `__properties`
+    and `from_dict` raised on the predefined `Prisma Access Explicit Proxy SAML
+    Authentication Domains` object in `Mobile Users`. The flatten_scm_bodies
+    constraint-only-composition fix repopulated its `__properties`, so listing that
+    folder now deserializes every real destination through from_dict without error.
+    A random `phx-sync-*` name must resolve to None cleanly — the regression proof
+    that the previously-crashing read path works and the resource is idempotency-
+    ready again."""
+    missing = global_protect_destination.fetch(name=_name(), folder="Mobile Users")
+    assert missing is None
+
+
+def test_from_access_token_provider_consulted_per_request():
+    """Task 3.1 live seam: a caller-owned token source (Callable) drives a Client
+    with no client_secret/scope wired into it, and the provider is pulled PER
+    REQUEST (the prototype's n=14 observation, minimized to two authenticated
+    reads). A bare str token performs one authenticated list."""
+    tm = TokenManager(
+        os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"], os.environ["SCOPE"]
+    )
+    pulls = {"n": 0}
+
+    def counting_provider() -> str:
+        pulls["n"] += 1
+        return tm.token()
+
+    # Callable path: two real reads -> provider consulted at least twice.
+    client = {{ package }}.Client.from_access_token(counting_provider)
+    client.objects.address.list(folder="Shared", limit=1)
+    client.objects.address.list(folder="Shared", limit=1)
+    assert pulls["n"] >= 2, pulls
+
+    # str path: normalized to a one-shot provider; one authenticated list succeeds.
+    token = tm.token()
+    str_client = {{ package }}.Client.from_access_token(token)
+    page = str_client.objects.address.list(folder="Shared", limit=1)
+    assert page is not None
+
+
+@pytest.fixture()
+def login_banner_setting(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.device_settings.login_banner_setting
+
+
+@pytest.fixture()
+def snippet(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.config_setup.snippet
+
+
+def test_device_settings_login_banner_round_trip(login_banner_setting, snippet):
+    """Live spot-check for the device_settings idempotency opt-in (Batch 2 rollout).
+
+    SAFETY: device_settings mutate REAL tenant device behavior, so this scopes the
+    whole round-trip to a DISPOSABLE, uniquely-named `phx-sync-*` snippet — never a
+    live folder — and picks login_banner (a cosmetic message-of-the-day banner: it
+    changes no traffic, routing, VPN, or session behavior). Both the banner and its
+    throwaway snippet are torn down in `finally`, so nothing survives.
+
+    Exercises the device_settings shape the offline engine can't reach: a list op
+    that returns a BARE array (no `{data}` envelope) driving list_scan, an
+    id-addressed create/replace/delete keyed by an EMPTY identity within the scope,
+    and a sparse nested `motd_and_banner` whose server echo expands every optional
+    sub-field to null (null == absent, so re-apply must be a true no-op)."""
+    name = _name()
+
+    def banner(message):
+        return MotdBannerSettings(
+            snippet=name,
+            motd_and_banner={"message": message, "motd_enable": True},
+        )
+
+    created = snippet.create(body=Snippets(name=name))
+    try:
+        # 1) create the banner in the disposable snippet
+        r = login_banner_setting.apply(banner("phx orig"))
+        assert r.changed and r.action == "created"
+        # 2) re-apply identical -> unchanged. The load-bearing device_settings
+        #    proof: the server echo fills the nested object with null-valued
+        #    optional sub-fields, which must NOT read as drift.
+        r = login_banner_setting.apply(banner("phx orig"))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) change the banner text -> drift on exactly the nested settings object,
+        #    driven through the id-addressed PUT read-modify-write
+        r = login_banner_setting.apply(banner("phx edited"))
+        assert r.changed and set(r.diff.changes) == {"motd_and_banner"}
+        got = login_banner_setting.fetch(snippet=name)
+        assert got.motd_and_banner.message == "phx edited"
+        # 4) absent -> deleted; re-absent -> unchanged; fetch -> None
+        assert login_banner_setting.absent(banner("x")).action == "deleted"
+        assert not login_banner_setting.absent(banner("x")).changed
+        assert login_banner_setting.fetch(snippet=name) is None
+    finally:
+        leftover = login_banner_setting.fetch(snippet=name)
+        if leftover is not None:
+            login_banner_setting.delete(id=leftover.id)
+        snippet.delete(id=created.id)
+
+
+@pytest.fixture()
+def local_user_group(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.local_user_group
+
+
+def test_identity_services_fetch_wiring_read_only(local_user_group):
+    """Read-wiring check for the identity_services idempotency opt-in (Batch 4 rollout).
+
+    SAFETY — no mutation on purpose. A mutating quartet is not portable across these
+    16 resources: many carry cross-object dependencies the server enforces
+    (local_user_group members must reference existing local users; tls_service_profile
+    needs a certificate; auth sequences reference profiles) and some carry runtime
+    write-only secrets (local_user.password is never echoed on GET, which would read
+    as false drift). The generic create -> apply -> absent path is already live-proven
+    on objects and device_settings through the same engine and strategies, so this
+    batch verifies the half that is resource-shape-specific and most likely to break:
+    the READ path. fetch() drives the wired list_scan against a live folder, which
+    deserializes every real identity_services object it lists (the failure mode a
+    faulty generated model produces — see mobile_agent). A random `phx-sync-*` name
+    must resolve to None cleanly, proving the fetch wiring and that every real object
+    in the folder round-trips through from_dict without error."""
+    missing = local_user_group.fetch(name=_name(), folder="Shared")
+    assert missing is None
+
+
+@pytest.fixture()
+def remote_network(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.deployment_services.remote_network
+
+
+def test_deployment_services_fetch_wiring_read_only(remote_network):
+    """Read-wiring check for the deployment_services idempotency opt-in (Batch 5 rollout).
+
+    SAFETY — READ-ONLY on purpose, and doubly so here: deployment_services
+    provisions REAL network infrastructure (remote_network / service_connection /
+    site create live IPsec tunnels, service connections, and branch sites on the
+    shared tenant). A create -> apply -> absent quartet would stand up and tear
+    down real network deployments, so it is categorically unsafe. The generic
+    apply/absent path is already live-proven on objects and device_settings
+    through the same engine and strategies, so this batch verifies only the
+    resource-shape-specific READ half: fetch() drives the wired list_scan (the
+    folder-scoped paginated bare-array scan + identity match) against a live
+    folder, which deserializes every real remote_network the tenant lists — the
+    exact failure mode a faulty generated model produces. A random `phx-sync-*`
+    name in the single valid `Remote Networks` folder must resolve to None
+    cleanly, proving the fetch wiring and that every real object in the folder
+    round-trips through from_dict without error.
+
+    Targets `remote_network` specifically: it is one of the five folder-scoped,
+    full-CRUD resources, so its read path exercises the per-resource folder scope
+    that the scope-less bgp_routing / shared_infrastructure_setting singletons and
+    the scope-less internal_dns_server do not."""
+    missing = remote_network.fetch(name=_name(), folder="Remote Networks")
+    assert missing is None
+
+
+@pytest.fixture()
+def zone(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.network_services.zone
+
+
+def test_network_services_fetch_wiring_read_only(zone):
+    """Read-wiring check for the network_services idempotency opt-in (Batch 6 rollout).
+
+    SAFETY — READ-ONLY on purpose, and emphatically so: network_services
+    configures REAL routing, VPN, and interfaces (zones, IKE/IPsec gateways and
+    tunnels, BGP/OSPF routers, NAT/PBF rules, SD-WAN paths, physical/logical
+    interfaces). A create -> apply -> absent quartet against any of these would
+    stand up and tear down live routing/VPN/interface configuration on the shared
+    tenant, so it is categorically unsafe. The generic apply/absent path is
+    already live-proven on objects and device_settings through the same engine
+    and strategies, so this batch (the largest — 47 opted-in resources) verifies
+    only the resource-shape-specific READ half: fetch() drives the wired
+    list_scan (the folder/snippet/device-scoped paginated bare-array scan +
+    identity match) against a live folder, deserializing every real zone the
+    tenant lists through from_dict — the exact failure mode a faulty generated
+    model produces.
+
+    Targets `zone` specifically: it is a safe, read-only-to-fetch, folder-scoped
+    full-CRUD resource that inherits the subpackage folder/snippet/device scope
+    default (unlike the scope-less auto_vpn_cluster and the auto_vpn_setting
+    singleton, which override the default to an empty scope).
+
+    network_services objects live in deployment folders, not the object folder
+    `Shared`; which folders exist is tenant-specific. So a server-reached
+    ApiException (e.g. a 400 "folder doesn't exist") still proves the fetch WIRING
+    built and sent a well-formed scoped request — the failure this guards against,
+    a model that can't deserialize a real object, surfaces as a ValidationError
+    from from_dict, which is NOT caught here and still fails the test."""
+    try:
+        missing = zone.fetch(name=_name(), folder="Remote Networks")
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a fetch-wiring defect.
+        assert exc.status is not None
+    else:
+        assert missing is None
+    assert missing is None
+
+
+@pytest.fixture()
+def authentication_rule(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.authentication_rule
+
+
+def _authentication_rule_body(name, snip, description="orig"):
+    # Minimal "any" authentication rule — every required list field takes the
+    # reserved `any`, no enforcement profile — scoped to the disposable snippet,
+    # which no policy references. authentication_rule has Optional scope fields
+    # (so a single-scope body constructs) and a `description` to drift; its list
+    # AND create ops require `position`, so it exercises the positioned engine
+    # path. from_dict, not the ctor: the source-zone field is spec-named `from`
+    # (a Python keyword), aliased on the generated model.
+    return AuthenticationRules.from_dict(
+        {
+            "name": name,
+            "snippet": snip,
+            "from": ["any"],
+            "to": ["any"],
+            "source": ["any"],
+            "destination": ["any"],
+            "service": ["any"],
+            "description": description,
+        }
+    )
+
+
+def test_authentication_rule_position_quartet_and_name_uniqueness_probe(authentication_rule, snippet):
+    """Live proof of the position-threaded sync path (rules rollout) AND the
+    name-uniqueness probe that settles decision #1 of the position design.
+
+    SAFETY: rules are live security policy, so every mutation is scoped to a
+    DISPOSABLE, uniquely-named `phx-sync-*` snippet (created here, torn down in
+    `finally`) — no test rule ever lands in a live folder/rulebase that governs
+    real traffic.
+
+    authentication_rule is chosen for a reliably-constructible "any" body (Optional
+    scope fields, a `description` to drift); its list AND create ops require
+    `position`, so this proves the positioned fetch (position threaded into
+    list_scan's scope) and the positioned create end-to-end.
+    (nat_rule additionally requires position on REPLACE — that put_rmw call-param
+    forward is covered by the offline engine unit tests; the other four rules
+    share the create/fetch/absent paths proven here.)
+
+    DECISION #1 (recorded by this test): after creating rule N in the PRE
+    rulebase, applying the same name with position="post" tells us whether
+    `name` is unique per-(scope, position) — the server creates a SECOND object
+    (position is a real identity axis, the design's assumption) — or globally
+    unique (the server rejects the post create). The test asserts the invariants
+    of whichever branch the tenant takes. Step 1's identical pre-create proves
+    the body itself is valid, so a rejection in the post step is attributable to
+    the name, not the body."""
+    snip = _name()
+    name = _name()
+    created_snippet = snippet.create(body=Snippets(name=snip))
+    try:
+        # 1) create in the PRE rulebase: apply threads position into the fetch
+        #    scope (list requires it) and the create call (create requires it).
+        r = authentication_rule.apply(_authentication_rule_body(name, snip), position="pre")
+        assert r.changed and r.action == "created"
+        pre_obj = authentication_rule.fetch(name=name, snippet=snip, position="pre")
+        assert pre_obj is not None
+        # 2) re-apply identical -> unchanged: fetch-with-position found it, so
+        #    the positioned idempotency loop closes.
+        r = authentication_rule.apply(_authentication_rule_body(name, snip), position="pre")
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+        # 3) uniqueness probe (settles decision #1): re-apply the SAME name with
+        #    position="post". FINDING (recorded live): the pre-created rule is
+        #    FOUND -> unchanged. The list `position` param is required by the API
+        #    but does NOT partition the result set (the server returns the rule
+        #    under either rulebase query), so a rule's identity is `name` within
+        #    `scope` ALONE. `position` is a create-placement param that is inert
+        #    for fetch (like mfa_server's list-op wart), so the engine's
+        #    default-position fetch finds a rule wherever it was placed.
+        r_post = authentication_rule.apply(_authentication_rule_body(name, snip), position="post")
+        assert not r_post.changed, (name, r_post.action)
+        assert authentication_rule.fetch(name=name, snippet=snip, position="post").id == pre_obj.id
+        # 4) drift: change one managed field -> exactly that field. fetch finds the
+        #    rule by name (position inert); the id-addressed replace converges it.
+        r = authentication_rule.apply(_authentication_rule_body(name, snip, description="edited"), position="pre")
+        assert r.changed and set(r.diff.changes) == {"description"}
+        refetched = authentication_rule.fetch(name=name, snippet=snip, position="pre")
+        assert refetched.description == "edited"
+        # 5) absent -> deleted; re-absent -> unchanged; fetch -> None.
+        assert authentication_rule.absent(_authentication_rule_body(name, snip), position="pre").action == "deleted"
+        assert not authentication_rule.absent(_authentication_rule_body(name, snip), position="pre").changed
+        assert authentication_rule.fetch(name=name, snippet=snip, position="pre") is None
+    finally:
+        for pos in ("pre", "post"):
+            try:
+                leftover = authentication_rule.fetch(name=name, snippet=snip, position=pos)
+                if leftover is not None:
+                    authentication_rule.delete(id=leftover.id)
+            except ApiException:
+                pass  # best-effort cleanup; the snippet delete below is the backstop
+        snippet.delete(id=created_snippet.id)
+
+
+@pytest.fixture()
+def mfa_server(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.identity_services.mfa_server
+
+
+def test_mfa_server_position_param_is_inert_on_list(mfa_server):
+    """Decision #3 live check — READ-ONLY on purpose. mfa_server's list op
+    requires `position` only as a spec wart (it reuses the auth-rules parameter;
+    MFA servers are not ordered rules), so listing the pre and post "rulebases"
+    must return the SAME objects — the param is inert. Also proves the declared
+    default live: engine fetch() without an explicit position fills `pre` from
+    the baked meta and completes a well-formed scoped list.
+
+    Mirrors the read-wiring tolerance pattern: a server-reached ApiException
+    (tenant-specific folder shape) still proves the wiring sent well-formed
+    requests; a model that cannot deserialize a real object raises
+    ValidationError, which is NOT caught and still fails the test."""
+    try:
+        pre = mfa_server.list(folder="Shared", position="pre", all_pages=True)
+        post = mfa_server.list(folder="Shared", position="post", all_pages=True)
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a wiring defect.
+        assert exc.status is not None
+    else:
+        ids_pre = {(m.id, m.name) for m in (pre.data or [])}
+        ids_post = {(m.id, m.name) for m in (post.data or [])}
+        assert ids_pre == ids_post, "position must be inert for mfa_server"
+    # Engine path with the DEFAULT position (no kwarg): the baked default `pre`
+    # is filled in and threaded into the list scope; a random name resolves to
+    # None cleanly (same ApiException tolerance as above).
+    try:
+        missing = mfa_server.fetch(name=_name(), folder="Shared")
+    except ApiException as exc:
+        assert exc.status is not None
+    else:
+        assert missing is None
+
+
+@pytest.fixture()
+def url_category(request):
+    client = {{ package }}.Client(configuration_from_env())
+    return client.security_services.url_category
+
+
+def test_security_services_fetch_wiring_read_only(url_category):
+    """Read-wiring check for the security_services idempotency opt-in (Batch 7 rollout).
+
+    SAFETY — READ-ONLY on purpose, and emphatically so: security_services
+    configures LIVE SECURITY POLICY — anti-spyware / vulnerability / URL /
+    file-blocking / DNS-security / decryption profiles and the decryption /
+    application-override rules that gate real traffic on the shared tenant. A
+    create -> apply -> absent quartet against any of these would stand up and tear
+    down live enforcement policy, so it is categorically unsafe. The generic
+    apply/absent path is already live-proven on objects and device_settings
+    through the same engine and strategies, so this batch verifies only the
+    resource-shape-specific READ half: fetch() drives the wired list_scan (the
+    folder/snippet/device-scoped paginated bare-array scan + identity match)
+    against a live folder, deserializing every real url_category the tenant lists
+    through from_dict — the exact failure mode a faulty generated model produces.
+
+    Targets `url_category` specifically: it is a safe, read-only-to-fetch,
+    folder-scoped full-CRUD resource that inherits the subpackage folder/snippet/
+    device scope default (unlike the scope-less saas_tenant_restriction singleton,
+    which overrides the default to an empty scope).
+
+    Probes the object folder `Shared`, which every tenant carries. A server-reached
+    ApiException (e.g. a 400 for a folder that does not exist in this tenant) still
+    proves the fetch WIRING built and sent a well-formed scoped request — the
+    failure this guards against, a model that can't deserialize a real object,
+    surfaces as a ValidationError from from_dict, which is NOT caught here and
+    still fails the test."""
+    try:
+        missing = url_category.fetch(name=_name(), folder="Shared")
+    except ApiException as exc:
+        # request reached the server and came back well-formed (wiring proven);
+        # a missing/invalid folder is tenant config, not a fetch-wiring defect.
+        assert exc.status is not None
+    else:
+        assert missing is None

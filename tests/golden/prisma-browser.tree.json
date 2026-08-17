@@ -1,0 +1,3111 @@
+[
+  {
+    "key": "create:access-and-data-rule",
+    "verb": "create",
+    "object": "access-and-data-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--access",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--data-controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--login-controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--tracking",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "create:access-and-data-section",
+    "verb": "create",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "create:application-group",
+    "verb": "create",
+    "object": "application-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "description"
+    ]
+  },
+  {
+    "key": "create:application-plugin",
+    "verb": "create",
+    "object": "application-plugin",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--plugin",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "application_id"
+    ]
+  },
+  {
+    "key": "create:application:custom",
+    "verb": "create",
+    "object": "application",
+    "variant": "custom",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--urls",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "create:application:localdesktopcustom",
+    "verb": "create",
+    "object": "application",
+    "variant": "localdesktopcustom",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--executables",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "create:application:non-web",
+    "verb": "create",
+    "object": "application",
+    "variant": "non-web",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--address",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--port",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--protocol",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--route-to-prisma",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "create:application:private",
+    "verb": "create",
+    "object": "application",
+    "variant": "private",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cidrs",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--domain-suffix",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--primary-url",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--route-to-prisma",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--urls",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "create:cloud-storage-provider",
+    "verb": "create",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--display-name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--google",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--microsoft",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": true
+      }
+    ],
+    "columns": []
+  },
+  {
+    "key": "create:customization-rule",
+    "verb": "create",
+    "object": "customization-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--controls",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "create:customization-section",
+    "verb": "create",
+    "object": "customization-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "create:device-group",
+    "verb": "create",
+    "object": "device-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--attributes",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--platform",
+        "kind": "enum",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "platform",
+      "created_by",
+      "devices",
+      "created_at"
+    ]
+  },
+  {
+    "key": "create:security-rule",
+    "verb": "create",
+    "object": "security-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--controls",
+        "kind": "json",
+        "required": true
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "create:security-section",
+    "verb": "create",
+    "object": "security-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "create:sign-in-rule",
+    "verb": "create",
+    "object": "sign-in-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--action",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode",
+      "action"
+    ]
+  },
+  {
+    "key": "create:sign-in-section",
+    "verb": "create",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "create:user-group",
+    "verb": "create",
+    "object": "user-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--user-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "provider"
+    ]
+  },
+  {
+    "key": "delete:access-and-data-rule",
+    "verb": "delete",
+    "object": "access-and-data-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "delete:access-and-data-section",
+    "verb": "delete",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--delete-rules",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "delete:application",
+    "verb": "delete",
+    "object": "application",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "delete:application-group",
+    "verb": "delete",
+    "object": "application-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "description"
+    ]
+  },
+  {
+    "key": "delete:application-plugin",
+    "verb": "delete",
+    "object": "application-plugin",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "application_id"
+    ]
+  },
+  {
+    "key": "delete:cloud-storage-provider",
+    "verb": "delete",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": []
+  },
+  {
+    "key": "delete:customization-rule",
+    "verb": "delete",
+    "object": "customization-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "delete:customization-section",
+    "verb": "delete",
+    "object": "customization-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--delete-rules",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "delete:device",
+    "verb": "delete",
+    "object": "device",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "delete:device-group",
+    "verb": "delete",
+    "object": "device-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "platform",
+      "created_by",
+      "devices",
+      "created_at"
+    ]
+  },
+  {
+    "key": "delete:security-rule",
+    "verb": "delete",
+    "object": "security-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "delete:security-section",
+    "verb": "delete",
+    "object": "security-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--delete-rules",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "delete:sign-in-rule",
+    "verb": "delete",
+    "object": "sign-in-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode",
+      "action"
+    ]
+  },
+  {
+    "key": "delete:sign-in-section",
+    "verb": "delete",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--delete-rules",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "delete:user-group",
+    "verb": "delete",
+    "object": "user-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "provider"
+    ]
+  },
+  {
+    "key": "request:access-and-data-section:reorder",
+    "verb": "request",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": "reorder",
+    "flags": [
+      {
+        "name": "--positions",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:access-and-data-section:reorder-patch",
+    "verb": "request",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": "reorder-patch",
+    "flags": [
+      {
+        "name": "--moves",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:configuration:publish",
+    "verb": "request",
+    "object": "configuration",
+    "variant": null,
+    "action": "publish",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": []
+  },
+  {
+    "key": "request:customization-section:reorder",
+    "verb": "request",
+    "object": "customization-section",
+    "variant": null,
+    "action": "reorder",
+    "flags": [
+      {
+        "name": "--positions",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:customization-section:reorder-patch",
+    "verb": "request",
+    "object": "customization-section",
+    "variant": null,
+    "action": "reorder-patch",
+    "flags": [
+      {
+        "name": "--moves",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:device:archive",
+    "verb": "request",
+    "object": "device",
+    "variant": null,
+    "action": "archive",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "request:device:force-reauth",
+    "verb": "request",
+    "object": "device",
+    "variant": null,
+    "action": "force-reauth",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "request:device:restore",
+    "verb": "request",
+    "object": "device",
+    "variant": null,
+    "action": "restore",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "request:device:resume",
+    "verb": "request",
+    "object": "device",
+    "variant": null,
+    "action": "resume",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "request:device:suspend",
+    "verb": "request",
+    "object": "device",
+    "variant": null,
+    "action": "suspend",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--device-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "request:security-section:reorder",
+    "verb": "request",
+    "object": "security-section",
+    "variant": null,
+    "action": "reorder",
+    "flags": [
+      {
+        "name": "--positions",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:security-section:reorder-patch",
+    "verb": "request",
+    "object": "security-section",
+    "variant": null,
+    "action": "reorder-patch",
+    "flags": [
+      {
+        "name": "--moves",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:sign-in-section:reorder",
+    "verb": "request",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": "reorder",
+    "flags": [
+      {
+        "name": "--positions",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:sign-in-section:reorder-patch",
+    "verb": "request",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": "reorder-patch",
+    "flags": [
+      {
+        "name": "--moves",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "request:user-request:action",
+    "verb": "request",
+    "object": "user-request",
+    "variant": null,
+    "action": "action",
+    "flags": [
+      {
+        "name": "--action",
+        "kind": "enum",
+        "required": true
+      },
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--admin-bypass-timeframe",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--admin-comment",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "type",
+      "status",
+      "user_id",
+      "url",
+      "reason"
+    ]
+  },
+  {
+    "key": "request:user-request:revoke",
+    "verb": "request",
+    "object": "user-request",
+    "variant": null,
+    "action": "revoke",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--revoker-comment",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "type",
+      "status",
+      "user_id",
+      "url",
+      "reason"
+    ]
+  },
+  {
+    "key": "request:user:force-reauth",
+    "verb": "request",
+    "object": "user",
+    "variant": null,
+    "action": "force-reauth",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--user-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "status",
+      "external_id",
+      "email",
+      "profile_picture_url"
+    ]
+  },
+  {
+    "key": "request:user:resume",
+    "verb": "request",
+    "object": "user",
+    "variant": null,
+    "action": "resume",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--user-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "status",
+      "external_id",
+      "email",
+      "profile_picture_url"
+    ]
+  },
+  {
+    "key": "request:user:suspend",
+    "verb": "request",
+    "object": "user",
+    "variant": null,
+    "action": "suspend",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--user-ids",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "status",
+      "external_id",
+      "email",
+      "profile_picture_url"
+    ]
+  },
+  {
+    "key": "show:access-and-data-policy",
+    "verb": "show",
+    "object": "access-and-data-policy",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description",
+      "mode",
+      "evaluation_order"
+    ]
+  },
+  {
+    "key": "show:access-and-data-rule",
+    "verb": "show",
+    "object": "access-and-data-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "show:access-and-data-section",
+    "verb": "show",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "show:application",
+    "verb": "show",
+    "object": "application",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-catalog-attributes",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--url",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "show:application-category",
+    "verb": "show",
+    "object": "application-category",
+    "variant": null,
+    "action": null,
+    "flags": [],
+    "columns": [
+      "data"
+    ]
+  },
+  {
+    "key": "show:application-group",
+    "verb": "show",
+    "object": "application-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "description"
+    ]
+  },
+  {
+    "key": "show:application-plugin",
+    "verb": "show",
+    "object": "application-plugin",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "application_id"
+    ]
+  },
+  {
+    "key": "show:cloud-storage-provider",
+    "verb": "show",
+    "object": "cloud-storage-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": []
+  },
+  {
+    "key": "show:customization-policy",
+    "verb": "show",
+    "object": "customization-policy",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description",
+      "mode",
+      "evaluation_order"
+    ]
+  },
+  {
+    "key": "show:customization-rule",
+    "verb": "show",
+    "object": "customization-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "show:customization-section",
+    "verb": "show",
+    "object": "customization-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "show:device",
+    "verb": "show",
+    "object": "device",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-disk-encryption-status",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-firewall-status",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-first-seen-gte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-hostname",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-last-seen-gte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-last-seen-lte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-os-type",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-screen-lock-status",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-type",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--user-name",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "status",
+      "external_id",
+      "os_type",
+      "os_version",
+      "os_display_name"
+    ]
+  },
+  {
+    "key": "show:device-group",
+    "verb": "show",
+    "object": "device-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-created-at-gte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-created-at-lte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-platform",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--device-group-updated-at-gte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-updated-at-lte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "platform",
+      "created_by",
+      "devices",
+      "created_at"
+    ]
+  },
+  {
+    "key": "show:pending-change",
+    "verb": "show",
+    "object": "pending-change",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "name",
+      "entity_id",
+      "entity_type",
+      "operation",
+      "last_updated_by"
+    ]
+  },
+  {
+    "key": "show:security-policy",
+    "verb": "show",
+    "object": "security-policy",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description",
+      "mode",
+      "evaluation_order"
+    ]
+  },
+  {
+    "key": "show:security-rule",
+    "verb": "show",
+    "object": "security-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "show:security-section",
+    "verb": "show",
+    "object": "security-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "show:sign-in-policy",
+    "verb": "show",
+    "object": "sign-in-policy",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description",
+      "mode",
+      "evaluation_order"
+    ]
+  },
+  {
+    "key": "show:sign-in-rule",
+    "verb": "show",
+    "object": "sign-in-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode",
+      "action"
+    ]
+  },
+  {
+    "key": "show:sign-in-section",
+    "verb": "show",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "show:user",
+    "verb": "show",
+    "object": "user",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--group-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-deleted",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--user-email",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-first-seen-gte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-last-seen-lte",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-status",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "status",
+      "external_id",
+      "email",
+      "profile_picture_url"
+    ]
+  },
+  {
+    "key": "show:user-group",
+    "verb": "show",
+    "object": "user-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "provider"
+    ]
+  },
+  {
+    "key": "show:user-request",
+    "verb": "show",
+    "object": "user-request",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--request-device-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--request-responded-by",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--request-rule-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--request-status",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--request-type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--request-url",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--request-user-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "type",
+      "status",
+      "user_id",
+      "url",
+      "reason"
+    ]
+  },
+  {
+    "key": "update:access-and-data-rule",
+    "verb": "update",
+    "object": "access-and-data-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--access",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--data-controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--login-controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--tracking",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "update:access-and-data-section",
+    "verb": "update",
+    "object": "access-and-data-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "update:application-group",
+    "verb": "update",
+    "object": "application-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--applications",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "description"
+    ]
+  },
+  {
+    "key": "update:application:custom",
+    "verb": "update",
+    "object": "application",
+    "variant": "custom",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--urls",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "update:application:localdesktopcustom",
+    "verb": "update",
+    "object": "application",
+    "variant": "localdesktopcustom",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--executables",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "update:application:non-web",
+    "verb": "update",
+    "object": "application",
+    "variant": "non-web",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--address",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--port",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--protocol",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--route-to-prisma",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "update:application:private",
+    "verb": "update",
+    "object": "application",
+    "variant": "private",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--category",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cidrs",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--domain-suffix",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--primary-url",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--route-to-prisma",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--urls",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "update:customization-rule",
+    "verb": "update",
+    "object": "customization-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "update:customization-section",
+    "verb": "update",
+    "object": "customization-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "update:device-group",
+    "verb": "update",
+    "object": "device-group",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--attributes",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--serials-to-add",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--serials-to-remove",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "platform",
+      "created_by",
+      "devices",
+      "created_at"
+    ]
+  },
+  {
+    "key": "update:security-rule",
+    "verb": "update",
+    "object": "security-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--controls",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode"
+    ]
+  },
+  {
+    "key": "update:security-section",
+    "verb": "update",
+    "object": "security-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  },
+  {
+    "key": "update:sign-in-rule",
+    "verb": "update",
+    "object": "sign-in-rule",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--action",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--mode",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--scope",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority",
+      "description",
+      "mode",
+      "action"
+    ]
+  },
+  {
+    "key": "update:sign-in-section",
+    "verb": "update",
+    "object": "sign-in-section",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--positioning",
+        "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "priority"
+    ]
+  }
+]

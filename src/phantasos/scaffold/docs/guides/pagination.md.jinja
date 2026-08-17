@@ -1,0 +1,20 @@
+{% if has_docs | default(false) and show_pagination_guide %}# Pagination
+
+List endpoints return one page at a time. The `list(...)` wrapper method accepts
+`all_pages=True`, which transparently follows the cursor and returns a single
+response whose `.data` holds every item across all pages.
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_env()
+
+for item in client.{{ showcase.call_path }}.list(all_pages=True).data:
+    print(item)
+```
+
+Without `all_pages` (the default), `list(...)` returns just the first page — call it
+again with the next cursor to page manually. With `all_pages=True` the wrapper fetches
+every page for you; the server decides the page size. To cap the work, break out of the
+loop once you have what you need.
+{% endif %}

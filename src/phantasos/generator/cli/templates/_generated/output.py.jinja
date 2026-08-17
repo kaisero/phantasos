@@ -15,6 +15,7 @@ import jmespath
 import yaml
 from rich.console import Console
 from rich.pager import Pager
+from rich.syntax import Syntax
 from rich.table import Table
 
 from . import config as _config
@@ -35,6 +36,23 @@ def _to_data(obj: Any) -> Any:
     return str(obj)  # never leak a Python object repr to the user
 
 
+def print_yaml(text: str) -> None:
+    """Emit YAML to the console: syntax-highlighted on a terminal, byte-clean plain
+    YAML when piped/redirected/NO_COLOR (rich strips styling off-TTY). soft_wrap=True
+    stops rich's Syntax from cropping long lines to the off-TTY fallback width."""
+    _console.print(
+        Syntax(
+            text.rstrip("\n"),
+            "yaml",
+            theme="ansi_dark",
+            background_color="default",
+            word_wrap=False,
+            line_numbers=False,
+        ),
+        soft_wrap=True,
+    )
+
+
 def render(
     result: Any,
     fmt: str = "json",
@@ -47,11 +65,7 @@ def render(
         return  # empty success (e.g. delete / HTTP 204) — print nothing
     data = _to_data(result)
     if fmt == "yaml":
-        _console.out(
-            yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
-            highlight=False,
-            end="",
-        )
+        print_yaml(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
         return
     if fmt == "table":
         _render_table(data, columns=columns, default_columns=default_columns,

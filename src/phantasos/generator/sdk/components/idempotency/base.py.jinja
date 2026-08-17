@@ -1,0 +1,44 @@
+"""Idempotency strategy seams + registries (ADR-0004)."""
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+{% if federated %}from {{ root_package }}._runtime.exceptions import NotFoundException
+{% else %}from ...exceptions import NotFoundException
+{% endif %}
+__all__ = [
+    "FetchStrategy", "MutateStrategy", "MaterializeStrategy",
+    "FETCH", "MUTATE", "MATERIALIZE", "NotFoundException", "revalidate",
+]
+
+
+def revalidate(model_cls: Any, wire: dict) -> Any:
+    """Rebuild a body model from a WIRE dict.
+
+    Prefer the generated ``from_dict``: it reconstructs nested oneOf wrapper
+    fields, whose ``actual_instance`` a bare ``model_validate`` leaves ``None``
+    — silently serializing the field as ``null`` and drawing a server reject
+    (live-proven on Services.protocol). Plain models without ``from_dict``
+    fall back to ``model_validate``.
+    """
+    from_dict = getattr(model_cls, "from_dict", None)
+    if callable(from_dict):
+        return from_dict(wire)
+    return model_cls.model_validate(wire)
+
+
+class FetchStrategy(Protocol):
+    def __call__(self, res: Any, identity: dict, scope: dict, meta: dict) -> Any | None: ...
+
+
+class MutateStrategy(Protocol):
+    def __call__(self, res: Any, desired: Any, actual: Any, diff: Any, meta: dict) -> Any: ...
+
+
+class MaterializeStrategy(Protocol):
+    def __call__(self, res: Any, response: Any, identity: dict, scope: dict, meta: dict) -> Any: ...
+
+
+FETCH: dict[str, FetchStrategy] = {}
+MUTATE: dict[str, MutateStrategy] = {}
+MATERIALIZE: dict[str, MaterializeStrategy] = {}

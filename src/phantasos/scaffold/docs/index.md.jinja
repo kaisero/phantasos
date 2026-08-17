@@ -1,0 +1,27 @@
+{% if has_docs | default(false) %}# {{ site_name }}
+
+{{ description }}
+
+`{{ distribution }}` is the Python SDK for {{ spec_title or distribution }}. It exposes
+every object as a typed `client.<object>` wrapper with clean, verb-named methods and
+handles authentication{% if has_pagination %}, pagination{% endif %}{% if has_retry %}, and retries{% endif %} for you.
+
+```bash
+pip install {{ distribution }}
+```
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_env()
+```
+
+## Where to go next
+
+- **[Getting Started](getting-started.md)** — install, authenticate, make your first call.
+- **[Architecture](architecture.md)** — how the client, resources, and components fit together.
+{% if has_auth %}- **[Authentication](guides/authentication.md)** — credentials and configuration.
+{% endif %}{% if show_pagination_guide %}- **[Pagination](guides/pagination.md)** — iterate large result sets.
+{% endif %}- **[CRUD operations](guides/crud.md)** — create, read, update, and delete resources.
+- **[API Reference](reference/)** — every resource, operation, and model.
+{% endif %}

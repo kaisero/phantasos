@@ -1,7 +1,8 @@
 """Resource-oriented facade (vendored by phantasos).
 
-`client.<resource>` is the corresponding generated `*Api` instance. Resources are
-discovered from the generated `api/` package at build time.
+`client.<object>` is the typed resource wrapper for that object — clean, verb-named
+methods backed privately by the generated `*Api`. Objects are discovered from the
+generated `api/` package and classified at build time.
 """
 
 from __future__ import annotations
@@ -9,29 +10,45 @@ from __future__ import annotations
 from typing import Any, Callable, Iterator
 {% endif %}
 {% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
-{% endfor %}{% if has_auth %}from .auth import api_client_from_credentials, api_client_from_env
+{% endfor %}{% if wrappers %}{% for o in objects %}from .resources import {{ o.classname }}
+{% endfor %}{% endif %}{% if has_auth %}from .auth import DEFAULT_BASE_URL, api_client_from_credentials, api_client_from_env, api_client_from_token
 {% endif %}{% if has_pagination %}from .pagination import paginate
 {% endif %}{% if has_retry %}from .retry import default_retry
 {% endif %}
 __all__ = ["Client"]
 
+# Raw `*Api` classes keyed by their api-class attr. Retained as the in-process
+# introspection target (`registry_attr="_RESOURCES"`); NOT the client's public
+# surface — the wrappers below are.
 _RESOURCES = {
 {% for r in resources %}    "{{ r.attr }}": {{ r.cls }},
 {% endfor %}}
-
+{% if wrappers %}
+# Object -> (wrapper class, backing `_RESOURCES` api-class attr). The CLI's
+# wrapper introspection keys off this map.
+_WRAPPERS = {
+{% for o in objects %}    "{{ o.attr }}": ({{ o.classname }}, "{{ o.api_attr }}"),
+{% endfor %}}
+{% endif %}
 
 class Client:
-    """Resource-oriented entry point. Each resource attribute is a generated *Api."""
+    """Resource-oriented entry point. Each object attribute is a typed wrapper."""
 
     def __init__(self, api_client):
         self._api_client = api_client
 {% if has_retry %}        if getattr(api_client.configuration, "retries", None) is None:
             api_client.configuration.retries = default_retry()
-{% endif %}        for name, api_cls in _RESOURCES.items():
+{% endif %}{% if wrappers %}        # One `*Api` per backing class, SHARED across every object it backs
+        # (e.g. access_and_data_rule/_section/_policy reuse one instance).
+        _apis = {attr: cls(api_client) for attr, cls in _RESOURCES.items()}
+        for obj, (wrapper_cls, api_attr) in _WRAPPERS.items():
+            setattr(self, obj, wrapper_cls(_apis[api_attr]))
+{% else %}        for name, api_cls in _RESOURCES.items():
             setattr(self, name, api_cls(api_client))
-
-{% for r in resources %}    {{ r.attr }}: {{ r.cls }}
-{% endfor %}{% if has_auth %}
+{% endif %}
+{% if wrappers %}{% for o in objects %}    {{ o.attr }}: {{ o.classname }}
+{% endfor %}{% else %}{% for r in resources %}    {{ r.attr }}: {{ r.cls }}
+{% endfor %}{% endif %}{% if has_auth %}
     @classmethod
     def from_env(cls, **kwargs) -> "Client":
         return cls(api_client_from_env(**kwargs))
@@ -39,6 +56,10 @@ class Client:
     @classmethod
     def from_credentials(cls, **kwargs) -> "Client":
         return cls(api_client_from_credentials(**kwargs))
+
+    @classmethod
+    def from_access_token(cls, token, *, host: str = DEFAULT_BASE_URL) -> "Client":
+        return cls(api_client_from_token(token, host=host))
 {% endif %}{% if has_pagination %}
     def paginate(self, list_method: Callable[..., Any], **filters: Any) -> Iterator[Any]:
         return paginate(list_method, **filters)

@@ -7,9 +7,7 @@ from phantasos.cli import main
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
-def test_cli_discover_prints_table(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_discover_prints_table(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     # Stub load_product so the command resolves package + sdk path to the fixture.
     import phantasos.cli as climod
 
@@ -28,9 +26,7 @@ def test_cli_discover_prints_table(
     assert "UNMAPPED" in out
 
 
-def test_cli_build_emits_full_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_build_emits_full_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import phantasos.cli as climod
 
     sdk_ctx = {
@@ -63,6 +59,7 @@ def test_cli_build_emits_full_project(
         output_dir = tmp_path / "fakesdk-sdk"
         context = sdk_ctx
         auth = type("A", (), {"scope_env": "SCOPE", "base_url_env": "FAKE_BASE_URL"})()
+        errors = None  # no error component -> generic error envelope
 
     monkeypatch.setattr(climod, "load_product", lambda name: _Loaded())
     rc = main(["cli", "build", "fakesdk"])
@@ -86,9 +83,7 @@ def test_cli_build_emits_full_project(
     assert not (root / "tests" / "test_auth.py").exists()
 
 
-def test_cli_build_errors_without_project_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cli_build_errors_without_project_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import phantasos.cli as climod
 
     _ctx = {"package": "fakesdk"}  # no project keys

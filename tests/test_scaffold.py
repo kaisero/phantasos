@@ -21,12 +21,8 @@ def _ctx(**over: object) -> dict[str, Any]:
 def test_scaffold_renders_builtin_and_strips_jinja(tmp_path: Path) -> None:
     builtin = tmp_path / "scaffold"
     (builtin / ".github" / "workflows").mkdir(parents=True)
-    (builtin / "pyproject.toml.jinja").write_text(
-        "name = '{{ distribution }}'\n", "utf-8"
-    )
-    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text(
-        "on: [push]\n", "utf-8"
-    )
+    (builtin / "pyproject.toml.jinja").write_text("name = '{{ distribution }}'\n", "utf-8")
+    (builtin / ".github" / "workflows" / "ci.yml.jinja").write_text("on: [push]\n", "utf-8")
     # non-jinja: copied verbatim
     (builtin / ".editorconfig").write_text("root = true\n", "utf-8")
     out = tmp_path / "sdk"
@@ -54,9 +50,7 @@ def test_override_replaces_builtin(tmp_path: Path) -> None:
 def test_conditional_skip_via_jinja(tmp_path: Path) -> None:
     builtin = tmp_path / "scaffold"
     builtin.mkdir()
-    (builtin / "test_pagination.py.jinja").write_text(
-        "{% if has_pagination %}import x{% endif %}", "utf-8"
-    )
+    (builtin / "test_pagination.py.jinja").write_text("{% if has_pagination %}import x{% endif %}", "utf-8")
     out = tmp_path / "sdk"
     out.mkdir()
     written = scaffold.render_scaffold(builtin, None, out, _ctx(has_pagination=False))
@@ -143,6 +137,40 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
         "has_facade": True,
         "has_retry": True,
         "config_class_name": "AcmeConfiguration",
+        "has_docs": True,
+        "site_name": "acme-sdk",
+        "show_pagination_guide": True,
+        "spec_title": "Acme API",
+        "credentials": [
+            {
+                "name": "client_id",
+                "env_var": "CLIENT_ID",
+                "secret": False,
+                "required": True,
+            },
+        ],
+        "showcase": {
+            "attr": "widgets",
+            "call_path": "widgets",  # single-spec: no sub-package prefix
+            "has_create": True,
+            "has_read": True,
+            "has_list": True,
+            "has_update": False,
+            "has_delete": True,
+            "list": {"method": "list_widgets"},
+            "operations": {
+                "create": {"method": "create_widget", "required_args": []},
+                "read": {
+                    "method": "get_widget_by_id",
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
+                },
+                "list": {"method": "list_widgets", "required_args": []},
+                "delete": {
+                    "method": "delete_widget_by_id",
+                    "required_args": [{"name": "id", "kind": "path", "placeholder": "<id>"}],
+                },
+            },
+        },
     }
     scaffold.render_scaffold(scaffold.builtin_dir(), None, out, ctx)
     wfs = sorted((out / ".github" / "workflows").glob("*.yml"))
@@ -157,7 +185,11 @@ def test_builtin_workflows_render_valid_yaml(tmp_path: Path) -> None:
     assert {p.name for p in wfs} >= expected_wfs
     for wf in wfs:
         parse(wf.read_text())  # raises on invalid YAML
-    parse((out / "mkdocs.yml").read_text())
+    # mkdocs.yml uses !!python/name: tags (pymdownx superfences); safe YAML
+    # loaders cannot resolve them — use unsafe loader only for syntax validation.
+    import yaml
+
+    yaml.unsafe_load((out / "mkdocs.yml").read_text())
 
 
 def test_builtin_meta_files_render(tmp_path: Path) -> None:
@@ -271,13 +303,9 @@ def test_scaffold_retry_test_gated(tmp_path: Path) -> None:
     }
     out_on = tmp_path / "on"
     out_on.mkdir()
-    scaffold.render_scaffold(
-        scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True}
-    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_on, {**base, "has_retry": True})
     assert (out_on / "tests" / "test_retry.py").exists()
     out_off = tmp_path / "off"
     out_off.mkdir()
-    scaffold.render_scaffold(
-        scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False}
-    )
+    scaffold.render_scaffold(scaffold.builtin_dir(), None, out_off, {**base, "has_retry": False})
     assert not (out_off / "tests" / "test_retry.py").exists()

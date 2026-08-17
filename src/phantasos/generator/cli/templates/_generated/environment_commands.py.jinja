@@ -1,0 +1,240 @@
+"""`environment` commands: manage named environments (credentials + connection settings).
+
+The ``create`` command exposes one ``--<field>`` option per credential and
+connection field, generated as STATIC typer options from the descriptors — so this
+module depends only on ``typer`` (no direct ``click`` dependency).
+
+Environments live in the dedicated ``~/.{distribution}/environments.yml`` file
+(top-level ``environments:`` mapping and ``default_environment:`` key). Field
+values are stored VERBATIM — a literal OR a ``${VAR}`` reference string — and
+resolved only at client-build time.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+import typer
+import yaml
+from rich.table import Table
+
+from . import config as _config
+from . import diagnostics as _diag
+from . import output as _output
+from . import runtime as _rt
+
+
+def _kebab(name: str) -> str:
+    """``client_secret`` -> ``client-secret`` (the CLI flag spelling)."""
+    return name.replace("_", "-")
+
+
+def _credential_fields() -> list[Any]:
+    """The IR's credential fields (each has ``.name`` / ``.secret``)."""
+    return list(_rt._ir().credential_fields)
+
+
+def _write_environments_file(data: dict[str, Any]) -> None:
+    """Atomically dump the environments dict to ``environments.yml`` at 0o600.
+
+    The file is env-only (environments + default_environment) so we simply
+    serialise the caller's in-memory dict. The file may hold secret credentials,
+    so it is created private (0o600) and written via a temp file + atomic rename
+    so a crash mid-write can't corrupt an existing environments file."""
+    path = _config.environments_path()
+    content = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.parent.chmod(0o700)  # tighten even if the dir pre-existed (holds secrets)
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        tmp.replace(path)
+        path.chmod(0o600)  # tighten even if the file pre-existed
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        _diag.fail(f"cannot write {path}: {exc}", code=1)
+
+
+def _create_environment(name: str, force: bool, **field_values: Any) -> None:
+    """``create`` body. Prompts for any field not supplied on the command line
+    (secrets with input hidden), stores values verbatim under
+    ``environments[name]``, and auto-activates the first environment."""
+    fields = _credential_fields()
+    data = _config._read_env_file()
+    environments = data.get("environments")
+    if not isinstance(environments, dict):
+        environments = {}
+
+    if name in environments and not force:
+        _diag.fail(
+            f"environment '{name}' already exists (use --force to overwrite)",
+            code=2,
+        )
+
+    values: dict[str, Any] = {}
+    for f in fields:
+        supplied = field_values.get(f.name)
+        if supplied is not None:
+            values[f.name] = supplied
+        else:
+            # Prompt interactively; hide input for secret fields (no echo).
+            values[f.name] = typer.prompt(_kebab(f.name), hide_input=bool(f.secret))
+{%- for cv in connection_views %}
+    # Connection field '{{ cv.header }}' — non-secret (no hidden input), stored
+    # under its flag-name key.
+    _v = field_values.get({{ cv.py_name|tojson }})
+    values[{{ cv.flag|tojson }}] = (
+        _v if _v is not None else typer.prompt({{ cv.flag|tojson }})
+    )
+{%- endfor %}
+
+    environments[name] = values
+    data["environments"] = environments
+    first_environment = not isinstance(data.get("default_environment"), str)
+    if first_environment:
+        data["default_environment"] = name
+    _write_environments_file(data)
+
+    _diag.info(f"wrote environment '{name}' to {_config.environments_path()}")
+    if first_environment:
+        _diag.info(f"activated environment '{name}' (default_environment)")
+
+
+environment_app = typer.Typer(
+    no_args_is_help=True, help="Manage named environments."
+)
+
+
+@environment_app.command("create")
+def create(
+    name: str,
+{% for f in ir.credential_fields %}    {{ f.name }}: str | None = typer.Option(
+        None,
+        "--{{ f.name|replace('_', '-') }}",
+        help="Value for '{{ f.name }}' (literal or ${VAR} reference).",
+    ),
+{% endfor %}{% for cv in connection_views %}    {{ cv.py_name }}: str | None = typer.Option(
+        None,
+        "--{{ cv.flag }}",
+        help="Value for '{{ cv.header }}' ({{ cv.env }}; literal or ${VAR} reference).",
+    ),
+{% endfor %}    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing environment."
+    ),
+) -> None:
+    """Create (or overwrite with --force) a named environment."""
+    _create_environment(
+        name,
+        force,
+{% for f in ir.credential_fields %}        {{ f.name }}={{ f.name }},
+{% endfor %}{% for cv in connection_views %}        {{ cv.py_name }}={{ cv.py_name }},
+{% endfor %}    )
+
+
+@environment_app.command("activate")
+def activate(name: str) -> None:
+    """Make NAME the active environment (sets default_environment)."""
+    if name not in _config._raw_environments():
+        _diag.fail(f"no such environment: '{name}'", code=2)
+    data = _config._read_env_file()
+    data["default_environment"] = name
+    _write_environments_file(data)
+    _diag.info(f"activated environment '{name}'")
+
+
+@environment_app.command("show")
+def show_environments() -> None:
+    """List environments; for the active one, show effective settings and where each
+    value comes from (env var vs stored vs default). Secret values are masked."""
+    try:
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))  # mirror _client so show == behavior
+    except ModuleNotFoundError:
+        pass
+    environments = _config._raw_environments()
+    if not environments:
+        _diag.info("no environments defined")
+        return
+    active, source = _rt._selected_environment_source()
+    reason = {
+        "env": "via {{ env_prefix }}_ENVIRONMENT",
+        "default": "default_environment",
+        "flag": "via --environment",
+        "none": "",
+    }.get(source, "")
+    for name in environments:
+        mark = (
+            f" (active — {reason})"
+            if name == active and reason
+            else (" (active)" if name == active else "")
+        )
+        typer.echo(f"{name}{mark}")
+    if active in environments:
+        typer.echo(f"\nActive environment '{active}' — effective settings:")
+        block = _config._raw_environments().get(active)
+        # Same Rich-table look as `show cli log` (lower-case headers).
+        table = Table("field", "value", "source")
+        for e in _config.resolve_effective(active):
+            if e.secret:
+                shown = "••••• (hidden)"
+            elif e.value is not None:
+                shown = e.value
+            elif e.source is _config._Source.DEFAULT:
+                shown = "(default)"
+            else:
+                shown = "(unset)"
+            src = {
+                _config._Source.ENV: f"env {e.env_var}",
+                _config._Source.STORED: f"environment '{active}'",
+                _config._Source.STORED_REF: f"environment '{active}' (via ${% raw %}{{VAR}}{% endraw %})",
+                _config._Source.DEFAULT: "default",
+                _config._Source.UNSET: "unset",
+            }[e.source]
+            # note when an env var displaced a stored value
+            key = e.name if e.kind == "credential" else e.env_var
+            if (
+                e.source is _config._Source.ENV
+                and isinstance(block, dict)
+                and block.get(key) is not None
+            ):
+                src += f" (overrides environment '{active}')"
+            table.add_row(e.name, str(shown), src)
+        _output._console.print(table)
+    elif active is not None:
+        _diag.fail(
+            f"active environment '{active}' is not defined (run 'environment show')",
+            code=2,
+        )
+    else:
+        _diag.info("no active environment — auth falls back to environment variables")
+
+
+@environment_app.command("delete")
+def delete(
+    name: str,
+    force: bool = typer.Option(
+        False, "--force", help="Delete even the active environment."
+    ),
+) -> None:
+    """Remove a named environment from the config."""
+    data = _config._read_env_file()
+    envs = data.get("environments")
+    if not isinstance(envs, dict) or name not in envs:
+        _diag.fail(f"no such environment: '{name}'", code=2)
+    if data.get("default_environment") == name and not force:
+        _diag.fail(
+            f"'{name}' is the active environment; run "
+            "'environment activate <other>' first, or pass --force to delete it "
+            "(auth then falls back to environment variables)",
+            code=2,
+        )
+    del envs[name]
+    data["environments"] = envs
+    if data.get("default_environment") == name:  # only with --force
+        data.pop("default_environment", None)
+    _write_environments_file(data)
+    _diag.info(f"removed environment '{name}'")

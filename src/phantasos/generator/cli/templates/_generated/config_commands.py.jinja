@@ -7,10 +7,33 @@ import yaml
 
 from . import config as _config
 from . import diagnostics as _diag
+from . import output as _output
 
 config_app = typer.Typer(
     no_args_is_help=True, help="Manage the CLI configuration file."
 )
+
+_SET_ALIASES = {"loglevel": "logging.level", "logfile": "logging.file"}
+
+
+def _resolve_key(key: str) -> tuple[str, ...]:
+    dotted = _SET_ALIASES.get(key, key)
+    return ("configuration", *dotted.split("."))
+
+
+def _write_config(data: dict) -> None:
+    path = _config.config_path()
+    content = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)  # atomic rename -> a crash can't truncate config.yml
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        _diag.fail(f"cannot write {path}: {exc}", code=1)
+    # in-process consumers (log_file_path, default_output, ...) must see the write
+    _config.load_config.cache_clear()
 
 
 @config_app.command("init")
@@ -41,9 +64,70 @@ def config_show() -> None:
     _cfg, _warnings, sources = _config.load_config()
     _config.warn_once()
     _diag.info(f"merged from: {', '.join(sources)}")
-    typer.echo(
+    _output.print_yaml(
         yaml.safe_dump(
             _config.effective_dict(), sort_keys=False, default_flow_style=False
-        ),
-        nl=False,
+        )
     )
+
+
+@config_app.command("set")
+def config_set(key: str, value: str) -> None:
+    """Set a config option in config.yml (e.g. `config set loglevel debug`).
+
+    NOTE: writing config.yml strips any comments `config init` wrote; run
+    `config init --force` to restore the commented template.
+    """
+    path = _resolve_key(key)
+    if path not in _config._known_config_paths():
+        _diag.fail(f"unknown config key '{key}'", code=2)
+    try:
+        coerced = _config.coerce_config_value(path, value)
+    except ValueError as exc:
+        _diag.fail(f"invalid value for '{key}': {exc}", code=2)
+    raw = _config._raw_config_yml()
+    node = raw
+    for part in path[:-1]:
+        nxt = node.setdefault(part, {})
+        if not isinstance(nxt, dict):
+            _diag.fail(f"cannot set '{key}': '{part}' is not a section", code=2)
+        node = nxt
+    node[path[-1]] = coerced
+    ok, err = _config.validate_config(raw)
+    if not ok:
+        _diag.fail(f"invalid value for '{key}': {err}", code=2)
+    _write_config(raw)
+    _diag.info(f"set {'.'.join(path[1:])} = {coerced!r}")
+
+
+@config_app.command("unset")
+def config_unset(key: str) -> None:
+    """Remove a config option from config.yml (revert to the default).
+
+    NOTE: writing config.yml strips any comments `config init` wrote; run
+    `config init --force` to restore the commented template.
+    """
+    path = _resolve_key(key)
+    if path not in _config._known_config_paths():
+        _diag.fail(f"unknown config key '{key}'", code=2)
+    raw = _config._raw_config_yml()
+    node = raw
+    for part in path[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            _diag.info(f"{key} not set")
+            return
+    node.pop(path[-1], None)
+    _write_config(raw)
+    _diag.info(f"unset {'.'.join(path[1:])}")
+
+
+{% if ir.credential_fields %}
+@config_app.command("cache-clear")
+def config_cache_clear() -> None:
+    """Delete all cached auth tokens from the cache directory."""
+    from . import auth_cache as _auth_cache
+
+    n = _auth_cache.clear()
+    _output._console.print(f"removed {n} cached token(s) from {_auth_cache._dir()}")
+{% endif %}

@@ -12,3 +12,4 @@ venv/
 .coverage
 htmlcov/
 .nox/
+.build-stamp

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass as _dataclass
+from dataclasses import field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .config import (
     BUILTIN_AUTH,
@@ -15,6 +17,8 @@ from .config import (
     BUILTIN_FACADE,
     BUILTIN_PAGINATION,
     BUILTIN_RETRY,
+    IdempotencyConfig,
+    OperationOverride,
 )
 
 _BASE_DEPS = [
@@ -25,18 +29,51 @@ _BASE_DEPS = [
 ]
 
 
+def sdk_runtime_deps() -> list[str]:
+    """The OAG-fixed runtime deps every generated SDK requires.
+
+    Stable across regenerations; exposed so callers (e.g. the ``sdk-docs`` /
+    ``live`` nox sessions) can pre-install them without depending on a built
+    SDK's ``pyproject.toml``.
+    """
+    return list(_BASE_DEPS)
+
+
 class ProjectConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     distribution: str
     author: str
     author_email: str
     repo_url: str
+    # Optional push URL. When set, the generated project is git-initialized on a
+    # per-build branch and committed, ready to `git push origin <branch>` upstream.
+    git_remote: str | None = None
     description: str = ""
     license: str = "Apache-2.0"
-    python_versions: list[str] = Field(
-        default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"]
-    )
+    python_versions: list[str] = Field(default_factory=lambda: ["3.11", "3.12", "3.13", "3.14"])
     dependencies: list[str] = Field(default_factory=lambda: list(_BASE_DEPS))
+
+
+class DocsExamples(BaseModel):
+    """Optional per-slot verbatim override of the showcase CRUD example block."""
+
+    model_config = ConfigDict(extra="forbid")
+    create: str | None = None
+    read: str | None = None
+    list: str | None = None
+    update: str | None = None
+    delete: str | None = None
+
+
+class DocsConfig(BaseModel):
+    """Opt-in user-documentation generation (sdk.yml `docs:` block)."""
+
+    model_config = ConfigDict(extra="forbid")
+    showcase_resource: str
+    showcase_variant: str | None = None
+    showcase_subpackage: str | None = None
+    site_name: str | None = None
+    examples: DocsExamples | None = None
 
 
 class Hoist(BaseModel):
@@ -70,13 +107,71 @@ class GeneratorConfig(BaseModel):
     oneof_discriminator_lookup: bool = True
 
 
+class NormalizeIds(BaseModel):
+    """Per-sub operationId normalization (e.g. strip ``.v2``, dots->underscore)."""
+
+    model_config = ConfigDict(extra="forbid")
+    strip_suffix: str | None = None
+    dots_to_underscore: bool = False
+    unify_separator: str | None = None
+
+
+class SubPackage(BaseModel):
+    """One federated sub-package: its slug becomes a package/dir/import path."""
+
+    model_config = ConfigDict(extra="forbid")
+    slug: str
+    spec: str
+    normalize_operation_ids: NormalizeIds | None = None
+    operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    idempotency: IdempotencyConfig | None = None
+    skip_validate_spec: bool = False
+
+
+class HeaderSpec(BaseModel):
+    """One request header the SDK sends by default, sourced from an env var.
+
+    `required` makes the env var mandatory for every sub-package; `required_for`
+    lists the slugs that must have it set. The fail-loud on a missing value
+    happens at client construction (runtime, in the composer), not at load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    env: str
+    required: bool = False
+    required_for: list[str] = Field(default_factory=list)
+
+
+class LiveProbe(BaseModel):
+    """Per-sub-package probe override for the federated live smoke.
+
+    Keys that are absent fall back to auto-detection at runtime. `args` values
+    may be ``$ENV`` strings — stored RAW here, resolved by the emitted test.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    object: str | None = None  # facade object to probe; None = auto-pick at runtime
+    verb: str = "list"
+    # kwarg-name -> value passed to the probed verb. A `$ENV` string is resolved by
+    # the emitted test; a non-string (e.g. a `{}` request body) passes through as-is.
+    args: dict[str, Any] = Field(default_factory=dict)
+    skip: bool = False
+
+
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
 class ProductConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     package: str
     output: str
     base_url: str
     generator: GeneratorConfig = Field(default_factory=GeneratorConfig)
-    spec: str = "./openapi.yml"
+    # Single-spec (legacy) products set `spec:`; federated products set
+    # `subpackages:` instead. Exactly one is required — the validator restores
+    # the legacy "./openapi.yml" default when neither is federated.
+    spec: str | None = None
+    subpackages: list[SubPackage] = Field(default_factory=list)
     apply_generic_patches: bool = True
     transforms: Transforms = Field(default_factory=Transforms)
     hooks: str | None = None
@@ -90,6 +185,41 @@ class ProductConfig(BaseModel):
     vars: dict[str, Any] = Field(default_factory=dict)
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
+    operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    idempotency: IdempotencyConfig | None = None
+    docs: DocsConfig | None = None
+    # header-name -> spec; sent as default headers on every sub-package's
+    # ApiClient handle by the federated composer (declared here, NOT derived
+    # from any spec). Fail-loud on a missing value happens at construction.
+    default_headers: dict[str, HeaderSpec] = Field(default_factory=dict)
+    # sub-package slug -> probe override; federated products only.
+    # Absent keys are auto-probed at runtime by the emitted live-smoke test.
+    live_smoke: dict[str, LiveProbe] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _exactly_one_spec_mode(self) -> ProductConfig:
+        federated = bool(self.subpackages)
+        explicit_spec = self.spec is not None
+        if federated and explicit_spec:
+            raise ValueError("set either `spec:` (single-spec) or `subpackages:` (federated), not both")
+        if not federated and self.spec is None:
+            self.spec = "./openapi.yml"  # restore legacy default
+        if not federated and self.live_smoke:
+            raise ValueError("`live_smoke` is federated-only; single-spec products must not set it")
+        if federated and self.idempotency is not None:
+            raise ValueError(
+                "top-level `idempotency:` is federated-illegal; declare it "
+                "per sub-package (same split as `operations:`)"
+            )
+        if federated:  # slug is a package/dir/import path — validate at the boundary
+            seen: set[str] = set()
+            for sub in self.subpackages:
+                if not _SLUG_RE.match(sub.slug):
+                    raise ValueError(f"sub-package slug {sub.slug!r} must match {_SLUG_RE.pattern}")
+                if sub.slug in seen:
+                    raise ValueError(f"duplicate sub-package slug {sub.slug!r}")
+                seen.add(sub.slug)
+        return self
 
 
 class CustomComponent(BaseModel):
@@ -105,9 +235,7 @@ class CustomComponent(BaseModel):
         return dict(self.__pydantic_extra__ or {})
 
 
-def resolve_component(
-    block: dict[str, Any], registry: Mapping[str, type], base_dir: Path
-) -> Any:
+def resolve_component(block: dict[str, Any], registry: Mapping[str, type], base_dir: Path) -> Any:
     """Turn a raw sdk.yml component block into a validated component model."""
     type_ = block.get("type")
     if isinstance(type_, str) and (type_.startswith("./") or type_.endswith(".jinja")):
@@ -118,17 +246,28 @@ def resolve_component(
         return CustomComponent(**data)
     model = registry.get(type_) if isinstance(type_, str) else None
     if model is None:
-        raise ValueError(
-            f"unknown component type {type_!r}; expected one of {sorted(registry)}"
-        )
+        raise ValueError(f"unknown component type {type_!r}; expected one of {sorted(registry)}")
     return model(**block)
+
+
+@_dataclass
+class LoadedSubPackage:
+    """One federated sub-package, resolved against its own spec.
+
+    `config` carries the slug (`config.slug`) — there is no separate slug field.
+    """
+
+    package: str  # "prisma_access.objects"
+    spec_path: Path
+    context: dict[str, Any]  # per-sub jinja context (package, spec_title, spec_version)
+    config: SubPackage
 
 
 @_dataclass
 class LoadedProduct:
     config: ProductConfig
     base_dir: Path
-    spec_path: Path
+    spec_path: Path | None  # None for federated products (B5)
     output_dir: Path
     auth: Any | None
     pagination: Any | None
@@ -136,6 +275,7 @@ class LoadedProduct:
     facade: Any | None
     retry: Any | None
     context: dict[str, Any]
+    subpackages: list[LoadedSubPackage] = field(default_factory=list)
 
 
 _AUTO_EXPOSED = {
@@ -157,7 +297,15 @@ _AUTO_EXPOSED = {
     "license",
     "python_versions",
     "dependencies",
+    "has_docs",
+    "ruff_spec",
 }
+
+
+def _ruff_spec() -> str:
+    from .generator.finalize import ruff_pin
+
+    return ruff_pin()
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -177,14 +325,8 @@ def load_product(name_or_path: str) -> LoadedProduct:
     cfg = ProductConfig(**_read_yaml(sdk_path))
 
     auth = resolve_component(cfg.auth, BUILTIN_AUTH, base_dir) if cfg.auth else None
-    pagination = (
-        resolve_component(cfg.pagination, BUILTIN_PAGINATION, base_dir)
-        if cfg.pagination
-        else None
-    )
-    errors = (
-        resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
-    )
+    pagination = resolve_component(cfg.pagination, BUILTIN_PAGINATION, base_dir) if cfg.pagination else None
+    errors = resolve_component(cfg.errors, BUILTIN_ERRORS, base_dir) if cfg.errors else None
     facade = None
     if cfg.facade:
         block = {"type": "default"} if cfg.facade is True else dict(cfg.facade)
@@ -197,21 +339,32 @@ def load_product(name_or_path: str) -> LoadedProduct:
         block.setdefault("type", "default")
         retry = resolve_component(block, BUILTIN_RETRY, base_dir)
 
-    spec_path = (base_dir / cfg.spec).resolve()
-    info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
+    # B5: only single-spec products carry a top-level spec; for federated
+    # products each sub-package owns its spec, so the top-level read is skipped.
+    if cfg.subpackages:
+        spec_path: Path | None = None
+        spec_version = spec_title = None
+    else:
+        # validator restores the legacy default, so cfg.spec is non-None here
+        spec_path = (base_dir / cast(str, cfg.spec)).resolve()
+        info = (_read_yaml(spec_path) or {}).get("info", {}) if spec_path.exists() else {}
+        spec_version, spec_title = info.get("version"), info.get("title")
 
     context: dict[str, Any] = {
         "package": cfg.package,
         "library": cfg.generator.library,
         "base_url": cfg.base_url,
-        "spec_version": info.get("version"),
-        "spec_title": info.get("title"),
+        "spec_version": spec_version,
+        "spec_title": spec_title,
         "has_auth": auth is not None,
         "has_pagination": pagination is not None,
         "has_errors": errors is not None,
         "has_facade": facade is not None,
         "has_retry": retry is not None,
+        "has_docs": cfg.docs is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
+        # Pins the emitted noxfile's ruff to the one finalize formats with.
+        "ruff_spec": _ruff_spec(),
     }
     if cfg.project is not None:
         context.update(
@@ -228,9 +381,7 @@ def load_product(name_or_path: str) -> LoadedProduct:
         )
     collisions = set(cfg.vars) & _AUTO_EXPOSED
     if collisions:
-        raise ValueError(
-            f"vars keys {sorted(collisions)} shadow reserved auto-exposed names"
-        )
+        raise ValueError(f"vars keys {sorted(collisions)} shadow reserved auto-exposed names")
     context.update(cfg.vars)
 
     for _dest, source in cfg.include.items():
@@ -238,9 +389,18 @@ def load_product(name_or_path: str) -> LoadedProduct:
         if not src_path.is_relative_to(base_dir):
             raise ValueError(f"include source {source!r} escapes the product dir")
         if not src_path.exists():
-            raise ValueError(
-                f"include source {source!r}: template not found at {src_path}"
-            )
+            raise ValueError(f"include source {source!r}: template not found at {src_path}")
+
+    sub_loaded: list[LoadedSubPackage] = []
+    for sub in cfg.subpackages:
+        sub_spec = (base_dir / sub.spec).resolve()
+        sub_info = (_read_yaml(sub_spec) or {}).get("info", {}) if sub_spec.exists() else {}
+        sub_pkg = f"{cfg.package}.{sub.slug}"
+        sub_ctx = dict(context)
+        sub_ctx["package"] = sub_pkg
+        sub_ctx["spec_title"] = sub_info.get("title")
+        sub_ctx["spec_version"] = sub_info.get("version")
+        sub_loaded.append(LoadedSubPackage(package=sub_pkg, spec_path=sub_spec, context=sub_ctx, config=sub))
 
     return LoadedProduct(
         config=cfg,
@@ -253,4 +413,5 @@ def load_product(name_or_path: str) -> LoadedProduct:
         facade=facade,
         retry=retry,
         context=context,
+        subpackages=sub_loaded,
     )

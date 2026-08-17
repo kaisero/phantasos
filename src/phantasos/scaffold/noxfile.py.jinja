@@ -10,7 +10,7 @@ PYTHON_VERSIONS = {{ python_versions }}
 
 @nox.session
 def lint(session: nox.Session) -> None:
-    session.install("ruff")
+    session.install("{{ ruff_spec | default("ruff") }}")
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
 
@@ -18,10 +18,31 @@ def lint(session: nox.Session) -> None:
 @nox.session
 def type_check(session: nox.Session) -> None:
     session.install("mypy", ".")
-    session.run("mypy", "{{ package }}")
+    # `-p <package>` (not a path) so a package whose top level is an implicit
+    # namespace (e.g. the CLI, no top-level __init__.py) isn't discovered twice.
+    session.run("mypy", "-p", "{{ package }}")
 
 
 @nox.session(python=PYTHON_VERSIONS)
 def tests(session: nox.Session) -> None:
     session.install(".", "pytest", "pytest-cov")
     session.run("pytest", "--cov={{ package }}", *session.posargs)
+{% if (has_docs | default(false)) or (cli_docs | default(false)) %}
+
+@nox.session
+def docs(session: nox.Session) -> None:
+    session.run_install(
+        "uv", "sync", "--group", "docs",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("mkdocs", "build", "--strict")
+
+
+@nox.session(name="docs-serve")
+def docs_serve(session: nox.Session) -> None:
+    session.run_install(
+        "uv", "sync", "--group", "docs",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("mkdocs", "serve")
+{% endif %}

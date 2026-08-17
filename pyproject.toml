@@ -1,6 +1,6 @@
 [project]
 name = "phantasos"
-version = "0.1.0a1"
+version = "0.1.1"
 description = "Generate native, self-contained Python SDKs and CLIs from OpenAPI specs."
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -23,6 +23,9 @@ dependencies = [
     "pydantic>=2",
     "jmespath>=1.0",
     "typer>=0.26.7",
+    # libcst: semantic import-rewrite for the federated SDK runtime-hoist pass
+    # (generator/sdk/runtime.py, imported by build.py at build time).
+    "libcst>=1.1",
 ]
 
 [project.urls]
@@ -69,11 +72,14 @@ include = ["src/phantasos", "README.md"]
 [dependency-groups]
 # python-dotenv + pyyaml: the emitted-CLI tests import a generated CLI in-process,
 # which imports yaml/dotenv at module load — both must be present in the test env.
-test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6"]
+# pymdown-extensions: the docs-scaffold tests yaml.unsafe_load the generated
+# mkdocs.yml, whose mermaid fence uses `!!python/name:pymdownx.superfences.
+# fence_code_format` — unsafe_load imports that path, so pymdownx must be present.
+test = ["pytest>=8", "pytest-cov>=5", "python-dotenv>=1.0", "pyyaml>=6", "pymdown-extensions>=10"]
 typecheck = ["mypy>=1.11", { include-group = "test" }]
 lint = ["ruff>=0.6", "codespell>=2.3"]
 audit = ["pip-audit>=2.7"]
-docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
+docs = ["mkdocs-material>=9.5"]
 dev = [
     "nox>=2024.4",
     "pre-commit>=3.7",
@@ -86,8 +92,10 @@ dev = [
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
-src = ["src", "tests", "transformations"]
+line-length = 120
+src = ["src", "tests", "tools", "transformations"]
+# Throwaway validation prototypes are not project code — keep them out of the gate.
+extend-exclude = ["prototypes"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "S", "ASYNC", "PTH", "RUF"]
@@ -95,16 +103,39 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]
+# conftest shells out to `git diff` (fixed argv) for the real_sdk staleness check.
+"tests/conftest.py" = ["S603", "S607"]
 # fixture intentionally mirrors OpenAPI-Generator output (old-style annotations)
-"tests/fixtures/**" = ["UP042", "UP045", "UP007"]
+# and the generated wrapper surface (long _bindings/method one-liners, like the
+# emitted extras/resources.py which is not linted)
+"tests/fixtures/**" = ["UP042", "UP045", "UP007", "E501"]
+# runtime.py's libcst visitor API mandates PascalCase method names
+# (leave_ImportFrom, visit_Import, …) — not lowercase per N802.
+"src/phantasos/generator/sdk/runtime.py" = ["N802"]
 # generate.py runs the pinned OpenAPI Generator jar via subprocess — trusted argv.
 "src/phantasos/generator/sdk/generate.py" = ["S603"]
+# build.py runs `git rev-parse HEAD` (fixed argv, own repo) to stamp the generator SHA.
+"src/phantasos/generator/sdk/build.py" = ["S603", "S607"]
 # render_cli.py runs the trusted `ruff` binary to format the code it just emitted.
 "src/phantasos/generator/cli/render_cli.py" = ["S603"]
+# finalize.py runs the trusted `ruff`/`uv` binaries over the just-generated project.
+"src/phantasos/generator/finalize.py" = ["S603"]
+# gitrepo.py runs the trusted `git` binary to snapshot the generated project.
+"src/phantasos/generator/gitrepo.py" = ["S603"]
 # provision.py fetches the pinned, checksum-verified jar/JRE over https — trusted.
 "src/phantasos/generator/sdk/provision.py" = ["S310"]
 # smoke.py shells out to the isolated venv's python/pip — trusted argv.
 "src/phantasos/generator/sdk/smoke.py" = ["S603"]
+# cli_isolated_smoke.py shells out to `uv`/the clean venv's python — trusted argv.
+"tests/cli_isolated_smoke.py" = ["S603", "S607"]
+# test_gitrepo.py shells out to `git` (fixed argv) to assert the snapshot's result.
+"tests/test_gitrepo.py" = ["S603", "S607"]
+# The quality-harness hooks run trusted argv (git + the gate command from the
+# protected .claude/harness.toml); their tests subprocess the hooks themselves.
+".claude/hooks/*.py" = ["S603", "S607"]
+"tests/test_harness_hooks.py" = ["S603", "S607"]
+# ab_eval/run.py shells out to the trusted `claude` CLI binary — argv is fixed.
+"tools/ab_eval/run.py" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["phantasos"]
@@ -119,7 +150,7 @@ warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
-files = ["src", "tests"]
+files = ["src", "tests", "tools"]
 # Fixtures deliberately mirror OpenAPI-Generator output (untyped); they are not
 # code-under-test, so keep them out of strict analysis (ruff special-cases them too).
 exclude = ['^tests/fixtures/']
@@ -132,10 +163,10 @@ ignore_missing_imports = true
 module = ["jmespath", "jmespath.*"]
 ignore_missing_imports = true
 
-# The fakesdk fixture is excluded from analysis (above); its symbols are imported
-# by a couple of tests, so resolve those import sites to Any.
+# The fakesdk/fedsdk fixtures are excluded from analysis (above); their symbols are
+# imported by a couple of tests, so resolve those import sites to Any.
 [[tool.mypy.overrides]]
-module = ["fakesdk", "fakesdk.*"]
+module = ["fakesdk", "fakesdk.*", "fedsdk", "fedsdk.*"]
 ignore_missing_imports = true
 
 # PyYAML ships no type stubs; the emitted-CLI tests use it trivially (safe_load).
@@ -143,16 +174,22 @@ ignore_missing_imports = true
 module = ["yaml"]
 ignore_missing_imports = true
 
-# prisma_browser is a GENERATED SDK, absent at type-check time (built by `nox -s smoke`);
-# the real-SDK tests import it inside skip-guarded bodies.
+# prisma_browser / prisma_access are GENERATED SDKs, absent at type-check time (built
+# by `nox -s smoke` / `sdk build`); the real-SDK tests import them inside skip-guarded
+# bodies.
 [[tool.mypy.overrides]]
-module = ["prisma_browser", "prisma_browser.*"]
+module = ["prisma_browser", "prisma_browser.*", "prisma_access", "prisma_access.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "slow: end-to-end builds (OAG jar / Java) — deselect with -m 'not slow'",
+    "real_sdk: needs the locally-built ../prisma-browser-sdk (ring-3 real-artifact tests); auto-applied via the real_sdk fixture, built by 'nox -s smoke'",
+]
 
 [tool.coverage.run]
 branch = true

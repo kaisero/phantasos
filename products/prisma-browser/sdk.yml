@@ -2,28 +2,173 @@ package: prisma_browser
 output: ../../../prisma-browser-sdk
 base_url: https://api.sase.paloaltonetworks.com
 auth:
-  type: oauth_client_credentials
-  token_url: https://auth.apps.paloaltonetworks.com/oauth2/access_token
+  type: scm_oauth
   scope_env: SCOPE
   base_url_env: PRISMA_SASE_BASE_URL
   config_class_name: PrismaSaseConfiguration
-pagination: {type: cursor}
-errors: {type: nested}
+pagination:
+  type: cursor
+errors:
+  type: nested
 facade: true
+hooks: ./hooks.py
+idempotency:
+  defaults:
+    read_only:
+      - id
+  resources:
+    # application_group is the one CRUD-complete, engine-drivable resource here:
+    # create(body) / delete(id) / patch update(id, body) / list(cursor) all take
+    # only body+id, and identity resolves by `name` via list_scan. `applications`
+    # is a PROJECTION (Phase 5.1 Step 4), not `computed`: the request sends member
+    # application IDs (List[str]) while the server ECHOES them as
+    # ApplicationGroupApplicationsInner objects (each with .id/.name/.type). The
+    # `id` projection maps each echoed object back to its scalar id so the diff
+    # compares ids-to-ids — `applications` is now a MANAGED, drift-comparable field.
+    application_group:
+      projections:
+        applications: id
+    # --- opted OUT: none of the remaining list-bearing resources is engine-
+    # drivable through the generic create(body)/verb(id, body)/delete(id) surface;
+    # each is verified from _bindings in prisma_browser/extras/resources.py.
+    #
+    # application: create requires the `type` discriminator (['type']) and update
+    # requires (['id', 'type']); the engine's create(body=...) and mutate
+    # verb(id=..., body=...) supply no `type`, so the binding _select would raise
+    # at apply()-time. (The live test below still exercises the RAW typed
+    # create(type="custom", ...) to build app_group members — that path is fine.)
+    application:
+      sync: false
+    # device_group: id-addressed, but its get/update/replace/delete take a param
+    # named `device_group_id`, NOT `id`; the engine calls delete(id=...) /
+    # verb(id=..., body=...), so a `device_group.delete(id=...)` raises TypeError.
+    device_group:
+      sync: false
+    # application_plugin: create requires (['id']) — it is an upsert-by-id, not a
+    # server-assigned-id create; the engine's create(body=...) supplies no id, so
+    # _select("create", {"body"}) would raise. Not a name-keyed CRUD resource.
+    application_plugin:
+      sync: false
+    # user_group: create speaks `userIds` and update speaks `users` (a list of
+    # member-update objects) for the same membership, and the READ model
+    # (UserGroup) exposes neither — only id/name/provider/timestamps. So member
+    # membership is undetectable via GET (build gate #5), and the write shapes are
+    # asymmetric; only `name` would be drift-comparable. Left out until the API
+    # exposes member state on read.
+    user_group:
+      sync: false
+    # cloud_storage_provider: bindings are create/delete/get/list only — no update
+    # or replace op, so it fails the CRUD-complete bar (build gate #4).
+    cloud_storage_provider:
+      sync: false
+    # The four *_section resources (security/sign_in/customization/access_and_data)
+    # and the four *_rule resources have NO `list` op in their bindings — get is
+    # by-id only — so list_scan cannot resolve identity by name (same reason as
+    # prisma-access security_rule). Not opted in; no per-resource stanza needed.
+docs:
+  showcase_resource: application
+  showcase_variant: CustomApplicationInput
+  examples:
+    create: |
+      created = client.application.create(
+          type="custom",
+          body=CreateOrReplaceAppInput(
+              CustomApplicationInput(
+                  name="Acme Wiki",
+                  type="custom",
+                  urls=[UrlInput(url="https://wiki.acme.com/*")],
+              )
+          ),
+      )
 transforms:
   hoist:
-    - {schema: AllowedOrBlockedExtensionsControl, field: extensions, item: AllowedOrBlockedExtensionEntry}
-    - {schema: LaunchingExternalApplicationsControl, field: exceptions, item: ExternalApplicationLaunchException}
-    - {schema: TrustedCertificateAuthoritiesControl, field: additionalCertificates, item: TrustedCertificateEntry}
-    - {schema: InternetExplorerCompatibilityModeControl, field: sites, item: InternetExplorerCompatibilitySite}
+    - schema: AllowedOrBlockedExtensionsControl,
+      field: extensions
+      item: AllowedOrBlockedExtensionEntry
+    - schema: LaunchingExternalApplicationsControl
+      field: exceptions
+      item: ExternalApplicationLaunchException
+    - schema: TrustedCertificateAuthoritiesControl
+      field: additionalCertificates
+      item: TrustedCertificateEntry
+    - schema: InternetExplorerCompatibilityModeControl
+      field: sites
+      item: InternetExplorerCompatibilitySite
   tag_operations:
-    - {path: /seb-api/v1/user-requests, method: get, operation_id: ListUserRequests, tag: User Requests}
-    - {path: "/seb-api/v1/user-requests/{id}", method: get, operation_id: GetUserRequestByID, tag: User Requests}
-    - {path: "/seb-api/v1/user-requests/{id}/action", method: post, operation_id: ActionUserRequest, tag: User Requests}
-    - {path: "/seb-api/v1/user-requests/{id}/revoke", method: post, operation_id: RevokeUserRequest, tag: User Requests}
+    - path: "/seb-api/v1/user-requests"
+      method: get
+      operation_id: ListUserRequests
+      tag: User Requests
+    - path: "/seb-api/v1/user-requests/{id}"
+      method: get
+      operation_id: GetUserRequestByID
+      tag: User Requests
+    - path: "/seb-api/v1/user-requests/{id}/action"
+      method: post
+      operation_id: ActionUserRequest
+      tag: User Requests
+    - path: "/seb-api/v1/user-requests/{id}/revoke"
+      method: post
+      operation_id: RevokeUserRequest
+      tag: User Requests
+    - path: "/seb-api/v1/integrations/cloud-storage"
+      method: get
+      operation_id: ListCloudStorageProviders
+      tag: Integrations
+    - path: "/seb-api/v1/integrations/cloud-storage"
+      method: post
+      operation_id: CreateCloudStorageProvider
+      tag: Integrations
+    - path: "/seb-api/v1/integrations/cloud-storage/{providerId}"
+      method: get
+      operation_id: GetCloudStorageProviderById
+      tag: Integrations
+    - path: "/seb-api/v1/integrations/cloud-storage/{providerId}"
+      method: delete
+      operation_id: DeleteCloudStorageProviderById
+      tag: Integrations
+operations:
+  access_and_data_policy.update_access_and_data_positions:
+    resource: access-and-data-section
+    method: reorder
+  access_and_data_policy.patch_access_and_data_positions:
+    resource: access-and-data-section
+    method: reorder_patch
+  customization_policy.update_customization_positions:
+    resource: customization-section
+    method: reorder
+  customization_policy.patch_customization_positions:
+    resource: customization-section
+    method: reorder_patch
+  security_policy.update_security_positions:
+    resource: security-section
+    method: reorder
+  security_policy.patch_security_positions:
+    resource: security-section
+    method: reorder_patch
+  sign_in_policy.update_sign_in_positions:
+    resource: sign-in-section
+    method: reorder
+  sign_in_policy.patch_sign_in_positions:
+    resource: sign-in-section
+    method: reorder_patch
+  configuration_management.publish_draft_configuration:
+    resource: configuration
+    method: publish
+  integrations.seb_api_v1_integrations_cloud_storage_provider_id_put:
+    hide: true
+  assets.upload_background_image:
+    hide: true
+  assets.upload_browser_icon:
+    hide: true
+  assets.upload_company_logo:
+    hide: true
+  assets.upload_pac_file:
+    hide: true
 project:
   distribution: prisma-browser-sdk
-  description: Python SDK for the Palo Alto Networks Prisma Browser Management APIs
+  description: Python SDK for the Palo Alto Networks Prisma Browser
   author: Oliver Kaiser
   author_email: oliver.kaiser@outlook.com
   repo_url: https://github.com/kaisero/prisma-browser-sdk
+  git_remote: https://github.com/kaisero/prisma-browser-sdk.git

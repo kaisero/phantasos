@@ -31,10 +31,15 @@ def _sanitized_env() -> dict[str, str]:
 
 
 def _count_operations(project_dir: str, package: str) -> int:
-    """Count public API operations by scanning api/*_api.py text (no imports needed)."""
+    """Count public API operations by scanning *_api.py text (no imports needed).
+
+    Recurses the package tree so it works for both the single-spec layout
+    (``<package>/api/*_api.py``) and the federated one
+    (``<package>/<slug>/api/*_api.py``).
+    """
     ops = 0
-    api_dir = Path(project_dir) / package / "api"
-    for f in sorted(api_dir.glob("*_api.py")):
+    pkg_dir = Path(project_dir).joinpath(*package.split("."))
+    for f in sorted(pkg_dir.rglob("*_api.py")):
         for m in re.finditer(r"^    def ([a-z][a-zA-Z0-9_]*)\(", f.read_text(), re.M):
             if not m.group(1).endswith(("_with_http_info", "_without_preload_content")):
                 ops += 1
@@ -53,8 +58,7 @@ def _ensure_smoke_venv(project_dir: Path) -> Path:
     pyproject = project_dir / "pyproject.toml"
     if not pyproject.exists():
         raise SmokeError(
-            f"no pyproject.toml in {project_dir}; cannot isolate the smoke check. "
-            f"Pass --no-smoke to skip."
+            f"no pyproject.toml in {project_dir}; cannot isolate the smoke check. Pass --no-smoke to skip."
         )
     key = hashlib.sha256(pyproject.read_bytes()).hexdigest()[:16]
     venv_dir = provision.cache_dir() / "smoke-envs" / key

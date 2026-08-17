@@ -1,0 +1,38 @@
+# {{ site_name }}
+
+{{ description }}
+
+`{{ distribution }}` is a command-line interface over the **{{ sdk_package }}** API.
+
+## Install
+
+```bash
+uv tool install {{ distribution }}
+```
+{% if repo_url %}
+Source: [{{ repo_url }}]({{ repo_url }})
+{% endif %}
+## Command model
+
+Commands are **verb-first**: a verb, then an object, then options.
+
+| Verb | Purpose |
+| --- | --- |
+| `create` | create a new object |
+| `update` | modify an existing object |
+| `delete` | remove an object |
+| `show` | list objects or fetch one by id |
+| `request` | run a non-CRUD action on an object |
+
+```bash
+{{ distribution }} <verb> <object> [OPTIONS]
+{{ distribution }} --help
+```
+
+## Where to go next
+
+- [Quickstart](quickstart.md) — configure credentials and run your first commands.
+{% if has_auth %}- [Authentication & environments](guides/authentication.md)
+{% endif %}- [Output & formatting](guides/output.md)
+{% if show_pagination_guide %}- [Pagination](guides/pagination.md)
+{% endif %}- [Errors & diagnostics](guides/errors.md)

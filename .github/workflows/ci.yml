@@ -66,10 +66,27 @@ jobs:
       - name: Build (strict)
         run: uv run nox -s docs
 
-  smoke:
-    name: Build smoke (auto-provisioned Java)
+  cli-smoke:
+    name: CLI isolated-install smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      # Generates a CLI, installs it into a CLEAN venv (its declared deps only —
+      # typer resolves to the slim core, no top-level click) and runs it. Catches
+      # undeclared-dependency / import / run regressions the dev-venv tests cannot.
+      - name: Generate -> install -> run a CLI in a clean venv
+        run: uv run nox -s cli-smoke
+
+  smoke:
+    name: Build smoke + ring-3 real-artifact tests (auto-provisioned Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -85,5 +102,52 @@ jobs:
         with:
           path: ~/.cache/phantasos
           key: phantasos-toolchain-oag7.22.0-jre17.0.19-smokeenv1
-      - name: Build example SDKs (Java auto-provisioned)
+      # Builds every [smoke] SDK, then runs `pytest -m real_sdk` against them — the
+      # only CI place the ring-3 real-artifact tests execute (the matrix `tests` job
+      # builds no SDK). Catches emitted-shape drift (e.g. an OAG bump) that the
+      # fakesdk-fixture tests structurally cannot see.
+      - name: Build example SDKs + run ring-3 tests (Java auto-provisioned)
         run: uv run nox -s smoke
+
+  sdk-docs:
+    name: SDK docs (strict, auto-provisioned Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      # sdk-docs builds each enrolled SDK (OAG) then its docs + mkdocs site and runs
+      # the nox.toml [[sdk-docs.assert]] fidelity guards (the "docs show payload, not
+      # scaffolding" invariant). Reuse the same OAG jar + Temurin JRE cache.
+      - name: Cache OAG jar + Temurin JRE
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/phantasos
+          key: phantasos-toolchain-oag7.22.0-jre17.0.19-smokeenv1
+      - name: Build each enrolled SDK + docs (strict)
+        run: uv run nox -s sdk-docs
+
+  cli-docs:
+    name: CLI docs (strict, auto-provisioned Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      # cli-docs builds each enrolled SDK (OAG) then its CLI + mkdocs site; reuse the
+      # same auto-provisioned OAG jar + Temurin JRE cache as the smoke job.
+      - name: Cache OAG jar + Temurin JRE
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/phantasos
+          key: phantasos-toolchain-oag7.22.0-jre17.0.19-smokeenv1
+      - name: Build each enrolled CLI + docs (strict)
+        run: uv run nox -s cli-docs

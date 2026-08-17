@@ -8,7 +8,8 @@ project:
   author: Oliver Kaiser
   author_email: oliver.kaiser@outlook.com
   repo_url: https://github.com/kaisero/prisma-browser-cli
-  description: Command-line interface for the Palo Alto Networks Prisma Browser Management APIs
+  git_remote: https://github.com/kaisero/prisma-browser-cli.git
+  description: Command-line interface for the Palo Alto Networks Prisma Browser
 
 # --- oneOf (union) request bodies → variant subcommands `set application <variant>` ---
 # Applications use an undiscriminated oneOf body keyed by the path `type`. BOTH the create
@@ -34,24 +35,63 @@ variants:
 # NOTE: request-namespace commands are EMITTED starting in Phase 3b. Until then these
 # entries reserve the mapping (the build skips them cleanly, no "unmapped" warning).
 request:
-  devices.suspend_devices: {object: device, action: suspend}
-  devices.resume_devices: {object: device, action: resume}
-  devices.restore_devices: {object: device, action: restore}
-  devices.archive_devices: {object: device, action: archive}
-  devices.force_reauth_devices: {object: device, action: force-reauth}
-  users.suspend_users: {object: user, action: suspend}
-  users.resume_users: {object: user, action: resume}
-  users.force_reauth_users: {object: user, action: force-reauth}
-  user_requests.action_user_request: {object: user-request, action: action}
-  user_requests.revoke_user_request: {object: user-request, action: revoke}
-  configuration_management.publish_draft_configuration: {object: configuration, action: publish}
+  devices.suspend_devices:
+    object: device
+    action: suspend
+  devices.resume_devices:
+    object: device
+    action: resume
+  devices.restore_devices:
+    object: device
+    action: restore
+  devices.archive_devices:
+    object: device
+    action: archive
+  devices.force_reauth_devices:
+    object: device
+    action: force-reauth
+  users.suspend_users:
+    object: user
+    action: suspend
+  users.resume_users:
+    object: user
+    action: resume
+  users.force_reauth_users:
+    object: user
+    action: force-reauth
+  user_requests.action_user_request:
+    object: user-request
+    action: action
+  user_requests.revoke_user_request:
+    object: user-request
+    action: revoke
+  configuration_management.publish_draft_configuration:
+    object: configuration
+    action: publish
   access_and_data_policy.update_access_and_data_positions:
-    {object: access-and-data-section, action: reorder}
+    object: access-and-data-section
+    action: reorder
+  access_and_data_policy.patch_access_and_data_positions:
+    object: access-and-data-section
+    action: reorder-patch
   customization_policy.update_customization_positions:
-    {object: customization-section, action: reorder}
-  security_policy.update_security_positions: {object: security-section, action: reorder}
-  security_policy.patch_security_positions: {object: security-section, action: reorder-patch}
-  sign_in_policy.update_sign_in_positions: {object: sign-in-section, action: reorder}
+    object: customization-section
+    action: reorder
+  customization_policy.patch_customization_positions:
+    object: customization-section
+    action: reorder-patch
+  security_policy.update_security_positions:
+    object: security-section
+    action: reorder
+  security_policy.patch_security_positions:
+    object: security-section
+    action: reorder-patch
+  sign_in_policy.update_sign_in_positions:
+    object: sign-in-section
+    action: reorder
+  sign_in_policy.patch_sign_in_positions:
+    object: sign-in-section
+    action: reorder-patch
 
 # Deferred to roadmap:
 #   - PUT (update_*) full-replace: returns as a future `update`-fallback (when no PATCH) / `replace` verb.
@@ -67,20 +107,29 @@ hide:
   - security_policy.update_security_section_by_id
   - sign_in_policy.update_sign_in_section_by_id
   - user_groups.update_user_group
+  # Cloud-storage full-PUT (credential rotation; all fields required each call):
+  # full-replace semantics, deferred like the other update_* PUTs above.
+  - integrations.seb_api_v1_integrations_cloud_storage_provider_id_put
+  # Assets: multipart/form-data file uploads — the introspector sees empty
+  # body_fields (raw form-data file field), so there's no CLI file flag yet.
+  # Hide until the generator gains a file-path → bytes upload flow.
+  - assets.upload_background_image
+  - assets.upload_browser_icon
+  - assets.upload_company_logo
+  - assets.upload_pac_file
 
 # --- per-object curated table columns ---
 # Bare strings: header == path (snake_case field names from model_dump).
 # ColumnEntry (header/path): use when the display header should differ from the
-# JMESPath expression, or when the path is a nested JMESPath (e.g. through a
-# union's actual_instance wrapper).
+# JMESPath expression, or when the path is a nested JMESPath (e.g. a sub-field
+# like `metadata.created_time`).
 #
 # NOTE: datetime fields introspect as kind "json" so they never appear in auto
 # defaults — list them explicitly here to surface them in the table.
-# NOTE: ApplicationItem is a OneOf union whose data field holds variant objects
-# (CustomApplication, PrivateApplication, …) wrapped in actual_instance. The
-# JMESPath root "actual_instance" IS a valid root field on ApplicationItem, so
-# paths of the form actual_instance.<field> pass build validation and resolve at
-# runtime for every variant that exposes the field.
+# NOTE: ApplicationItem is a OneOf union (CustomApplication, PrivateApplication,
+# …). Response-item introspection reports the union (superset) of the variant
+# fields, so curated columns are bare field names — no actual_instance.* prefix.
+# A field absent from a given variant simply renders empty for that row.
 columns:
   device-group:
     - id
@@ -90,10 +139,10 @@ columns:
     - devices
     - created_at
   application:
-    - {header: id,          path: actual_instance.id}
-    - {header: name,        path: actual_instance.name}
-    - {header: type,        path: actual_instance.type}
-    - {header: description, path: actual_instance.description}
+    - id
+    - name
+    - type
+    - description
 
 # Server quirk (verified 2026-06-11): the application list endpoints only honor
 # their pagination cursor when an explicit sort+order is supplied — without one,
@@ -108,3 +157,9 @@ defaults:
   applications.list_applications_by_type:
     sort: application.name
     order: asc
+
+# --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
+docs:
+  site_name: Prisma Browser CLI
+  showcase_object: application
+  showcase_variant: custom

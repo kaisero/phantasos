@@ -5,9 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..finalize import ruff_pin
+
 _CLI_DEPS = [
-    "typer>=0.12",
+    # >=0.26.7: the lazy app (app.py) imports `typer.core._click` (typer's vendored
+    # click) and calls `get_command_from_info(...)` — both require a modern typer, and
+    # this is the version phantasos tests against. A lower floor would ImportError the
+    # emitted federated CLI at import time.
+    "typer>=0.26.7",
     "rich>=13",
+    "pygments>=2",
     "pyyaml>=6",
     "python-dotenv>=1.0",
     "jmespath>=1.0",
@@ -41,9 +48,7 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
     sdk_distribution = base.get("distribution") or f"{_pkg}-sdk"
     cli_package = f"{base['package']}_cli"
     cli_distribution = (
-        f"{sdk_distribution[:-4]}-cli"
-        if sdk_distribution.endswith("-sdk")
-        else f"{sdk_distribution}-cli"
+        f"{sdk_distribution[:-4]}-cli" if sdk_distribution.endswith("-sdk") else f"{sdk_distribution}-cli"
     )
     sdk_source_path = f"../{Path(loaded.output_dir).name}"
 
@@ -68,7 +73,13 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
         has_errors=False,
         has_facade=False,
         has_retry=False,
+        # has_docs stays False so the SHARED (SDK-flavored) docs templates never fire
+        # for a CLI; CLI docs are driven by the independent cli_docs flag instead.
+        has_docs=False,
+        cli_docs=getattr(cli_cfg, "docs", None) is not None,
         auth_env_vars=_auth_env_vars(loaded),
+        # Pins the emitted noxfile's ruff to the one finalize formats with.
+        ruff_spec=ruff_pin(),
     )
     if project is not None:
         ctx.update(

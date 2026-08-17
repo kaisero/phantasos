@@ -1,0 +1,46 @@
+site_name: {{ site_name | tojson }}
+{% if repo_url %}repo_url: {{ repo_url | tojson }}
+{% endif %}theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/brightness-7, name: Switch to dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/brightness-4, name: Switch to light mode}
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Guides:
+{% if has_auth %}      - Authentication & environments: guides/authentication.md
+{% endif %}{% if has_env %}      - Environments & variables: guides/environments.md
+{% endif %}      - Output & formatting: guides/output.md
+{% if show_pagination_guide %}      - Pagination: guides/pagination.md
+{% endif %}      - Errors & diagnostics: guides/errors.md
+  - Command Reference:
+{% if subpackages %}{% for sub in subpackages %}      - {{ sub.title }}:
+{% for obj in sub.objects %}          - {{ obj.object }}: reference/{{ sub.slug }}/{{ obj.object }}.md
+{% endfor %}{% endfor %}{% else %}{% for obj in objects %}      - {{ obj.object }}: reference/{{ obj.object }}.md
+{% endfor %}{% endif %}
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

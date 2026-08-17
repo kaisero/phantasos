@@ -1,0 +1,32 @@
+{% if has_docs | default(false) and has_auth %}# Authentication
+
+`{{ distribution }}` authenticates with credentials supplied via the environment or
+passed explicitly.
+
+## Required credentials
+
+| Variable | Required | Secret |
+|----------|----------|--------|
+{% for c in credentials %}| `{{ c.env_var }}` | {{ "yes" if c.required else "no" }} | {{ "yes" if c.secret else "no" }} |
+{% endfor %}
+
+## From the environment
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_env()
+```
+
+## Passing credentials explicitly
+
+```python
+from {{ package }}.extras.facade import Client
+
+client = Client.from_credentials(
+{% for c in credentials %}{% if c.required %}    {{ c.name }}="…",
+{% endif %}{% endfor %})
+```
+
+Store secrets in a secrets manager or environment variables — never hard-code them.
+{% endif %}

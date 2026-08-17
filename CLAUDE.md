@@ -22,6 +22,25 @@
   nox sessions (e.g. `live`, `smoke`) also set `NOX_ENVDIR=/tmp/phantasos-nox`
   to relocate the session venvs off sshfs.
 
+## YAML style in product config files
+
+Self-authored product config — `products/*/sdk.yml` and `products/*/cli.yml` —
+uses **block style only**; no inline flow syntax. Write
+
+```yaml
+operations:
+  agent_controller.get_metric:
+    resource: agent
+    method: get_metric
+```
+
+not `agent_controller.get_metric: {resource: agent, method: get_metric}`. Empty
+mappings/sequences stay flow (`objects: {}`), since block style can't express
+them. This is enforced by the `yamllint` pre-commit hook (rules in `.yamllint`,
+scoped to those two filenames). The hand-imported **OpenAPI specs**
+(`products/*/openapi.yml`, `products/*/openapi/*.yaml`) are vendor artifacts —
+leave their style untouched; they are never linted.
+
 ## Adding a CLI configuration option (generated CLIs)
 
 Every user-facing setting of a GENERATED CLI follows one layered flow — packaged
@@ -93,3 +112,12 @@ take **main's** `version` and its new `## [X.Y.Z]` section, **keep develop's**
 parent, so the next release's merge-base is that release commit and the merge
 stays clean. `develop` showing as "behind `main` by the release merge commit" is
 cosmetic and expected — don't back-merge to "fix" it.
+
+## Agent context docs (`.agents/context/`)
+
+Deep technical docs for this repo live in `.agents/context/` (start at
+`.agents/context/index.md`). They are loaded **on demand** — do NOT `@`-import them.
+
+- **Before** working in a subsystem, read its deep-dive (e.g. `.agents/context/sdk-generator.md`).
+- **After** a change that alters a subsystem, update its deep-dive's narrative and
+  run `uv run nox -s context` to refresh its generated blocks (`-- --check` must pass).

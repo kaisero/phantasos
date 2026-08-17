@@ -1,0 +1,74 @@
+# Environments & variables
+
+`{{ distribution }}` reads its connection and credential settings from **named
+environments** (stored in `~/.{{ distribution }}/environments.yml`) and from
+**environment variables**, with environment variables taking precedence. Manage
+environments with `{{ distribution }} environment create|activate|show|delete`.
+
+## Which environment is active (selection order)
+
+The active environment is chosen by this order — the first that is set wins:
+
+1. `--environment/-e <name>` on the command
+2. the `{{ env_prefix }}_ENVIRONMENT` environment variable (an empty value is ignored)
+3. the `default_environment` recorded by `environment activate`
+
+`{{ distribution }} environment show` marks the active one and says *why*
+(e.g. `staging (active — via {{ env_prefix }}_ENVIRONMENT)`).
+
+## How each value resolves (override order)
+
+For every field, the effective value is the first of:
+
+1. its **environment variable** (exported, or from a `.env` file) — wins
+2. the value **stored in the active environment** (a `${VAR}` reference is expanded)
+3. a packaged **default**, else unset
+
+`environment show` prints the effective value and its source per field (secret
+values are masked). One asymmetry to know: an exported **credential** variable wins
+**even if empty** (and then the required-field check fails); an exported
+**region/environment** variable wins only when **non-empty**.
+
+## Environment variables
+
+**Selection**
+
+| Variable | Effect |
+| --- | --- |
+| `{{ env_prefix }}_ENVIRONMENT` | selects the active environment (overrides `default_environment`) |
+
+**Credentials**
+
+| Variable | Field |{% if false %}{% endif %}
+| --- | --- |
+{% for f in ir.credential_fields %}| `{{ f.env_var }}` | `{{ f.name }}`{% if f.secret %} (secret) {% endif %} |
+{% endfor %}
+{%- if ir.connection_fields %}
+**Connection**
+
+| Variable | Field |
+| --- | --- |
+{% for cv in connection_views %}| `{{ cv.env }}` | `{{ cv.header }}` |
+{% endfor %}
+{%- endif %}
+**Configuration** (see `{{ distribution }} config show` for the full effective config)
+
+| Variable | Setting |
+| --- | --- |
+| `{{ env_prefix }}_PAGER_ENABLED` | pager on/off |
+| `{{ env_prefix }}_PAGER_COMMAND` | pager command |
+| `{{ env_prefix }}_OUTPUT_FORMAT` | default output format (`json`/`yaml`/`table`) |
+| `{{ env_prefix }}_HISTORY_ENABLED` | command history on/off |
+| `{{ env_prefix }}_HISTORY_VERBOSE` | record verbose history entries |
+| `{{ env_prefix }}_HISTORY_FILE` | history file path |
+| `{{ env_prefix }}_HISTORY_MAX_SIZE_MB` | history file max size (MB) |
+| `{{ env_prefix }}_LOGGING_LEVEL` | log verbosity (`info`/`debug`/`trace`) |
+| `{{ env_prefix }}_LOGGING_FILE` | log file path |
+{% if ir.credential_fields %}| `{{ env_prefix }}_CACHE_ENABLED` | token cache on/off |
+| `{{ env_prefix }}_CACHE_DIR` | token cache directory |
+{% endif %}
+
+## Verify what's effective
+
+- `{{ distribution }} environment show` — the effective value + source per field.
+- `{{ distribution }} show cli log --level debug` — logs which source won each override.

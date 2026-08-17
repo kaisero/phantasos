@@ -1,0 +1,14 @@
+"""Idempotent-sync engine + strategies (ADR-0004). Vendored on opt-in only."""
+from .engine import (  # noqa: F401
+    AbsentNotSupported,
+    Diff,
+    IdentityUnresolved,
+    SyncMixin,
+    SyncResult,
+)
+
+{% for name in fetch %}from .fetch import {{ name }}  # noqa: F401
+{% endfor %}{% for name in mutate %}from .mutate import {{ name }}  # noqa: F401
+{% endfor %}{% for name in materialize %}from .materialize import {{ name }}  # noqa: F401
+{% endfor %}
+__all__ = ["SyncMixin", "Diff", "SyncResult", "AbsentNotSupported", "IdentityUnresolved"]

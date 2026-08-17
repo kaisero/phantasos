@@ -29,6 +29,37 @@ class WidgetType(str, Enum):
     COMPLEX = "complex"
 
 
+class Tag(BaseModel):
+    label: str
+
+
+class EmailTarget(BaseModel):
+    email: str
+
+
+class PhoneTarget(BaseModel):
+    phone: str
+
+
+class Contact(BaseModel):
+    """How to reach the widget owner."""
+
+    name: str  # required
+    timezone: Optional[str] = None
+
+
+class Node(BaseModel):  # self-referential cycle
+    label: str
+    child: Optional[Node] = None
+
+
+class WidgetProfile(BaseModel):  # all-optional → exercises non-empty guarantee
+    contact: Optional[Contact] = None
+    tags: list[Tag] = []
+    target: Optional[Union[EmailTarget, PhoneTarget]] = None
+    graph: Optional[Node] = None
+
+
 class WidgetInput(BaseModel):
     name: str
     priority: int  # required int
@@ -37,6 +68,7 @@ class WidgetInput(BaseModel):
     tags: list[str] = []
     spec: Optional[dict] = None  # nested -> json flag
     mode: Literal["fast", "slow"] = "fast"  # inline enum (Literal, not an Enum class)
+    profile: Optional[WidgetProfile] = None  # nested model -> json flag with model_ref
 
 
 class SimpleGizmoInput(BaseModel):
@@ -92,3 +124,6 @@ class CreateWidget201Response(BaseModel):
     model), never per command."""
 
     widget_id: str
+
+
+Node.model_rebuild()  # resolve the forward-ref self-cycle (Node.child)

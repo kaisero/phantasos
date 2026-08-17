@@ -1,0 +1,33 @@
+"""Offset/limit pagination (vendored by phantasos)."""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Iterator
+
+__all__ = ["paginate"]
+
+
+def paginate(list_method: Callable[..., Any], **kwargs: Any) -> Iterator[Any]:
+    """Yield every item across all pages of an offset/limit list endpoint.
+
+    `list_method` is a bound generated method, e.g. `ChecksApi(client).list_checks`.
+    A caller-supplied `{{ limit_field }}` / `{{ offset_field }}` seeds the page size /
+    starting offset; otherwise the default page size is used (the runtime forwards
+    neither unless the user passed the flag, so this helper owns the defaults).
+    """
+    page_size = kwargs.pop("{{ limit_field }}", None) or {{ default_page_size }}
+    offset = kwargs.pop("{{ offset_field }}", None) or 0
+    while True:
+        page = list_method(
+            **{**kwargs, "{{ limit_field }}": page_size, "{{ offset_field }}": offset}
+        )
+        items = getattr(page, "{{ data_field }}", None) or []
+        yield from items
+        offset += len(items)
+        total = getattr(page, "{{ total_field }}", None)
+        # Stop on a short page (the usual last-page signal); the total guard is a
+        # backstop against an endpoint that returns full pages past the end.
+        if len(items) < page_size:
+            return
+        if total is not None and offset >= total:
+            return

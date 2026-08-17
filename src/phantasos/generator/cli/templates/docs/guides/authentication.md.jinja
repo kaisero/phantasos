@@ -1,0 +1,68 @@
+# Authentication & environments
+
+## Credentials
+
+`{{ distribution }}` reads these from the environment (or a named environment):
+
+| Credential | Environment variable | Required | Secret |
+| --- | --- | --- | --- |
+{% for c in credentials %}| `{{ c.name }}` | `{{ c.env_var }}` | {{ "yes" if c.required else "no" }} | {{ "yes" if c.secret else "no" }} |
+{% endfor %}
+Credentials and connection settings can be saved in **named environments** and
+selected per command with `--environment/-e`. See
+**[Environments & variables](environments.md)** for how named environments work, the
+full precedence order, and every variable `{{ distribution }}` reads.
+
+## Configuration layering
+
+> **Layering:** packaged defaults ← `config.yml` ← environment variables ← per-command
+> flags. `{{ distribution }} config show` reports the effective value and where each
+> setting came from.
+
+```bash
+{{ distribution }} config init           # write a commented config.yml to edit
+{{ distribution }} config show           # effective merged config + its sources
+{{ distribution }} config set output.format json
+{{ distribution }} config unset output.format
+```
+
+## Token cache
+
+So you don't log in on every command, `{{ distribution }}` saves the access token it
+gets from your credentials and reuses it on the next runs.
+
+**How it works**
+
+- After your first authenticated command, the token is saved to a small file under
+  `~/.{{ distribution }}/cache/` — one file per set of credentials, readable only by you.
+- The next commands read that file and reuse the token until it expires, so they skip
+  the extra login step.
+- When the token expires — or the server rejects it — `{{ distribution }}` quietly
+  fetches a fresh one and updates the cache. You don't have to do anything.
+- Your client secret is **never** saved to the cache, and the token value never appears
+  in the logs.
+
+**Configure it**
+
+Caching is **on by default**. To change it:
+
+| What | Config key | Environment variable | Default |
+| --- | --- | --- | --- |
+| Turn caching on/off | `cache.enabled` | `{{ env_prefix }}_CACHE_ENABLED` | `true` |
+| Where tokens are stored | `cache.dir` | `{{ env_prefix }}_CACHE_DIR` | `~/.{{ distribution }}/cache/` |
+
+```bash
+{{ distribution }} config set cache.enabled false     # turn it off permanently
+{{ env_prefix }}_CACHE_ENABLED=false {{ distribution }} show <object>   # just this run
+{{ distribution }} config set cache.dir /path/to/dir  # store the cache elsewhere
+```
+
+**Verify it**
+
+```bash
+{{ distribution }} show cli cache       # list cached tokens: key id + expiry (never the token)
+{{ distribution }} config cache-clear   # delete all cached tokens
+```
+
+With logging at `info` level you can also watch the cache work in the log file —
+you'll see lines like `reusing cached token` and `cached new token`.

@@ -8,8 +8,6 @@ from phantasos.generator.cli.discover import render_stub, render_table
 from phantasos.generator.cli.introspect import introspect
 from phantasos.generator.cli.ir import CliIR
 
-REAL_SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
-
 FIXTURE = Path(__file__).parent / "fixtures" / "fakesdk"
 
 
@@ -76,9 +74,7 @@ def test_stub_prefills_columns_from_defaults() -> None:
                     ColumnSpec(header="name", path="name"),
                 ],
             ),
-            Command(
-                verb="show", object="gizmo", key="show:gizmo", sdk_resource="gizmos"
-            ),  # no columns -> omitted
+            Command(verb="show", object="gizmo", key="show:gizmo", sdk_resource="gizmos"),  # no columns -> omitted
         ],
     )
     stub = render_stub(ir, [])
@@ -88,14 +84,11 @@ def test_stub_prefills_columns_from_defaults() -> None:
     assert "gizmo:" not in stub
 
 
-@pytest.mark.skipif(not REAL_SDK.exists(), reason="prisma-browser-sdk not built")
-def test_real_sdk_classifies_without_error() -> None:
+def test_real_sdk_classifies_without_error(real_sdk: Path) -> None:
     try:
-        inv = introspect("prisma_browser", REAL_SDK)
+        inv = introspect("prisma_browser", real_sdk)
     except ImportError as exc:
-        pytest.skip(
-            f"prisma-browser-sdk runtime deps not installed in this venv: {exc}"
-        )
+        pytest.skip(f"prisma-browser-sdk runtime deps not installed in this venv: {exc}")
     ir, unmapped = build_cli_ir(inv, CliConfig())
     # no duplicate commands
     assert len({c.key for c in ir.commands}) == len(ir.commands)

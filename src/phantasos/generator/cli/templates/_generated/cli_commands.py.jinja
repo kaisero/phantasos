@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import typer
+{% if federated %}import difflib
+from importlib.resources import files
+{% endif %}import typer
 from rich.table import Table
 
 from . import diagnostics as _diag
 from . import history as _history
 from . import output as _output
+{% if federated %}from .spec import CliIR as _CliIR
+{% endif %}
 
 cli_show_app = typer.Typer(no_args_is_help=True, help="CLI meta information.")
 
@@ -47,3 +51,154 @@ def show_history(
         )
     with _output.maybe_paged(pager):
         _output._console.print(table)
+
+
+@cli_show_app.command("log")
+def show_log(
+    limit: int = typer.Option(20, "--limit", help="Entries to show (0 = all)."),
+    level: str | None = typer.Option(
+        None, "--level", help="Show this level and above "
+        "(trace|debug|info|warning|error|critical)."
+    ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print raw JSON log records (includes tracebacks)."
+    ),
+    follow: bool = typer.Option(
+        False, "--follow", "-f",
+        help="Stream new log lines as they arrive (Ctrl-C to stop)."
+    ),
+    pager: bool | None = typer.Option(
+        None, "--pager/--no-pager",
+        help="Page output taller than the terminal (ignored with --follow).",
+        rich_help_panel="Common",
+    ),
+) -> None:
+    """Show the CLI log (newest last) — rotating JSONL plus its .gz backups."""
+    from . import config as _config
+    from . import logging_setup as _log
+
+    if level is not None and level.lower() not in _config._LOG_LEVELS:
+        _diag.fail(
+            f"unknown log level {level!r} "
+            "(choose: trace, debug, info, warning, error, critical)",
+            code=2,
+        )
+    records, corrupt = _log.read_log(limit=limit, min_level=level)
+    if corrupt:
+        _diag.warning(f"skipped {corrupt} corrupt log line(s)")
+    if follow:
+        _follow_log(records, level=level, as_json=as_json)
+        return
+    if not records:
+        _diag.info("log is empty")
+        return
+    if as_json:
+        with _output.maybe_paged(pager):
+            for r in records:
+                _output._console.print_json(data=r)
+        return
+    table = Table("time", "level", "logger", "message")
+    for r in records:
+        ts = str(r.get("ts", ""))[:16].replace("T", " ")
+        msg = str(r.get("msg", ""))
+        if r.get("exc"):
+            msg += "  [dim](+traceback — use --json)[/dim]"
+        table.add_row(ts, str(r.get("level", "")), str(r.get("logger", "")), msg)
+    with _output.maybe_paged(pager):
+        _output._console.print(table)
+
+
+def _emit_log_line(r: dict, as_json: bool) -> None:
+    if as_json:
+        _output._console.print_json(data=r)
+        return
+    ts = str(r.get("ts", ""))[11:19]  # HH:MM:SS
+    _output._console.print(
+        f"{ts} {str(r.get('level', '')):<8} {r.get('msg', '')}", markup=False
+    )
+
+
+def _follow_log(records: list[dict], *, level: str | None, as_json: bool) -> None:
+    import time as _time
+
+    from . import config as _config
+    from . import logging_setup as _log
+
+    for r in records:  # recent snapshot, line format
+        _emit_log_line(r, as_json)
+    _diag.info("— following (Ctrl-C to stop) —")
+    path = _config.log_file_path()
+    floor = _config.log_level_int(level) if level else 0
+    try:
+        offset = path.stat().st_size if path.exists() else 0
+    except OSError:
+        offset = 0
+    try:
+        while True:
+            new, _corrupt, offset = _log.read_since(path, offset)
+            for r in new:
+                if not floor or _config.log_level_int(str(r.get("level", ""))) >= floor:
+                    _emit_log_line(r, as_json)
+            _time.sleep(0.5)
+    except KeyboardInterrupt:
+        raise typer.Exit(0) from None
+
+{% if ir.credential_fields %}
+@cli_show_app.command("cache")
+def show_cache() -> None:
+    """Show cached auth tokens (key id + expiry — never the token value)."""
+    import time as _time
+    from datetime import datetime, timezone
+
+    from . import auth_cache as _auth_cache
+
+    d = _auth_cache._dir()  # non-creating: `show` must not materialize the dir
+    _output._console.print(f"dir: {d}")
+    for key, exp in _auth_cache.list_entries():
+        iso = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds")
+        rem = int(exp - _time.time())
+        _output._console.print(f"  key {key}  expires {iso} (in {rem}s)")
+{% endif %}
+
+{% if federated %}
+
+def _object_index() -> dict:
+    """Build object → {subpackage, verbs, description} index from ir.json."""
+    # ponytail: re-reads ir.json per call; cheap (local file, <1 ms); add an
+    # lru_cache here if profiling shows it matters in practice.
+    text = files(__package__).joinpath("ir.json").read_text(encoding="utf-8")
+    ir = _CliIR.model_validate_json(text)
+    index: dict = {}
+    for c in ir.commands:
+        if c.object not in index:
+            sub = (c.subpackage or "").replace("_", "-")
+            index[c.object] = {
+                "subpackage": sub,
+                "verbs": [],
+                "description": c.summary or c.description,
+            }
+        if c.verb not in index[c.object]["verbs"]:
+            index[c.object]["verbs"].append(c.verb)
+    return index
+
+
+def which_object(
+    object_name: str = typer.Argument(..., help="Object name to locate."),
+) -> None:
+    """Locate which sub-package provides an object and what verbs it supports."""
+    index = _object_index()
+    if object_name in index:
+        entry = index[object_name]
+        verbs = ", ".join(entry["verbs"])
+        line = f"{object_name} — {entry['subpackage']} · {verbs}"
+        if entry["description"]:
+            line += f"  {entry['description']}"
+        typer.echo(line)
+    else:
+        matches = difflib.get_close_matches(object_name, list(index), n=3, cutoff=0.6)
+        msg = f"unknown object '{object_name}'."
+        if matches:
+            msg += f" Did you mean: {', '.join(matches)}?"
+        typer.echo(msg, err=True)
+        raise typer.Exit(code=1)
+{% endif %}

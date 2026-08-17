@@ -16,9 +16,7 @@ def inv() -> OperationInventory:
 
 
 def _op(inv: OperationInventory, resource: str, method: str) -> OperationInfo:
-    return next(
-        o for o in inv.operations if o.resource == resource and o.method == method
-    )
+    return next(o for o in inv.operations if o.resource == resource and o.method == method)
 
 
 def test_version_and_resources(inv: OperationInventory) -> None:
@@ -135,3 +133,25 @@ def test_list_field_not_named_data_is_not_an_envelope() -> None:
     assert model == "Team"
     assert items_field is None  # NOT mistaken for an envelope
     assert [f.name for f in fields] == ["id", "members"]
+
+
+def test_public_primitives_exported() -> None:
+    # Submodule-direct import — EXACTLY what cli/modelschema.py (Task 4) uses.
+    # Do NOT use `from ...opmodel import introspect as I`: opmodel/__init__.py does
+    # `from .introspect import introspect`, rebinding the package attribute
+    # `opmodel.introspect` to the FUNCTION (shadowing the submodule), so `I.field_kind`
+    # would raise AttributeError. The submodule path below is the real contract.
+    from phantasos.generator.opmodel.introspect import (
+        enum_values,
+        field_kind,
+        scalar_type,
+        union_members,
+        unwrap_optional,
+    )
+
+    assert field_kind(str) == "scalar"
+    assert field_kind(list[str]) == "scalar"
+    assert unwrap_optional(str | None) is str
+    assert enum_values(int) is None
+    assert scalar_type(bool) == "bool"
+    assert callable(union_members)

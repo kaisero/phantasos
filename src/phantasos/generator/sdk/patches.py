@@ -4,19 +4,20 @@ Spec-agnostic; applied to any generated package. Idempotent.
   - apostrophe enum values (`'Old McDonald's Farm'`) -> re-quoted
   - lenient enums (str+int) -> tolerate values newer than the spec
   - oneOf first-match -> from_json returns the first matching branch
+  - oneOf unwrap -> model_dump serializes the wrapper as its actual_instance
+  - drop empty additional_properties -> model_dump omits the empty bag
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from pathlib import Path
 
 _APOSTROPHE_ENUM = re.compile(r"^(\s*[A-Z0-9_]+ = )'(.*'.*)'\s*$")
 _ENUM_CLASS = re.compile(r"^class (\w+)\(str, Enum\):", re.M)
 _ENUM_CLASS_INT = re.compile(r"^class (\w+)\(int, Enum\):", re.M)
-_ONEOF_FIRST_MATCH = re.compile(
-    r"(instance\.actual_instance = \w+\.from_json\(json_str\)\n)(\s*)match \+= 1"
-)
+_ONEOF_FIRST_MATCH = re.compile(r"(instance\.actual_instance = \w+\.from_json\(json_str\)\n)(\s*)match \+= 1")
 
 LENIENT_SOURCE = '''\
 """Forward-compatible string/int enum base (injected by phantasos).
@@ -82,22 +83,21 @@ def patch_apostrophe_enums(models_dir: Path) -> int:
     return fixed
 
 
-def rebase_lenient_enums(pkg_dir: Path) -> int:
+def rebase_lenient_enums(pkg_dir: Path, *, package: str | None = None) -> int:
+    # `_lenient.py` lives at `<pkg_dir>/_lenient.py`, so the import must carry the
+    # FULL dotted import path of the package — for a federated sub-package
+    # `prisma_access.objects` that is `prisma_access.objects._lenient`, NOT the leaf
+    # `objects._lenient` (which `pkg_dir.name` would yield). Single-spec callers omit
+    # `package`, so it defaults to the leaf (unchanged).
+    pkg = package or pkg_dir.name
     (pkg_dir / "_lenient.py").write_text(LENIENT_SOURCE, encoding="utf-8")
-    import_line = (
-        f"from {pkg_dir.name}._lenient import LenientStrEnum, LenientIntEnum\n"
-    )
+    import_line = f"from {pkg}._lenient import LenientStrEnum, LenientIntEnum\n"
     rebased = 0
     for path in sorted((pkg_dir / "models").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        if (
-            not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text))
-            or "_lenient import" in text
-        ):
+        if not (_ENUM_CLASS.search(text) or _ENUM_CLASS_INT.search(text)) or "_lenient import" in text:
             continue
-        text = text.replace(
-            "from enum import Enum\n", "from enum import Enum\n" + import_line, 1
-        )
+        text = text.replace("from enum import Enum\n", "from enum import Enum\n" + import_line, 1)
         text, n1 = _ENUM_CLASS.subn(r"class \1(LenientStrEnum):", text)
         text, n2 = _ENUM_CLASS_INT.subn(r"class \1(LenientIntEnum):", text)
         path.write_text(text, encoding="utf-8")
@@ -118,10 +118,251 @@ def patch_oneof_first_match(models_dir: Path) -> int:
     return files
 
 
-def apply_generic_patches(pkg_dir: Path) -> dict[str, int]:
+_UNWRAP_METHOD = '''
+    @model_serializer
+    def _phantasos_unwrap(self) -> Any:
+        """phantasos: serialize a oneOf wrapper as its actual instance, so
+        model_dump()/model_dump_json() match the hand-written to_dict() instead
+        of leaking the generator scaffolding (actual_instance, one_of_schemas, ...)."""
+        return self.actual_instance
+'''
+
+_DROP_EMPTY_METHOD = '''
+    @model_serializer(mode="wrap")
+    def _phantasos_drop_empty_additional_properties(self, handler) -> Any:
+        """phantasos: omit an empty additional_properties bag from
+        model_dump()/model_dump_json(); non-empty bags are left untouched.
+        Respects exclude=/by_alias=/exclude_none=, so to_dict() is unchanged."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("additional_properties") == {}:
+            data.pop("additional_properties")
+        return data
+'''
+
+
+def _ensure_model_serializer_import(text: str) -> str:
+    # Key on the IMPORT, not a bare `model_serializer` substring, so an unrelated
+    # reference (a future field_serializer/model_validator, a hand-edit) can never
+    # suppress a needed import while a method still gets injected (-> NameError).
+    if "model_serializer," in text or "import model_serializer" in text:
+        return text
+    return text.replace("from pydantic import ", "from pydantic import model_serializer, ", 1)
+
+
+def patch_oneof_unwrap_serializer(models_dir: Path) -> int:
+    """Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps."""
+    count = 0
+    for path in sorted(models_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "actual_instance" not in text or "one_of_schemas" not in text:
+            continue
+        if "_phantasos_unwrap" in text:
+            continue  # idempotent
+        if "\n    def to_str(self)" not in text:
+            continue  # anchor absent (OAG changed) — skip, don't write unchanged
+        text = _ensure_model_serializer_import(text)
+        text = text.replace("\n    def to_str(self)", _UNWRAP_METHOD + "\n    def to_str(self)", 1)
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+def patch_drop_empty_additional_properties(models_dir: Path) -> int:
+    """Attach a wrap model_serializer dropping empty additional_properties bags.
+
+    Skips oneOf wrappers (they carry no additional_properties field and get the
+    unwrap serializer instead); a class may have at most one model_serializer.
+    """
+    count = 0
+    for path in sorted(models_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "additional_properties: Dict[str, Any] = {}" not in text:
+            continue
+        if "one_of_schemas" in text:
+            continue  # belongs to the unwrap patch
+        if "_phantasos_drop_empty_additional_properties" in text:
+            continue  # idempotent
+        if "\n    def to_str(self)" not in text:
+            continue  # anchor absent (OAG changed) — skip, don't write unchanged
+        text = _ensure_model_serializer_import(text)
+        text = text.replace("\n    def to_str(self)", _DROP_EMPTY_METHOD + "\n    def to_str(self)", 1)
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+_OF_SCHEMAS = re.compile(r"_OF_SCHEMAS\s*=\s*\[([^\]]*)\]")
+_OF_MEMBER = re.compile(r'"([A-Z][A-Za-z0-9_]*)"')
+
+
+def patch_oneof_missing_imports(models_dir: Path, *, package: str | None = None) -> int:
+    """Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
+
+    OAG lists each branch in ``*_OF_SCHEMAS`` and the ``Union[...]`` annotation, but
+    for a branch it also represents as a primitive validator (e.g. a numeric branch
+    titled ``Number`` -> ``oneof_schema_1_validator: Optional[float]``) it emits NO
+    ``from .models.<x> import <X>`` line. With ``from __future__ import annotations``
+    the dangling name survives import but fails ``model_rebuild()`` (introspect / docs)
+    with ``NameError: name '<X>' is not defined``. Surfaces only once the deep payload
+    is restored (SCM flatten). Idempotent; adds an import only when the sibling model
+    file actually exists.
+    """
+    pkg = package or models_dir.parent.name
+    defined: dict[str, str] = {}  # ClassName -> module stem (sibling that defines it)
+    texts: dict[Path, str] = {}
+    for path in sorted(models_dir.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = texts[path] = path.read_text(encoding="utf-8")
+        for cls in re.findall(r"^class\s+([A-Z][A-Za-z0-9_]*)\(", text, re.M):
+            defined[cls] = path.stem
+    count = 0
+    for path, text in texts.items():
+        members: set[str] = set()
+        for block in _OF_SCHEMAS.findall(text):
+            members |= set(_OF_MEMBER.findall(block))
+        missing = sorted(m for m in members if m in defined and defined[m] != path.stem and f"import {m}\n" not in text)
+        if not missing:
+            continue
+        lines = "".join(f"from {pkg}.models.{defined[m]} import {m}\n" for m in missing)
+        # Insert after the last existing model import (the Tcp/Udp imports OAG did
+        # emit); fall back to after the future import.
+        anchor = f"from {pkg}.models."
+        idx = text.rfind(anchor)
+        if idx != -1:
+            eol = text.index("\n", idx) + 1
+        else:
+            fut = "from __future__ import annotations\n"
+            eol = text.index(fut) + len(fut) if fut in text else 0
+        text = text[:eol] + lines + text[eol:]
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+def _ensure_model_validator_import(text: str) -> str:
+    # Key on the IMPORT, not a bare `model_validator` substring, so an unrelated
+    # reference can never suppress a needed import while a method still gets
+    # injected (-> NameError). Mirrors `_ensure_model_serializer_import`.
+    if "model_validator," in text or "import model_validator" in text:
+        return text
+    return text.replace("from pydantic import ", "from pydantic import model_validator, ", 1)
+
+
+_SCOPE_VALIDATOR = '''
+    @model_validator(mode="after")
+    def _phantasos_scope_exactly_one(self):
+        """phantasos: scope-container guard on a user-authored mutation body.
+
+        SCM reuses ONE schema for request AND response, so this same class also
+        deserializes server payloads: echoes carry a server-assigned ``id`` (and
+        may have zero or several containers), and folder LISTINGS surface
+        inherited objects — e.g. the ``predefined`` snippet's — with NO id and
+        SEVERAL containers set (live-proven). Raising on any shape a server can
+        produce would crash reads, so reject ONLY the one shape a server never
+        emits: no ``id`` and no container at all — the classic user mistake of
+        omitting folder/snippet/device. A genuine multi-container mutation is
+        rejected by the SCM server itself (defense-in-depth).
+        """
+        if getattr(self, "id", None) is not None:
+            return self
+        set_ = [f for f in {fields!r} if getattr(self, f, None) is not None]
+        if not set_:
+            raise ValueError("exactly one of {fields_h} must be set (got none)")
+        return self
+'''
+
+
+# The stable anchor shared with the oneOf/drop-empty patches: OAG emits a
+# `to_str` method on every model, so injecting BEFORE it lands the validator
+# inside the class body (never at module EOF where trailing code may live).
+_TO_STR_ANCHOR = "\n    def to_str(self)"
+
+
+def patch_scope_validators(
+    models_dir: Path,
+    scope_fields: Collection[str],
+    model_stems: Collection[str],
+) -> int:
+    """Inject an exactly-one-scope ``model_validator`` on each named scoped model.
+
+    *model_stems* is the set of model file stems (e.g. ``{"addresses"}``) whose
+    class carries the ``scope`` group — the mutating body models of the scoped
+    resources. For each, a ``mode="after"`` validator rejects the no-id,
+    zero-container shape (a USER mutation body that forgot its container) while
+    letting every server-producible payload through — echoes carrying ``id``,
+    and id-less inherited listing items with several containers; see
+    ``_SCOPE_VALIDATOR``. Idempotent; a stem with no ``\\nclass `` anchor is
+    skipped and written back unchanged.
+    """
+    count = 0
+    fields = tuple(scope_fields)
+    fields_h = "/".join(fields)
+    method = _SCOPE_VALIDATOR.format(fields=fields, fields_h=fields_h)
+    for path in sorted(models_dir.glob("*.py")):
+        if path.stem not in model_stems:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "_phantasos_scope_exactly_one" in text:
+            continue  # idempotent
+        if "\nclass " not in text:
+            continue  # anchor absent — skip, don't write unchanged
+        text = _ensure_model_validator_import(text)
+        if _TO_STR_ANCHOR in text:
+            # OAG model: land the method inside the class body, before `to_str`.
+            text = text.replace(_TO_STR_ANCHOR, method + _TO_STR_ANCHOR, 1)
+        else:
+            # Anchor-less (fixtures / hand-written): append as the trailing member
+            # of the first class body (the file is a single top-level class).
+            text = text.rstrip("\n") + "\n" + method + "\n"
+        path.write_text(text, encoding="utf-8")
+        count += 1
+    return count
+
+
+# typing names OAG uses as subscripted generics (`List[str]`, `ClassVar[List[str]]`)
+# but sometimes omits from the module's `from typing import ...` line.
+_TYPING_NAMES = ("List", "Dict", "Set", "Tuple", "Optional", "Union", "Any", "ClassVar")
+_TYPING_IMPORT = re.compile(r"^from typing import (.+)$", re.M)
+
+
+def patch_missing_typing_imports(models_dir: Path) -> int:
+    """Add typing names used as generics but absent from ``from typing import ...``.
+
+    OAG emits ``List[...]`` / ``ClassVar[List[str]]`` under ``from __future__ import
+    annotations`` while importing only a subset of ``typing`` (e.g. ``Any, ClassVar,
+    Dict, Optional`` but not ``List``). Lazy annotations mean the module still imports
+    and tests pass, but ruff ``F821`` and mypy ``name-defined`` both flag the dangling
+    name. Inject each used-but-unimported name into the existing typing import line.
+    Idempotent; only touches files that already have a ``from typing import`` line.
+    """
+    fixed = 0
+    for path in sorted(models_dir.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        m = _TYPING_IMPORT.search(text)
+        if not m:
+            continue
+        imported = {n.strip() for n in m.group(1).split(",") if n.strip()}
+        missing = [n for n in _TYPING_NAMES if n not in imported and re.search(rf"\b{n}\[", text)]
+        if not missing:
+            continue
+        new_line = "from typing import " + ", ".join(sorted(imported | set(missing)))
+        text = text[: m.start()] + new_line + text[m.end() :]
+        path.write_text(text, encoding="utf-8")
+        fixed += 1
+    return fixed
+
+
+def apply_generic_patches(pkg_dir: Path, *, package: str | None = None) -> dict[str, int]:
     models = pkg_dir / "models"
     return {
         "apostrophe": patch_apostrophe_enums(models),
-        "lenient_enums": rebase_lenient_enums(pkg_dir),
+        "lenient_enums": rebase_lenient_enums(pkg_dir, package=package),
         "oneof_first_match": patch_oneof_first_match(models),
+        "oneof_unwrap": patch_oneof_unwrap_serializer(models),
+        "oneof_missing_imports": patch_oneof_missing_imports(models, package=package),
+        "missing_typing_imports": patch_missing_typing_imports(models),
+        "drop_empty_additional_properties": patch_drop_empty_additional_properties(models),
     }

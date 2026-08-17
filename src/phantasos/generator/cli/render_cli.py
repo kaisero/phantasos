@@ -7,16 +7,40 @@ import keyword
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from ...productconfig import HeaderSpec
 from . import ir as _ir_module
-from .ir import CliIR, Command, Flag
+from .cliconfig import CliDocsConfig
+from .docs import build_cli_docs_context
+from .flags import dedupe_flags
+from .flags import leaf as _leaf
+from .flags import query_panel as _query_panel
+from .ir import CliIR, Command, ConnectionField, Flag, ModelSchema, synth_skeleton
 
 _TEMPLATES = Path(__file__).parent / "templates"
 _HANDOWNED = ["main.py", "hooks.py", "custom/__init__.py"]
+
+# The fixed, uniform ``_generated/*`` renders: ``(template, rel_dest)`` pairs
+# emitted in order. ``spec.py``, the conditional ``environment_commands.py``,
+# and the ``ir.json`` write are NOT uniform renders and stay inline in
+# :func:`render_cli`.
+_GENERATED: tuple[tuple[str, str], ...] = (
+    ("_generated/__init__.py.jinja", "__init__.py"),
+    ("_generated/config.py.jinja", "config.py"),
+    ("_generated/default_config.yml.jinja", "default_config.yml"),
+    ("_generated/config_commands.py.jinja", "config_commands.py"),
+    ("_generated/history.py.jinja", "history.py"),
+    ("_generated/cli_commands.py.jinja", "cli_commands.py"),
+    ("_generated/diagnostics.py.jinja", "diagnostics.py"),
+    ("_generated/logging_setup.py.jinja", "logging_setup.py"),
+    ("_generated/output.py.jinja", "output.py"),
+    ("_generated/runtime.py.jinja", "runtime.py"),
+)
 
 
 def cli_overrides_dir() -> Path:
@@ -34,40 +58,12 @@ _RESERVED = {
     "quiet",
 }
 
-# Well-known pagination/sort query params → their own help panel (the rest of the
-# query params are filters). Matched on the SDK param name (snake_case).
-_PAGINATION_PARAMS = frozenset(
-    {
-        "limit",
-        "offset",
-        "cursor",
-        "page",
-        "page_size",
-        "per_page",
-        "sort",
-        "order",
-        "sort_by",
-        "order_by",
-        "sort_order",
-    }
-)
-
-
-def _query_panel(f: Flag) -> str:
-    return "Pagination" if f.param in _PAGINATION_PARAMS else "Filters"
-
 
 def _py_name(param: str) -> str:
     ident = param if param.isidentifier() else "p_" + re.sub(r"\W", "_", param)
     if keyword.iskeyword(ident) or ident in _RESERVED:
         ident += "_"
     return ident
-
-
-def _leaf(c: Command) -> str | None:
-    """The third command segment: a oneOf variant OR a request action (mutually
-    exclusive)."""
-    return c.variant or c.action
 
 
 def _func_name(c: Command) -> str:
@@ -78,13 +74,14 @@ def _func_name(c: Command) -> str:
 
 _SUBVERB_PRIORITY = {
     "patch": 0,
-    "create": 1,
-    "update": 2,
-    "delete": 3,
-    "get": 4,
-    "list": 5,
-    "bulk_create": 6,
-    "bulk_delete": 7,
+    "put": 1,
+    "create": 2,
+    "update": 3,
+    "delete": 4,
+    "get": 5,
+    "list": 6,
+    "bulk_create": 7,
+    "bulk_delete": 8,
 }
 
 
@@ -116,9 +113,7 @@ def _py_literal(value: object) -> str:
         return repr(value)
     if isinstance(value, str):
         return json.dumps(value)
-    raise TypeError(
-        f"cli.yml defaults values must be scalars, got {type(value).__name__}"
-    )
+    raise TypeError(f"cli.yml defaults values must be scalars, got {type(value).__name__}")
 
 
 def _render_type(f: Flag) -> str:
@@ -185,7 +180,7 @@ def _help_literal(text: str | None) -> str | None:
     return "(" + " ".join(parts) + ")"
 
 
-def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
+def _flag_view(f: Flag, panel: str | None = None, *, models: dict[str, ModelSchema] | None = None) -> dict[str, object]:
     choices = f.choices
     help_text: str | None = f.help
     completion: list[str] | None = None
@@ -198,6 +193,17 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
         help_text = f"{f.help}  {values}" if f.help else values
         completion = choices
         completer_name = f"_complete_{_py_name(f.param)}"
+    elif f.kind == "json" and f.model_ref and models is not None:
+        # Stop-gap payload helper: a json body flag would otherwise render as a
+        # bare ``TEXT`` with no hint of its shape. Show the model name plus a
+        # compact minimal (required-only) skeleton so ``--help`` tells the user
+        # what JSON to pass. Escape the leading bracket like the enum path above.
+        skel = synth_skeleton(models, f.model_ref, full=False)
+        compact = json.dumps(skel, separators=(",", ":"))
+        # ponytail: rsplit no-op on bare refs → single-spec output unchanged
+        label = f.model_ref.rsplit(".", 1)[-1]
+        ann = rf"\[json: {label}] e.g. {compact}"
+        help_text = f"{f.help}  {ann}" if f.help else ann
     return {
         "name": f.name,
         "param": f.param,
@@ -208,14 +214,15 @@ def _flag_view(f: Flag, panel: str | None = None) -> dict[str, object]:
         "completion": completion,
         "completer_name": completer_name,
         "panel": panel,
-        "default_literal": (
-            _py_literal(f.cli_default) if f.cli_default is not None else None
-        ),
+        "default_literal": (_py_literal(f.cli_default) if f.cli_default is not None else None),
     }
 
 
 def _command_view(
-    c: Command, variant_groups: set[tuple[str, str]]
+    c: Command,
+    variant_groups: set[tuple[str, str]],
+    *,
+    models: dict[str, ModelSchema] | None = None,
 ) -> dict[str, object]:
     leaf = _leaf(c)
     if leaf:
@@ -224,36 +231,73 @@ def _command_view(
         typer_path = [c.object, _primary_sub_verb(c)]
     else:
         typer_path = [c.object]
-    # Deduplicate all_flags: path params take priority; body/query flags whose
-    # param name already appears in path_params are suppressed (avoids duplicate
-    # argument errors when an SDK body model field shares a name with a path param
-    # — e.g. the `type` discriminator that appears both as a path param and as a
-    # field of the request body).
-    path_param_names = {f.param for f in c.path_params}
-    deduped_body = [f for f in c.body_flags if f.param not in path_param_names]
-    deduped_query = [
-        f
-        for f in c.query_flags
-        if f.param not in path_param_names
-        and f.param not in {b.param for b in deduped_body}
+    if c.subpackage:
+        # Federated: nest under the sub-package COMMAND name (kebab); the snake slug
+        # stays on the IR/dispatch (the `_REGISTRY` `subpackage` column drives C2's
+        # `client.<sub>.<object>.<verb>()`). Single-spec (subpackage None) is a no-op.
+        typer_path = [c.subpackage.replace("_", "-"), *typer_path]
+    # Dedup flags via the shared helper so the docs command reference can't drift
+    # from the emitted flag set (design D2): path wins over body, body over query.
+    deduped_body, deduped_query = dedupe_flags(c)
+    all_flags = [
+        *(_flag_view(f) for f in c.path_params),
+        *(_flag_view(f, models=models) for f in deduped_body),
+        *(_flag_view(f, _query_panel(f)) for f in deduped_query),
     ]
     return {
         "key": c.key,
         "func_name": _func_name(c),
         "summary": c.summary,
         "typer_path": typer_path,
+        "subpackage": c.subpackage,
         "sdk_resource": c.sdk_resource,
         "verb": c.verb,
         "variant": c.variant,
         "path_params": [_flag_view(f) for f in c.path_params],
-        "body_flags": [_flag_view(f) for f in deduped_body],
+        "body_flags": [_flag_view(f, models=models) for f in deduped_body],
         "query_flags": [_flag_view(f) for f in deduped_query],
-        "all_flags": [
-            *(_flag_view(f) for f in c.path_params),
-            *(_flag_view(f) for f in deduped_body),
-            *(_flag_view(f, _query_panel(f)) for f in deduped_query),
-        ],
+        "all_flags": all_flags,
     }
+
+
+def _derive_connection_flags(names: list[str]) -> list[str]:
+    """CLI flag name per connection header (the single source of this derivation).
+
+    Flag name = the header's last hyphen segment, lowercased
+    (``X-PANW-Region`` -> ``region``). If two headers derive the same name, BOTH
+    fall back to the full kebab header (``x-panw-region``) so the flags stay
+    distinct. Used by ``_connection_views`` (the emitted flag) AND ``_enrich_ir``
+    (baked onto the IR so the runtime pre-flight hint can't diverge).
+    """
+    shorts = [n.split("-")[-1].lower() for n in names]
+    counts: dict[str, int] = {}
+    for s in shorts:
+        counts[s] = counts.get(s, 0) + 1
+    return [
+        short if counts[short] == 1 else name.lower().replace("_", "-")
+        for name, short in zip(names, shorts, strict=True)
+    ]
+
+
+def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
+    """Per connection field: its global-flag name + Python identifier + env var.
+
+    The flag name is also the storage key in ``environments.yml`` and the
+    ``environment create`` prompt label.
+    """
+    flags = _derive_connection_flags([f.name for f in fields])
+    views: list[dict[str, object]] = []
+    for f, flag in zip(fields, flags, strict=True):
+        views.append(
+            {
+                "header": f.name,
+                "env": f.env,
+                "flag": flag,
+                "py_name": _py_name(flag.replace("-", "_")),
+                "required": f.required,
+            }
+        )
+    return views
 
 
 def _module_enum_flags(
@@ -296,7 +340,7 @@ def _format_generated(paths: list[Path]) -> None:
     pyfiles = [str(p) for p in paths if p.suffix == ".py"]
     if not ruff or not pyfiles:
         return
-    common = ["--isolated", "--line-length", "88"]
+    common = ["--isolated", "--line-length", "120"]
     # import sorting / safe autofixes first, then format
     subprocess.run(
         [ruff, "check", "--fix", "--select", "I,UP", *common, *pyfiles],
@@ -310,6 +354,191 @@ def _format_generated(paths: list[Path]) -> None:
     )
 
 
+def _enrich_ir(
+    ir: CliIR,
+    auth: object | None,
+    errors: object | None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
+) -> CliIR:
+    """Enrich the IR with credential descriptors from the auth component, the
+    error-envelope descriptor from the error component, and connection-field
+    descriptors from default_headers (if present).
+
+    Done BEFORE any template render or the ir.json write so templates and the
+    serialized IR see the same enriched copy. ``model_copy`` returns a new
+    instance, leaving the caller's ``ir`` untouched.
+    """
+    if auth is not None and hasattr(auth, "credential_fields"):
+        ir = ir.model_copy(update={"credential_fields": list(auth.credential_fields())})
+    # Likewise enrich with the error-envelope descriptor so the emitted
+    # diagnostics carries NO product-specific error keys.
+    if errors is not None and hasattr(errors, "error_fields"):
+        ir = ir.model_copy(update={"error_envelope": errors.error_fields()})
+    # Connection-header descriptors from ProductConfig.default_headers.
+    if default_headers:
+        flags = _derive_connection_flags(list(default_headers))
+        connection_fields = [
+            ConnectionField(
+                name=header_name,
+                env=spec.env,
+                required=spec.required,
+                required_for=list(spec.required_for),
+                flag=flag,
+            )
+            for (header_name, spec), flag in zip(default_headers.items(), flags, strict=True)
+        ]
+        # ponytail: guard the one real collision risk — a connection flag clashing
+        # with a credential field's flag (both become global --options). Reserved
+        # Typer options (--output/--environment/…) aren't enumerated here.
+        cred_flags = {cf.name.lower().replace("_", "-") for cf in ir.credential_fields}
+        clash = {str(c.flag) for c in connection_fields} & cred_flags
+        if clash:
+            raise ValueError(
+                f"connection flag(s) {', '.join(sorted(clash))} collide with "
+                "credential flags — rename the header or its env var"
+            )
+        ir = ir.model_copy(update={"connection_fields": connection_fields})
+    return ir
+
+
+def _render_commands(
+    env: Environment,
+    ctx: dict[str, object],
+    ir: CliIR,
+    *,
+    gen: Path,
+    out_dir: Path,
+) -> list[str]:
+    """Emit the per-resource command modules, the commands package marker, and
+    the app factory; return the written rel-paths in emission order so the caller
+    can ``written.extend(...)`` them."""
+    written: list[str] = []
+    resources = sorted({c.sdk_resource for c in ir.commands})
+    variant_groups: set[tuple[str, str]] = {(c.verb, c.object) for c in ir.commands if c.variant or c.action}
+    by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
+    for c in ir.commands:
+        by_resource[c.sdk_resource].append(_command_view(c, variant_groups, models=ir.models))
+    for resource, cmds in by_resource.items():
+        dest = gen / "commands" / f"{resource}.py"
+        # Dedup enum-flag completers by completer_name across the module's commands
+        # (e.g. create + update both expose --color → a single completer def).
+        module_enum_flags = _module_enum_flags(cmds)
+        dest.write_text(
+            env.get_template("_generated/commands.py.jinja").render(
+                resource=resource,
+                commands=cmds,
+                module_enum_flags=module_enum_flags,
+                **ctx,
+            ),
+            encoding="utf-8",
+        )
+        written.append(str(dest.relative_to(out_dir)))
+    # commands package marker
+    (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
+    written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
+    # app factory
+    all_views = [_command_view(c, variant_groups, models=ir.models) for c in ir.commands]
+    # Federated builds stamp every command with a sub-package slug; that gates the
+    # N-level nesting (verb -> sub-package -> object) in app.py. Single-spec
+    # (subpackage None) keeps the byte-identical 2-level loop.
+    # `federated` is already in ctx (added in render_cli() before the _GENERATED loop).
+    # F2: derive sub_help / obj_help from IR for the federated help text dicts.
+    # ponytail: first non-empty summary/description per sub/object; no new data source.
+    # Only the federated app.py branch reads these, so skip the work for single-spec.
+    sub_help: dict[str, str] = {}
+    obj_help: dict[str, str] = {}
+    if ctx.get("federated"):
+        for c in ir.commands:
+            if c.subpackage:
+                sub_k = c.subpackage.replace("_", "-")
+                if sub_k not in sub_help:
+                    sub_help[sub_k] = c.summary or c.description or ""
+            if c.object not in obj_help:
+                obj_help[c.object] = c.summary or c.description or ""
+    (gen / "app.py").write_text(
+        env.get_template("_generated/app.py.jinja").render(
+            resources=resources,
+            commands=all_views,
+            sub_help=sub_help,
+            obj_help=obj_help,
+            **ctx,
+        ),
+        encoding="utf-8",
+    )
+    written.append(str((gen / "app.py").relative_to(out_dir)))
+    return written
+
+
+def _render_docs(
+    env: Environment,
+    ctx: dict[str, object],
+    ir: CliIR,
+    docs: CliDocsConfig,
+    *,
+    out_dir: Path,
+    package: str,
+    distribution: str | None,
+    docs_site_name: str | None,
+    resolved_prefix: str,
+    docs_repo_url: str | None,
+    docs_description: str,
+) -> list[str]:
+    """Emit the per-product CLI docs site, returning the doc rel-paths it wrote
+    (in emission order) so the caller can ``written.extend(...)`` them."""
+    dist = distribution or package
+    site_name = docs.site_name or docs_site_name or dist
+    doc_ctx = build_cli_docs_context(
+        ir,
+        docs,
+        distribution=dist,
+        site_name=site_name,
+        env_prefix=resolved_prefix,
+        repo_url=docs_repo_url,
+        description=docs_description,
+    )
+    merged = {**ctx, **doc_ctx}
+    written: list[str] = []
+
+    def render_doc(template: str, rel: str, **extra: object) -> None:
+        dest = out_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(env.get_template(template).render(**merged, **extra), encoding="utf-8")
+        written.append(rel)
+
+    render_doc("docs/index.md.jinja", "docs/index.md")
+    render_doc("docs/quickstart.md.jinja", "docs/quickstart.md")
+    subpackages = cast("list[dict[str, object]] | None", doc_ctx["subpackages"])
+    if subpackages:
+        # Federated: one folder per sub-package — reference/<slug>/<object>.md
+        # (mirrors the SDK docs' reference/<slug>/… grouping).
+        for sub in subpackages:
+            for obj in cast("list[dict[str, object]]", sub["objects"]):
+                render_doc(
+                    "docs/reference_object.md.jinja",
+                    f"docs/reference/{sub['slug']}/{obj['object']}.md",
+                    obj=obj,
+                )
+    else:
+        for obj in cast("list[dict[str, object]]", doc_ctx["objects"]):
+            render_doc(
+                "docs/reference_object.md.jinja",
+                f"docs/reference/{obj['object']}.md",
+                obj=obj,
+            )
+    render_doc("docs/guides/output.md.jinja", "docs/guides/output.md")
+    render_doc("docs/guides/errors.md.jinja", "docs/guides/errors.md")
+    if doc_ctx["has_auth"]:
+        render_doc("docs/guides/authentication.md.jinja", "docs/guides/authentication.md")
+    # Named-environments guide — emitted whenever the CLI reads credential OR
+    # connection env vars (`has_env`), mirroring the environment_commands seam.
+    if ctx["has_env"]:
+        render_doc("docs/guides/environments.md.jinja", "docs/guides/environments.md")
+    if doc_ctx["show_pagination_guide"]:
+        render_doc("docs/guides/pagination.md.jinja", "docs/guides/pagination.md")
+    render_doc("docs/mkdocs.yml.jinja", "mkdocs.yml")
+    return written
+
+
 def render_cli(
     ir: CliIR,
     package: str,
@@ -317,6 +546,13 @@ def render_cli(
     *,
     env_prefix: str | None = None,
     distribution: str | None = None,
+    auth: object | None = None,
+    errors: object | None = None,
+    default_headers: Mapping[str, HeaderSpec] | None = None,
+    docs: CliDocsConfig | None = None,
+    docs_site_name: str | None = None,
+    docs_repo_url: str | None = None,
+    docs_description: str = "",
 ) -> list[str]:
     reserved = sorted({c.object for c in ir.commands if c.object == "cli"})
     if reserved:
@@ -339,6 +575,17 @@ def render_cli(
         "env_prefix": resolved_prefix,
         "distribution": distribution or package,
     }
+    # Enrich the IR (credential + error-envelope + connection-field descriptors)
+    # BEFORE any template render or the ir.json write, so templates and the
+    # serialized IR see the same enriched copy.
+    ir = _enrich_ir(ir, auth, errors, default_headers)
+    ctx["ir"] = ir
+    # Connection fields ride the SAME named-environment seams as credentials, so
+    # that infrastructure is emitted whenever EITHER is present. `has_env` gates
+    # the shared parts; `connection_views` carries the per-field flag derivation.
+    ctx["connection_views"] = _connection_views(list(ir.connection_fields))
+    ctx["has_env"] = bool(ir.credential_fields or ir.connection_fields)
+    ctx["federated"] = any(c.subpackage for c in ir.commands)
     written: list[str] = []
 
     def render(template: str, dest: Path) -> None:
@@ -346,62 +593,54 @@ def render_cli(
         dest.write_text(env.get_template(template).render(**ctx), encoding="utf-8")
         written.append(str(dest.relative_to(out_dir)))
 
-    render("_generated/__init__.py.jinja", gen / "__init__.py")
-    render("_generated/config.py.jinja", gen / "config.py")
-    render("_generated/default_config.yml.jinja", gen / "default_config.yml")
-    render("_generated/config_commands.py.jinja", gen / "config_commands.py")
-    render("_generated/history.py.jinja", gen / "history.py")
-    render("_generated/cli_commands.py.jinja", gen / "cli_commands.py")
-    render("_generated/diagnostics.py.jinja", gen / "diagnostics.py")
-    render("_generated/output.py.jinja", gen / "output.py")
-    render("_generated/runtime.py.jinja", gen / "runtime.py")
+    for template, rel in _GENERATED:
+        render(template, gen / rel)
     # H1: emit a drift-free typed copy of the IR models so the runtime loads CliIR typed
     spec_src = Path(_ir_module.__file__).read_text(encoding="utf-8")
     (gen / "spec.py").write_text(spec_src, encoding="utf-8")
     written.append(str((gen / "spec.py").relative_to(out_dir)))
+    # `config environment` commands — rendered with STATIC per-field typer options
+    # generated from ir.credential_fields (no `click` dependency; typer only).
+    # Emitted ONLY for CLIs with named-environment fields (credentials OR
+    # connection headers); a CLI with neither never references it (app.py's
+    # registration is gated on the same condition).
+    if ctx["has_env"]:
+        render(
+            "_generated/environment_commands.py.jinja",
+            gen / "environment_commands.py",
+        )
+    # Token cache store layer — emitted ONLY for authenticating CLIs (its module
+    # reads `_config.get().cache`, a section that only exists when credentials
+    # are present; a non-auth CLI must never reference it).
+    if ir.credential_fields:
+        render("_generated/auth_cache.py.jinja", gen / "auth_cache.py")
     (gen / "ir.json").write_text(ir.model_dump_json(indent=2), encoding="utf-8")
     written.append(str((gen / "ir.json").relative_to(out_dir)))
 
-    # Emit per-resource command modules
-    resources = sorted({c.sdk_resource for c in ir.commands})
-    variant_groups: set[tuple[str, str]] = {
-        (c.verb, c.object) for c in ir.commands if c.variant or c.action
-    }
-    by_resource: dict[str, list[dict[str, object]]] = {r: [] for r in resources}
-    for c in ir.commands:
-        by_resource[c.sdk_resource].append(_command_view(c, variant_groups))
-    for resource, cmds in by_resource.items():
-        dest = gen / "commands" / f"{resource}.py"
-        # Dedup enum-flag completers by completer_name across the module's commands
-        # (e.g. create + update both expose --color → a single completer def).
-        module_enum_flags = _module_enum_flags(cmds)
-        dest.write_text(
-            env.get_template("_generated/commands.py.jinja").render(
-                resource=resource,
-                commands=cmds,
-                module_enum_flags=module_enum_flags,
-                **ctx,
-            ),
-            encoding="utf-8",
-        )
-        written.append(str(dest.relative_to(out_dir)))
-    # commands package marker
-    (gen / "commands" / "__init__.py").write_text("", encoding="utf-8")
-    written.append(str((gen / "commands" / "__init__.py").relative_to(out_dir)))
-    # app factory
-    all_views = [_command_view(c, variant_groups) for c in ir.commands]
-    (gen / "app.py").write_text(
-        env.get_template("_generated/app.py.jinja").render(
-            resources=resources, commands=all_views, **ctx
-        ),
-        encoding="utf-8",
-    )
-    written.append(str((gen / "app.py").relative_to(out_dir)))
+    # Emit per-resource command modules + the app factory
+    written.extend(_render_commands(env, ctx, ir, gen=gen, out_dir=out_dir))
 
     for rel in _HANDOWNED:
         dest = pkg / rel
         if not dest.exists():
             render(f"{rel}.jinja", dest)
+
+    if docs is not None:
+        written.extend(
+            _render_docs(
+                env,
+                ctx,
+                ir,
+                docs,
+                out_dir=out_dir,
+                package=package,
+                distribution=distribution,
+                docs_site_name=docs_site_name,
+                resolved_prefix=resolved_prefix,
+                docs_repo_url=docs_repo_url,
+                docs_description=docs_description,
+            )
+        )
 
     # Format only the files this run wrote (so rebuilds never reformat
     # hand-owned files left untouched above).

@@ -15,6 +15,7 @@ from phantasos.generator.cli.inventory import (
     FieldInfo,
     Location,
     OperationInfo,
+    OperationInventory,
     ParamInfo,
 )
 
@@ -48,8 +49,8 @@ def test_classify_verb_and_noun(method: str, verb: str, obj: str) -> None:
         "revoke_user_request",
         "publish_draft_configuration",
         "action_user_request",
-        # PUT (update_*) + bulk_* are deferred — now unmapped
-        "update_device_group",
+        # bulk_* are deferred — still unmapped (PUT update_* now classifies, see
+        # test_classify_update_is_put)
         "bulk_create_applications",
         "bulk_delete_applications",
     ],
@@ -122,9 +123,7 @@ def test_fields_to_flags_kinds() -> None:
 
 
 def test_snake_case_field_becomes_kebab_flag() -> None:
-    fields = [
-        FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)
-    ]
+    fields = [FieldInfo(name="ip_netmask", annotation="str", kind="scalar", required=True)]
     assert fields_to_flags(fields)[0].name == "--ip-netmask"
 
 
@@ -225,6 +224,65 @@ def test_classify_sub_verb(method: str, sub_verb: str) -> None:
     assert c.sub_verb == sub_verb
 
 
+def test_classify_update_is_put() -> None:
+    c = classify_name("update_device_group")
+    assert c is not None
+    assert (c.verb, c.sub_verb, c.object) == ("update", "put", "device-group")
+
+
+def _id_body_op(method: str, *, required_name: bool = True) -> OperationInfo:
+    return OperationInfo(
+        resource="checks",
+        method=method,
+        params=[
+            ParamInfo(name="id", annotation="str", location="path", required=True),
+            ParamInfo(
+                name="body",
+                annotation="CheckInput",
+                location="body",
+                required=True,
+                body_model="CheckInput",
+            ),
+        ],
+        body_fields={
+            "CheckInput": [
+                FieldInfo(name="name", annotation="str", kind="scalar", required=required_name),
+                FieldInfo(name="note", annotation="str", kind="scalar", required=False),
+            ]
+        },
+    )
+
+
+def test_update_put_only_keeps_body_required() -> None:
+    inv = OperationInventory(sdk_package="p", sdk_version="1", operations=[_id_body_op("update_check_by_id")])
+    ir, unmapped = build_cli_ir(inv, CliConfig())
+    cmd = {c.key: c for c in ir.commands}["update:check"]
+    assert {b.sub_verb for b in cmd.bindings} == {"put"}
+    # --id is required for update
+    assert any(f.kind == "id" and f.required for f in cmd.path_params)
+    # PUT is full-replace: the model's required body field STAYS required
+    name = next(f for f in cmd.body_flags if f.param == "name")
+    note = next(f for f in cmd.body_flags if f.param == "note")
+    assert name.required is True
+    assert note.required is False
+    assert not unmapped
+
+
+def test_update_merged_patch_and_put_relaxes_body_order_independent() -> None:
+    # A resource exposing BOTH patch_ and update_ (PUT) on the same object: PATCH
+    # availability means partial updates are valid, so body flags relax to optional.
+    # Must hold regardless of operation emit order (F10).
+    patch_op = _id_body_op("patch_check_by_id")
+    put_op = _id_body_op("update_check_by_id")
+    for ops in ([patch_op, put_op], [put_op, patch_op]):
+        inv = OperationInventory(sdk_package="p", sdk_version="1", operations=ops)
+        ir, _ = build_cli_ir(inv, CliConfig())
+        cmd = {c.key: c for c in ir.commands}["update:check"]
+        assert {b.sub_verb for b in cmd.bindings} == {"patch", "put"}
+        name = next(f for f in cmd.body_flags if f.param == "name")
+        assert name.required is False  # relaxed: a patch binding exists
+
+
 def test_build_cli_ir_aggregates_methods() -> None:
     inv = introspect("fakesdk", FIXTURE)
     cfg = CliConfig(
@@ -242,14 +300,14 @@ def test_build_cli_ir_aggregates_methods() -> None:
     assert {b.sub_verb for b in show_widget.bindings} == {"get", "list"}
     assert show_widget.paginated is True
 
-    # create/update are now single-binding (PUT update_widget is deferred/unmapped)
+    # create is single-binding; update merges the PATCH + the PUT (update_widget)
     create_widget = by_key["create:widget"]
     assert {b.sub_verb for b in create_widget.bindings} == {"create"}
     assert len(create_widget.bindings) == 1
     assert len([c for c in ir.commands if c.key == "create:widget"]) == 1
     update_widget = by_key["update:widget"]
-    assert {b.sub_verb for b in update_widget.bindings} == {"patch"}
-    assert len(update_widget.bindings) == 1
+    assert {b.sub_verb for b in update_widget.bindings} == {"patch", "put"}
+    assert len(update_widget.bindings) == 2
 
     show_gizmo = by_key["show:gizmo"]
     pp = {f.param for f in show_gizmo.path_params}
@@ -279,9 +337,7 @@ def test_bindings_carry_body_and_variant_metadata() -> None:
     by_key = {c.key: c for c in ir.commands}
 
     # plain body: build the param's model, no wrapper
-    create_widget = next(
-        b for b in by_key["create:widget"].bindings if b.sub_verb == "create"
-    )
+    create_widget = next(b for b in by_key["create:widget"].bindings if b.sub_verb == "create")
     assert create_widget.body_param == "widget_input"
     assert create_widget.body_model == "WidgetInput"
     assert create_widget.body_wrapper is None
@@ -307,7 +363,9 @@ def test_fixture_client_from_env_and_wrapper() -> None:
         from fakesdk.models import CreateGizmoInput, SimpleGizmoInput
 
         c = Client.from_env()
-        assert hasattr(c, "widgets") and hasattr(c, "paginate")
+        # wrapper surface: object attrs (singular), not the raw `*Api` attrs
+        assert hasattr(c, "widget") and hasattr(c, "paginate")
+        assert hasattr(c, "gizmo") and hasattr(c, "thing")
         wrapped = CreateGizmoInput(SimpleGizmoInput(name="x"))
         assert isinstance(wrapped.actual_instance, SimpleGizmoInput)
     finally:
@@ -445,6 +503,16 @@ def test_defaults_stamp_cli_default_on_query_flags() -> None:
     assert all(f.cli_default is None for f in create.body_flags)
 
 
+def test_get_by_id_only_flag() -> None:
+    """`thing` exposes only get_thing(thing_id) (no list) -> get_by_id_only;
+    `widget` has list_widgets -> not id-only."""
+    inv = introspect("fakesdk", FIXTURE)
+    ir, _ = build_cli_ir(inv, CliConfig())
+    by_key = {c.key: c for c in ir.commands}
+    assert by_key["show:thing"].get_by_id_only is True
+    assert by_key["show:widget"].get_by_id_only is False
+
+
 def test_defaults_validation_errors() -> None:
     from pathlib import Path
 
@@ -462,3 +530,23 @@ def test_defaults_validation_errors() -> None:
 
     with pytest.raises(ValueError, match="not a query param"):
         build_cli_ir(inv, CliConfig(defaults={"widgets.list_widgets": {"bogus": "x"}}))
+
+
+def test_build_cli_ir_sets_model_ref_and_registry() -> None:
+    from pathlib import Path
+
+    from phantasos.generator.cli.classify import build_cli_ir, cli_operations
+    from phantasos.generator.cli.cliconfig import CliConfig
+    from phantasos.generator.cli.modelschema import build_model_registry
+
+    fixture = Path(__file__).parent / "fixtures" / "fakesdk"
+    inv = cli_operations("fakesdk", fixture)
+    models = build_model_registry("fakesdk", fixture, inv)
+    ir, _ = build_cli_ir(inv, CliConfig(), models=models)
+
+    # WidgetInput.profile is the nested model field added in Task 5.
+    create = next(c for c in ir.commands if c.key == "create:widget")
+    profile = next(f for f in create.body_flags if f.param == "profile")
+    assert profile.kind == "json"
+    assert profile.model_ref == "WidgetProfile"
+    assert "WidgetProfile" in ir.models

@@ -10,7 +10,7 @@ Shipped: opt-in auto-threshold pager (`configuration.pager.enabled` in the user 
 file, `--pager`/`--no-pager` per-invocation override; pages only when output is taller
 than the terminal and stdout is a TTY; program resolution `pager.command` > `$PAGER` >
 `less -RFX`, colors preserved). Spec:
-docs/superpowers/specs/2026-06-11-cli-user-config-pager-design.md
+docs/specs/2026-06-11-cli-user-config-pager-design.md
 
 ## README.md for Prisma Browser CLI
 
@@ -52,7 +52,7 @@ and `show cli history --entry <id>` (full JSON). NOTE: the originally-sketched
 `--verbose` LIST flag was superseded — the table is the default view and full detail
 lives behind `--entry`. Also shipped: `.env` now reaches the config layer for all
 `{PREFIX}_*` options, and CLAUDE.md documents the config-extension recipe. Spec:
-docs/superpowers/specs/2026-06-12-cli-history-design.md
+docs/specs/2026-06-12-cli-history-design.md
 
 ## Status Command
 
@@ -108,7 +108,7 @@ able to assume a single canonical id parameter. Likely a generic preprocess/patc
 - [ ] Audit id path-param names across all operations in each product spec
 - [ ] Design a normalization transform (rename to a canonical `id`, or expose a stable accessor)
 - [ ] Apply + re-smoke; confirm the CLI generator can rely on the canonical id
-- [ ] Document the convention in `docs/AUTHORING_A_SPEC.md`
+- [ ] Document the convention in `docs/authoring.md`
 
 ## Follow-up: consider a Typer CLI
 

@@ -1,0 +1,86 @@
+"""Top-level composing client for {{ root_package }} (written by phantasos).
+
+Ties the federated sub-packages into one SDK: ONE {{ config_class_name }} +
+ONE RESTClientObject (connection pool), fanned out to N thin `_BearerApiClient`
+handles (each tagged with its own `.models` namespace), injected into each
+sub-package's facade `Client`. `_SUBPACKAGES` is the introspection registry the
+docs site (and a future CLI) enumerate instead of re-reading `sdk.yml`.
+"""
+from __future__ import annotations
+{% if host_overrides %}import copy
+{% endif %}{% if headers %}import os
+{% endif %}from functools import cached_property
+
+{% for slug in slugs %}import {{ root_package }}.{{ slug }}.models as _{{ slug }}_models
+from {{ root_package }}.{{ slug }}.extras.facade import Client as _{{ slug }}_Client
+{% endfor %}
+from {{ root_package }}._runtime.rest import RESTClientObject
+from {{ root_package }}._auth import (
+    DEFAULT_BASE_URL,
+    {{ config_class_name }},
+    _BearerApiClient,
+    configuration_from_credentials as _configuration_from_credentials,
+    configuration_from_env as _configuration_from_env,
+    configuration_from_token as _configuration_from_token,
+)
+
+# slug -> sub-package facade Client (rev-7/D10: the enumeration seam docs + a
+# future CLI introspect from the built artifact, mirroring _WRAPPERS/_RESOURCES).
+_SUBPACKAGES = {
+{% for slug in slugs %}    "{{ slug }}": _{{ slug }}_Client,
+{% endfor %}}
+__all__ = ["Client", "_SUBPACKAGES"]
+
+
+class Client:
+    """One SDK over all sub-packages: one credential, one pool, N typed facades.
+
+    Each ``.<sub>`` handle is built LAZILY on first access (``cached_property``), so
+    an objects-only call never constructs incidents/ztna_connector — and a sub's
+    ``required_for`` header is only read when that sub is actually touched (the
+    raise moves out of ``__init__`` into the per-sub builder below).
+    """
+
+    def __init__(self, configuration: {{ config_class_name }}) -> None:
+        self._configuration = configuration
+        self._pool = RESTClientObject(configuration)  # one shared connection pool
+        # No handle is built here. Each sub-facade self-wires retry idempotently
+        # (`if configuration.retries is None: ...default_retry()`), so whichever
+        # sub is ACCESSED first wires it onto the shared config — order-independent.
+        # (The pool above already captured retries=None, as it always has: it is
+        # built before any facade runs.)
+{% for slug in slugs %}
+    @cached_property
+    def {{ slug }}(self) -> _{{ slug }}_Client:
+        configuration = self._configuration
+        pool = self._pool
+{% if slug in host_overrides %}        _cfg_{{ slug }} = copy.copy(configuration)  # serves from a different gateway
+        _cfg_{{ slug }}.host = {{ host_overrides[slug] | tojson }}
+        _ac_{{ slug }} = _BearerApiClient(_cfg_{{ slug }})  # shares the TokenManager + pool
+{% else %}        _ac_{{ slug }} = _BearerApiClient(configuration)
+{% endif %}        _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
+        _ac_{{ slug }}.rest_client = pool
+{% for h in headers %}{% if slug in h.declared_by %}        _v = os.environ.get({{ h.env | tojson }})  # spec-driven: '{{ slug }}' declares {{ h.name }}
+{% if h.required or slug in h.required_for %}        if _v is None:
+            raise RuntimeError(
+                "{{ root_package }}: required header '{{ h.name }}' for sub-package "
+                "'{{ slug }}' is unset; set the {{ h.env }} environment variable"
+            )
+        # client-level default header; OAG applies default_headers last, so it takes
+        # precedence over a per-call `_headers` value.
+        _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v
+{% else %}        if _v is not None:  # optional header (applied only when present)
+            _ac_{{ slug }}.default_headers[{{ h.name | tojson }}] = _v
+{% endif %}{% endif %}{% endfor %}        return _{{ slug }}_Client(_ac_{{ slug }})
+{% endfor %}
+    @classmethod
+    def from_env(cls, **kwargs) -> "Client":
+        return cls(_configuration_from_env(**kwargs))
+
+    @classmethod
+    def from_credentials(cls, **kwargs) -> "Client":
+        return cls(_configuration_from_credentials(**kwargs))
+
+    @classmethod
+    def from_access_token(cls, token, *, host: str = DEFAULT_BASE_URL) -> "Client":
+        return cls(_configuration_from_token(token, host=host))

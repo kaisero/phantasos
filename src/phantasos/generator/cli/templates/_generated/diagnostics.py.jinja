@@ -6,17 +6,27 @@ from __future__ import annotations
 
 import enum
 import json
+import logging
 import sys
 from typing import Any, NoReturn
 
 from rich.console import Console
 from rich.theme import Theme
 
+_log = logging.getLogger("{{ package }}.diagnostics")
+
 
 class Level(enum.IntEnum):
     INFO = 20      # values align with logging.INFO/WARNING/ERROR for a future file sink
     WARNING = 30
     ERROR = 40
+
+
+_LEVEL_TO_LOGGING = {
+    Level.INFO: logging.INFO,
+    Level.WARNING: logging.WARNING,
+    Level.ERROR: logging.ERROR,
+}
 
 
 _SPEC: dict[Level, tuple[str, str, str]] = {
@@ -59,6 +69,9 @@ def _icon(glyph: str) -> str:
 def emit(level: Level, message: str, *, expected: str | None = None,
          example: str | None = None, got: str | None = None,
          hint: str | None = None) -> None:
+    # Mirror into the log sink BEFORE the console gate so the file is complete
+    # regardless of `_min_level` (which only suppresses the CONSOLE, e.g. --quiet).
+    _log.log(_LEVEL_TO_LOGGING[level], message)
     if level < _min_level:
         return
     label, glyph, style = _SPEC[level]
@@ -98,19 +111,57 @@ def fail(message: str, *, code: int = 1, **kw: Any) -> NoReturn:
     raise SystemExit(code)
 
 
-def _error_headline(data: Any) -> str | None:
+# Error-envelope descriptor (rendered from ir.error_envelope, contributed by the
+# product's error component). This module carries NO product-specific error keys:
+# the documented envelope shape is config; only product-AGNOSTIC fallback vocabulary
+# is hardcoded.
+_ERROR_ENVELOPE = {
+    "wrappers": {{ ir.error_envelope.wrappers | list }},
+    "error_field": {% if ir.error_envelope.error_field %}{{ ir.error_envelope.error_field | tojson }}{% else %}None{% endif %},
+    "errors_field": {% if ir.error_envelope.errors_field %}{{ ir.error_envelope.errors_field | tojson }}{% else %}None{% endif %},
+    "message_field": {{ ir.error_envelope.message_field | tojson }},
+    "code_field": {{ ir.error_envelope.code_field | tojson }},
+    "fallback_keys": {{ ir.error_envelope.fallback_keys | list }},
+}
+
+
+def _error_headline(data: Any, envelope: "dict[str, Any] | None" = None) -> str | None:
+    env = envelope if envelope is not None else _ERROR_ENVELOPE
     if not isinstance(data, dict):
         return None
-    for wrapper in ("errorResponse", "error_response"):
-        if isinstance(data.get(wrapper), dict):
-            data = data[wrapper]
+    for wrapper in env["wrappers"]:
+        inner = data.get(wrapper)
+        if isinstance(inner, dict):
+            data = inner
             break
-    if isinstance(data.get("error"), dict):
-        data = data["error"]
-    for key in ("error", "message", "detail", "title", "description"):
+    # Configured nested object holding the message.
+    ef = env["error_field"]
+    if ef and isinstance(data.get(ef), dict):
+        nested = data[ef]
+        msg = nested.get(env["message_field"])
+        if isinstance(msg, str) and msg.strip():
+            code = nested.get(env["code_field"])
+            return f"{code}: {msg.strip()}" if code else msg.strip()
+    # Configured list-style envelope: first usable entry as "code: message".
+    lf = env["errors_field"]
+    if lf and isinstance(data.get(lf), list):
+        for entry in data[lf]:
+            if isinstance(entry, dict):
+                msg = entry.get(env["message_field"])
+                if isinstance(msg, str) and msg.strip():
+                    code = entry.get(env["code_field"])
+                    return f"{code}: {msg.strip()}" if code else msg.strip()
+    # Product-AGNOSTIC fallback vocabulary. A fallback key may carry a plain string
+    # or an object holding the message (e.g. a bare ``{"error": {"message": ...}}``).
+    for key in env["fallback_keys"]:
         val = data.get(key)
         if isinstance(val, str) and val.strip():
             return val.strip()
+        if isinstance(val, dict):
+            m = val.get(env["message_field"])
+            if isinstance(m, str) and m.strip():
+                c = val.get(env["code_field"])
+                return f"{c}: {m.strip()}" if c else m.strip()
     return None
 
 

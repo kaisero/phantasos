@@ -1,0 +1,138 @@
+"""OAuth2 client-credentials authentication (vendored by phantasos).
+
+Subclasses the generated `Configuration` so `access_token` is a property backed by a
+token manager that performs the client-credentials grant and auto-refreshes the token.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import threading
+import time
+from typing import cast
+
+import urllib3
+
+from ..api_client import ApiClient
+from ..configuration import Configuration
+
+__all__ = [
+    "DEFAULT_BASE_URL",
+    "DEFAULT_TOKEN_URL",
+    "TokenManager",
+    "SdkConfiguration",
+    "api_client_from_credentials",
+    "api_client_from_env",
+    "api_client_from_token",
+]
+
+DEFAULT_BASE_URL = "https://h"
+DEFAULT_TOKEN_URL = "https://t"
+_EXPIRY_SKEW = 60.0
+
+
+class TokenManager:
+    """Fetches and caches a client-credentials access token, refreshing on expiry."""
+
+    def __init__(self, client_id, client_secret, scope, *, token_url=DEFAULT_TOKEN_URL, http=None):
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._scope = scope
+        self._token_url = token_url
+        self._http = http or urllib3.PoolManager()
+        self._token = None
+        self._expires_at = 0.0
+        self._lock = threading.Lock()
+
+    def token(self) -> str:
+        with self._lock:
+            if self._token is None or time.time() >= self._expires_at:
+                self._fetch()
+            return self._token
+
+    def _fetch(self) -> None:
+        cred = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode()).decode()
+        resp = self._http.request(
+            "POST",
+            self._token_url,
+            headers={"Authorization": f"Basic {cred}", "Accept": "application/json"},
+            fields={"grant_type": "client_credentials", "scope": self._scope},
+            encode_multipart=False,
+        )
+        if resp.status != 200:
+            raise RuntimeError(
+                f"token request to {self._token_url} failed: {resp.status} {resp.data[:300]!r}"
+            )
+        payload = json.loads(resp.data)
+        self._token = payload["access_token"]
+        self._expires_at = time.time() + float(payload.get("expires_in", 900)) - _EXPIRY_SKEW
+
+
+class SdkConfiguration(Configuration):
+    """Configuration whose `access_token` is supplied (and refreshed) by a TokenManager."""
+
+    def __init__(self, *, token_manager: TokenManager, host: str = DEFAULT_BASE_URL, **kwargs):
+        self._token_manager = token_manager
+        super().__init__(host=host, **kwargs)
+
+    @property
+    def access_token(self):
+        return self._token_manager.token()
+
+    @access_token.setter
+    def access_token(self, value):
+        pass
+
+
+class _ProviderTokenSource:
+    """Duck-types TokenManager.token() for a caller-owned token (str | Callable)."""
+
+    def __init__(self, token):
+        self._provider = (lambda: token) if isinstance(token, str) else token
+
+    def token(self) -> str:
+        return self._provider()
+
+
+def api_client_from_token(token, *, host: str = DEFAULT_BASE_URL) -> ApiClient:
+    # `cast` not a subclass: _ProviderTokenSource deliberately duck-types
+    # TokenManager.token() without inheriting its OAuth machinery.
+    cfg = SdkConfiguration(token_manager=cast(TokenManager, _ProviderTokenSource(token)), host=host)
+    return ApiClient(cfg)
+
+
+def api_client_from_credentials(
+    *,
+    client_id: str,
+    client_secret: str,
+    scope: str,
+    host: str = DEFAULT_BASE_URL,
+    token_url: str = DEFAULT_TOKEN_URL,
+) -> ApiClient:
+    if not scope:
+        raise ValueError("scope is required")
+    tm = TokenManager(client_id, client_secret, scope, token_url=token_url)
+    cfg = SdkConfiguration(token_manager=tm, host=host)
+    return ApiClient(cfg)
+
+
+def _pick(overrides, key, env_var):
+    v = overrides.pop(key, None)
+    return v if v is not None else os.environ.get(env_var)
+
+
+def api_client_from_env(**overrides) -> ApiClient:
+    client_id = _pick(overrides, "client_id", "CID")
+    client_secret = _pick(overrides, "client_secret", "CSEC")
+    scope = _pick(overrides, "scope", "SCOPE")
+    host = _pick(overrides, "host", "BURL") or DEFAULT_BASE_URL
+    missing = [n for n, v in (("CID", client_id),
+                              ("CSEC", client_secret),
+                              ("SCOPE", scope)) if not v]
+    if missing:
+        raise RuntimeError(f"missing required auth environment variables: {', '.join(missing)}")
+    return api_client_from_credentials(
+        client_id=client_id, client_secret=client_secret, scope=scope, host=host, **overrides
+    )

@@ -1,5 +1,8 @@
 import json
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -24,9 +27,7 @@ def test_bool_scalar_renders_as_value_taking_option() -> None:
         kind="scalar",
         required=True,
     )
-    opt = Flag(
-        name="--enabled", param="enabled", py_type="bool", kind="scalar", required=False
-    )
+    opt = Flag(name="--enabled", param="enabled", py_type="bool", kind="scalar", required=False)
     assert _render_type(req) == "str"
     assert _render_type(opt) == "str | None"
 
@@ -34,9 +35,7 @@ def test_bool_scalar_renders_as_value_taking_option() -> None:
 def test_int_scalar_still_renders_native_type() -> None:
     # Regression guard: non-bool scalars keep their REAL Python type so Typer
     # validates them itself (only bool needs the str-then-coerce treatment).
-    f = Flag(
-        name="--priority", param="priority", py_type="int", kind="scalar", required=True
-    )
+    f = Flag(name="--priority", param="priority", py_type="int", kind="scalar", required=True)
     assert _render_type(f) == "int"
 
 
@@ -73,16 +72,15 @@ def test_render_cli_lays_down_project(tmp_path: Path) -> None:
     assert {c["key"] for c in data["commands"]} == {c.key for c in _ir().commands}
 
 
-def test_emitted_spec_loads_ir_json_typed(tmp_path: Path) -> None:
+def test_emitted_spec_loads_ir_json_typed(
+    tmp_path: Path,
+    render_and_import: Callable[[Path, str], AbstractContextManager[ModuleType]],
+) -> None:
     # H1: the emitted spec.py + ir.json round-trip through the TYPED CliIR
     import importlib
-    import sys
 
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
-    sys.path.insert(0, str(tmp_path))
-    try:
-        for n in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-            del sys.modules[n]
+    with render_and_import(tmp_path, "fakesdk_cli"):
         spec = importlib.import_module("fakesdk_cli._generated.spec")
         ir_json = (tmp_path / "fakesdk_cli" / "_generated" / "ir.json").read_text()
         loaded = spec.CliIR.model_validate_json(ir_json)
@@ -90,10 +88,6 @@ def test_emitted_spec_loads_ir_json_typed(tmp_path: Path) -> None:
         # a binding's typed fields are accessible (no raw-dict access needed at runtime)
         setw = next(c for c in loaded.commands if c.key == "create:widget")
         assert any(b.body_model == "WidgetInput" for b in setw.bindings)
-    finally:
-        sys.path.remove(str(tmp_path))
-        for n in [n for n in sys.modules if n.startswith("fakesdk_cli")]:
-            del sys.modules[n]
 
 
 def test_render_cli_wipes_generated_but_preserves_handowned(tmp_path: Path) -> None:
@@ -130,3 +124,88 @@ def test_render_rejects_reserved_cli_object(tmp_path: Path) -> None:
 def test_render_cli_emits_diagnostics_module(tmp_path: Path) -> None:
     render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)
     assert (tmp_path / "fakesdk_cli" / "_generated" / "diagnostics.py").exists()
+
+
+def _diag(base: Path) -> str:
+    return (base / "fakesdk_cli" / "_generated" / "diagnostics.py").read_text()
+
+
+def test_error_envelope_threaded_from_component(tmp_path: Path) -> None:
+    from phantasos.config import ListError, NestedError
+
+    # list_error -> errors_field descriptor flows into diagnostics + ir.json
+    render_cli(
+        _ir(),
+        package="fakesdk_cli",
+        out_dir=tmp_path / "list",
+        errors=ListError(type="list_error"),
+    )
+    diag = _diag(tmp_path / "list")
+    assert '"errors_field": "_errors"' in diag and '"error_field": None' in diag
+    ir_json = json.loads((tmp_path / "list" / "fakesdk_cli" / "_generated" / "ir.json").read_text())
+    assert ir_json["error_envelope"]["errors_field"] == "_errors"
+
+    # nested -> wrapper + error_field; the `errorResponse` wrapper is config and
+    # appears ONLY in this product's CLI (not leaked into others)
+    render_cli(
+        _ir(),
+        package="fakesdk_cli",
+        out_dir=tmp_path / "nested",
+        errors=NestedError(type="nested"),
+    )
+    diag2 = _diag(tmp_path / "nested")
+    assert '"error_field": "error"' in diag2 and "errorResponse" in diag2
+    assert '"errors_field": None' in diag2
+
+
+def test_no_error_component_emits_generic_envelope(tmp_path: Path) -> None:
+    render_cli(_ir(), package="fakesdk_cli", out_dir=tmp_path)  # no errors=
+    diag = _diag(tmp_path)
+    # default envelope: zero product shapes baked into the generic template
+    assert "errorResponse" not in diag and '"_errors"' not in diag
+    assert '"error_field": None' in diag and '"errors_field": None' in diag
+
+
+def test_flag_view_injects_json_annotation_and_skeleton() -> None:
+    from phantasos.generator.cli.ir import Flag, ModelField, ModelSchema
+    from phantasos.generator.cli.render_cli import _flag_view
+
+    models = {
+        "WidgetProfile": ModelSchema(
+            fields=[
+                ModelField(
+                    name="contact",
+                    alias="contact",
+                    py_type="str",
+                    kind="json",
+                    required=False,
+                    model_ref="Contact",
+                ),
+            ]
+        ),
+        "Contact": ModelSchema(
+            fields=[
+                ModelField(
+                    name="name",
+                    alias="name",
+                    py_type="str",
+                    kind="scalar",
+                    required=True,
+                ),
+            ]
+        ),
+    }
+    f = Flag(
+        name="--profile",
+        param="profile",
+        py_type="str",
+        kind="json",
+        required=False,
+        help="Widget profile.",
+        model_ref="WidgetProfile",
+    )
+    view = _flag_view(f, models=models)
+    help_literal = view["help_literal"]
+    assert isinstance(help_literal, str)
+    assert "[json: WidgetProfile]" in help_literal
+    assert '{\\"contact\\":{\\"name\\":\\"string\\"}}' in help_literal

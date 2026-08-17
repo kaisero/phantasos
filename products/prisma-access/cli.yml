@@ -1,0 +1,190 @@
+# CLI config for prisma-access-cli — the FEDERATED (multi-spec) product.
+# Consumed by `phantasos cli build prisma-access`. The classifier always runs over
+# the built SDK (every sub-package's typed wrappers); this file only supplies what
+# it can't infer + the enrollment allowlist.
+
+# --- project metadata for the generated CLI project (scaffold context) ---
+project:
+  distribution: prisma-access-cli
+  author: Oliver Kaiser
+  author_email: oliver.kaiser@outlook.com
+  repo_url: https://github.com/kaisero/prisma-access-cli
+  description: Command-line interface for Palo Alto Networks Prisma Access
+
+# --- ENROLLMENT ALLOWLIST (federated) ---------------------------------------
+# `subpackages:` keys are the enrollment allowlist: the federated build generates
+# CLI ONLY for the subs listed here (∩ the SDK's `_SUBPACKAGES`). A federated sub
+# NOT listed is skipped entirely. All 12 federated subs are now enrolled
+# (P0 = objects + incidents; P1 added the remaining 10 with their non-CRUD maps).
+# (An empty/absent map would enroll ALL subs — config-less backward-compat.)
+#
+# Each value is that sub's own cli.yml delta (request/hide/columns/variants/
+# defaults). A non-CRUD op (clean verb ∉ create/get/list/update/delete) with no
+# `request:`/`hide:` entry fails the federated build loud (B3) — so every sub
+# below maps each of its non-CRUD ops.
+subpackages:
+  # objects: 19 clean-CRUD object resources (address, tag, service, …), 92 raw ops,
+  # ZERO non-CRUD ops — no deltas needed. (objects does NOT require X-PANW-Region.)
+  objects: {}
+
+  incidents:
+    # incidents has exactly one non-CRUD op: a POST search with no CRUD anchor on
+    # its api class. The SDK wrapper exposes it as `client.incidents.incident
+    # .search(body=...)`; surface it as `request incident search`. (The sibling
+    # get maps to the `incident-detail` object's `show`.)
+    request:
+      incidents_apis.search_incidents:
+        object: incident
+        action: search
+
+  # --- P1: the remaining 10 federated subs ----------------------------------
+  # 3 are pure-CRUD (no non-CRUD ops) — enroll empty, exactly like `objects`.
+  deployment_services: {}
+  device_settings: {}
+  mobile_agent: {}
+
+  config_operations:
+    # Candidate-config lifecycle on the config-version singleton: load a saved
+    # version, push the candidate. Both are raw POSTs with no CRUD anchor.
+    request:
+      config_versions.load_config_versions:
+        object: config-version
+        action: load
+      config_versions.push_candidate_config_versions:
+        object: config-version
+        action: push
+
+  config_setup:
+    # Snippet/trust authoring — all raw POSTs (convert/load/compare/diff/publish/
+    # save/validate) with no CRUD anchor on their api class.
+    request:
+      shared_snippets.convert_shared_snippets:
+        object: shared-snippet
+        action: convert
+      shared_snippets.load_shared_snippets:
+        object: shared-snippet
+        action: load
+      snippet_snapshots.compare_snippet_snapshot:
+        object: snippet-snapshot
+        action: compare
+      snippet_snapshots.convert_snippet_snapshot:
+        object: snippet-snapshot
+        action: convert
+      snippet_snapshots.diff_snippet_snapshot:
+        object: snippet-snapshot
+        action: diff
+      snippet_snapshots.load_snippet_snapshot:
+        object: snippet-snapshot
+        action: load
+      snippet_snapshots.publish_snippet_snapshot:
+        object: snippet-snapshot
+        action: publish
+      snippet_snapshots.save_snippet_snapshot:
+        object: snippet-snapshot
+        action: save
+      trust_validations.validate_trust:
+        object: trust-validation
+        action: validate
+
+  identity_services:
+    # Auth-rule reorder + certificate import/export — raw ops, no CRUD anchor.
+    request:
+      authentication_rules.move_authentication_rules_by_id:
+        object: authentication-rule
+        action: move
+      certificates.export_certificate_by_id:
+        object: certificate
+        action: export
+      certificates.import_certificates:
+        object: certificate
+        action: import
+
+  network_services:
+    # QoS policy-rule reorder.
+    request:
+      qo_s_rules.move_qo_s_policy_rules_by_id:
+        object: qos-rule
+        action: move
+
+  posture:
+    # Config-file upload + batch/clone on posture-check — raw, no CRUD anchor.
+    request:
+      config_file_upload.initiate_config_upload:
+        object: config-upload
+        action: initiate
+      custom_posture_checks.batch_delete_posture_checks:
+        object: posture-check
+        action: batch-delete
+      custom_posture_checks.batch_upsert_posture_checks:
+        object: posture-check
+        action: batch-upsert
+      custom_posture_checks.clone_posture_checks_by_id:
+        object: posture-check
+        action: clone
+
+  security_services:
+    # Policy-rule reorders (security/decryption/app-override) + the SSL-decryption
+    # settings singleton. get/delete on the singleton classify (-> show/delete);
+    # its POST/PUT do NOT (post_/put_ aren't CRUD prefixes), so they are the ONLY
+    # create/update path for the settings — surface them rather than hide.
+    request:
+      application_override_rules.move_application_override_rules_by_id:
+        object: application-override-rule
+        action: move
+      decryption_rules.move_decryption_rules_by_id:
+        object: decryption-rule
+        action: move
+      security_rules.move_security_rules_by_id:
+        object: security-rule
+        action: move
+      ssl_decryption_settings.post_ssl_decryption_settings:
+        object: ssl-decryption-settings
+        action: create
+      ssl_decryption_settings.put_ssl_decryption_settings:
+        object: ssl-decryption-settings
+        action: update
+
+  ztna_connector:
+    # Connector packet-capture / tech-support lifecycle + tenant on/off-boarding.
+    request:
+      connector.start_connector_packet_capture:
+        object: connector
+        action: start-packet-capture
+      connector.stop_connector_packet_capture:
+        object: connector
+        action: stop-packet-capture
+      connector.download_connector_packet_capture_file:
+        object: connector
+        action: download-packet-capture
+      connector.generate_connector_tech_support_file:
+        object: connector
+        action: generate-tech-support
+      connector.stop_connector_tech_support_file:
+        object: connector
+        action: stop-tech-support
+      connector.download_connector_tech_support_file:
+        object: connector
+        action: download-tech-support
+      tenant.start_onboarding:
+        object: tenant
+        action: onboard
+      tenant.start_offboarding:
+        object: tenant
+        action: offboard
+
+# --- connection headers (region / tenant) -----------------------------------
+# NOT declared here: the region/tenant client headers (X-PANW-Region / prisma-tenant)
+# are declared ONCE in sdk.yml `default_headers` and flow into the CLI automatically
+# (D1's `default_headers` -> `connection_fields`). The CLI build reads them off the
+# product config (`load_product` -> ProductConfig.default_headers), so a per-command
+# pre-flight requires X-PANW-Region for `incidents` commands (its `required_for`) and
+# never for `objects`. Re-declaring them here would duplicate the SSoT.
+
+# --- generated documentation site (opt-in; `cli build` emits docs/ + mkdocs.yml) ---
+# FEDERATED: the command reference is grouped by sub-package -> object
+# (reference/<slug>/<object>.md, one nav section + folder per sub-package), mirroring
+# the federated SDK docs' reference/<slug>/… layout. The showcase drives the
+# Quickstart; `objects address` is the canonical SCM object CRUD surface.
+docs:
+  site_name: Prisma Access CLI
+  showcase_object: address

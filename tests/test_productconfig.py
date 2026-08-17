@@ -5,9 +5,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from phantasos.config import OAuthClientCredentials
+from phantasos.config import ScmOAuth
 from phantasos.productconfig import (
+    HeaderSpec,
     Hoist,
+    LiveProbe,
     ProductConfig,
     TagOperation,
     Transforms,
@@ -45,9 +47,7 @@ def test_generator_block_overrides() -> None:
 def test_top_level_library_rejected() -> None:
     # `library` migrated into the generator: block (2026-06-11); extra=forbid rejects it
     with pytest.raises(ValidationError):
-        ProductConfig.model_validate(
-            {"package": "a", "output": "o", "base_url": "b", "library": "httpx"}
-        )
+        ProductConfig.model_validate({"package": "a", "output": "o", "base_url": "b", "library": "httpx"})
 
 
 def test_transforms_parse() -> None:
@@ -58,16 +58,12 @@ def test_transforms_parse() -> None:
             "base_url": "https://api/",
             "transforms": {
                 "hoist": [{"schema": "S", "field": "f", "item": "I"}],
-                "tag_operations": [
-                    {"path": "/x", "method": "get", "operation_id": "GetX", "tag": "X"}
-                ],
+                "tag_operations": [{"path": "/x", "method": "get", "operation_id": "GetX", "tag": "X"}],
             },
         }
     )
     assert cfg.transforms.hoist == [Hoist(schema="S", field="f", item="I")]
-    assert cfg.transforms.tag_operations[0] == TagOperation(
-        path="/x", method="get", operation_id="GetX", tag="X"
-    )
+    assert cfg.transforms.tag_operations[0] == TagOperation(path="/x", method="get", operation_id="GetX", tag="X")
 
 
 def test_unknown_top_level_key_rejected() -> None:
@@ -81,12 +77,12 @@ def test_resolve_builtin_auth() -> None:
     from phantasos.config import BUILTIN_AUTH
 
     c = resolve_component(
-        {"type": "oauth_client_credentials", "token_url": "https://t/"},
+        {"type": "scm_oauth"},
         BUILTIN_AUTH,
         base_dir=Path(),
     )
-    assert isinstance(c, OAuthClientCredentials)
-    assert c.token_url == "https://t/"
+    assert isinstance(c, ScmOAuth)
+    assert c.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
 
 
 def test_resolve_custom_path(tmp_path: Path) -> None:
@@ -108,9 +104,7 @@ def test_resolve_missing_custom_path(tmp_path: Path) -> None:
     from phantasos.config import BUILTIN_AUTH
 
     with pytest.raises(ValueError, match="template not found"):
-        resolve_component(
-            {"type": "./templates/missing.jinja"}, BUILTIN_AUTH, base_dir=tmp_path
-        )
+        resolve_component({"type": "./templates/missing.jinja"}, BUILTIN_AUTH, base_dir=tmp_path)
 
 
 def test_resolve_unknown_builtin() -> None:
@@ -124,7 +118,7 @@ _SDK_YML = """\
 package: acme
 output: ../acme-sdk
 base_url: https://api.example.com
-auth: {type: oauth_client_credentials, token_url: "https://t/"}
+auth: {type: scm_oauth}
 pagination: {type: cursor}
 errors: {type: nested}
 facade: true
@@ -150,8 +144,8 @@ def test_load_product_by_path(tmp_path: Path) -> None:
     d = _make_product(tmp_path)
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.config.package == "acme"
-    assert isinstance(loaded.auth, OAuthClientCredentials)
-    assert loaded.auth.token_url == "https://t/"
+    assert isinstance(loaded.auth, ScmOAuth)
+    assert loaded.auth.token_url == "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
     assert loaded.context["spec_version"] == "9.9.9"
     assert loaded.context["spec_title"] == "Acme"
     assert loaded.context["package"] == "acme"
@@ -170,12 +164,9 @@ def test_load_product_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_load_product_missing_include_source(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", encoding="utf-8")
     (d / "sdk.yml").write_text(
-        "package: acme\noutput: o\nbase_url: b\n"
-        "include: {x.py: ./templates/nope.jinja}\n",
+        "package: acme\noutput: o\nbase_url: b\ninclude: {x.py: ./templates/nope.jinja}\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match=r"template not found|not found"):
@@ -198,8 +189,7 @@ def test_load_product_generator_library_httpx(tmp_path: Path) -> None:
     d.mkdir(parents=True)
     (d / "openapi.yml").write_text(_OPENAPI, encoding="utf-8")
     (d / "sdk.yml").write_text(
-        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\n"
-        "generator: {library: httpx}\n",
+        "package: acme\noutput: ../acme-sdk\nbase_url: https://api.example.com\ngenerator: {library: httpx}\n",
         encoding="utf-8",
     )
     loaded = load_product(str(d / "sdk.yml"))
@@ -224,12 +214,8 @@ def test_project_defaults() -> None:
 def test_retry_default_on(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
-    (d / "sdk.yml").write_text(
-        "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
+    (d / "sdk.yml").write_text("package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n", "utf-8")
     loaded = load_product(str(d / "sdk.yml"))
     assert loaded.retry is not None
     assert loaded.context["has_retry"] is True
@@ -239,9 +225,7 @@ def test_retry_default_on(tmp_path: Path) -> None:
 def test_retry_disabled(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {version: '1'}\npaths: {}\n", "utf-8")
     (d / "sdk.yml").write_text(
         "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\nretry: false\n",
         "utf-8",
@@ -254,9 +238,7 @@ def test_retry_disabled(tmp_path: Path) -> None:
 def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     d = tmp_path / "products" / "acme"
     d.mkdir(parents=True)
-    (d / "openapi.yml").write_text(
-        "openapi: 3.0.0\ninfo: {title: Acme, version: '9'}\npaths: {}\n", "utf-8"
-    )
+    (d / "openapi.yml").write_text("openapi: 3.0.0\ninfo: {title: Acme, version: '9'}\npaths: {}\n", "utf-8")
     (d / "sdk.yml").write_text(
         "package: acme\noutput: ../acme-sdk\nbase_url: https://api/\n"
         "project: {distribution: acme-sdk, author: A, author_email: a@b.c, "
@@ -269,3 +251,288 @@ def test_project_block_in_sdk_yml(tmp_path: Path) -> None:
     assert loaded.context["distribution"] == "acme-sdk"
     assert loaded.context["repo_url"] == "https://github.com/x/acme-sdk"
     assert loaded.context["license"] == "Apache-2.0"
+
+
+from phantasos.productconfig import DocsConfig  # noqa: E402
+
+
+def test_docs_config_defaults() -> None:
+    d = DocsConfig(showcase_resource="applications")
+    assert d.showcase_resource == "applications"
+    assert d.site_name is None
+
+
+def test_product_config_docs_absent_is_none() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.docs is None
+
+
+def test_product_config_docs_present() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "p",
+            "output": "o",
+            "base_url": "https://x",
+            "docs": {"showcase_resource": "applications"},
+        }
+    )
+    assert cfg.docs is not None
+    assert cfg.docs.showcase_resource == "applications"
+
+
+def test_has_docs_in_context(tmp_path: Path) -> None:
+    # Minimal product dir: sdk.yml + empty openapi.yml
+    import textwrap
+
+    (tmp_path / "openapi.yml").write_text("info: {title: T, version: '1'}\n")
+    (tmp_path / "sdk.yml").write_text(
+        textwrap.dedent("""
+        package: p
+        output: ./out
+        base_url: https://x
+        docs: {showcase_resource: applications}
+        project: {distribution: p, author: A, author_email: a@b.c, repo_url: https://h/p}
+    """)
+    )
+    from phantasos.productconfig import load_product
+
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["has_docs"] is True
+
+
+def test_docs_examples_and_variant_parse() -> None:
+    from phantasos.productconfig import DocsConfig
+
+    cfg = DocsConfig.model_validate(
+        {
+            "showcase_resource": "applications",
+            "showcase_variant": "CustomApplicationInput",
+            "examples": {"create": "created = client.applications.create_application(...)"},
+        }
+    )
+    assert cfg.showcase_variant == "CustomApplicationInput"
+    assert cfg.examples is not None
+    assert cfg.examples.create is not None
+    assert cfg.examples.create.startswith("created =")
+    assert cfg.examples.read is None
+
+
+def test_federated_config_parses_subpackages() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "project": {
+                "distribution": "prisma-access-sdk",
+                "author": "a",
+                "author_email": "a@b.c",
+                "repo_url": "https://x",
+            },
+            "subpackages": [
+                {"slug": "objects", "spec": "openapi/objects.yaml"},
+                {
+                    "slug": "ztna_connector",
+                    "spec": "openapi/ztna-connector.yaml",
+                    "normalize_operation_ids": {
+                        "strip_suffix": ".v2",
+                        "dots_to_underscore": True,
+                        "unify_separator": "_",
+                    },
+                },
+            ],
+        }
+    )
+    assert [s.slug for s in cfg.subpackages] == ["objects", "ztna_connector"]
+    assert cfg.subpackages[1].normalize_operation_ids is not None
+    assert cfg.subpackages[1].normalize_operation_ids.strip_suffix == ".v2"
+
+
+def test_default_headers_parse() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "subpackages": [{"slug": "incidents", "spec": "openapi/incidents.yaml"}],
+            "default_headers": {
+                "X-PANW-Region": {"env": "PANW_REGION", "required_for": ["incidents"]},
+                "prisma-tenant": {"env": "PRISMA_TENANT", "required": False},
+            },
+        }
+    )
+    region = cfg.default_headers["X-PANW-Region"]
+    assert isinstance(region, HeaderSpec)
+    assert region.env == "PANW_REGION"
+    assert region.required_for == ["incidents"]
+    assert region.required is False
+    tenant = cfg.default_headers["prisma-tenant"]
+    assert tenant.env == "PRISMA_TENANT" and tenant.required is False
+    assert tenant.required_for == []
+
+
+def test_header_spec_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        HeaderSpec.model_validate({"env": "X", "bogus": 1})
+
+
+def test_default_headers_absent_defaults_empty() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.default_headers == {}
+
+
+def test_legacy_single_spec_still_parses() -> None:
+    cfg = ProductConfig(
+        package="prisma_browser",
+        output="../out",
+        base_url="https://h",
+        spec="./openapi.yml",
+    )
+    assert cfg.subpackages == []
+    assert cfg.spec == "./openapi.yml"
+
+
+def test_cannot_set_both_spec_and_subpackages() -> None:
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "spec": "./openapi.yml",
+                "subpackages": [{"slug": "x", "spec": "x.yaml"}],
+            }
+        )
+
+
+def test_federated_load_builds_per_sub_contexts(tmp_path: Path) -> None:
+    (tmp_path / "openapi").mkdir()
+    (tmp_path / "openapi" / "objects.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Objects, version: '1.2.3'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "openapi" / "posture.yaml").write_text(
+        "openapi: 3.0.0\ninfo: {title: Posture, version: '4.5.6'}\npaths: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sdk.yml").write_text(
+        "package: prisma_access\n"
+        "output: ../out\n"
+        "base_url: https://h\n"
+        "project: {distribution: prisma-access-sdk, author: a, "
+        "author_email: a@b.c, repo_url: https://x}\n"
+        "subpackages:\n"
+        "  - {slug: objects, spec: openapi/objects.yaml}\n"
+        "  - {slug: posture, spec: openapi/posture.yaml}\n",
+        encoding="utf-8",
+    )
+    loaded = load_product(str(tmp_path / "sdk.yml"))
+    assert loaded.context["package"] == "prisma_access"  # namespace root unchanged
+    assert loaded.context["distribution"] == "prisma-access-sdk"
+    assert loaded.spec_path is None  # B5: no top-level spec when federated
+    subs = {s.config.slug: s for s in loaded.subpackages}
+    assert subs["objects"].package == "prisma_access.objects"
+    assert subs["objects"].context["package"] == "prisma_access.objects"
+    assert subs["objects"].context["spec_title"] == "Objects"
+    assert subs["objects"].context["spec_version"] == "1.2.3"
+    assert subs["objects"].spec_path == (tmp_path / "openapi/objects.yaml").resolve()
+    assert subs["posture"].context["spec_version"] == "4.5.6"
+
+
+# --- live_smoke ---
+
+
+def test_live_probe_defaults() -> None:
+    p = LiveProbe()
+    assert p.object is None
+    assert p.verb == "list"
+    assert p.args == {}
+    assert p.skip is False
+
+
+def test_live_smoke_parses_on_federated_product() -> None:
+    cfg = ProductConfig.model_validate(
+        {
+            "package": "prisma_access",
+            "output": "../out",
+            "base_url": "https://h",
+            "subpackages": [
+                {"slug": "incidents", "spec": "openapi/incidents.yaml"},
+                {"slug": "foo", "spec": "openapi/foo.yaml"},
+            ],
+            "live_smoke": {
+                "incidents": {
+                    "object": "incident",
+                    "verb": "search",
+                    "args": {"x_panw_region": "$PANW_REGION"},
+                },
+                "foo": {"skip": True},
+            },
+        }
+    )
+    assert isinstance(cfg.live_smoke["incidents"], LiveProbe)
+    assert cfg.live_smoke["incidents"].object == "incident"
+    assert cfg.live_smoke["incidents"].verb == "search"
+    # $ENV ref stored RAW — not resolved at parse time
+    assert cfg.live_smoke["incidents"].args == {"x_panw_region": "$PANW_REGION"}
+    assert cfg.live_smoke["incidents"].skip is False
+    assert cfg.live_smoke["foo"].skip is True
+    assert cfg.live_smoke["foo"].object is None
+    assert cfg.live_smoke["foo"].verb == "list"
+    assert cfg.live_smoke["foo"].args == {}
+
+
+def test_live_smoke_absent_defaults_empty() -> None:
+    cfg = ProductConfig(package="p", output="o", base_url="https://x")
+    assert cfg.live_smoke == {}
+
+
+def test_live_smoke_on_single_spec_is_error() -> None:
+    with pytest.raises(ValidationError, match=r"live_smoke.*federated"):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://x",
+                "spec": "./openapi.yml",
+                "live_smoke": {"incidents": {"object": "incident"}},
+            }
+        )
+
+
+def test_rejects_bad_and_duplicate_slugs() -> None:  # rev-2: trust-boundary validation
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                # slug with a hyphen — rejected by the slug regex
+                "subpackages": [{"slug": "network-services", "spec": "a.yaml"}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "o",
+                "base_url": "https://h",
+                "subpackages": [
+                    {"slug": "objects", "spec": "a.yaml"},
+                    {"slug": "objects", "spec": "b.yaml"},  # dup
+                ],
+            }
+        )
+
+
+def test_federated_toplevel_idempotency_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="idempotency"):
+        ProductConfig.model_validate(
+            {
+                "package": "p",
+                "output": "../p",
+                "base_url": "https://x",
+                "subpackages": [{"slug": "objects", "spec": "openapi/objects.yaml"}],
+                "idempotency": {"resources": {"address": {}}},
+            }
+        )

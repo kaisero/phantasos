@@ -2,21 +2,57 @@
 
 from __future__ import annotations
 
-from .ir import CliIR
+from collections import defaultdict
+
+from .ir import CliIR, Command
+
+
+def _table_row(c: Command) -> str:
+    leaf = c.variant or c.action
+    target = f"{c.verb} {c.object}" + (f" {leaf}" if leaf else "")
+    methods = ", ".join(b.sdk_method for b in c.bindings)
+    return f"  {target:<40} <- {c.sdk_resource}.[{methods}]"
 
 
 def render_table(ir: CliIR, unmapped: list[str]) -> str:
+    # Federated path: group by sub-package with kebab headings + stub invocations.
+    if any(c.subpackage for c in ir.commands):
+        return _render_federated_table(ir, unmapped)
+
+    # Single-spec path: unchanged flat table.
     lines = [f"# {ir.sdk_package} {ir.sdk_version} — {len(ir.commands)} commands"]
     for c in sorted(ir.commands, key=lambda c: c.key):
-        leaf = c.variant or c.action
-        target = f"{c.verb} {c.object}" + (f" {leaf}" if leaf else "")
-        methods = ", ".join(b.sdk_method for b in c.bindings)
-        lines.append(f"  {target:<40} <- {c.sdk_resource}.[{methods}]")
+        lines.append(_table_row(c))
     if unmapped:
-        lines.append(
-            f"\n# UNMAPPED ({len(unmapped)})"
-            " — map in cli.yml (request:/override:/hide:)"
-        )
+        lines.append(f"\n# UNMAPPED ({len(unmapped)}) — map in cli.yml (request:/override:/hide:)")
+        for key in sorted(unmapped):
+            lines.append(f"  UNMAPPED  {key}")
+    return "\n".join(lines)
+
+
+def _render_federated_table(ir: CliIR, unmapped: list[str]) -> str:
+    """Federated discover: one section per sub-package, plus a stub invocation."""
+    n = len(ir.commands)
+    lines = [f"# {ir.sdk_package} {ir.sdk_version} — {n} commands (federated)"]
+
+    # Group by sub-package snake slug; sort for stable output.
+    by_sub: dict[str, list[Command]] = defaultdict(list)
+    for c in sorted(ir.commands, key=lambda c: c.key):
+        by_sub[c.subpackage or ""].append(c)
+
+    for sub_snake in sorted(by_sub):
+        cmds = by_sub[sub_snake]
+        sub_kebab = sub_snake.replace("_", "-")
+        lines.append(f"\n## {sub_kebab}")
+        for c in cmds:
+            lines.append(_table_row(c))
+        # Representative stub: prefer a `show` command, else first.
+        stub_cmd = next((c for c in cmds if c.verb == "show"), cmds[0])
+        stub_parts = [ir.sdk_package, stub_cmd.verb, sub_kebab, stub_cmd.object]
+        lines.append(f"  example: {' '.join(stub_parts)}")
+
+    if unmapped:
+        lines.append(f"\n# UNMAPPED ({len(unmapped)}) — map in cli.yml (request:/override:/hide:)")
         for key in sorted(unmapped):
             lines.append(f"  UNMAPPED  {key}")
     return "\n".join(lines)
@@ -42,10 +78,7 @@ def render_stub(ir: CliIR, unmapped: list[str]) -> str:
         seen_objects.add(c.object)
         col_lines.append(f"  {c.object}: [{', '.join(s.path for s in c.columns)}]")
     if col_lines:
-        lines.append(
-            "# Table columns per object (JMESPath; model-derived"
-            " defaults shown — edit to curate)."
-        )
+        lines.append("# Table columns per object (JMESPath; model-derived defaults shown — edit to curate).")
         lines.append("columns:")
         lines.extend(col_lines)
     lines.append("hide: []")
