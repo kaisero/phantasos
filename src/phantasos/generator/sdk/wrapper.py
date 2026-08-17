@@ -25,6 +25,7 @@ import importlib
 import keyword
 import typing
 from dataclasses import dataclass
+from pathlib import Path
 from types import UnionType
 from typing import TYPE_CHECKING, Any
 
@@ -38,7 +39,7 @@ from .docs import _VERB_SLOT
 from .examples import assemble_reference_docstring, reference_example
 
 if TYPE_CHECKING:
-    from phantasos.config import OperationOverride
+    from phantasos.config import IdempotencyConfig, OperationOverride
     from phantasos.generator.opmodel.inventory import (
         OperationInfo,
         OperationInventory,
@@ -179,6 +180,12 @@ class ObjectView:
     methods: list[MethodView]
     imports: set[tuple[str, str]]
     bindings_literal: str = "{}"
+    # Idempotent-sync metadata (baked by ``idempotency.resolve_idempotency`` when
+    # the product opts a resource in). ``sync`` gates the emitted sync mixin;
+    # ``idempotency_literal`` is the ``_idempotency`` class-var body (``"{}"`` when
+    # the object is not synced — the byte-identical default).
+    sync: bool = False
+    idempotency_literal: str = "{}"
 
 
 # --------------------------------------------------------------------------- #
@@ -709,6 +716,9 @@ def build_wrapper_context(
     discovered: list[dict[str, str]],
     *,
     docs: DocsConfig | None = None,
+    idempotency: IdempotencyConfig | None = None,
+    dist_root: Path | None = None,
+    has_pagination: bool = False,
 ) -> list[ObjectView]:
     """Build the object-granular wrapper render context for a built SDK.
 
@@ -724,10 +734,19 @@ def build_wrapper_context(
         discovered: ``_discover_resources`` output: ``[{attr, module, cls}]``.
         docs: When provided, every ``MethodView.docstring`` is extended with a
             synthesized ``**Example:**`` block via ``assemble_reference_docstring``.
+        idempotency: When provided, ``resolve_idempotency`` bakes the per-resource
+            ``_idempotency`` metadata (strategy trio + models + gates) onto each
+            opted-in ``ObjectView`` (``sync``/``idempotency_literal``/``imports``).
+            ``None`` (the default) leaves every object un-synced and byte-identical.
+        dist_root: The ``sys.path`` root under which the built package's live model
+            classes import (required when *idempotency* is set).
+        has_pagination: Whether the product ships a pagination component — drives
+            the F8 ``list_scan`` gate in the idempotency producer.
 
     Raises:
         ValueError: unknown override key; a None-classified anchorless op with no
-            override; an object spanning api classes; a method-name collision.
+            override; an object spanning api classes; a method-name collision; or
+            any of the seven idempotency build gates (when *idempotency* is set).
     """
     validate_override_keys(inv, overrides)
     by_attr = {d["attr"]: d for d in discovered}
@@ -798,4 +817,14 @@ def build_wrapper_context(
     for ov in result:
         ov.methods.sort(key=lambda m: m.name)
         ov.bindings_literal = _bindings_literal(ov.methods)
+    if idempotency is not None:
+        from .idempotency import resolve_idempotency
+
+        resolve_idempotency(
+            result,
+            idempotency,
+            inv.sdk_package,
+            dist_root if dist_root is not None else Path.cwd(),
+            has_pagination=has_pagination,
+        )
     return result

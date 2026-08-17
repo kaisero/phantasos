@@ -607,6 +607,110 @@ def test_flatten_multifield_branch_merges_every_field() -> None:
     assert stats["flatten_scm_bodies"] == 1
 
 
+def test_flatten_constraint_only_anyof_over_own_properties_flattens() -> None:
+    # mobile-agent forwarding-profile-destinations: full payload in top-level
+    # `properties`, plus a sibling anyOf of REQUIRED-ONLY branches (no payload,
+    # no placement marker anywhere). openapi-generator would keep only the
+    # composition and drop the payload (empty `__properties`), so the payload-free
+    # constraint wrapper must be removed — with every real property schema kept
+    # intact (nothing clobbered by synthesized string stubs).
+    spec = _spec_with(
+        {
+            "forwarding-profile-destinations": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "id": {"type": "string", "readOnly": True},
+                    "name": {"type": "string", "maxLength": 64},
+                    "fqdn": {"type": "array", "items": {"type": "object"}},
+                    "ip_addresses": {"type": "array", "items": {"type": "object"}},
+                },
+                "anyOf": [
+                    {"required": ["ip_addresses"]},
+                    {"required": ["fqdn"]},
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["forwarding-profile-destinations"]
+    assert "anyOf" not in s
+    assert set(s["properties"]) == {"id", "name", "fqdn", "ip_addresses"}
+    # real property schemas survive untouched (merge-don't-clobber)
+    assert s["properties"]["fqdn"] == {"type": "array", "items": {"type": "object"}}
+    assert s["required"] == ["name"]
+    # the dropped constraint survives as a description note (anyOf -> at least one)
+    assert s["description"] == "Supply at least one of ip_addresses/fqdn."
+    assert stats["flatten_scm_bodies"] == 1
+
+
+def test_flatten_constraint_only_oneof_with_not_flattens() -> None:
+    # mobile-agent forwarding-profile-user-locations: the exactly-one constraint is
+    # a oneOf of `required` + `not:{required}` branches — still payload-free, still
+    # over the schema's own properties. Must be removed the same way; the note names
+    # only the ALTERNATING fields (name, required by every branch, is not one).
+    spec = _spec_with(
+        {
+            "forwarding-profile-user-locations": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "readOnly": True},
+                    "name": {"type": "string", "maxLength": 64},
+                    "internal_host_detection": {"type": "object"},
+                    "ip_addresses": {"type": "array", "items": {"type": "string"}},
+                },
+                "oneOf": [
+                    {
+                        "required": ["name", "internal_host_detection"],
+                        "not": {"required": ["ip_addresses"]},
+                    },
+                    {
+                        "required": ["name", "ip_addresses"],
+                        "not": {"required": ["internal_host_detection"]},
+                    },
+                ],
+            }
+        }
+    )
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    s = spec["components"]["schemas"]["forwarding-profile-user-locations"]
+    assert "oneOf" not in s
+    assert set(s["properties"]) == {
+        "id",
+        "name",
+        "internal_host_detection",
+        "ip_addresses",
+    }
+    assert s["description"] == ("Supply exactly one of internal_host_detection/ip_addresses.")
+    assert stats["flatten_scm_bodies"] == 1
+
+
+def test_flatten_leaves_constraint_branch_naming_unknown_field_untouched() -> None:
+    # Narrowness guard for the constraint-only widening: a required-only branch
+    # naming a field NOT in the schema's own `properties` is not a pure constraint
+    # wrapper (the composition is the only place that field exists), so the schema
+    # must be left exactly as-is.
+    spec = _spec_with(
+        {
+            "Mystery": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "oneOf": [
+                    {"required": ["name"]},
+                    {"required": ["something_undeclared"]},
+                ],
+            }
+        }
+    )
+    before = copy.deepcopy(spec)
+    stats: defaultdict[str, int] = defaultdict(int)
+    p.flatten_scm_bodies(spec, stats)
+    assert spec == before
+    assert "flatten_scm_bodies" not in stats
+
+
 def test_flatten_leaves_no_placement_union_untouched() -> None:
     # Over-reach guard: a real discriminated union with no placement marker (e.g. a
     # schedule's hourly/daily) must be left exactly as-is. No flatten, no stat bump.

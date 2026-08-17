@@ -16,10 +16,12 @@ from {{ root_package }}.{{ slug }}.extras.facade import Client as _{{ slug }}_Cl
 {% endfor %}
 from {{ root_package }}._runtime.rest import RESTClientObject
 from {{ root_package }}._auth import (
+    DEFAULT_BASE_URL,
     {{ config_class_name }},
     _BearerApiClient,
     configuration_from_credentials as _configuration_from_credentials,
     configuration_from_env as _configuration_from_env,
+    configuration_from_token as _configuration_from_token,
 )
 
 # slug -> sub-package facade Client (rev-7/D10: the enumeration seam docs + a
@@ -78,3 +80,7 @@ class Client:
     @classmethod
     def from_credentials(cls, **kwargs) -> "Client":
         return cls(_configuration_from_credentials(**kwargs))
+
+    @classmethod
+    def from_access_token(cls, token, *, host: str = DEFAULT_BASE_URL) -> "Client":
+        return cls(_configuration_from_token(token, host=host))

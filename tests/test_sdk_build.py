@@ -20,8 +20,15 @@ from pathlib import Path
 
 import pytest
 
+from phantasos.config import IdempotencyConfig, IdempotencyDefaults, IdempotencyResource
 from phantasos.generator.sdk import generate, provision
-from phantasos.generator.sdk.build import _about_text, _phantasos_version, build
+from phantasos.generator.sdk.build import (
+    _about_text,
+    _phantasos_version,
+    _scope_fields,
+    _scope_model_stems,
+    build,
+)
 from phantasos.productconfig import load_product
 
 _SDK = Path(__file__).parent.parent.parent / "prisma-browser-sdk"
@@ -57,6 +64,74 @@ def test_about_uses_real_phantasos_version() -> None:
     ver = _phantasos_version()
     assert ver != "0.1.0"  # a real metadata version (e.g. 0.1.0a1) or the fallback
     assert f"PHANTASOS_VERSION = {ver!r}\n" in txt
+
+
+def test_scope_fields_reads_defaults_then_resources() -> None:
+    """`_scope_fields` finds a scope on `defaults`, else on any resource; else None."""
+    assert _scope_fields(None) is None
+    assert _scope_fields(IdempotencyConfig()) is None
+    from phantasos.config import ScopeSpec
+
+    on_defaults = IdempotencyConfig(defaults=IdempotencyDefaults(scope=ScopeSpec(fields=["folder", "snippet"])))
+    assert _scope_fields(on_defaults) == ("folder", "snippet")
+    on_resource = IdempotencyConfig(resources={"addr": IdempotencyResource(scope=ScopeSpec(fields=["device"]))})
+    assert _scope_fields(on_resource) == ("device",)
+
+
+def test_scope_model_stems_matches_full_scope_group(tmp_path: Path) -> None:
+    """Only models declaring the WHOLE scope group are returned (not partial ones)."""
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "addresses.py").write_text(
+        "from pydantic import BaseModel\n\n"
+        "class Addresses(BaseModel):\n"
+        "    id: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "partial.py").write_text(  # only one scope field -> not a scoped body
+        "from pydantic import BaseModel\n\nclass Partial(BaseModel):\n    folder: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "__init__.py").write_text("", encoding="utf-8")
+    stems = _scope_model_stems(tmp_path, ("folder", "snippet", "device"))
+    assert stems == {"addresses"}
+
+
+def test_scope_model_stems_skips_id_less_models(tmp_path: Path) -> None:
+    """A scoped model WITHOUT an ``id`` field is not returned.
+
+    The validator's server-echo guard keys on a server-assigned ``id`` to skip
+    enforcement for echoes. A model SCM keys by ``name`` (no ``id`` — e.g.
+    ``auto_tag_actions``) would enforce the exactly-one rule unconditionally,
+    false-positiving on List/echo responses; it must be excluded so it is left to
+    the server's own scope rejection.
+    """
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "addresses.py").write_text(  # id-bearing -> guardable
+        "from pydantic import BaseModel\n\n"
+        "class Addresses(BaseModel):\n"
+        "    id: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "auto_tag_actions.py").write_text(  # id-LESS -> must be skipped
+        "from pydantic import BaseModel\n\n"
+        "class AutoTagActions(BaseModel):\n"
+        "    name: str | None = None\n"
+        "    folder: str | None = None\n"
+        "    snippet: str | None = None\n"
+        "    device: str | None = None\n",
+        encoding="utf-8",
+    )
+    (models / "__init__.py").write_text("", encoding="utf-8")
+    stems = _scope_model_stems(tmp_path, ("folder", "snippet", "device"))
+    assert stems == {"addresses"}
 
 
 def _oag_toolchain_cached() -> bool:
@@ -319,6 +394,60 @@ def test_full_federation_twelve_subpackages(tmp_path: Path, monkeypatch: pytest.
         # shared _auth.py rendered with
         # has_retry=False, so the composer must not ship a retry-less client.
         assert cfg.retries is not None
+
+        # --- Task 3.1: injectable-token seam (Client.from_access_token) ---------
+        # A caller-owned token source (str | Callable) builds a Client WITHOUT any
+        # client_secret/scope, and a callable provider is consulted PER REQUEST (not
+        # cached at construction) — the prototype's n=14 observation, minimized to
+        # two reads with no network. The provider wraps a pre-seeded real
+        # TokenManager and counts how often it is pulled.
+        pull_tm = auth.TokenManager("id", "secret", "scope")
+        pull_tm._token = "PULLTOKEN"
+        pull_tm._expires_at = _time.time() + 3600
+        pulls = {"n": 0}
+
+        def counting_provider() -> str:
+            pulls["n"] += 1
+            return pull_tm.token()
+
+        token_client = pa.Client.from_access_token(counting_provider)
+        # Two "requests": each bearer attach reads configuration.access_token once,
+        # which pulls the provider (per-request, not once at build).
+        h1: dict[str, str] = {}
+        token_client.objects.api_client.update_params_for_auth(
+            headers=h1,
+            queries=[],
+            auth_settings=[],
+            resource_path="/x",
+            method="GET",
+            body=None,
+        )
+        h2: dict[str, str] = {}
+        token_client.objects.api_client.update_params_for_auth(
+            headers=h2,
+            queries=[],
+            auth_settings=[],
+            resource_path="/y",
+            method="GET",
+            body=None,
+        )
+        assert pulls["n"] >= 2, pulls  # per-request consultation, not cached
+        assert h1["Authorization"] == "Bearer PULLTOKEN"
+        assert h2["Authorization"] == "Bearer PULLTOKEN"
+
+        # str path: normalized to a one-shot provider; builds + authenticates once,
+        # again with no client_secret/scope.
+        str_client = pa.Client.from_access_token("STATICTOKEN")
+        hs: dict[str, str] = {}
+        str_client.objects.api_client.update_params_for_auth(
+            headers=hs,
+            queries=[],
+            auth_settings=[],
+            resource_path="/z",
+            method="GET",
+            body=None,
+        )
+        assert hs["Authorization"] == "Bearer STATICTOKEN"
     finally:
         sys.path.remove(str(loaded.output_dir))
         _drop()

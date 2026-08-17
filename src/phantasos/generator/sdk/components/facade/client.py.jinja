@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator
 {% endif %}
 {% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
 {% endfor %}{% if wrappers %}{% for o in objects %}from .resources import {{ o.classname }}
-{% endfor %}{% endif %}{% if has_auth %}from .auth import api_client_from_credentials, api_client_from_env
+{% endfor %}{% endif %}{% if has_auth %}from .auth import DEFAULT_BASE_URL, api_client_from_credentials, api_client_from_env, api_client_from_token
 {% endif %}{% if has_pagination %}from .pagination import paginate
 {% endif %}{% if has_retry %}from .retry import default_retry
 {% endif %}
@@ -56,6 +56,10 @@ class Client:
     @classmethod
     def from_credentials(cls, **kwargs) -> "Client":
         return cls(api_client_from_credentials(**kwargs))
+
+    @classmethod
+    def from_access_token(cls, token, *, host: str = DEFAULT_BASE_URL) -> "Client":
+        return cls(api_client_from_token(token, host=host))
 {% endif %}{% if has_pagination %}
     def paginate(self, list_method: Callable[..., Any], **filters: Any) -> Iterator[Any]:
         return paginate(list_method, **filters)

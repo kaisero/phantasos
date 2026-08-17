@@ -1,0 +1,13 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ..base import MATERIALIZE
+
+
+def get_after_write(res: Any, response: Any, identity: dict, scope: dict, meta: dict) -> Any:
+    new_id = getattr(response, meta["id_field"]["attr"])  # F3: id-only envelope
+    return res.get(id=new_id)
+
+
+MATERIALIZE["get_after_write"] = get_after_write

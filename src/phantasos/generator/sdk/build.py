@@ -118,6 +118,61 @@ def build(loaded: LoadedProduct, *, run_smoke: bool = True, verify: bool = True)
     return result
 
 
+def _scope_fields(idempotency: Any | None) -> tuple[str, ...] | None:
+    """The scope group's fields for a sub's idempotency config, or ``None``.
+
+    A ``scope`` may sit on ``defaults`` (product-/subpackage-wide) or on any
+    single ``resources.<name>`` entry; the field set is identical across a block
+    (SCM's one container trio), so the first one found drives the validator.
+    """
+    if idempotency is None:
+        return None
+    defaults = getattr(idempotency, "defaults", None)
+    scope = getattr(defaults, "scope", None) if defaults is not None else None
+    if scope is None:
+        for rc in getattr(idempotency, "resources", {}).values():
+            if getattr(rc, "scope", None) is not None:
+                scope = rc.scope
+                break
+    return tuple(scope.fields) if scope is not None else None
+
+
+def _scope_model_stems(pkg_dir: Path, scope_fields: tuple[str, ...]) -> set[str]:
+    """Model file stems whose class declares the whole scope group AND an ``id``.
+
+    Derived from the generated model files themselves (the producer fact) rather
+    than the post-vendor idempotency introspection: SCM reuses one schema per
+    resource for create/update/read, and every configurable object model that
+    carries the scope group is exactly a mutating body to guard. A model that
+    declares all scope fields as (optional) attributes is such a body; response-
+    only or nested models that lack the full trio are left untouched.
+
+    The validator's server-echo guard (``if getattr(self, "id", None) is not
+    None: return self``) distinguishes a user mutation body (no server-assigned
+    ``id``) from a server echo (``id`` set) — so it can only be emitted safely on
+    a model that DECLARES an ``id`` field. A scoped model without ``id`` (SCM keys
+    it by ``name`` — e.g. ``auto_tag_actions``) would enforce the exactly-one rule
+    UNCONDITIONALLY, false-positiving on server List/echo responses that carry 0 or
+    ≥2 containers. Such id-less models are therefore skipped here and left to the
+    SCM server's own scope rejection (which already returns 400 on a bad scope).
+    """
+    import re
+
+    models = pkg_dir / "models"
+    if not models.is_dir():
+        return set()
+    field_res = [re.compile(rf"^\s+{re.escape(f)}\s*:", re.M) for f in scope_fields]
+    id_re = re.compile(r"^\s+id\s*:", re.M)
+    stems: set[str] = set()
+    for path in sorted(models.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "\nclass " in text and id_re.search(text) and all(r.search(text) for r in field_res):
+            stems.add(path.stem)
+    return stems
+
+
 def _generate_one(
     loaded: LoadedProduct,
     project_dir: Path,
@@ -129,6 +184,7 @@ def _generate_one(
     suppress_auth: bool = False,
     skip_validate_spec: bool = False,
     operations: dict[str, Any] | None = None,
+    idempotency: Any | None = None,
     hook_mod: Any | None = None,
 ) -> tuple[Path, list[str], dict[str, int]]:
     """Generate -> patch -> vendor -> ``_about`` for one (preprocessed spec, package).
@@ -160,6 +216,14 @@ def _generate_one(
         from . import patches
 
         patch_stats = patches.apply_generic_patches(pkg_dir, package=package)
+        # Scoped products (a `scope` group in the idempotency block) get a
+        # client-side exactly-one-scope validator on every scoped mutating model
+        # (UX / defense-in-depth; the SCM server already rejects a bad scope).
+        scope = _scope_fields(idempotency)
+        if scope:
+            patch_stats["scope_validators"] = patches.patch_scope_validators(
+                pkg_dir / "models", scope, _scope_model_stems(pkg_dir, scope)
+            )
     if hook_mod is not None and hasattr(hook_mod, "patch"):
         hook_mod.patch(pkg_dir)
 
@@ -171,6 +235,7 @@ def _generate_one(
         distribution_root=project_dir,
         suppress_auth=suppress_auth,
         operations=operations,
+        idempotency=idempotency,
     )
     (pkg_dir / "_about.py").write_text(
         _about_text(spec_version, generate.OAG_VERSION),
@@ -217,6 +282,7 @@ def _build_single(loaded: LoadedProduct, project_dir: Path, stats: defaultdict[s
         pp_path,
         cfg.package,
         spec_version=spec_version,
+        idempotency=cfg.idempotency,
         hook_mod=hook_mod,
     )
     generate.prune_suppressed_files(project_dir)
@@ -293,6 +359,7 @@ def _build_federated(loaded: LoadedProduct, project_dir: Path, stats: defaultdic
             suppress_auth=True,
             skip_validate_spec=sub.config.skip_validate_spec,
             operations=sub.config.operations,
+            idempotency=sub.config.idempotency,
         )
         vendored[sub.config.slug] = sub_vendored
 

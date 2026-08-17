@@ -17,6 +17,7 @@ from .config import (
     BUILTIN_FACADE,
     BUILTIN_PAGINATION,
     BUILTIN_RETRY,
+    IdempotencyConfig,
     OperationOverride,
 )
 
@@ -123,6 +124,7 @@ class SubPackage(BaseModel):
     spec: str
     normalize_operation_ids: NormalizeIds | None = None
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    idempotency: IdempotencyConfig | None = None
     skip_validate_spec: bool = False
 
 
@@ -184,6 +186,7 @@ class ProductConfig(BaseModel):
     include: dict[str, str] = Field(default_factory=dict)
     project: ProjectConfig | None = None
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
+    idempotency: IdempotencyConfig | None = None
     docs: DocsConfig | None = None
     # header-name -> spec; sent as default headers on every sub-package's
     # ApiClient handle by the federated composer (declared here, NOT derived
@@ -203,6 +206,11 @@ class ProductConfig(BaseModel):
             self.spec = "./openapi.yml"  # restore legacy default
         if not federated and self.live_smoke:
             raise ValueError("`live_smoke` is federated-only; single-spec products must not set it")
+        if federated and self.idempotency is not None:
+            raise ValueError(
+                "top-level `idempotency:` is federated-illegal; declare it "
+                "per sub-package (same split as `operations:`)"
+            )
         if federated:  # slug is a package/dir/import path — validate at the boundary
             seen: set[str] = set()
             for sub in self.subpackages:
@@ -290,7 +298,14 @@ _AUTO_EXPOSED = {
     "python_versions",
     "dependencies",
     "has_docs",
+    "ruff_spec",
 }
+
+
+def _ruff_spec() -> str:
+    from .generator.finalize import ruff_pin
+
+    return ruff_pin()
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -348,6 +363,8 @@ def load_product(name_or_path: str) -> LoadedProduct:
         "has_retry": retry is not None,
         "has_docs": cfg.docs is not None,
         "config_class_name": getattr(auth, "config_class_name", "SdkConfiguration"),
+        # Pins the emitted noxfile's ruff to the one finalize formats with.
+        "ruff_spec": _ruff_spec(),
     }
     if cfg.project is not None:
         context.update(

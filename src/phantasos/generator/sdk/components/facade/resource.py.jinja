@@ -16,14 +16,16 @@ from typing import Any, ClassVar
 {% for imp in imports %}from ..{{ imp[0] }} import {{ imp[1] }}
 {% endfor %}{% for o in objects %}from ..api.{{ o.api_module }} import {{ o.api_cls }}
 {% endfor %}{% if has_pagination %}from .pagination import paginate
+{% endif %}{% if has_idempotency %}from .idempotency import SyncMixin
 {% endif %}
 
 {% for o in objects %}
-class {{ o.classname }}:
+class {{ o.classname }}{% if o.sync %}(SyncMixin){% endif %}:
     """Typed wrapper for ``{{ o.attr }}`` (backed by ``{{ o.api_cls }}``)."""
 
     _bindings: ClassVar[dict[str, list[dict[str, Any]]]] = {{ o.bindings_literal }}
-
+{% if o.sync %}    _idempotency: ClassVar[dict[str, Any]] = {{ o.idempotency_literal }}
+{% endif %}
     def __init__(self, api: {{ o.api_cls }}) -> None:
         self._api = api
 {% for m in o.methods %}

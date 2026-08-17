@@ -3,6 +3,8 @@ output: ../../../prisma-access-sdk
 base_url: https://api.strata.paloaltonetworks.com
 auth:
   type: scm_oauth
+pagination:
+  type: offset
 docs:
   showcase_subpackage: objects
   showcase_resource: address
@@ -10,9 +12,170 @@ docs:
 subpackages:
   - slug: objects
     spec: openapi/objects.yaml
+    idempotency:
+      defaults:
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        address: {}
+        tag: {}
+        address_group:
+          # `static` is an ordered member list — the group's semantics change with
+          # order, so the diff must compare it order-SENSITIVELY (not as a set).
+          order_sensitive:
+            - static
+        application: {}
+        application_filter: {}
+        application_group: {}
+        # auto_tag_action is id-less: its model carries no `id` field, its delete
+        # op keys on `name`, and its PUT replace takes no id — the engine's
+        # id-addressed absent()/put_rmw cannot drive it. Explicit opt-out until an
+        # id-less mutate/delete path exists.
+        auto_tag_action:
+          sync: false
+        dynamic_user_group: {}
+        external_dynamic_list: {}
+        hip_object: {}
+        hip_profile: {}
+        http_server_profile: {}
+        log_forwarding_profile: {}
+        # quarantined_device is NOT listed: its bindings are create/delete/list
+        # only (no update or replace op), so it fails the CRUD-complete bar
+        # (build gate #4 would fire).
+        region: {}
+        schedule: {}
+        service: {}
+        service_group: {}
+        syslog_server_profile: {}
   - slug: network_services
     spec: openapi/network-services.yaml
     skip_validate_spec: true   # OAS 3.1 false positive under OAG validation
+    idempotency:
+      defaults:
+        # Ground truth: every network_services list op carries the full
+        # folder/snippet/device query-param triple (verified from the wrapper
+        # `list` param_maps in the network_services resources module), and the
+        # item models carry the matching folder/snippet/device container fields.
+        # So the scope is the folder/snippet/device triple with exactly_one
+        # selected — the same shape objects/device_settings carry.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # The resources below are all normal named, id-addressed resources (real
+        # `id` UUID + `name`) with full CRUD (create/delete/get/list/replace) and
+        # the folder/snippet/device scope triple, so each inherits the scope
+        # default and needs no per-resource metadata.
+        aggregate_interface: {}
+        # bgp_address_family_profile is KEPT. The model pre-scan flagged the
+        # nested `ipv4` sub-object model (BgpAddressFamilyProfilesIpv4) as having
+        # an empty `__properties`, so its typed fields route into
+        # additional_properties. But the create/read model for THIS resource is
+        # BgpAddressFamilyProfiles, whose `__properties` is
+        # ["id","name","ipv4","folder","snippet","device"] — faithful. The empty
+        # bag only affects the nested ipv4 blob, and to_dict() re-emits that blob
+        # verbatim from additional_properties, so the read round-trip is lossless
+        # (proven: from_dict(x).to_dict() == x except the server-assigned `id`,
+        # which every resource drops). Unlike mobile_agent's destination (whose
+        # required `name` makes from_dict raise), nothing raises and no field is
+        # lost here, so the idempotency precondition holds.
+        bgp_address_family_profile: {}
+        bgp_authentication_profile: {}
+        # bgp_filtering_profile is KEPT for the same reason as
+        # bgp_address_family_profile: its create/read model BgpFilteringProfiles
+        # has a faithful `__properties`
+        # (["id","name","description","ipv4","folder","snippet","device"]); only
+        # the nested `ipv4` sub-object (BgpFilteringProfilesIpv4) has the empty
+        # `__properties`, and to_dict() re-emits that blob verbatim, so the read
+        # round-trip is lossless (proven: from_dict(x).to_dict() == x sans `id`).
+        bgp_filtering_profile: {}
+        bgp_redistribution_profile: {}
+        bgp_route_map: {}
+        bgp_route_map_redistribution: {}
+        config_match_list: {}
+        dhcp_interface: {}
+        dns_proxy: {}
+        ethernet_interface: {}
+        globalprotect_match_list: {}
+        hipmatch_match_list: {}
+        ike_crypto_profile: {}
+        ike_gateway: {}
+        i_psec_crypto_profile: {}
+        i_psec_tunnel: {}
+        interface_management_profile: {}
+        iptag_match_list: {}
+        layer2_subinterface: {}
+        layer3_subinterface: {}
+        link_tag: {}
+        lldp_profile: {}
+        logical_router: {}
+        loopback_interface: {}
+        # nat_rule opts in via the `position` (pre/post rulebase) call param: its
+        # list, create AND (uniquely among the rules) replace ops require the
+        # position query enum, which the engine threads from the declared param
+        # (default `pre`, overridable per call). Identity is `name` within `scope`:
+        # the required list `position` does NOT partition results (live-proven), so
+        # it is a create-placement param, inert for fetch.
+        nat_rule:
+          params:
+            position:
+              default: pre
+        ospf_authentication_profile: {}
+        pbf_rule: {}
+        # qo_s_policy_rule opts in via the `position` call param like nat_rule
+        # above (required on list + create; default `pre`).
+        qo_s_policy_rule:
+          params:
+            position:
+              default: pre
+        qo_s_profile: {}
+        route_access_list: {}
+        route_community_list: {}
+        route_path_access_list: {}
+        route_prefix_list: {}
+        sdwan_error_correction_profile: {}
+        sdwan_path_quality_profile: {}
+        sdwan_rule: {}
+        sdwan_saa_s_quality_profile: {}
+        sdwan_traffic_distribution_profile: {}
+        system_match_list: {}
+        tunnel_interface: {}
+        userid_match_list: {}
+        vlan_interface: {}
+        zone: {}
+        zone_protection_profile: {}
+        # auto_vpn_cluster is a normal named, id-addressed resource with full CRUD,
+        # but — unlike every other network_services resource — its list op carries
+        # NO folder/snippet/device query param (it is scope-less). A blank `{}`
+        # would inherit the folder/snippet/device default and wrongly attach a
+        # scope the list op can't accept, so it declares an explicit empty scope to
+        # override the default. Identity is the bare `name`.
+        auto_vpn_cluster:
+          scope:
+            fields: []
+        # auto_vpn_setting is a GET + PUT singleton like shared_infrastructure_setting:
+        # its bindings are get + replace ONLY — no create, no delete, no id, no
+        # scope. So it takes the fetch(get) -> diff -> put_singleton path and
+        # identity is empty (the blob always exists). `singleton: true` is correct
+        # precisely because there is no create/delete op (gate #7 would fire
+        # otherwise); the empty scope overrides the subpackage default so no folder
+        # scope leaks onto this scope-less singleton.
+        auto_vpn_setting:
+          singleton: true
+          identity: []
+          scope:
+            fields: []
+        # NOT listed (build gate #4 — not CRUD-complete, no update/read path):
+        #   auto_vpn_push_config          — create-only (no get/list/replace).
+        #   auto_vpn_monitor              — get-only (no create/update/delete).
+        #   remote_networks_license_info  — get-only (read-only license info).
     operations:
       vlan_interfaces.update_vlanl_interfaces_by_id:
         resource: vlan_interface
@@ -66,10 +229,207 @@ subpackages:
         method: validate
   - slug: deployment_services
     spec: openapi/deployment-services.yaml
+    idempotency:
+      resources:
+        # A true singleton: /bgp-routing is GET (GetBGPRouting) + PUT
+        # (UpdateBGPRouting) only — no create, no delete, no id, no scope. apply()
+        # takes the fetch(via get) -> diff -> replace path; absent() raises
+        # AbsentNotSupported. identity is empty (the blob always exists).
+        #
+        # NOTE: there is deliberately NO subpackage-level `defaults.scope` here.
+        # bgp_routing and shared_infrastructure_setting are scope-less, and
+        # internal_dns_server's list op carries no folder param either, so a
+        # blanket folder default would be wrong for them AND would leak a folder
+        # scope onto the bgp_routing singleton (scope = rc.scope or
+        # defaults.scope), breaking its non-destructive live test. The five
+        # folder-scoped resources therefore declare `scope` per-resource instead.
+        bgp_routing:
+          singleton: true
+          identity: []
+        # shared_infrastructure_setting is a GET + PUT singleton like bgp_routing:
+        # its bindings are get (GetSharedInfrastructureSettings) + replace
+        # (UpdateSharedInfrastructureSettings) ONLY — no create, no delete, no id,
+        # no scope. So it takes the same fetch(get) -> diff -> put_singleton path
+        # and identity is empty (the blob always exists). `singleton: true` is
+        # correct precisely because there is no create/delete op (gate #7 would
+        # fire otherwise).
+        shared_infrastructure_setting:
+          singleton: true
+          identity: []
+        # internal_dns_server is a normal named, id-addressed resource (real `id`
+        # UUID + `name`) with full CRUD (create/delete/get/list/replace), but its
+        # list op carries NO folder/snippet/device param — it is scope-less, so
+        # identity is the bare `name` and no scope is declared. Its `name` on the
+        # create model auto-resolves identity; list_scan drives the fetch.
+        internal_dns_server: {}
+        # The five resources below are folder-scoped: their list (and, for
+        # traffic_steering_rule, create) op requires `folder` and accepts no
+        # snippet/device, so scope is folder-only with exactly_one selected —
+        # declared per-resource (not as a subpackage default) so it does not touch
+        # the scope-less bgp_routing/shared_infrastructure_setting singletons or
+        # internal_dns_server. All five are normal named, id-addressed resources
+        # with full CRUD (create/delete/get/list/replace) and faithful models.
+        remote_network:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        service_connection:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        service_connection_group:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        site:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        traffic_steering_rule:
+          scope:
+            fields:
+              - folder
+            rule: exactly_one
+        # bandwidth_allocation is opted OUT (`sync: false`). Its item model
+        # (BandwidthAllocations) carries NO `id` field at all — the resource is
+        # keyed by name + spn_name_list, and its delete op takes (name,
+        # spn_name_list), not an id. The idempotent engine is id-addressed (its
+        # put_rmw mutate and materialize paths read/write the model's id), so an
+        # id-less resource cannot drive the generic apply/absent path. It also has
+        # no `get` op (only create/delete/list/replace). Re-enable only if the
+        # engine grows a name-addressed path; until then this is the id-less
+        # escape hatch.
+        bandwidth_allocation:
+          sync: false
+        # application_default is NOT listed: its bindings are create-only (no
+        # delete/get/list/replace), so it has no update verb and no read path —
+        # build gate #4 (no update op) would fire. SKIP.
+        # location is NOT listed: its bindings are list-only (no
+        # create/delete/get/replace), so it also has no update verb — build
+        # gate #4 would fire. Read-only resource. SKIP.
   - slug: device_settings
     spec: openapi/device-settings.yaml
+    idempotency:
+      defaults:
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # Every device_settings resource is a per-CONTAINER settings blob: its
+        # model carries `id` + the three scope containers + one payload object
+        # and NO `name`. There is at most one such blob per folder/snippet/device,
+        # so identity WITHIN a scope is empty (`identity: []`) — the scope IS the
+        # key. These are NOT singletons in the binding sense: they have real
+        # create AND delete ops (so `singleton: true` would trip build gate #7),
+        # and their id-addressed get/replace/delete drive the engine normally.
+        authentication_setting:
+          identity: []
+        content_id_setting:
+          identity: []
+        device_redistribution_collector_setting:
+          identity: []
+        general_setting:
+          identity: []
+        # ha_device is NOT listed: its bindings are list-only (no create, delete,
+        # get, update, or replace op), so it fails the CRUD-complete bar
+        # (build gate #4 — no update verb — would fire). Read-only resource.
+        login_banner_setting:
+          identity: []
+        management_interface_setting:
+          identity: []
+        service_route_setting:
+          identity: []
+        service_setting:
+          identity: []
+        session_setting:
+          identity: []
+        session_timeouts_setting:
+          identity: []
+        tcp_setting:
+          identity: []
+        update_schedule_setting:
+          identity: []
+        vpn_setting:
+          identity: []
   - slug: identity_services
     spec: openapi/identity-services.yaml
+    idempotency:
+      defaults:
+        # These resources are FULL-triple scoped: every create/list op accepts
+        # folder/snippet/device (all three appear in the wrapper param_map), and
+        # the item models carry folder/snippet/device container fields. So the
+        # scope mirrors objects/device_settings — the folder/snippet/device
+        # triple with exactly-one selected.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # All 16 below are normal named, id-addressed resources (real `id` UUID +
+        # `name`) with full CRUD (create/delete/get/list/replace), so each inherits
+        # the folder/snippet/device scope default and needs no per-resource
+        # metadata. The model pre-scan found no empty-__properties defect here, so
+        # every generated item model round-trips a real read faithfully.
+        #
+        # authentication_portal is the one exception: its create/replace model
+        # carries a real `id` UUID but NO `name` field (unlike every other
+        # identity_services resource), and its paths are the collection shape
+        # (GET/POST /authentication-portals, GET/PUT/DELETE /{id}). There is at
+        # most one portal blob per folder/snippet/device, so identity WITHIN a
+        # scope is empty (`identity: []`) — the scope IS the key, exactly as the
+        # device_settings per-container blobs (tcp_setting, vpn_setting, …) are
+        # handled. It is NOT a singleton in the binding sense (it has real create
+        # AND delete ops, so `singleton: true` would trip build gate #7); its
+        # id-addressed get/replace/delete drive the engine normally. Without this,
+        # gate #2 fires: identity cannot be inferred from a name-less create model.
+        authentication_portal:
+          identity: []
+        authentication_profile: {}
+        # authentication_rule opts in via the `position` (pre/post rulebase) call
+        # param: its list + create ops require the position query enum, which the
+        # engine threads from the declared param (default `pre`, overridable per
+        # call). Identity is `name` within `scope` (the required list `position`
+        # does not partition results — create-placement only, inert for fetch).
+        authentication_rule:
+          params:
+            position:
+              default: pre
+        authentication_sequence: {}
+        certificate_profile: {}
+        kerberos_server_profile: {}
+        ldap_server_profile: {}
+        local_user: {}
+        local_user_group: {}
+        # mfa_server's LIST op reuses the auth-rules `position` param (required —
+        # a spec wart: MFA servers are not ordered rules; create takes no
+        # position). Opt in via the `position` call param (default `pre`), which
+        # the engine threads into list only; live proof asserts list(pre) and
+        # list(post) return the same objects.
+        mfa_server:
+          params:
+            position:
+              default: pre
+        ocsp_responder: {}
+        radius_server_profile: {}
+        saml_server_profile: {}
+        scep_profile: {}
+        tacacs_server_profile: {}
+        tls_service_profile: {}
+        # certificate is NOT listed: its bindings are create/delete/export/import_/
+        # list only — no `get` and no `replace`/update verb, so it has no full
+        # create/delete/update lifecycle and fails the CRUD-complete bar
+        # (build gate #4 would fire).
+        # trusted_certificate_authority is NOT listed: its bindings are list-only
+        # (no create/delete/get/replace), so it also fails gate #4.
   - slug: incidents
     spec: openapi/incidents.yaml
     operations:
@@ -80,6 +440,33 @@ subpackages:
         method: search
   - slug: mobile_agent
     spec: openapi/mobile-agent.yaml
+    idempotency:
+      defaults:
+        # Ground truth: every mobile_agent create/list op accepts `folder` ONLY
+        # (no snippet/device query param appears anywhere in the wrappers), and
+        # the body models carry no folder/snippet/device container fields at all.
+        # So the scope is folder-only — not the folder/snippet/device triple that
+        # objects/device_settings carry.
+        scope:
+          fields:
+            - folder
+          rule: exactly_one
+      resources:
+        # These GlobalProtect resources are normal named, id-addressed resources
+        # (real `id` UUID + `name`) with full CRUD (create/delete/get/list/replace),
+        # so each inherits the folder scope default and needs no per-resource
+        # metadata.
+        global_protect_forwarding_profile: {}
+        global_protect_regional_and_custom_proxy: {}
+        global_protect_source_application: {}
+        # destination and user_location were once opted out: their spec schemas
+        # carry a payload-free constraint anyOf/oneOf next to `properties`, which
+        # made openapi-generator drop the payload (empty `__properties`, broken
+        # `from_dict` round-trip). `flatten_scm_bodies` now strips those
+        # constraint-only wrappers, so the models round-trip and both resources
+        # inherit the folder scope like the rest.
+        global_protect_destination: {}
+        global_protect_user_location: {}
   - slug: posture
     spec: openapi/posture.yaml
     operations:
@@ -90,6 +477,139 @@ subpackages:
         method: initiate
   - slug: security_services
     spec: openapi/security-services.yaml
+    idempotency:
+      defaults:
+        # Ground truth: every security_services list op carries the full
+        # folder/snippet/device query-param triple (verified from the wrapper
+        # `list` param_maps in the security_services resources module), and the
+        # item models carry the matching folder/snippet/device container fields.
+        # So the scope is the folder/snippet/device triple with exactly_one
+        # selected — the same shape objects/network_services carry.
+        scope:
+          fields:
+            - folder
+            - snippet
+            - device
+          rule: exactly_one
+      resources:
+        # The resources below are all normal named, id-addressed resources (real
+        # `id` UUID + `name`) with full CRUD (create/delete/get/list/replace — a
+        # `replace` is the PUT full-replace `update_*` raw op) and the
+        # folder/snippet/device scope triple, so each inherits the scope default
+        # and needs no per-resource metadata. application_override_rule and
+        # decryption_rule additionally carry a `move` op (rule ordering); it is
+        # not a CRUD verb and does not affect the apply/absent/fetch path.
+        anti_spyware_profile: {}
+        # application_override_rule opts in via the `position` (pre/post rulebase)
+        # call param: its list + create ops require the position query enum, which
+        # the engine threads from the declared param (default `pre`, overridable
+        # per call). Identity is `name` within `scope` (the required list `position`
+        # does not partition results — create-placement only, inert for fetch).
+        application_override_rule:
+          params:
+            position:
+              default: pre
+        data_filtering_profile: {}
+        data_object: {}
+        decryption_exclusion: {}
+        decryption_profile: {}
+        # decryption_rule opts in via the `position` call param like
+        # application_override_rule above (required on list + create; default
+        # `pre`).
+        decryption_rule:
+          params:
+            position:
+              default: pre
+        dns_security_profile: {}
+        do_s_protection_profile: {}
+        do_s_protection_rule: {}
+        file_blocking_profile: {}
+        http_header_profile: {}
+        profile_group: {}
+        # security_rule stays OUT of idempotent sync. The `position` param is
+        # solved (the ListRules rebind + the position engine make it CRUD-complete
+        # and position-threadable), but its create/read model SecurityRules is the
+        # ONE security_services model that declares folder/snippet/device as
+        # REQUIRED strings rather than Optional (every other resource makes them
+        # optional so an exactly-one scope body is constructible). A single-scope
+        # body therefore fails client-side pydantic validation before any request,
+        # so apply/absent cannot build a body. This is a separate model-shape
+        # defect (the scope fields need relaxing to Optional, as elsewhere) — not
+        # a position problem; re-enable once that is fixed.
+        security_rule:
+          sync: false
+        url_access_profile: {}
+        url_category: {}
+        vulnerability_protection_profile: {}
+        wild_fire_anti_virus_profile: {}
+        # anti_spyware_signature and vulnerability_protection_signature are the two
+        # signature resources keyed by `threat_id`, NOT `name` — their create/read
+        # model (AntiSpywareSignatures / VulnerabilityProtectionSignatures) has no
+        # `name` field at all (its __properties lead with
+        # ["id", "threat_id", ...]), so identity cannot be auto-inferred (gate #2
+        # fires on a blank `{}`). Identity is the bare `threat_id`, present on the
+        # read model, so the default list_scan fetch matches on it (its list op
+        # carries no name/threat_id query param — a full paginated scan + in-model
+        # match, exactly what list_scan does). Full CRUD otherwise, so both inherit
+        # the folder/snippet/device scope default.
+        anti_spyware_signature:
+          identity:
+            - threat_id
+        vulnerability_protection_signature:
+          identity:
+            - threat_id
+        # saas_tenant_restriction is get + replace ONLY (no create/delete/list/id),
+        # which looks like a GET + PUT singleton — but unlike the driveable
+        # bgp_routing / auto_vpn_setting / shared_infrastructure_setting singletons
+        # (whose `get` returns the settings OBJECT directly, so drift is detectable
+        # on the read model), its `get` returns a LIST ENVELOPE
+        # (GetSaasTenantRestrictions200Response, __properties
+        # ["data", "limit", "offset", "total"]) — the actual restriction lives
+        # inside `data[*]`, an array of SaasTenantRestrictions. So the singleton
+        # read model exposes NONE of the managed write fields (description, domains,
+        # headers, name, saas_edl live on the PUT body SaasTenantRestrictions, not
+        # on the envelope), and gate #5 correctly fires: those fields are
+        # undetectable via GET, so the engine could never detect drift or converge.
+        # A faithful read model (the object, not the list envelope) is a
+        # precondition for singleton sync, so this stays out until the get op is
+        # normalized to return the object. Unwrapping the envelope in the spec
+        # was investigated and rejected: GET /saas-tenant-restrictions is a real
+        # paginated collection surface (name/folder/snippet/device/offset/limit
+        # query params), so redeclaring its response as the bare object would
+        # misdescribe the live wire shape and break deserialization of the
+        # actual envelope the server returns. The clean fix is an engine-side
+        # singleton-from-list-envelope fetch strategy, not spec surgery. Opted
+        # OUT with the universal `sync: false` hatch.
+        saas_tenant_restriction:
+          sync: false
+        # NOT listed — the engine cannot drive these (documented skips):
+        #   ssl_decryption_setting — raw ops are delete + get + post + put; the
+        #     post/put ARE create/replace semantically and rebinding them works,
+        #     but every rebound shape fails a build gate against the real
+        #     models: the GET returns a LIST ENVELOPE
+        #     (GetSslDecryptionSettings200Response: data/limit/offset/total),
+        #     never the settings object, and the POST body
+        #     (SslDecryptionSettings, top-level fields) differs from the PUT
+        #     body (SslDecryptionSettingsGetPut, `ssl_decrypt`-wrapped) — so
+        #     `ssl_decrypt`, the entire managed payload, is undetectable via
+        #     GET. Verified against the built artifacts: the singleton rebind
+        #     (put->replace, post/delete hidden) and the full-CRUD rebind
+        #     (post->create, put->replace, get->list) both trip gate #5;
+        #     singleton with the delete kept trips gate #7. No id/name on any
+        #     model either. SKIP until the engine grows a
+        #     singleton-from-list-envelope fetch (same defect family as
+        #     saas_tenant_restriction above).
+        #   url_filtering_category — list-only; gate #4. Read-only. SKIP.
+    operations:
+      # GET /security-rules ships the bare operationId `ListRules` — unlike its
+      # api-class siblings (CreateSecurityRules, GetSecurityRulesByID, ...) it
+      # names no object, so it classified onto a spurious read-only `rule`
+      # resource. Rebind it onto security_rule, completing that resource's
+      # surface (and removing the `rule` wart) — the list binding the
+      # position-threaded idempotency opt-in above drives.
+      security_rules.list_rules:
+        resource: security_rule
+        method: list
 default_headers:
   X-PANW-Region:
     env: PANW_REGION

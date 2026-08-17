@@ -204,7 +204,11 @@ def _render_facade(*, has_auth: bool, has_pagination: bool) -> str:
 
 def test_render_facade_full_components() -> None:
     out = _render_facade(has_auth=True, has_pagination=True)
-    assert "from .auth import api_client_from_credentials, api_client_from_env" in out
+    assert (
+        "from .auth import DEFAULT_BASE_URL, api_client_from_credentials, "
+        "api_client_from_env, api_client_from_token" in out
+    )
+    assert "def from_access_token(" in out
     assert "from .pagination import paginate" in out
     assert "def from_env(" in out and "def paginate(" in out
     assert "{%" not in out and "{{" not in out

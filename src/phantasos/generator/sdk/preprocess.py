@@ -342,6 +342,37 @@ def _leaf_props(node: Any) -> Any:
                     yield n, {"type": "string"}
 
 
+def _constraint_only_branches(s: dict[str, Any]) -> bool:
+    """True when every oneOf/anyOf branch of ``s`` is a bare cross-field
+    constraint — ``required`` / ``not: {required}`` combos carrying NO payload
+    (no ``properties``, ``$ref``, or nested composition) — and every field it
+    names already exists in the schema's own top-level ``properties``.
+
+    Such a composition contributes nothing openapi-generator could keep (the
+    payload lives entirely on the schema itself), yet its mere presence makes
+    OAG drop that payload. Removing it loses only the cross-field rule, which
+    is carried into the description instead. Real instances: mobile-agent's
+    forwarding-profile-destinations (anyOf of required-only branches) and
+    forwarding-profile-user-locations (oneOf of required + not:{required}).
+    """
+    own = set(s.get("properties") or {})
+    branches = [b for key in ("oneOf", "anyOf") for b in s.get(key) or []]
+    if not branches:
+        return False
+    for b in branches:
+        if not isinstance(b, dict):
+            return False
+        if b.keys() & {"properties", "$ref", "oneOf", "anyOf", "allOf", "items"}:
+            return False
+        names = set(b.get("required") or [])
+        neg = b.get("not")
+        if isinstance(neg, dict):
+            names |= set(neg.get("required") or [])
+        if not names or not names <= own:
+            return False
+    return True
+
+
 def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
     """Lift oneOf/anyOf leaf properties back onto an SCM "configurable object".
 
@@ -350,8 +381,10 @@ def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
     reachable leaf onto ``properties`` (merge-don't-clobber; lifted leaves stay
     optional) and removes the composition — but ONLY for schemas whose reachable
     leaf set contains a placement marker (``folder``/``snippet``/``device``), the
-    universal SCM configurable-object signature. Real discriminated unions lacking
-    that marker are left untouched (the corruption guard). Loops top-level
+    universal SCM configurable-object signature, OR whose composition is a
+    payload-free constraint wrapper over the schema's own properties (see
+    ``_constraint_only_branches``). Real discriminated unions matching neither
+    signature are left untouched (the corruption guard). Loops top-level
     ``components.schemas`` only.
     """
     schemas = (spec.get("components") or {}).get("schemas") or {}
@@ -361,23 +394,37 @@ def flatten_scm_bodies(spec: Any, stats: dict[str, int] | None = None) -> None:
         if "oneOf" not in s and "anyOf" not in s:
             continue
         leaves = dict(_leaf_props(s))
-        if not (_PLACEMENT & set(leaves)):  # GUARD: only configurable SCM objects
+        placement = bool(_PLACEMENT & set(leaves))
+        # GUARD: only configurable SCM objects or payload-free constraint wrappers
+        if not placement and not _constraint_only_branches(s):
             continue
         props = s["properties"]
         for n, sch in leaves.items():
             if n not in props:  # merge-don't-clobber
                 props[n] = sch  # intentionally NOT added to `required`
+        # The flattened type can no longer express "exactly one of ..." — carry the
+        # human signal into the docstring.
+        if placement:
+            # A value-type union flattened too (a non-placement leaf is present)
+            # means there's also a value field to pick.
+            note = "Supply exactly one of folder/snippet/device (the configuration container)"
+            if set(leaves) - _PLACEMENT:
+                note += ", and exactly one value field"
+            note += "."
+        else:
+            # Constraint-only wrapper: name the ALTERNATING fields (those not
+            # required by every branch), first-seen order. oneOf = exactly one,
+            # anyOf = at least one.
+            reqs = [list(b.get("required") or []) for key in ("oneOf", "anyOf") for b in s.get(key) or []]
+            common = set.intersection(*(set(r) for r in reqs))
+            alternating = [n for n in dict.fromkeys(n for r in reqs for n in r) if n not in common]
+            quant = "exactly one" if "oneOf" in s else "at least one"
+            note = f"Supply {quant} of {'/'.join(alternating)}." if alternating else ""
         s.pop("oneOf", None)
         s.pop("anyOf", None)
-        # The flattened type can no longer express "exactly one of ..." — carry the
-        # human signal into the docstring. A value-type union flattened too (a
-        # non-placement leaf is present) means there's also a value field to pick.
-        note = "Supply exactly one of folder/snippet/device (the configuration container)"
-        if set(leaves) - _PLACEMENT:
-            note += ", and exactly one value field"
-        note += "."
-        existing = s.get("description")
-        s["description"] = f"{existing}\n\n{note}" if existing else note
+        if note:
+            existing = s.get("description")
+            s["description"] = f"{existing}\n\n{note}" if existing else note
         if stats is not None:
             stats["flatten_scm_bodies"] = stats.get("flatten_scm_bodies", 0) + 1
 

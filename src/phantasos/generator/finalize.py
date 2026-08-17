@@ -33,6 +33,27 @@ def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, check=False)
 
 
+def ruff_pin() -> str:
+    """The pip requirement pinning the generated project to *our* ruff.
+
+    The finalize pass below formats the tree with whichever ``ruff`` is on PATH,
+    while the generated project's own ``nox -s lint`` re-checks that formatting.
+    If the two resolve different ruff versions the project can never pass its own
+    gate — a formatting rule added between them (e.g. 0.16's markdown code-block
+    formatting) reformats a file our pass left alone. Pinning the emitted noxfile
+    to the exact version we format with keeps them in lockstep. Falls back to the
+    unpinned name when ruff isn't installed (the format step is skipped anyway).
+    """
+    ruff = shutil.which("ruff")
+    if not ruff:
+        return "ruff"
+    out = subprocess.run([ruff, "--version"], capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        return "ruff"
+    parts = out.stdout.split()  # "ruff 0.15.16"
+    return f"ruff=={parts[1]}" if len(parts) >= 2 else "ruff"
+
+
 def finalize(project_dir: Path, *, verify: bool = True) -> dict[str, str]:
     """Clean, lock, and (optionally) gate a freshly generated project.
 

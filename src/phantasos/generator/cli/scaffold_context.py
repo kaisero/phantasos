@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..finalize import ruff_pin
+
 _CLI_DEPS = [
     # >=0.26.7: the lazy app (app.py) imports `typer.core._click` (typer's vendored
     # click) and calls `get_command_from_info(...)` — both require a modern typer, and
@@ -76,6 +78,8 @@ def build_cli_scaffold_context(loaded: Any, ir: Any, cli_cfg: Any) -> dict[str, 
         has_docs=False,
         cli_docs=getattr(cli_cfg, "docs", None) is not None,
         auth_env_vars=_auth_env_vars(loaded),
+        # Pins the emitted noxfile's ruff to the one finalize formats with.
+        ruff_spec=ruff_pin(),
     )
     if project is not None:
         ctx.update(

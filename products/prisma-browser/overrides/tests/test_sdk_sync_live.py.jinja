@@ -1,0 +1,183 @@
+"""Live idempotency quartet — prisma-browser application_group
+(list_scan + patch_minimal + get_after_write). Mirrors run_prisma_browser.py (13/13)."""
+
+import os
+import uuid
+
+import pytest
+
+from {{ package }}.extras.auth import TokenManager
+from {{ package }}.extras.facade import Client
+from {{ package }}.models.create_or_replace_app_group_input import CreateOrReplaceAppGroupInput
+from {{ package }}.models.create_or_replace_app_input import CreateOrReplaceAppInput
+from {{ package }}.models.custom_application_input import CustomApplicationInput
+from {{ package }}.models.url_input import UrlInput
+
+_REQUIRED_ENV = ("CLIENT_ID", "CLIENT_SECRET", "SCOPE")
+
+pytestmark = pytest.mark.skipif(
+    any(not os.environ.get(var) for var in _REQUIRED_ENV),
+    reason="live tenant credentials not set: " + ", ".join(_REQUIRED_ENV),
+)
+
+
+@pytest.fixture()
+def client():
+    c = Client.from_env()
+    yield c
+    c.close()
+
+
+@pytest.fixture()
+def group(client):
+    return client.application_group
+
+
+def _mk_application(client, name):
+    """Create a minimal valid custom application; return its server id."""
+    created = client.application.create(
+        type="custom",
+        # create_application's body is the oneOf union CreateOrReplaceAppInput; the
+        # CustomApplicationInput variant must be wrapped (its __init__ takes the
+        # variant positionally and sets actual_instance).
+        body=CreateOrReplaceAppInput(
+            CustomApplicationInput(
+                name=name,
+                type="custom",
+                urls=[UrlInput(url=f"https://{name}.example.com/*")],
+            )
+        ),
+    )
+    return created.id
+
+
+def test_application_group_idempotency_quartet(group):
+    name = f"phx-sync-{uuid.uuid4().hex[:12]}"
+    try:
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="orig"))
+        assert r.changed and r.action == "created"
+        assert r.after.get("name") == name and r.after.get("id")   # get_after_write materialized
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="orig"))
+        assert not r.changed, r.diff.changes                        # model-split idempotency
+        r = group.apply(CreateOrReplaceAppGroupInput(name=name, description="changed"))
+        assert r.changed and set(r.diff.changes) == {"description"}  # patch_minimal
+        assert group.apply(CreateOrReplaceAppGroupInput(name=name, description="cm"),
+                           check_mode=True).changed
+        assert group.fetch(name=name).description == "changed"       # check_mode did not write
+        assert group.absent(CreateOrReplaceAppGroupInput(name=name)).action == "deleted"
+        assert group.fetch(name=name) is None
+    finally:
+        leftover = group.fetch(name=name)
+        if leftover is not None:
+            group.delete(id=leftover.id)
+
+
+def test_application_group_manages_applications_membership(client, group):
+    """Phase 5.1 Step 4 — the `applications` projections flip, live-proven.
+
+    `applications` is now a MANAGED, drift-comparable field (was `computed`). The
+    request sends member application IDs (List[str]); the server ECHOES them as
+    ApplicationGroupApplicationsInner objects. The `applications: id` projection
+    maps each echoed object back to its scalar id, so an apples-to-apples diff must
+    NOT report false drift on re-apply — that's the load-bearing assertion.
+    """
+    name = f"phx-sync-{uuid.uuid4().hex[:12]}"
+    app1_name = f"phx-sync-app-{uuid.uuid4().hex[:12]}"
+    app2_name = f"phx-sync-app-{uuid.uuid4().hex[:12]}"
+    app1_id = app2_id = None
+    try:
+        # 0) two real member applications the group will reference
+        app1_id = _mk_application(client, app1_name)
+        app2_id = _mk_application(client, app2_name)
+
+        # 1) create the group with BOTH members
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id, app2_id]))
+        assert r.changed and r.action == "created"
+        # get_after_write materialized the group; membership round-tripped. The
+        # server echoes `applications` as objects (dicts here in the raw `after`),
+        # so pull each element's id whether it arrives as a dict, a model, or a
+        # bare id string.
+        def _ids(apps):
+            out = set()
+            for a in apps or []:
+                if isinstance(a, dict):
+                    out.add(a["id"])
+                else:
+                    out.add(getattr(a, "id", a))
+            return out
+        assert _ids(r.after.get("applications")) == {app1_id, app2_id}, \
+            r.after.get("applications")
+
+        # 2) re-apply the SAME membership -> UNCHANGED. The server echoes
+        #    `applications` as objects; the `id` projection maps them back to ids,
+        #    so no FALSE drift. This is the whole point of the flip.
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id, app2_id]))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+
+        # 3) change membership (drop app2) -> REAL drift on exactly {applications}
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id]))
+        assert r.changed and set(r.diff.changes) == {"applications"}, r.diff.changes
+        refetched = group.fetch(name=name)
+        assert {a.id for a in (refetched.applications or [])} == {app1_id}
+
+        # 4) re-apply the reduced membership -> UNCHANGED again (projection holds)
+        r = group.apply(CreateOrReplaceAppGroupInput(
+            name=name, applications=[app1_id]))
+        assert not r.changed and r.action == "unchanged", r.diff.changes
+
+        # 5) absent -> deleted; fetch -> None
+        assert group.absent(CreateOrReplaceAppGroupInput(name=name)).action == "deleted"
+        assert group.fetch(name=name) is None
+    finally:
+        # group first (members are referenced until it is gone), then both apps
+        leftover = group.fetch(name=name)
+        if leftover is not None:
+            group.delete(id=leftover.id)
+        for aid in (app1_id, app2_id):
+            if aid is not None:
+                try:
+                    client.application.delete(id=aid)
+                except Exception:
+                    pass
+
+
+def test_list_walks_all_pages(group):
+    """F8 cursor sanity: `list(all_pages=True)` must succeed and return a superset of
+    page 1 — proving the cursor walk follows the next-page token without error. The
+    application_group collection is small, so the assertion is deliberately weak
+    (no error + superset), not an exact multi-page count."""
+    page1 = group.list(all_pages=False)
+    full = group.list(all_pages=True)
+    page1_ids = {g.id for g in page1.data}
+    full_ids = {g.id for g in full.data}
+    assert page1_ids <= full_ids, "all_pages dropped objects seen on page 1"
+
+
+def test_from_access_token_provider_consulted_per_request():
+    """Task 3.1 live seam: a caller-owned token source (Callable) drives a Client
+    with no client_secret/scope wired into it, and the provider is pulled PER
+    REQUEST (the prototype's n=13 observation, minimized to two authenticated
+    reads). A bare str token performs one authenticated list."""
+    tm = TokenManager(
+        os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"], os.environ["SCOPE"]
+    )
+    pulls = {"n": 0}
+
+    def counting_provider() -> str:
+        pulls["n"] += 1
+        return tm.token()
+
+    # Callable path: two real reads -> provider consulted at least twice.
+    with Client.from_access_token(counting_provider) as client:
+        client.application_group.list(all_pages=False)
+        client.application_group.list(all_pages=False)
+    assert pulls["n"] >= 2, pulls
+
+    # str path: normalized to a one-shot provider; one authenticated list succeeds.
+    token = tm.token()
+    with Client.from_access_token(token) as str_client:
+        page = str_client.application_group.list(all_pages=False)
+    assert page is not None

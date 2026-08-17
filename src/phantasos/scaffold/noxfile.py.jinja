@@ -10,7 +10,7 @@ PYTHON_VERSIONS = {{ python_versions }}
 
 @nox.session
 def lint(session: nox.Session) -> None:
-    session.install("ruff")
+    session.install("{{ ruff_spec | default("ruff") }}")
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
 

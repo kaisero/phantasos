@@ -251,6 +251,48 @@ op, since each binding's `param_map` is its own accepted surface), and
 `_bindings`. `_serialize(verb, **kwargs)` is the dry-run twin (calls the op's
 `*_serialize`).
 
+**Idempotent-sync metadata (`idempotency.py`).** When a product opts a resource
+into idempotent sync (`sdk.yml idempotency.resources.<name>`), `build_wrapper_context`
+(given `idempotency=` + `dist_root=` + `has_pagination=`) runs `resolve_idempotency`
+after the `bindings_literal` loop. It auto-selects three strategy families per
+resource — precedence `resources.<name>.<family>` → `defaults.<family>` → auto —
+and bakes a per-resource `_idempotency` class-var literal onto the `ObjectView`
+(`sync=True`, `idempotency_literal`, plus the model classes' `(module, class)`
+imports). Auto-selection: **fetch** = `list_scan` (or `get` for a `singleton`);
+**mutate** = `patch_minimal` when the update binding is a PATCH (its raw method
+`classify_name`s to sub-verb `patch`), else `put_rmw` for a PUT `replace`;
+**materialize** = `direct` when the update verb's `return_model` name equals the
+read model's, else `get_after_write`. Because the wrapper IR carries no live body
+model / sub-verb / wire metadata on `Binding`, the producer derives them from the
+views it DOES expose — `MethodView.body.import_from` / `.return_import`
+(`(rel_module, ClassName)`, resolved to a live class under `<package>.<rel_module>`),
+the binding's raw method name via `classify_name`, and `ParamView.location`/`raw_name`
+on the list method. Seven fail-loud `ValueError` build gates (each naming the
+resource + the fix) guard it: unknown `resources:` key, unresolvable identity, a
+`list_filter` fetch whose identity is not a list query param, no update verb, an
+F6 write-only field undetectable via GET, an F8 `list_scan` without a pagination
+component, and singleton-with-create/delete. `referenced_strategies(objects)` then
+folds every synced object's trio into the per-family union `render.vendor` uses to
+decide which strategy modules to emit. The literal mirrors `_bindings_literal`'s
+`repr` render EXCEPT `models` values are **bare class identifiers** (referencing the
+imported live classes), not strings. When `idempotency is None` (the default) the
+producer never runs — every `ObjectView.sync` stays `False`, the literal stays
+`"{}"`, and `resources.py` is byte-identical.
+
+Two live-proven runtime invariants (Batch-1 objects rollout):
+
+- **Body rebuild goes through `base.revalidate(model_cls, wire)`** — the engine's
+  create leg and all three mutate strategies rebuild the request model from a wire
+  dict via the generated `from_dict` when present (falling back to
+  `model_validate`). A bare `model_validate` leaves an OAG oneOf wrapper's
+  `actual_instance` as `None`, silently serializing the field `null` — the SCM
+  server then rejects the write (live-proven on `Services.protocol`).
+- **The scope guard (`patches.patch_scope_validators`) rejects ONLY the no-`id`,
+  zero-container shape.** Folder listings surface objects inherited from snippets
+  (e.g. SCM's `predefined` services) with NO `id` and SEVERAL containers set, so
+  any stricter model-level rule crashes reads mid-`list_scan`. Multi-container
+  mutation bodies pass client-side; the server rejects them itself.
+
 ## Build / run pointers
 
 - Build the example SDKs: `uv run nox -s smoke` (auto-provisions JRE; needs network).
@@ -268,6 +310,7 @@ op, since each binding's `param_map` is its own accepted surface), and
 - `docs.py` — Wrapper-driven docs context for generated SDKs.
 - `examples.py` — Synthesize illustrative constructor examples from live pydantic models.
 - `generate.py` — Run OpenAPI Generator (python) — jar fetch/verify + invocation.
+- `idempotency.py` — The ``_idempotency`` metadata producer — strategy auto-selection + build gates.
 - `patches.py` — Generic codegen-bug patches for OpenAPI Generator (python) output.
 - `preprocess.py` — Spec preprocessing — generic transforms + parameterized spec-specific helpers.
 - `provision.py` — Provision the Java toolchain for OpenAPI Generator.
@@ -295,6 +338,9 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `prune_suppressed_files(out_dir)` — Delete the suppressed OAG files and generator metadata from the output.
   - `ensure_jar()`
   - `generate(spec_path, out_dir, package, library, oneof_discriminator_lookup, skip_validate_spec)`
+- `idempotency.py`
+  - `referenced_strategies(objects)` — The per-family UNION of every synced object's selected strategy.
+  - `resolve_idempotency(objects, cfg, package, dist_root, has_pagination)` — Bake ``_idempotency`` metadata onto each opted-in ``ObjectView`` in place.
 - `patches.py`
   - `patch_apostrophe_enums(models_dir)`
   - `rebase_lenient_enums(pkg_dir, package)`
@@ -302,6 +348,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `patch_oneof_unwrap_serializer(models_dir)` — Attach a plain model_serializer to each oneOf wrapper so model_dump unwraps.
   - `patch_drop_empty_additional_properties(models_dir)` — Attach a wrap model_serializer dropping empty additional_properties bags.
   - `patch_oneof_missing_imports(models_dir, package)` — Import every model a oneOf/anyOf wrapper names but OAG forgot to import.
+  - `patch_scope_validators(models_dir, scope_fields, model_stems)` — Inject an exactly-one-scope ``model_validator`` on each named scoped model.
   - `patch_missing_typing_imports(models_dir)` — Add typing names used as generics but absent from ``from typing import ...``.
   - `apply_generic_patches(pkg_dir, package)`
 - `preprocess.py`
@@ -326,7 +373,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - `cache_dir()` — Shared on-disk cache for the OAG jar and the managed JRE.
   - `resolve_java()` — Return a path to a usable `java`, provisioning a pinned Temurin JRE if needed.
 - `render.py`
-  - `vendor(pkg_dir, loaded, package, context, distribution_root, suppress_auth, operations, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
+  - `vendor(pkg_dir, loaded, package, context, distribution_root, suppress_auth, operations, idempotency, wrapper_objects)` — Render the selected component templates into ``<pkg>/extras/``.
 - `runtime.py`
   - `hoist_runtime(project_dir, root_package, slugs)` — Collapse the per-sub OAG runtime into one shared ``<root>/_runtime/``.
 - `smoke.py`
@@ -338,7 +385,7 @@ op, since each binding's `param_map` is its own accepted surface), and
   - class `Binding` — One raw op backing a (possibly multi-binding) wrapper method.
   - class `MethodView` — One typed wrapper method on an object (``client.<object>.<name>(...)``).
   - class `ObjectView` — A typed wrapper class for one classified object.
-  - `build_wrapper_context(inv, overrides, discovered, docs)` — Build the object-granular wrapper render context for a built SDK.
+  - `build_wrapper_context(inv, overrides, discovered, docs, idempotency, dist_root, has_pagination)` — Build the object-granular wrapper render context for a built SDK.
 <!-- /GENERATED:api -->
 
 ## Gotchas / invariants

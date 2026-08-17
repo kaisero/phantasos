@@ -1,0 +1,234 @@
+"""Idempotent-sync orchestrator (SyncMixin) + return shapes + exceptions."""
+from __future__ import annotations
+
+import enum
+import json
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
+
+from .base import FETCH, MUTATE, MATERIALIZE, revalidate
+
+__all__ = ["Diff", "SyncResult", "AbsentNotSupported", "IdentityUnresolved", "SyncMixin"]
+
+
+@dataclass(frozen=True)
+class Diff:
+    changed: bool
+    changes: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    changed: bool
+    action: Literal["created", "updated", "deleted", "unchanged"]
+    before: Optional[dict[str, Any]]
+    after: Optional[dict[str, Any]]
+    diff: Diff
+    before_model: Any = None
+    after_model: Any = None
+
+
+class AbsentNotSupported(Exception):
+    """absent() called on a singleton resource (no delete/create lifecycle)."""
+
+
+class IdentityUnresolved(Exception):
+    """Identity unset on desired, or the fetch lookup matched more than one object."""
+
+
+def _jsonify(value: Any) -> Any:
+    if isinstance(value, enum.Enum):
+        return value.value
+    return value
+
+
+def _normalize(value: Any, *, order_sensitive: bool) -> Any:
+    """Canonicalize a value for the equality plane only (not for display)."""
+    value = _jsonify(value)
+    if isinstance(value, dict):
+        # A key set to null is equivalent to an absent key: the user's sparse
+        # nested object (only the sub-fields they care about) must compare equal
+        # to the SERVER echo, which expands every optional sub-field to explicit
+        # null (live-proven on device_settings' motd_and_banner). Drop null values
+        # so null == absent on the equality plane; display keeps the raw wire dict.
+        return {
+            k: _normalize(v, order_sensitive=order_sensitive)
+            for k, v in value.items()
+            if v is not None
+        }
+    if isinstance(value, list):
+        items = [_normalize(v, order_sensitive=order_sensitive) for v in value]
+        if not order_sensitive:
+            items = sorted(items, key=lambda v: json.dumps(v, sort_keys=True, default=str))
+        return items
+    return value
+
+
+class SyncMixin:
+    """Thin idempotent-sync orchestrator; delegates fetch/mutate/materialize to the
+    strategy named in `_idempotency`. Owns every uniform step (ADR-0004 / spec §5.2)."""
+
+    _idempotency: ClassVar[dict[str, Any]]
+
+    if TYPE_CHECKING:
+        # Supplied by the resource wrapper this mixin is mixed into, not by the
+        # mixin itself — declared here so the CRUD calls below type-check. Typed as
+        # bare `Any` attributes rather than `def`s so each wrapper's own concrete
+        # signature isn't checked as an incompatible override. Under TYPE_CHECKING
+        # only, so the real wrapper methods still resolve at runtime.
+        create: Any
+        delete: Any
+
+    def _present(self, model: Any) -> dict[str, Any]:
+        return model.model_dump(by_alias=True, mode="json", exclude_unset=True)
+
+    def _full(self, model: Any) -> dict[str, Any]:
+        return model.model_dump(by_alias=True, mode="json")
+
+    def _scope_fields(self) -> set:
+        sc = self._idempotency.get("scope")
+        return set(sc["fields"]) if sc else set()
+
+    def _extract_identity(self, desired: Any) -> tuple[dict, dict]:
+        meta = self._idempotency
+        wire = self._full(desired)
+        identity = {}
+        for k in meta["identity"]:
+            v = wire.get(k)
+            if v is None:
+                raise IdentityUnresolved(f"identity field {k!r} unset on desired")
+            identity[k] = v
+        scope = {k: wire[k] for k in self._scope_fields() if wire.get(k) is not None}
+        return identity, scope
+
+    def _split(self, kwargs: dict) -> tuple[dict, dict]:
+        meta = self._idempotency
+        identity = {k: v for k, v in kwargs.items() if k in meta["identity"]}
+        scope = {k: v for k, v in kwargs.items() if k in self._scope_fields()}
+        return identity, scope
+
+    def _declared_params(self) -> dict[str, Any]:
+        """The baked extra-required call params (`{name: {values, verbs, default}}`,
+        e.g. a rulebase `position` pre/post enum) — empty for most resources."""
+        return self._idempotency.get("params") or {}
+
+    def _resolve_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Validate + default-fill the caller's extra call params. Fail-loud on an
+        unknown name, a value outside the enum, or a missing param with no
+        declared default. Inert (`{}` in -> `{}` out) without declared params."""
+        declared = self._declared_params()
+        unknown = sorted(set(params) - set(declared))
+        if unknown:
+            raise ValueError(
+                f"unknown call param(s) {unknown}; declared: {sorted(declared)}"
+            )
+        resolved: dict[str, Any] = {}
+        for name, spec in declared.items():
+            value = _jsonify(params.get(name))
+            if value is None:
+                value = spec.get("default")
+            if value is None:
+                raise ValueError(
+                    f"required call param {name!r} not passed and no default declared"
+                )
+            if value not in spec["values"]:
+                raise ValueError(
+                    f"call param {name}={value!r} not one of {spec['values']}"
+                )
+            resolved[name] = value
+        return resolved
+
+    def _verb_params(self, resolved: dict[str, Any], verb: str) -> dict[str, Any]:
+        """The subset of resolved call params the given verb's binding requires."""
+        declared = self._declared_params()
+        return {k: v for k, v in resolved.items() if verb in declared[k]["verbs"]}
+
+    def _fetch_scope(self, scope: dict, resolved: dict[str, Any]) -> dict:
+        """Merge list-side call params into the scope dict handed to the fetch
+        strategy — list_scan forwards `dict(scope)` to `res.list` unchanged, and
+        `_match` compares identity fields only, so the extra key is transparent."""
+        listp = self._verb_params(resolved, "list")
+        return {**scope, **listp} if listp else scope
+
+    def _comparable(self, present_desired: dict) -> list[str]:
+        meta = self._idempotency
+        excluded = (set(meta.get("server_only", [])) | self._scope_fields()
+                    | set(meta.get("write_only", [])))
+        universe = set(meta["input_fields"])
+        return [k for k in present_desired if k in universe and k not in excluded]
+
+    def _project(self, key: str, value: Any) -> Any:
+        """Project the actual/response value of `key` down to the wire shape the
+        desired side speaks (spec §7). A field whose REQUEST shape differs from its
+        RESPONSE shape (e.g. member-id strings on write, member objects on read) is
+        mapped to its `projections[key]` subfield before comparison, so an
+        apples-to-apples diff doesn't report false drift. No-op when unprojected."""
+        sub = self._idempotency.get("projections", {}).get(key)
+        if sub and isinstance(value, list):
+            return [item.get(sub) if isinstance(item, dict) else item for item in value]
+        return value
+
+    def diff(self, desired: Any, actual: Any) -> Diff:
+        meta = self._idempotency
+        d = self._present(desired)
+        a = self._full(actual)
+        order_sensitive = set(meta.get("order_sensitive", []))
+        changes: dict[str, dict[str, Any]] = {}
+        for key in self._comparable(d):
+            os_ = key in order_sensitive
+            projected = self._project(key, a.get(key))
+            if _normalize(d[key], order_sensitive=os_) != _normalize(projected, order_sensitive=os_):
+                changes[key] = {"before": a.get(key), "after": d[key]}
+        return Diff(changed=bool(changes), changes=changes)
+
+    def fetch(self, **identity_and_scope: Any) -> Any | None:
+        meta = self._idempotency
+        declared = self._declared_params()
+        resolved = self._resolve_params(
+            {k: identity_and_scope.pop(k) for k in list(identity_and_scope) if k in declared}
+        )
+        identity, scope = self._split(identity_and_scope)
+        return FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
+
+    def apply(self, desired: Any, *, check_mode: bool = False, **params: Any) -> SyncResult:
+        meta = self._idempotency
+        resolved = self._resolve_params(params)
+        identity, scope = self._extract_identity(desired)
+        actual = FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
+        if actual is None:                                          # ---- CREATE
+            present = self._present(desired)
+            body = revalidate(meta["models"]["create"], present)
+            d = Diff(True, {k: {"before": None, "after": v} for k, v in present.items()})
+            if check_mode:
+                return SyncResult(True, "created", None, present, d, None, desired)
+            resp = self.create(body=body, **self._verb_params(resolved, "create"))
+            after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
+            return SyncResult(True, "created", None, self._full(after), d, None, after)
+        d = self.diff(desired, actual)
+        if not d.changed:                                          # ---- NO-OP
+            return SyncResult(False, "unchanged", self._full(actual), self._full(actual),
+                              d, actual, actual)
+        if check_mode:                                             # ---- PREDICT
+            after = {**self._full(actual), **{k: c["after"] for k, c in d.changes.items()}}
+            return SyncResult(True, "updated", self._full(actual), after, d, actual, None)
+        # A positioned update verb (e.g. nat_rule's replace) gets its call params
+        # overlaid on the strategy's meta view; param-less resources pass `meta`
+        # itself, keeping the strategy call byte-for-byte inert.
+        call_params = self._verb_params(resolved, meta["update"]["verb"])
+        mutate_meta = {**meta, "call_params": call_params} if call_params else meta
+        resp = MUTATE[meta["mutate"]](self, desired, actual, d, mutate_meta)
+        after = MATERIALIZE[meta["materialize"]](self, resp, identity, scope, meta)
+        return SyncResult(True, "updated", self._full(actual), self._full(after), d, actual, after)
+
+    def absent(self, desired_or_identity: Any, *, check_mode: bool = False, **params: Any) -> SyncResult:
+        meta = self._idempotency
+        if meta.get("singleton"):
+            raise AbsentNotSupported(meta.get("identity", ["<resource>"]))
+        resolved = self._resolve_params(params)
+        identity, scope = self._extract_identity(desired_or_identity)
+        actual = FETCH[meta["fetch"]](self, identity, self._fetch_scope(scope, resolved), meta)
+        if actual is None:
+            return SyncResult(False, "unchanged", None, None, Diff(False, {}), None, None)
+        if not check_mode:
+            self.delete(id=getattr(actual, meta["id_field"]["attr"]))
+        return SyncResult(True, "deleted", self._full(actual), None, Diff(True, {}), actual, None)

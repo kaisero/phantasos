@@ -11,6 +11,8 @@ import pytest
 from phantasos.generator.sdk import render
 from phantasos.productconfig import load_product
 
+_PRODUCTS = Path(__file__).resolve().parent.parent / "products"
+
 _EXC_NAMES = (
     "ApiException",
     "BadRequestException",
@@ -137,6 +139,7 @@ _AUTH_PARAMS = {
     "has_retry": False,
 }
 _GOLDEN_SINGLE = Path(__file__).parent / "golden" / "scm_oauth_single_spec.golden.txt"
+_GOLDEN_RESOURCES_OFF = Path(__file__).parent / "golden" / "resources_off.golden.txt"
 
 
 def _render_auth(**extra: object) -> str:
@@ -169,6 +172,191 @@ def test_single_spec_auth_render_is_byte_identical() -> None:
     # The federated-only surface must NOT leak into single-spec output.
     assert "_BearerApiClient" not in golden
     assert "from ..api_client import ApiClient" in golden
+
+
+_CLIENT_PARAMS = {
+    "resources": [{"module": "things_api", "cls": "ThingsApi", "attr": "things"}],
+    "has_pagination": False,
+}
+_COMPOSER_PARAMS = {
+    "slugs": ["objects"],
+    "root_package": "prisma_access",
+    "config_class_name": "SdkConfiguration",
+    "headers": [],
+    "host_overrides": {},
+}
+
+
+def test_auth_emits_provider_token_source_and_factory() -> None:
+    single = _render_auth()
+    assert "class _ProviderTokenSource" in single
+    assert "def api_client_from_token" in single
+    assert '"api_client_from_token"' in single  # __all__
+    ast.parse(single)
+    fed = _render_auth(federated=True)
+    assert "def configuration_from_token" in fed
+    assert '"configuration_from_token"' in fed
+    ast.parse(fed)
+
+
+def test_client_and_composer_emit_from_access_token() -> None:
+    client = render._env().get_template("facade/client.py.jinja").render(**_CLIENT_PARAMS, has_auth=True)
+    assert "def from_access_token" in client
+    ast.parse(client)
+    composer = render._env().get_template("facade/composer.py.jinja").render(**_COMPOSER_PARAMS)
+    assert "def from_access_token" in composer
+    ast.parse(composer)
+
+
+def _exec_auth(src: str) -> types.ModuleType:
+    """Exec a rendered single-spec ``extras/auth.py`` inside a stub package so its
+    ``from ..api_client import ApiClient`` / ``from ..configuration import
+    Configuration`` resolve; return the module.
+
+    The stub ``Configuration`` records the ctor kwargs and re-exposes ``host`` and
+    the injected ``token_manager`` via the SAME ``access_token`` property the real
+    subclass overrides — so a per-request read of ``access_token`` pulls the token
+    source exactly as the runtime would, with no network."""
+
+    class _StubConfiguration:
+        def __init__(self, *, host: str | None = None, **kwargs: object) -> None:
+            self.host = host
+
+    class _StubApiClient:
+        def __init__(self, configuration: object) -> None:
+            self.configuration = configuration
+
+    pkg = types.ModuleType("_auth_pkg")
+    pkg.__path__ = []
+    api_client_mod = types.ModuleType("_auth_pkg.api_client")
+    api_client_mod.ApiClient = _StubApiClient  # type: ignore[attr-defined]
+    config_mod = types.ModuleType("_auth_pkg.configuration")
+    config_mod.Configuration = _StubConfiguration  # type: ignore[attr-defined]
+    sys.modules.update(
+        {
+            "_auth_pkg": pkg,
+            "_auth_pkg.api_client": api_client_mod,
+            "_auth_pkg.configuration": config_mod,
+        }
+    )
+    try:
+        mod = types.ModuleType("_auth_pkg.extras.auth")
+        mod.__package__ = "_auth_pkg.extras"
+        exec(compile(src, "auth.py", "exec"), mod.__dict__)  # noqa: S102
+        return mod
+    finally:
+        for key in (
+            "_auth_pkg",
+            "_auth_pkg.api_client",
+            "_auth_pkg.configuration",
+        ):
+            sys.modules.pop(key, None)
+
+
+def test_from_token_provider_consulted_per_request() -> None:
+    """A callable provider is pulled per request (not cached at build), and a bare
+    str normalizes to a one-shot provider — both build a client with no
+    client_secret/scope and never touch the network."""
+    auth = _exec_auth(_render_auth())
+
+    # Callable provider: consulted every time access_token is read.
+    calls = {"n": 0}
+
+    def provider() -> str:
+        calls["n"] += 1
+        return f"token-{calls['n']}"
+
+    client = auth.api_client_from_token(provider, host="https://h")
+    # Two "requests" (each reads access_token once, as update_params_for_auth does).
+    first = client.configuration.access_token
+    second = client.configuration.access_token
+    assert calls["n"] >= 2, calls  # per-request pull, NOT cached at construction
+    assert first == "token-1" and second == "token-2"
+    assert client.configuration.host == "https://h"
+
+    # Bare str: normalized to (lambda: token) — stable across requests.
+    str_client = auth.api_client_from_token("STATIC")
+    assert str_client.configuration.access_token == "STATIC"
+    assert str_client.configuration.access_token == "STATIC"
+    # No client_secret/scope required for this path.
+    assert isinstance(auth._ProviderTokenSource("x").token(), str)
+
+
+def _resources_off_objects() -> list[types.SimpleNamespace]:
+    """Two opt-OUT ObjectViews (one with methods, one empty) for the golden."""
+    lst = types.SimpleNamespace(
+        name="list",
+        sig="*, folder: str | None = None, all_pages: bool = False",
+        return_expr="AddressListResponse",
+        docstring="List addresses.",
+        is_list=True,
+        get_unwrap=False,
+        present_expr="{k for k in ('folder',) if locals()[k] is not None}",
+        call_dict="{'folder': folder}",
+    )
+    get = types.SimpleNamespace(
+        name="get",
+        sig="*, id: str",
+        return_expr="Address",
+        docstring="Get an address.",
+        is_list=False,
+        get_unwrap=True,
+        present_expr="{'id'}",
+        call_dict="{'id': id}",
+    )
+    return [
+        types.SimpleNamespace(
+            classname="AddressResource",
+            attr="address",
+            api_cls="AddressApi",
+            api_module="address_api",
+            bindings_literal="{'list': [], 'get': []}",
+            methods=[lst, get],
+            sync=False,
+            idempotency_literal="{}",
+            imports={
+                ("models.address", "Address"),
+                ("models.address_list_response", "AddressListResponse"),
+            },
+        ),
+        types.SimpleNamespace(
+            classname="TagResource",
+            attr="tag",
+            api_cls="TagApi",
+            api_module="tag_api",
+            bindings_literal="{}",
+            methods=[],
+            sync=False,
+            idempotency_literal="{}",
+            imports=set(),
+        ),
+    ]
+
+
+def test_resources_render_byte_identical_when_idempotency_off() -> None:
+    """Opt-out (no object opts in) renders resources.py byte-for-byte as before.
+
+    The load-bearing invariant: wiring SyncMixin in must not perturb a single
+    byte of output for a product that never opts a resource into sync (the
+    ``adem`` canary). The golden was captured from the pre-change template.
+    """
+    imports = [
+        ("models.address", "Address"),
+        ("models.address_list_response", "AddressListResponse"),
+    ]
+    src = (
+        render._env()
+        .get_template("facade/resource.py.jinja")
+        .render(
+            objects=_resources_off_objects(),
+            imports=imports,
+            has_pagination=True,
+            has_idempotency=False,
+        )
+    )
+    assert src == _GOLDEN_RESOURCES_OFF.read_text(encoding="utf-8")
+    assert "SyncMixin" not in src
+    assert "_idempotency" not in src
 
 
 def _make_pkg(tmp_path: Path) -> Path:
@@ -691,3 +879,117 @@ def test_composer_no_copy_import_when_no_host_overrides() -> None:
     assert "import copy" not in txt
     assert "_ac_objects = _BearerApiClient(configuration)" in txt
     ast.parse(txt)
+
+
+def _fake_objects(
+    refs: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]],
+) -> list[object]:
+    """Stub ObjectViews whose _idempotency_meta names the given strategies."""
+    from types import SimpleNamespace
+
+    fetch, mutate, mat = refs
+    objs: list[object] = []
+    for f, m, t in zip(fetch, mutate, mat, strict=False):
+        o = SimpleNamespace(
+            attr="x",
+            sync=True,
+            _idempotency_meta={"fetch": f, "mutate": m, "materialize": t},
+        )
+        objs.append(o)
+    return objs
+
+
+def test_vendor_writes_union_of_referenced_strategies(tmp_path: Path) -> None:
+    pkg = _make_pkg(tmp_path)
+    objs = _fake_objects(
+        (
+            ("list_scan", "list_filter"),
+            ("put_rmw", "patch_minimal"),
+            ("direct", "get_after_write"),
+        )
+    )
+    render._vendor_idempotency(
+        pkg,
+        objs,
+        {"federated": False, "root_package": "demo"},
+        render._env(),
+        [],
+    )
+    idem = pkg / "extras" / "idempotency"
+    assert (idem / "engine.py").exists() and (idem / "base.py").exists()
+    assert (idem / "__init__.py").exists()
+    assert (idem / "fetch" / "__init__.py").exists()
+    assert (idem / "fetch" / "list_scan.py").exists()
+    assert (idem / "fetch" / "list_filter.py").exists()
+    assert (idem / "mutate" / "put_rmw.py").exists()
+    assert (idem / "mutate" / "patch_minimal.py").exists()
+    assert (idem / "materialize" / "direct.py").exists()
+    assert (idem / "materialize" / "get_after_write.py").exists()
+    # Union only: unreferenced strategy modules are NOT written.
+    assert not (idem / "fetch" / "get.py").exists()
+    # The __init__ imports each vendored strategy so its self-registration runs.
+    init_src = (idem / "__init__.py").read_text(encoding="utf-8")
+    assert "from .fetch import list_scan" in init_src
+    assert "from .mutate import put_rmw" in init_src
+    assert "from .materialize import direct" in init_src
+    # Every emitted module parses clean.
+    for f in idem.rglob("*.py"):
+        ast.parse(f.read_text(encoding="utf-8"))
+
+
+def test_vendor_idempotency_registers_strategies_on_import(tmp_path: Path) -> None:
+    """Importing the vendored idempotency package runs each strategy's self-
+    registration, populating the base FETCH/MUTATE/MATERIALIZE registries."""
+    import importlib
+
+    pkg = _make_pkg(tmp_path)
+    # A minimal importable host package: extras/idempotency/base.py resolves
+    # `from ...exceptions import NotFoundException` up to the package root.
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "exceptions.py").write_text("class NotFoundException(Exception):\n    pass\n", encoding="utf-8")
+    (pkg / "extras").mkdir(exist_ok=True)
+    (pkg / "extras" / "__init__.py").write_text("", encoding="utf-8")
+    objs = _fake_objects(
+        (("list_scan",), ("put_rmw",), ("get_after_write",)),
+    )
+    render._vendor_idempotency(
+        pkg,
+        objs,
+        {"federated": False, "root_package": "demo"},
+        render._env(),
+        [],
+    )
+    if str(tmp_path) not in sys.path:
+        sys.path.insert(0, str(tmp_path))
+    try:
+        for name in list(sys.modules):
+            if name == "demo" or name.startswith("demo."):
+                del sys.modules[name]
+        mod = importlib.import_module("demo.extras.idempotency")
+        base = importlib.import_module("demo.extras.idempotency.base")
+        assert "list_scan" in base.FETCH
+        assert "put_rmw" in base.MUTATE
+        assert "get_after_write" in base.MATERIALIZE
+        assert hasattr(mod, "SyncMixin")
+    finally:
+        for name in list(sys.modules):
+            if name == "demo" or name.startswith("demo."):
+                del sys.modules[name]
+        if str(tmp_path) in sys.path:
+            sys.path.remove(str(tmp_path))
+
+
+def test_vendor_writes_no_idempotency_dir_when_off(tmp_path: Path) -> None:
+    # Negative-space (Task 6.1a): adem never declares an idempotency block, so
+    # vendoring it must leave ZERO idempotency footprint — no `extras/idempotency/`
+    # tree AND (when a resource is present) no SyncMixin import / no `_idempotency`
+    # classvar leaking into the emitted resources.py.
+    pkg = _make_pkg(tmp_path)
+    loaded = load_product(str(_PRODUCTS / "adem" / "sdk.yml"))  # never opts in
+    assert loaded.config.idempotency is None  # adem opts nothing in, ever
+    render.vendor(pkg, loaded, wrapper_objects=_resources_off_objects())
+    assert not (pkg / "extras" / "idempotency").exists()
+    resources = (pkg / "extras" / "resources.py").read_text(encoding="utf-8")
+    assert "from .idempotency import SyncMixin" not in resources
+    assert "SyncMixin" not in resources
+    assert "_idempotency" not in resources

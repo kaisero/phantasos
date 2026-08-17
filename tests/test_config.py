@@ -92,3 +92,91 @@ def test_retry_defaults() -> None:
     assert r.statuses == [408, 429, 500, 502, 503, 504]
     assert r.respect_retry_after is True
     assert r.template == "retry/jittered_retry.py.jinja"
+
+
+# --- Idempotency config models (SDK idempotent-sync, Task 0.1) ---
+
+from phantasos.config import (  # noqa: E402
+    IdempotencyConfig,
+    IdempotencyResource,
+    ScopeSpec,
+)
+
+
+def test_idempotency_config_roundtrips_scoped_example() -> None:
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": {
+                "scope": {
+                    "fields": ["folder", "snippet", "device"],
+                    "rule": "exactly_one",
+                }
+            },
+            "resources": {
+                "address": {},
+                "address_group": {"order_sensitive": ["static"]},
+                "auto_tag_action": {"sync": False},
+            },
+        }
+    )
+    assert cfg.defaults.scope is not None
+    assert cfg.defaults.scope.fields == ["folder", "snippet", "device"]
+    assert cfg.resources["address"].sync is True
+    assert cfg.resources["address_group"].order_sensitive == ["static"]
+    assert cfg.resources["auto_tag_action"].sync is False
+
+
+def test_idempotency_config_roundtrips_noscope_example() -> None:
+    cfg = IdempotencyConfig.model_validate(
+        {
+            "defaults": {"read_only": ["id", "createdAt", "updatedAt"]},
+            "resources": {
+                "user_group": {},
+                "application": {"identity": ["type", "name"]},
+                "application_plugin": {"sync": False},
+            },
+        }
+    )
+    assert cfg.defaults.scope is None
+    assert cfg.resources["application"].identity == ["type", "name"]
+
+
+def test_idempotency_resource_rejects_unknown_key() -> None:
+    with pytest.raises(ValidationError):
+        # typo -> extra=forbid
+        IdempotencyResource.model_validate({"identiy": ["name"]})
+
+
+def test_idempotency_resource_accepts_strategy_override_strings() -> None:
+    r = IdempotencyResource.model_validate(
+        {
+            "fetch": "list_filter",
+            "mutate": "patch_minimal",
+            "materialize": "get_after_write",
+        }
+    )
+    assert (r.fetch, r.mutate, r.materialize) == (
+        "list_filter",
+        "patch_minimal",
+        "get_after_write",
+    )
+
+
+def test_scope_spec_defaults_rule_exactly_one() -> None:
+    assert ScopeSpec.model_validate({"fields": ["folder"]}).rule == "exactly_one"
+
+
+def test_idempotency_resource_accepts_params_default() -> None:
+    r = IdempotencyResource.model_validate({"params": {"position": {"default": "pre"}}})
+    assert r.params["position"].default == "pre"
+    # default is optional (None -> the param stays call-time-required)
+    bare = IdempotencyResource.model_validate({"params": {"position": {}}})
+    assert bare.params["position"].default is None
+
+
+def test_idempotency_param_spec_rejects_derived_facts() -> None:
+    # values/verbs are auto-derived by the producer — config may not set them.
+    with pytest.raises(ValidationError):
+        IdempotencyResource.model_validate({"params": {"position": {"values": ["pre", "post"]}}})
+    with pytest.raises(ValidationError):
+        IdempotencyResource.model_validate({"params": {"position": {"verbs": ["list"]}}})

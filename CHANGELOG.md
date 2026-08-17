@@ -20,6 +20,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the real-artifact tests skip-loudly against a stale local build.
 
 ### Added
+- **Idempotent sync for generated SDKs (opt-in)** — a generated SDK's resource
+  wrapper can now expose `apply` / `absent` / `fetch` / `diff`, so a caller (a future
+  Ansible collection, or a CLI `apply`) converges a resource to a desired state
+  idempotently instead of re-implementing create/update/no-op per consumer. The
+  fetch→diff→mutate flow is defined **once in the SDK** from a per-resource
+  `_idempotency` classvar the generator bakes (mirroring the existing `_bindings`
+  idiom), composed from small swappable **strategy components** — fetch
+  (`list_scan` / `list_filter` / `get`), mutate (`put_rmw` / `patch_minimal` /
+  `put_singleton`), materialize (`direct` / `get_after_write`) — auto-selected per
+  resource from the IR and vendored **union-only** into `<pkg>/extras/idempotency/`.
+  `apply` returns a typed `SyncResult` (`changed`, `action`, `before`/`after`, `diff`)
+  and supports `check_mode` (predict without writing); `absent` deletes or raises
+  `AbsentNotSupported` for singletons. Opt in **per resource** via a `sdk.yml`
+  `idempotency:` block (`identity`, `read_only`/`computed`, `order_sensitive`,
+  `write_only`, `projections`, `scope`, `sync: false`; per-resource and
+  per-(sub)package `defaults` strategy overrides available); a product without the
+  block regenerates **byte-identically**. Rolled out across the full
+  prisma-access catalog — every CRUD-complete resource in all seven sub-packages
+  is opted in: `objects` (14 new + address/tag/address_group), `device_settings`
+  (13 per-scope blobs, `identity: []`), `mobile_agent` (3), `identity_services`
+  (16, incl. `authentication_portal` as a per-scope blob), `deployment_services`
+  (6 + the `bgp_routing`/`shared_infrastructure_setting` singletons),
+  `network_services` (46, incl. the `auto_vpn_setting` singleton), and
+  `security_services` (19, with the signature resources keyed by `threat_id`) —
+  plus prisma-browser `application_group`. Resources the generic engine cannot
+  drive are recorded with `sync: false` or left unlisted, each with a reason:
+  id-less models (`auto_tag_action`, `bandwidth_allocation`), resources with no
+  list op for name resolution (`security_rule`, the prisma-browser sections and
+  rules), a generated-model defect (`mobile_agent` destination/user_location —
+  empty `__properties`), and binding-shape mismatches (prisma-browser
+  `application`/`device_group`/`application_plugin`/`user_group`). Proven by live
+  idempotency quartets (create→re-apply-unchanged→modify→delete) against a real
+  tenant plus a per-sub-package live fetch-wiring check; `application_group`
+  membership is managed through an `applications` **projection** (server echoes
+  member objects, request sends ids). Engine hardening surfaced by the live
+  rollout: request bodies rebuild via the generated `from_dict` (`revalidate`
+  seam) so nested oneOf fields (e.g. `Services.protocol`) survive read-modify-
+  write; the diff treats a nested `null` as absent (server echoes expand optional
+  sub-fields to `null`); `list_scan` supports non-paginated bare-array list ops;
+  and the scope validator rejects only the no-container shape a server never
+  emits (inherited/predefined listings carry several containers and must not
+  crash reads). [ADR-0002 / ADR-0003 / ADR-0004]
+- **Idempotent sync for position-ordered rule resources.** The engine can now
+  thread a required non-scope call param that a resource's `list`/`create` op
+  demands. Six prisma-access rule resources — `nat_rule`, `qo_s_policy_rule`,
+  `authentication_rule`, `mfa_server`, `application_override_rule`,
+  `decryption_rule` — whose ops require a `position` (pre/post rulebase) query
+  enum now opt in via `params: {position: {default: pre}}`; the metadata
+  producer auto-derives the enum values and requiring verbs (a new build gate
+  fails loud when such a param is not a threadable enum), and `apply`/`absent`/
+  `fetch` accept the param, merging it into the fetch scope, the create call, and
+  (for `nat_rule`) the positioned replace. A rule's identity is `name` within its
+  scope — live testing established that the `position` list param does not
+  partition results, so it is a create-placement param, inert for fetch.
+  `security_rule` stays out pending an unrelated model fix (its model uniquely
+  declares the scope fields required, so a single-scope body cannot be built).
+- **Generated-model and opt-in corrections.** A `flatten_scm_bodies` fix strips
+  payload-free constraint-only `oneOf`/`anyOf` wrappers that made openapi-
+  generator drop a schema's own properties (empty `__properties`), re-enabling
+  `mobile_agent` destination/user_location. Six rule resources that had been
+  opted in but whose `list` requires `position` (never threaded before the engine
+  change) were corrected — opted out until the position work above, now re-in.
+- **`Client.from_access_token(token, *, host=...)`** — construct an SDK client from an
+  externally-owned access token (a `str`, or a `Callable[[], str]` provider consulted
+  per request so the caller can own refresh), skipping the SDK's own OAuth grant.
+  Emitted for every auth-bearing product (single-spec and federated) — the one
+  intentional non-byte-identical change for products that don't opt into idempotency.
+- **prisma-access offset pagination** — prisma-access SDKs now declare offset
+  pagination, so `list(all_pages=True)` walks all pages. Load-bearing for the
+  idempotency `list_scan` fetch: the SCM `name=` list filter is non-functional, so
+  existing objects are matched client-side across the full paginated collection.
+- **Client-side scope-container validator** — for SCM-scoped models the generator
+  emits a pydantic validator on all mutating **id-bearing** models rejecting the
+  one shape a server never produces: no `id` and no container at all (the classic
+  user mistake of omitting folder/snippet/device). Server payloads always
+  deserialize freely — echoes carry `id`, and folder listings surface inherited
+  objects (e.g. SCM's `predefined` snippet services) with no `id` and several
+  containers set, so a stricter rule would crash reads. Defense-in-depth — the
+  server also rejects a bad container.
 - **`<dist> show cli log`** — view the generated CLI's rotating JSONL log (plus its
   `.gz` backups) without leaving the tool: a table by default, `--level` to filter by
   severity, `--json` for raw records (including tracebacks), and `-f`/`--follow` to
@@ -182,6 +261,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A generated SDK passes its own CI gate again.** `phantasos sdk build` exited 1
+  on any product with idempotent sync enabled: the emitted `SyncMixin` called
+  `create`/`delete` supplied by the wrapper it mixes into, and the caller-owned
+  token source deliberately duck-types `TokenManager` without inheriting it —
+  both of which the generated project's `mypy` run rejected. The emitted noxfile
+  also installed an unpinned `ruff`, so the version that formats the project at
+  build time and the version that re-checks that formatting could disagree
+  (0.16 formats Markdown code blocks that 0.15 leaves alone) and the project could
+  never satisfy its own `ruff format --check`. The emitted noxfile now pins the
+  exact ruff the build formats with.
 - **`environment show` now reports EFFECTIVE settings** — when an environment variable
   (or `.env`) overrides a named environment's stored value, `environment show` shows the
   value that will actually be used and its source (a `FIELD | VALUE | SOURCE` table;
