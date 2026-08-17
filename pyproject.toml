@@ -1,6 +1,6 @@
 [project]
 name = "phantasos"
-version = "0.1.0a1"
+version = "0.1.1"
 description = "Generate native, self-contained Python SDKs and CLIs from OpenAPI specs."
 dynamic = ["readme"]
 requires-python = ">=3.11"

@@ -71,9 +71,15 @@ request:
   access_and_data_policy.update_access_and_data_positions:
     object: access-and-data-section
     action: reorder
+  access_and_data_policy.patch_access_and_data_positions:
+    object: access-and-data-section
+    action: reorder-patch
   customization_policy.update_customization_positions:
     object: customization-section
     action: reorder
+  customization_policy.patch_customization_positions:
+    object: customization-section
+    action: reorder-patch
   security_policy.update_security_positions:
     object: security-section
     action: reorder
@@ -83,6 +89,9 @@ request:
   sign_in_policy.update_sign_in_positions:
     object: sign-in-section
     action: reorder
+  sign_in_policy.patch_sign_in_positions:
+    object: sign-in-section
+    action: reorder-patch
 
 # Deferred to roadmap:
 #   - PUT (update_*) full-replace: returns as a future `update`-fallback (when no PATCH) / `replace` verb.

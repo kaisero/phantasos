@@ -11,6 +11,7 @@ pagination:
 errors:
   type: nested
 facade: true
+hooks: ./hooks.py
 idempotency:
   defaults:
     read_only:
@@ -130,9 +131,15 @@ operations:
   access_and_data_policy.update_access_and_data_positions:
     resource: access-and-data-section
     method: reorder
+  access_and_data_policy.patch_access_and_data_positions:
+    resource: access-and-data-section
+    method: reorder_patch
   customization_policy.update_customization_positions:
     resource: customization-section
     method: reorder
+  customization_policy.patch_customization_positions:
+    resource: customization-section
+    method: reorder_patch
   security_policy.update_security_positions:
     resource: security-section
     method: reorder
@@ -142,6 +149,9 @@ operations:
   sign_in_policy.update_sign_in_positions:
     resource: sign-in-section
     method: reorder
+  sign_in_policy.patch_sign_in_positions:
+    resource: sign-in-section
+    method: reorder_patch
   configuration_management.publish_draft_configuration:
     resource: configuration
     method: publish
