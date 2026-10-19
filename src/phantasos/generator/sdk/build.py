@@ -267,6 +267,10 @@ def _build_single(loaded: LoadedProduct, project_dir: Path, stats: defaultdict[s
     hook_mod = _load_hooks(loaded)
     if hook_mod and hasattr(hook_mod, "preprocess"):
         hook_mod.preprocess(spec)
+    # The facade Client sends default_headers itself; an op-level param for the
+    # same header would only resurface as a required method arg / CLI flag.
+    if cfg.default_headers:
+        preprocess.strip_header_params(spec, list(cfg.default_headers), stats)
 
     pp_dir = project_dir / ".phantasos"
     pp_dir.mkdir(parents=True, exist_ok=True)
@@ -282,6 +286,13 @@ def _build_single(loaded: LoadedProduct, project_dir: Path, stats: defaultdict[s
         pp_path,
         cfg.package,
         spec_version=spec_version,
+        context={
+            **loaded.context,
+            "default_headers": [
+                {"name": name, "env": h.env, "value": h.value, "required": h.required}
+                for name, h in cfg.default_headers.items()
+            ],
+        },
         idempotency=cfg.idempotency,
         hook_mod=hook_mod,
     )
@@ -396,6 +407,7 @@ def _build_federated(loaded: LoadedProduct, project_dir: Path, stats: defaultdic
                     "env": h.env,
                     "required": h.required,
                     "required_for": h.required_for,
+                    "value": h.value,
                     "declared_by": header_declared_by[name],
                 }
                 for name, h in loaded.config.default_headers.items()

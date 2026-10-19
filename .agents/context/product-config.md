@@ -87,6 +87,7 @@ files are optional.
 | `vars` | no | `{}` | Extra Jinja context; must not shadow auto-exposed names |
 | `include` | no | `{}` | Extra templates → `extras/<dest>` |
 | `project` | no | omitted | Required for scaffold; drives `pyproject.toml`, workflows |
+| `default_headers` | no | `{}` | Header name → `{env, value?, required, required_for}`; sent on the ApiClient (env var, else `value`). Single-spec: by the facade `Client`, and stripped from op params; federated: per sub by the composer |
 | `operations` | no | `{}` | Per-op wrapper override: `resource.method` → `{resource, method, verb}`; keyed by `api_attr.raw_method`; validated at build (unknown key → fail) |
 
 ### Built-in component types (from `config.py`)

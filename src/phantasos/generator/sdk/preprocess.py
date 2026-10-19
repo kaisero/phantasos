@@ -310,6 +310,41 @@ def spec_declares_header(spec: Any, header_name: str) -> bool:
     return False
 
 
+def strip_header_params(spec: Any, header_names: list[str], stats: dict[str, int] | None = None) -> None:
+    """Drop ``in: header`` params named in *header_names* from every path + op.
+
+    A single-spec product's ``default_headers`` are sent by the facade Client, so
+    an op-level header param would only resurface as a required method arg / CLI
+    flag. Removes inline params and ``$ref``s to component header params; the
+    component definitions stay. Case-insensitive (HTTP header names are).
+    """
+    targets = {n.lower() for n in header_names}
+
+    def _is_target(p: Any) -> bool:
+        return (
+            isinstance(p, dict)
+            and str(p.get("in", "")).lower() == "header"
+            and str(p.get("name", "")).lower() in targets
+        )
+
+    component_params = (spec.get("components") or {}).get("parameters") or {}
+    refs = {f"#/components/parameters/{k}" for k, p in component_params.items() if _is_target(p)}
+    stripped = 0
+    for path_item in (spec.get("paths") or {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        holders = [path_item] + [op for m, op in path_item.items() if m in _HTTP_METHODS and isinstance(op, dict)]
+        for holder in holders:
+            params = holder.get("parameters")
+            if not params:
+                continue
+            kept = [p for p in params if not (_is_target(p) or (isinstance(p, dict) and p.get("$ref") in refs))]
+            stripped += len(params) - len(kept)
+            holder["parameters"] = kept
+    if stats is not None:
+        stats["header_params_stripped"] = stats.get("header_params_stripped", 0) + stripped
+
+
 _PLACEMENT = {"folder", "snippet", "device"}
 
 

@@ -147,7 +147,10 @@ per-product in the shared template.
     `{object_attr: (WrapperClass, api_attr)}` map) and wiring each `client.<object>`
     to a wrapper instance that SHARES a single `*Api` instance per backing api
     class. Raw `*Api` instances are not reachable from the public `client.<object>`
-    surface. Exposes `from_env()` / `from_credentials()` classmethods when
+    surface. On a single-spec build, `Client.__init__` also applies each
+    `default_headers` entry to `api_client.default_headers` (env var, else the
+    constant `value`; a `required` header with neither raises `RuntimeError`).
+    Exposes `from_env()` / `from_credentials()` classmethods when
     `has_auth`; wires `default_retry()` when `has_retry`; still exposes
     `api_client` for HTTP capture. The old `paginate()` method is retained when
     `has_pagination` for backward compatibility, but the wrapper's `all_pages=True`

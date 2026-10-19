@@ -976,3 +976,30 @@ def test_translate_property_patterns_fails_loud_on_untranslatable() -> None:
     spec: dict[str, Any] = {"components": {"schemas": {"X": {"properties": {"n": {"pattern": r"^\p{^L}$"}}}}}}
     with pytest.raises(ValueError, match="Python-valid regex"):
         p.translate_property_patterns(spec)
+
+
+def test_strip_header_params_drops_inline_and_ref_headers_case_insensitive() -> None:
+    spec: dict[str, Any] = {
+        "components": {"parameters": {"Preview": {"name": "X-Preview", "in": "header", "required": True}}},
+        "paths": {
+            "/a": {
+                "parameters": [{"name": "x-preview", "in": "header"}],
+                "get": {
+                    "parameters": [
+                        {"name": "x-preview", "in": "header", "required": True},
+                        {"name": "x-preview", "in": "query"},
+                        {"$ref": "#/components/parameters/Preview"},
+                        {"name": "limit", "in": "query"},
+                    ]
+                },
+            }
+        },
+    }
+    stats: dict[str, int] = {}
+    p.strip_header_params(spec, ["X-Preview"], stats)
+    assert spec["paths"]["/a"]["parameters"] == []
+    assert spec["paths"]["/a"]["get"]["parameters"] == [
+        {"name": "x-preview", "in": "query"},
+        {"name": "limit", "in": "query"},
+    ]
+    assert stats["header_params_stripped"] == 3

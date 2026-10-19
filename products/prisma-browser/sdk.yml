@@ -12,6 +12,13 @@ errors:
   type: nested
 facade: true
 hooks: ./hooks.py
+# Preview endpoints (application tags, user-group members, partial publish, EULA
+# upload) return 400 without this header. `true` opts in to every preview
+# feature; set PRISMA_BROWSER_PREVIEW to send a narrower list.
+default_headers:
+  x-prisma-browser-preview:
+    env: PRISMA_BROWSER_PREVIEW
+    value: "true"
 idempotency:
   defaults:
     read_only:

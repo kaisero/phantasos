@@ -132,12 +132,14 @@ class HeaderSpec(BaseModel):
     """One request header the SDK sends by default, sourced from an env var.
 
     `required` makes the env var mandatory for every sub-package; `required_for`
-    lists the slugs that must have it set. The fail-loud on a missing value
-    happens at client construction (runtime, in the composer), not at load.
+    lists the slugs that must have it set. `value` is a constant sent when the
+    env var is unset (the env var still overrides it). The fail-loud on a missing
+    value happens at client construction (runtime), not at load.
     """
 
     model_config = ConfigDict(extra="forbid")
     env: str
+    value: str | None = None
     required: bool = False
     required_for: list[str] = Field(default_factory=list)
 
@@ -188,9 +190,10 @@ class ProductConfig(BaseModel):
     operations: dict[str, OperationOverride] = Field(default_factory=dict)
     idempotency: IdempotencyConfig | None = None
     docs: DocsConfig | None = None
-    # header-name -> spec; sent as default headers on every sub-package's
-    # ApiClient handle by the federated composer (declared here, NOT derived
-    # from any spec). Fail-loud on a missing value happens at construction.
+    # header-name -> spec; sent as default headers on the ApiClient — single-spec:
+    # by the facade Client (the build also strips the header from op params);
+    # federated: on each sub-package handle by the composer. Declared here, NOT
+    # derived from any spec. Fail-loud on a missing value happens at construction.
     default_headers: dict[str, HeaderSpec] = Field(default_factory=dict)
     # sub-package slug -> probe override; federated products only.
     # Absent keys are auto-probed at runtime by the emitted live-smoke test.

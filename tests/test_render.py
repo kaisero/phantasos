@@ -993,3 +993,77 @@ def test_vendor_writes_no_idempotency_dir_when_off(tmp_path: Path) -> None:
     assert "from .idempotency import SyncMixin" not in resources
     assert "SyncMixin" not in resources
     assert "_idempotency" not in resources
+
+
+def _exec_client(default_headers: list[dict[str, object]]) -> types.ModuleType:
+    src = (
+        render._env()
+        .get_template("facade/client.py.jinja")
+        .render(resources=[], has_pagination=False, default_headers=default_headers)
+    )
+    mod = types.ModuleType("_client_mod")
+    exec(compile(src, "facade.py", "exec"), mod.__dict__)  # noqa: S102
+    return mod
+
+
+class _HeaderApiClient:
+    def __init__(self) -> None:
+        self.default_headers: dict[str, str] = {}
+
+
+_PREVIEW = {"name": "x-preview", "env": "PREVIEW_ENV", "value": "true", "required": False}
+
+
+def test_single_spec_client_applies_default_header_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PREVIEW_ENV", raising=False)
+    api_client = _HeaderApiClient()
+    _exec_client([_PREVIEW]).Client(api_client)
+    assert api_client.default_headers == {"x-preview": "true"}
+
+
+def test_single_spec_client_env_overrides_default_header_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PREVIEW_ENV", "user-group-members")
+    api_client = _HeaderApiClient()
+    _exec_client([_PREVIEW]).Client(api_client)
+    assert api_client.default_headers == {"x-preview": "user-group-members"}
+
+
+def test_single_spec_client_skips_unset_optional_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PREVIEW_ENV", raising=False)
+    api_client = _HeaderApiClient()
+    _exec_client([{**_PREVIEW, "value": None}]).Client(api_client)
+    assert api_client.default_headers == {}
+
+
+def test_single_spec_client_required_header_raises_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PREVIEW_ENV", raising=False)
+    mod = _exec_client([{**_PREVIEW, "value": None, "required": True}])
+    with pytest.raises(RuntimeError, match="PREVIEW_ENV"):
+        mod.Client(_HeaderApiClient())
+
+
+def test_client_without_default_headers_has_no_os_import() -> None:
+    src = render._env().get_template("facade/client.py.jinja").render(**_CLIENT_PARAMS)
+    assert "import os" not in src
+
+
+def test_composer_default_header_falls_back_to_value() -> None:
+    from phantasos.generator.sdk.build import _render_composer
+
+    txt = _render_composer(
+        ["objects"],
+        root_package="prisma_access",
+        config_class_name="SdkConfiguration",
+        headers=[
+            {
+                "name": "x-preview",
+                "env": "PREVIEW_ENV",
+                "value": "true",
+                "required": False,
+                "required_for": [],
+                "declared_by": ["objects"],
+            }
+        ],
+    )
+    assert 'os.environ.get("PREVIEW_ENV", "true")' in txt
+    ast.parse(txt)

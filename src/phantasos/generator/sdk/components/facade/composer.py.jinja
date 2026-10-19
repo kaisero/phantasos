@@ -60,7 +60,7 @@ class Client:
 {% else %}        _ac_{{ slug }} = _BearerApiClient(configuration)
 {% endif %}        _ac_{{ slug }}.models = _{{ slug }}_models  # rev-2 B1: instance attr, not ctor arg
         _ac_{{ slug }}.rest_client = pool
-{% for h in headers %}{% if slug in h.declared_by %}        _v = os.environ.get({{ h.env | tojson }})  # spec-driven: '{{ slug }}' declares {{ h.name }}
+{% for h in headers %}{% if slug in h.declared_by %}        _v = os.environ.get({{ h.env | tojson }}{% if h.value is defined and h.value is not none %}, {{ h.value | tojson }}{% endif %})  # spec-driven: '{{ slug }}' declares {{ h.name }}
 {% if h.required or slug in h.required_for %}        if _v is None:
             raise RuntimeError(
                 "{{ root_package }}: required header '{{ h.name }}' for sub-package "
