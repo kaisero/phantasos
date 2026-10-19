@@ -65,6 +65,10 @@ idempotency:
     # and the four *_rule resources have NO `list` op in their bindings — get is
     # by-id only — so list_scan cannot resolve identity by name (same reason as
     # prisma-access security_rule). Not opted in; no per-resource stanza needed.
+    #
+    # application_tag is CRUD-complete (list/get/create/PUT replace/delete), but
+    # its endpoints are a preview feature (x-prisma-browser-preview). Not opted in
+    # until the API leaves preview.
 docs:
   showcase_resource: application
   showcase_variant: CustomApplicationInput
@@ -82,7 +86,7 @@ docs:
       )
 transforms:
   hoist:
-    - schema: AllowedOrBlockedExtensionsControl,
+    - schema: AllowedOrBlockedExtensionsControl
       field: extensions
       item: AllowedOrBlockedExtensionEntry
     - schema: LaunchingExternalApplicationsControl
@@ -127,6 +131,14 @@ transforms:
       method: delete
       operation_id: DeleteCloudStorageProviderById
       tag: Integrations
+    - path: "/seb-api/v1/integrations/idp-application-sync"
+      method: get
+      operation_id: ListIdpApplicationSyncProviders
+      tag: IDP Application Sync
+    - path: "/seb-api/v1/integrations/idp-application-sync/{providerId}"
+      method: get
+      operation_id: GetIdpApplicationSyncProviderById
+      tag: IDP Application Sync
 operations:
   access_and_data_policy.update_access_and_data_positions:
     resource: access-and-data-section
@@ -155,6 +167,12 @@ operations:
   configuration_management.publish_draft_configuration:
     resource: configuration
     method: publish
+  configuration_management.partial_publish_draft_configuration:
+    resource: configuration
+    method: partial_publish
+  user_groups.list_user_group_members:
+    resource: user_group
+    method: list_members
   integrations.seb_api_v1_integrations_cloud_storage_provider_id_put:
     hide: true
   assets.upload_background_image:
@@ -164,6 +182,10 @@ operations:
   assets.upload_company_logo:
     hide: true
   assets.upload_pac_file:
+    hide: true
+  assets.upload_eula:
+    hide: true
+  assets.upload_web_app_icon:
     hide: true
 project:
   distribution: prisma-browser-sdk
