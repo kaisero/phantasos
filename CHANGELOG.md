@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **More Prisma Browser coverage.** The generated Prisma Browser SDK and CLI now
+  manage application tags, list IDP application sync providers and user-group
+  members, publish part of a draft configuration, and edit catalog applications.
+- **Default request headers for single-spec SDKs.** A generated single-spec SDK
+  can now send a fixed header on every request, which an environment variable
+  can change, so preview endpoints work without extra arguments.
+
 ## [0.1.1] - 2026-08-17
 
 ### Added
