@@ -381,7 +381,9 @@ keys / param names / objects fail the build loudly.
   `config.resolve_connection` resolves the active-env value; the per-field env-var
   baked list is `config._CONN_FIELDS`. A CLI without `default_headers` emits
   none of this; a single-spec product with `default_headers` (prisma-browser's
-  `x-prisma-browser-preview`) gets the same connection field. Command-aware pre-flight (`_preflight_connection` in `runtime.py`): each `ConnectionField` carries a `required_for` list of sub-package slugs; the pre-flight exits 2 for any command whose `cmd.subpackage` appears in that list (or whose field is globally `required: true`), naming the missing env var and why; commands in other sub-packages pass through unchecked (objects CRUD runs region-unset while a sub that declares the header required would block).
+  `x-prisma-browser-preview`) gets the same connection field. A field whose header has a
+  constant `value` (`ConnectionField.default`) is never prompted for by
+  `environment create`, and `environment show` reports it with source `default`. Command-aware pre-flight (`_preflight_connection` in `runtime.py`): each `ConnectionField` carries a `required_for` list of sub-package slugs; the pre-flight exits 2 for any command whose `cmd.subpackage` appears in that list (or whose field is globally `required: true`), naming the missing env var and why; commands in other sub-packages pass through unchecked (objects CRUD runs region-unset while a sub that declares the header required would block).
 - **`which <object>`** (federated CLIs only; `cli_commands.py.jinja`) — an emitted top-level command that looks up a named object in `ir.json` and prints its sub-package + supported verbs; `difflib.get_close_matches` produces `did-you-mean` suggestions for unknown names (exit 1 on miss). Wired into the generated `app.py` in the "CLI" panel when the IR is federated.
 - **Structured logging** — a rotating JSON-Lines log at
   `~/.{distribution}/logs/{distribution}.jsonl` (`0o600`, gzip-rotated);

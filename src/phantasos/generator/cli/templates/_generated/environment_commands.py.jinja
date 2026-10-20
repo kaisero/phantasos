@@ -86,9 +86,14 @@ def _create_environment(name: str, force: bool, **field_values: Any) -> None:
     # Connection field '{{ cv.header }}' — non-secret (no hidden input), stored
     # under its flag-name key.
     _v = field_values.get({{ cv.py_name|tojson }})
+{%- if cv.default is not none %}
+    if _v is not None:  # optional: the SDK sends {{ cv.default|tojson }} when unset
+        values[{{ cv.flag|tojson }}] = _v
+{%- else %}
     values[{{ cv.flag|tojson }}] = (
         _v if _v is not None else typer.prompt({{ cv.flag|tojson }})
     )
+{%- endif %}
 {%- endfor %}
 
     environments[name] = values

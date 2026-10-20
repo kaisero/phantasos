@@ -57,7 +57,7 @@ _REGION_HEADERS = {"Region": HeaderSpec(env="FEDSDK_REGION", required_for=["beta
 
 
 @contextmanager
-def _fed_cli(tmp_path: Path) -> Iterator[None]:
+def _fed_cli(tmp_path: Path, headers: dict[str, HeaderSpec] | None = None) -> Iterator[None]:
     """Render the fedsdk CLI WITH the Region connection header and import it."""
     ir, _ = build_ir("fedsdk", FEDSDK, _fed_cfg())
     render_cli(
@@ -66,7 +66,7 @@ def _fed_cli(tmp_path: Path) -> Iterator[None]:
         out_dir=tmp_path,
         env_prefix="FEDSDK",
         distribution="fedsdk",
-        default_headers=_REGION_HEADERS,
+        default_headers=_REGION_HEADERS if headers is None else headers,
     )
     entry = str(tmp_path)
     added = entry not in sys.path
@@ -301,3 +301,31 @@ def test_single_spec_has_no_connection_preflight(tmp_path: Path) -> None:
     out = _render_single_spec(tmp_path)
     runtime_src = (out / "fakesdk_cli" / "_generated" / "runtime.py").read_text(encoding="utf-8")
     assert "_preflight_connection" not in runtime_src
+
+
+_PREVIEW_HEADERS = {"X-Preview": HeaderSpec(env="FEDSDK_PREVIEW", value="true")}
+
+
+def test_create_does_not_prompt_for_header_with_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A header with a constant `value` needs no input: a scripted create succeeds and
+    stores nothing, so the SDK's own fallback stays in charge."""
+    from typer.testing import CliRunner
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    with _fed_cli(tmp_path / "out", _PREVIEW_HEADERS):
+        main = importlib.import_module("fedsdk_cli.main")
+        res = CliRunner().invoke(main.app, ["environment", "create", "prod"], input="")
+        assert res.exit_code == 0, res.output
+        assert "preview" not in _read_envs(home)["environments"]["prod"]
+
+
+def test_show_reports_header_value_as_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("FEDSDK_PREVIEW", raising=False)
+    with _fed_cli(tmp_path / "out", _PREVIEW_HEADERS):
+        importlib.import_module("fedsdk_cli.main")
+        config = importlib.import_module("fedsdk_cli._generated.config")
+        (field,) = [f for f in config.resolve_effective(None, env={}) if f.env_var == "FEDSDK_PREVIEW"]
+        assert field.value == "true"
+        assert field.source is config._Source.DEFAULT

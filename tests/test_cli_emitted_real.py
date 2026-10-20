@@ -318,7 +318,7 @@ def test_real_cli_yml_loads_project_and_variants() -> None:
         "localdesktopcustom",
     }
     # the 19 non-CRUD ops are reserved under request (so the build warns about none)
-    assert len(cfg.request) == 19
+    assert len(cfg.request) == 22
     assert cfg.request["devices.suspend_devices"].action == "suspend"
 
 
