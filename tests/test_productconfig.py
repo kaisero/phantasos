@@ -536,3 +536,8 @@ def test_federated_toplevel_idempotency_is_rejected() -> None:
                 "idempotency": {"resources": {"address": {}}},
             }
         )
+
+
+def test_header_spec_value_is_constant_fallback() -> None:
+    assert HeaderSpec.model_validate({"env": "X"}).value is None
+    assert HeaderSpec.model_validate({"env": "X", "value": "true"}).value == "true"

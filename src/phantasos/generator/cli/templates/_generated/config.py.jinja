@@ -392,9 +392,9 @@ _ENV_FIELDS: list[dict[str, Any]] = [
 ]
 # Connection-header fields (region/tenant): non-secret, stored per environment
 # under their flag-name key and exported to their env var at client-build time.
-_CONN_FIELDS: list[dict[str, str]] = [
+_CONN_FIELDS: list[dict[str, Any]] = [
 {%- for cv in connection_views %}
-    {"key": {{ cv.flag|tojson }}, "env": {{ cv.env|tojson }}},
+    {"key": {{ cv.flag|tojson }}, "env": {{ cv.env|tojson }}, "default": {% if cv.default is none %}None{% else %}{{ cv.default|tojson }}{% endif %}},
 {%- endfor %}
 ]
 
@@ -526,6 +526,8 @@ def resolve_effective(name: str | None, *, env: Mapping[str, str] | None = None)
             value, source = ev, _Source.ENV
         elif stored:
             value, source = stored, _stored_source(block.get(f["key"]))
+        elif f["default"] is not None:                       # the SDK's constant
+            value, source = f["default"], _Source.DEFAULT
         else:
             value, source = (stored if stored is not None else None), _Source.UNSET
         if source is _Source.ENV and stored:

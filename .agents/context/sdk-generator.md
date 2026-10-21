@@ -45,7 +45,10 @@ and returns a stats dict. To trace the pipeline, open these files in sequence:
 1. **Preprocess** — `preprocess.load()` then `preprocess.clean()` in
    `preprocess.py` apply the generic, spec-agnostic transforms; the product's
    `transforms:` block drives `preprocess.hoist_items()` / `tag_operations()`,
-   and a product `hooks.py::preprocess(spec)` runs last. The result is dumped via
+   and a product `hooks.py::preprocess(spec)` runs next. When the single-spec
+   product declares `default_headers`, `strip_header_params()` then drops those
+   `in: header` params from every op (the facade `Client` sends them, so they must
+   not resurface as method args / CLI flags). The result is dumped via
    `preprocess.dump()` to `<out>/.phantasos/preprocessed.yaml`.
 
    > **SCM body reshape (federated loop).** The federated build also runs two
@@ -363,6 +366,7 @@ Two live-proven runtime invariants (Batch-1 objects rollout):
   - `fold_server_prefix(spec, base_url, stats)` — Fold a spec's ``servers[]`` URL path-prefix into every operation path.
   - `resolve_sub_host(spec, base_url)` — The host a federated sub should use.
   - `spec_declares_header(spec, header_name)` — True if the spec declares ``header_name`` as an ``in: header`` parameter.
+  - `strip_header_params(spec, header_names, stats)` — Drop ``in: header`` params named in *header_names* from every path + op.
   - `flatten_scm_bodies(spec, stats)` — Lift oneOf/anyOf leaf properties back onto an SCM "configurable object".
   - `relax_readonly_required(spec, stats)` — Drop server-assigned (``readOnly``) fields from each schema's ``required``.
   - `translate_unicode_property_regex(pattern)` — Translate `\p{X}` Unicode-property escapes to Python-`re`-valid regex.

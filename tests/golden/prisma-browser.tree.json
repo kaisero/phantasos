@@ -22,6 +22,11 @@
         "required": true
       },
       {
+        "name": "--authentication-state",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--data-controls",
         "kind": "json",
         "required": false
@@ -29,6 +34,11 @@
       {
         "name": "--description",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--dlp",
+        "kind": "json",
         "required": false
       },
       {
@@ -67,7 +77,8 @@
       "name",
       "priority",
       "description",
-      "mode"
+      "mode",
+      "authentication_state"
     ]
   },
   {
@@ -157,6 +168,29 @@
     ]
   },
   {
+    "key": "create:application-tag",
+    "verb": "create",
+    "object": "application-tag",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name"
+    ]
+  },
+  {
     "key": "create:application:custom",
     "verb": "create",
     "object": "application",
@@ -174,6 +208,11 @@
         "required": false
       },
       {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
@@ -182,6 +221,11 @@
         "name": "--name",
         "kind": "scalar",
         "required": true
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "scalar",
+        "required": false
       },
       {
         "name": "--type",
@@ -224,6 +268,11 @@
         "required": false
       },
       {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
@@ -237,6 +286,11 @@
         "name": "--name",
         "kind": "scalar",
         "required": true
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "scalar",
+        "required": false
       },
       {
         "name": "--type",
@@ -274,6 +328,16 @@
         "required": true
       },
       {
+        "name": "--bypass-rds-gateway-for-local-addresses",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
@@ -294,7 +358,17 @@
         "required": true
       },
       {
+        "name": "--rds-gateway-hostname",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--route-to-prisma",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--tag-ids",
         "kind": "scalar",
         "required": false
       },
@@ -339,12 +413,22 @@
         "required": false
       },
       {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
       },
       {
         "name": "--domain-suffix",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--icon-id",
         "kind": "scalar",
         "required": false
       },
@@ -362,6 +446,11 @@
         "name": "--route-to-prisma",
         "kind": "scalar",
         "required": true
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "scalar",
+        "required": false
       },
       {
         "name": "--type",
@@ -721,7 +810,8 @@
       "name",
       "priority",
       "description",
-      "mode"
+      "mode",
+      "authentication_state"
     ]
   },
   {
@@ -808,6 +898,24 @@
     "columns": [
       "id",
       "application_id"
+    ]
+  },
+  {
+    "key": "delete:application-tag",
+    "verb": "delete",
+    "object": "application-tag",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name"
     ]
   },
   {
@@ -1068,6 +1176,66 @@
     ]
   },
   {
+    "key": "request:application-tag:bulk-update",
+    "verb": "request",
+    "object": "application-tag",
+    "variant": null,
+    "action": "bulk-update",
+    "flags": [
+      {
+        "name": "--add-tag-ids",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--application-ids",
+        "kind": "scalar",
+        "required": true
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--remove-tag-ids",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name"
+    ]
+  },
+  {
+    "key": "request:configuration:partial-publish",
+    "verb": "request",
+    "object": "configuration",
+    "variant": null,
+    "action": "partial-publish",
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--description",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--entity-ids",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "published_entity_ids"
+    ]
+  },
+  {
     "key": "request:configuration:publish",
     "verb": "request",
     "object": "configuration",
@@ -1085,7 +1253,9 @@
         "required": false
       }
     ],
-    "columns": []
+    "columns": [
+      "published_entity_ids"
+    ]
   },
   {
     "key": "request:customization-section:reorder",
@@ -1337,6 +1507,45 @@
     ]
   },
   {
+    "key": "request:user-group:list-members",
+    "verb": "request",
+    "object": "user-group",
+    "variant": null,
+    "action": "list-members",
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "provider"
+    ]
+  },
+  {
     "key": "request:user-request:action",
     "verb": "request",
     "object": "user-request",
@@ -1499,6 +1708,41 @@
     "action": null,
     "flags": [
       {
+        "name": "--any-local-desktop-application",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--any-private-application",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--any-remote-application",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--any-saas-application",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--application",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--application-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--application-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--configuration-version",
         "kind": "scalar",
         "required": false
@@ -1509,12 +1753,97 @@
         "required": false
       },
       {
+        "name": "--data-control",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--dlp-profile-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--has-dlp-profile",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--include-total-count",
         "kind": "scalar",
         "required": false
       },
       {
         "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--log-level",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--login-control",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-email",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--web-access",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--web-classification",
         "kind": "scalar",
         "required": false
       }
@@ -1551,7 +1880,8 @@
       "name",
       "priority",
       "description",
-      "mode"
+      "mode",
+      "authentication_state"
     ]
   },
   {
@@ -1585,6 +1915,11 @@
     "variant": null,
     "action": null,
     "flags": [
+      {
+        "name": "--classification",
+        "kind": "scalar",
+        "required": false
+      },
       {
         "name": "--configuration-version",
         "kind": "scalar",
@@ -1628,6 +1963,16 @@
       {
         "name": "--sort",
         "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--tag-id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--tag-name",
+        "kind": "scalar",
         "required": false
       },
       {
@@ -1737,6 +2082,59 @@
     ]
   },
   {
+    "key": "show:application-tag",
+    "verb": "show",
+    "object": "application-tag",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--configuration-version",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      },
+      {
+        "name": "--include-total-count",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--order",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--sort",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name"
+    ]
+  },
+  {
     "key": "show:cloud-storage-provider",
     "verb": "show",
     "object": "cloud-storage-provider",
@@ -1764,7 +2162,27 @@
         "required": false
       },
       {
+        "name": "--control",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
         "kind": "scalar",
         "required": false
       },
@@ -1775,6 +2193,41 @@
       },
       {
         "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-email",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-name",
         "kind": "scalar",
         "required": false
       }
@@ -2018,6 +2471,21 @@
     ]
   },
   {
+    "key": "show:idp-application-sync-provider",
+    "verb": "show",
+    "object": "idp-application-sync-provider",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": false
+      }
+    ],
+    "columns": []
+  },
+  {
     "key": "show:pending-change",
     "verb": "show",
     "object": "pending-change",
@@ -2026,6 +2494,16 @@
     "flags": [
       {
         "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--entity-types",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--last-updated-by",
         "kind": "scalar",
         "required": false
       },
@@ -2056,7 +2534,27 @@
         "required": false
       },
       {
+        "name": "--control",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--cursor",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
         "kind": "scalar",
         "required": false
       },
@@ -2067,6 +2565,41 @@
       },
       {
         "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-email",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-name",
         "kind": "scalar",
         "required": false
       }
@@ -2138,6 +2671,11 @@
     "action": null,
     "flags": [
       {
+        "name": "--action",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--configuration-version",
         "kind": "scalar",
         "required": false
@@ -2148,12 +2686,62 @@
         "required": false
       },
       {
+        "name": "--device-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--device-group-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--include-total-count",
         "kind": "scalar",
         "required": false
       },
       {
         "name": "--limit",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--mode",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-email",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-explicit-only",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-group",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--user-name",
         "kind": "scalar",
         "required": false
       }
@@ -2434,6 +3022,11 @@
         "required": false
       },
       {
+        "name": "--authentication-state",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--data-controls",
         "kind": "json",
         "required": false
@@ -2441,6 +3034,11 @@
       {
         "name": "--description",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--dlp",
+        "kind": "json",
         "required": false
       },
       {
@@ -2484,7 +3082,8 @@
       "name",
       "priority",
       "description",
-      "mode"
+      "mode",
+      "authentication_state"
     ]
   },
   {
@@ -2556,6 +3155,79 @@
     ]
   },
   {
+    "key": "update:application-tag",
+    "verb": "update",
+    "object": "application-tag",
+    "variant": null,
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--name",
+        "kind": "scalar",
+        "required": true
+      }
+    ],
+    "columns": [
+      "id",
+      "name"
+    ]
+  },
+  {
+    "key": "update:application:catalog",
+    "verb": "update",
+    "object": "application",
+    "variant": "catalog",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
     "key": "update:application:custom",
     "verb": "update",
     "object": "application",
@@ -2570,6 +3242,11 @@
       {
         "name": "--category",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
         "required": false
       },
       {
@@ -2588,6 +3265,11 @@
         "required": false
       },
       {
+        "name": "--tag-ids",
+        "kind": "json",
+        "required": false
+      },
+      {
         "name": "--type",
         "kind": "enum",
         "required": false
@@ -2600,6 +3282,51 @@
       {
         "name": "--urls",
         "kind": "json",
+        "required": false
+      }
+    ],
+    "columns": [
+      "id",
+      "name",
+      "type",
+      "description"
+    ]
+  },
+  {
+    "key": "update:application:localdesktopcatalog",
+    "verb": "update",
+    "object": "application",
+    "variant": "localdesktopcatalog",
+    "action": null,
+    "flags": [
+      {
+        "name": "--additional-properties",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--id",
+        "kind": "id",
+        "required": true
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
+        "required": false
+      },
+      {
+        "name": "--type",
+        "kind": "enum",
         "required": false
       }
     ],
@@ -2628,6 +3355,11 @@
         "required": false
       },
       {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
@@ -2645,6 +3377,11 @@
       {
         "name": "--name",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "json",
         "required": false
       },
       {
@@ -2683,6 +3420,16 @@
         "required": false
       },
       {
+        "name": "--bypass-rds-gateway-for-local-addresses",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
@@ -2708,8 +3455,18 @@
         "required": false
       },
       {
+        "name": "--rds-gateway-hostname",
+        "kind": "scalar",
+        "required": false
+      },
+      {
         "name": "--route-to-prisma",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "json",
         "required": false
       },
       {
@@ -2753,12 +3510,22 @@
         "required": false
       },
       {
+        "name": "--classification",
+        "kind": "enum",
+        "required": false
+      },
+      {
         "name": "--description",
         "kind": "scalar",
         "required": false
       },
       {
         "name": "--domain-suffix",
+        "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--icon-id",
         "kind": "scalar",
         "required": false
       },
@@ -2780,6 +3547,11 @@
       {
         "name": "--route-to-prisma",
         "kind": "scalar",
+        "required": false
+      },
+      {
+        "name": "--tag-ids",
+        "kind": "json",
         "required": false
       },
       {

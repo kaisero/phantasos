@@ -295,6 +295,7 @@ def _connection_views(fields: list[ConnectionField]) -> list[dict[str, object]]:
                 "flag": flag,
                 "py_name": _py_name(flag.replace("-", "_")),
                 "required": f.required,
+                "default": f.default,
             }
         )
     return views
@@ -383,6 +384,7 @@ def _enrich_ir(
                 env=spec.env,
                 required=spec.required,
                 required_for=list(spec.required_for),
+                default=spec.value,
                 flag=flag,
             )
             for (header_name, spec), flag in zip(default_headers.items(), flags, strict=True)

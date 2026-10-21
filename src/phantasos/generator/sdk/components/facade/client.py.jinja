@@ -6,7 +6,9 @@ generated `api/` package and classified at build time.
 """
 
 from __future__ import annotations
-{% if has_pagination %}
+{% if default_headers %}
+import os
+{% endif %}{% if has_pagination %}
 from typing import Any, Callable, Iterator
 {% endif %}
 {% for r in resources %}from ..api.{{ r.module }} import {{ r.cls }}
@@ -36,7 +38,15 @@ class Client:
 
     def __init__(self, api_client):
         self._api_client = api_client
-{% if has_retry %}        if getattr(api_client.configuration, "retries", None) is None:
+{% for h in default_headers or [] %}        _v = os.environ.get({{ h.env | tojson }}{% if h.value is defined and h.value is not none %}, {{ h.value | tojson }}{% endif %})
+{% if h.required %}        if _v is None:
+            raise RuntimeError(
+                "required header '{{ h.name }}' is unset; set the {{ h.env }} environment variable"
+            )
+        api_client.default_headers[{{ h.name | tojson }}] = _v
+{% else %}        if _v is not None:  # optional header (applied only when present)
+            api_client.default_headers[{{ h.name | tojson }}] = _v
+{% endif %}{% endfor %}{% if has_retry %}        if getattr(api_client.configuration, "retries", None) is None:
             api_client.configuration.retries = default_retry()
 {% endif %}{% if wrappers %}        # One `*Api` per backing class, SHARED across every object it backs
         # (e.g. access_and_data_rule/_section/_policy reuse one instance).

@@ -30,6 +30,8 @@ variants:
       private: PrivatePatchApplicationInput
       non-web: NonWebPatchApplicationInput
       localdesktopcustom: LocalDesktopPatchApplicationInput
+      catalog: CatalogPatchApplicationInput
+      localdesktopcatalog: CatalogPatchApplicationInput
 
 # --- non-CRUD actions → the `request` namespace (`request <object> <action>`) ---
 # NOTE: request-namespace commands are EMITTED starting in Phase 3b. Until then these
@@ -68,6 +70,15 @@ request:
   configuration_management.publish_draft_configuration:
     object: configuration
     action: publish
+  configuration_management.partial_publish_draft_configuration:
+    object: configuration
+    action: partial-publish
+  application_tags.bulk_update_application_tags:
+    object: application-tag
+    action: bulk-update
+  user_groups.list_user_group_members:
+    object: user-group
+    action: list-members
   access_and_data_policy.update_access_and_data_positions:
     object: access-and-data-section
     action: reorder
@@ -117,6 +128,8 @@ hide:
   - assets.upload_browser_icon
   - assets.upload_company_logo
   - assets.upload_pac_file
+  - assets.upload_eula
+  - assets.upload_web_app_icon
 
 # --- per-object curated table columns ---
 # Bare strings: header == path (snake_case field names from model_dump).
